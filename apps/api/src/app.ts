@@ -27,7 +27,7 @@ export interface Deps {
   /** 사람 결정 후 워크플로 재개 (AgentCore 오케스트레이터 resume). 재개했으면 true. APPROVE만 게시 단계로 진행 */
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
-  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
+  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; business?: string }): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
   guide(question: string, accessToken: string): Promise<unknown>;
   /** 가이드 SSE (progress·result·error 이벤트). 없으면 JSON 응답만 */
@@ -267,7 +267,8 @@ export function createApp(deps: Deps) {
     const tags = (c.req.query('tags') ?? '').split(',').filter(Boolean);
     const as_of = c.req.query('as_of');
     if (as_of && !/^\d{4}-\d{2}-\d{2}$/.test(as_of)) throw new ApiError('VALIDATION', 'as_of: YYYY-MM-DD');
-    return c.json({ items: await deps.search(q, a, { tags, as_of }) });
+    const business = c.req.query('business')?.slice(0, 40) || undefined;
+    return c.json({ items: await deps.search(q, a, { tags, as_of, business }) });
   });
 
   app.post('/v1/guides', async (c) => {

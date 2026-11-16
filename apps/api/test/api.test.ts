@@ -252,3 +252,18 @@ test('업로드 진행: 건너뛴 단계(그림 분석 꺼짐)는 진행 중으�
   assert.equal(p.total, 11);
   assert.equal(progress('IN_REVIEW', []).done, progress('IN_REVIEW', []).total);
 });
+
+test('검색: search_wiki에 사용자 신원·필터를 넘기고 화면 항목으로 변환', async () => {
+  const { searchVia } = await import('../src/search.ts');
+  let seen: { args: Record<string, unknown>; actor: unknown } | undefined;
+  const s = searchVia(async (args, actor) => { seen = { args, actor }; return { items: [
+    { doc_id: 'd1', title: '규정', snippet: '5억원', provision: '기업여신 심사규정 제12조제1항', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND', document_type: 'REGULATION' },
+    { doc_id: 'd2', title: '팁', snippet: 's', effective_from: '', authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', search_status: 'FOUND', document_type: 'KNOWHOW' },
+  ] }; });
+  const items = await s('담보', { sub: 'u', groups: ['USER'], dept: 'loan' }, { tags: ['체크리스트'], business: '여신' });
+  assert.deepEqual(seen!.args, { query: '담보', top_k: 10, tags: ['체크리스트'], business: '여신' });
+  assert.deepEqual(seen!.actor, { sub: 'u', groups: ['USER'], dept: 'loan' });
+  assert.equal(items[0]!.basis, '기업여신 심사규정 제12조제1항');
+  assert.match(items[1]!.reason, /재검토/);
+  assert.equal(items[1]!.effective_from, undefined);
+});

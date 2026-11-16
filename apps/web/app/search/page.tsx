@@ -41,14 +41,16 @@ function Results() {
             {items.map((i) => (
               <li className="entry" key={i.doc_id}>
                 <Seal i={i} />
-                <h3 className="doc-title">{i.title}</h3>
+                <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                 <p className="quote">{i.snippet}</p>
                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
                   {i.basis && <><dt>근거</dt><dd>{i.basis}</dd></>}
                   {i.effective_from && <><dt>시행일</dt><dd>{i.effective_from}</dd></>}
-                  <dt>작성</dt><dd>{i.team}</dd>
-                  <dt>평점</dt><dd>{i.stars.toFixed(1)} / 5</dd>
+                  {i.business_path && i.business_path.length > 0 && <><dt>업무</dt><dd>{i.business_path.join(' › ')}</dd></>}
+                  {i.team && <><dt>작성</dt><dd>{i.team}</dd></>}
+                  {i.stars !== undefined && <><dt>평점</dt><dd>{i.stars.toFixed(1)} / 5</dd></>}
+                  <dt>찾은 이유</dt><dd>{i.reason}</dd>
                 </dl>
               </li>
             ))}

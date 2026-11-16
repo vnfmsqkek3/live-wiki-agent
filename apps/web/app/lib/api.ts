@@ -59,7 +59,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 
 // ---------- 합성 mock (하나은행 가상 데이터 · SYNTHETIC) ----------
 export interface SearchItem {
-  doc_id: string; title: string; snippet: string; team: string; updated: string; stars: number;
+  doc_id: string; title: string; snippet: string; team?: string; updated?: string; stars?: number; business_path?: string[];
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
