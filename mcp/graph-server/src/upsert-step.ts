@@ -1,6 +1,6 @@
 // 단계 13 GraphUpsert: 승인된 문서의 관계만 Neptune에 게시. 법령은 구조화 저장소(Regulations)에도 적재.
 import { parseLaw } from "@hanaeum/legal-parser";
-import { newId } from "@hanaeum/schemas";
+import { newId, stepFailure } from "@hanaeum/schemas";
 import type { AuthorityStatus, Finding, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ClauseStore, RevisionRecord } from "@hanaeum/regulation-server";
 import { lawGraph, wikiGraph } from "./model.ts";
@@ -29,11 +29,24 @@ export const dayBefore = (ymd: number) => {
   return Number(d.toISOString().slice(0, 10).replaceAll("-", ""));
 };
 
+const ISSUE_TEXT: Record<string, string> = {
+  NUMBER_REGRESSION: "조·항·호 번호 순서가 맞지 않습니다(조문 누락 또는 번호 오류)",
+  UNRESOLVED_REF: "다른 조문을 가리키는 인용을 찾지 못했습니다",
+  REF_TO_DELETED: "삭제된 조문을 인용하고 있습니다",
+};
+
 export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore, clauses: WritableClauseStore): Promise<StepOutput> {
   if (input.document_type === "REGULATION") {
-    if (!input.law) throw new Error("REGULATION에는 law 정보 필요");
+    if (!input.law) throw stepFailure("RegulationNotInRegistry", "공식 규정으로 분류됐지만 규정 정보(법령 ID·시행 버전)가 없어 조문 구조를 저장할 수 없습니다.", "공식 원본 PDF인지 확인하거나 분류를 '노하우'로 바꿔 다시 게시 요청해 주세요.");
     const law = parseLaw(input.content, { ...input.law, effective_from: input.effective_from });
-    const findings: Finding[] = law.issues.map((i) => ({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "MEDIUM", code: i.code, message: i.message.slice(0, 200), evidence_ref: `line:${i.line}` }));
+    const lines = input.content.split("\n");
+    // 게시본은 이미 마스킹된 본문이라 문장 일부를 그대로 안내에 쓴다 (쪽 경계는 게시본에 없음 → 문장으로 위치 안내)
+    const findings: Finding[] = law.issues.map((i) => {
+      const excerpt = (lines[i.line - 1] ?? "").trim().slice(0, 120);
+      const msg = `"${excerpt.slice(0, 40)}" 부근: ${ISSUE_TEXT[i.code] ?? "조문 구조를 해석하지 못했습니다"}.`;
+      return { finding_id: newId("fnd"), step: "GraphUpsert", severity: "MEDIUM", code: i.code, message: msg, evidence_ref: `line:${i.line}`,
+        location: { excerpt }, user_message: msg, fix_hint: "검토자가 원문과 대조해 확인한 뒤 '구조 검토 완료'로 표시하면 조문 저장소에 반영됩니다." };
+    });
     // 파싱 이슈가 있으면 사람 검토 전에는 구조 저장소·그래프에 쓰지 않는다 (docs/01 13.5 자동 게시 금지)
     if (findings.length && !input.parse_reviewed) return { status: "REVIEW_REQUIRED", findings };
     const rec: RevisionRecord = {
