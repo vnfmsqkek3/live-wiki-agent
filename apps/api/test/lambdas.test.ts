@@ -73,3 +73,24 @@ test('문서가 없으면 예외 (빈 성공 금지)', async () => {
   const t = setup(pdf);
   await assert.rejects(makeTrustGate(t.deps)(t.input), /document not found/);
 });
+
+test('TrustGate + 노하우 검증: KNOWHOW 충돌이면 REVIEW_REQUIRED·결과 저장, 검증 Tool 없으면 대기 Finding', async () => {
+  const t = setup(pdf);
+  const cls = { document_type: 'KNOWHOW' as const, business_path: [], tags: [], confidence: 0.9, rationale: '' };
+  await t.store.putDoc({ ...t.doc, classification: cls });
+  assert.equal((await makeTrustGate(t.deps)(t.input)).status, 'REVIEW_REQUIRED');
+  assert.ok((await t.store.getDoc(t.doc.doc_id))!.findings.some((f) => f.code === 'KNOWHOW_VALIDATION_PENDING'));
+
+  const clause = { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '제14조제1항', text: '현장 실사를 반드시 실시하여야 한다.', status: 'ACTIVE' as const, effective_from: '2026-11-01' };
+  const k = setup(pdf);
+  await k.store.putDoc({ ...k.doc, classification: cls });
+  const deps = { ...k.deps, knowhow: {
+    maskedText: async () => '현장 실사를 생략',
+    extractCitations: async () => [], getClause: async () => undefined, searchClauses: async () => [clause],
+    judge: async () => ({ model: 'm', items: [{ statement: 's', provision_id: clause.provision_id, relation: 'CONFLICTS' as const, reason: 'r', quote: '현장 실사를 반드시 실시하여야 한다' }] }),
+  } };
+  assert.equal((await makeTrustGate(deps)(k.input)).status, 'REVIEW_REQUIRED');
+  const d = (await k.store.getDoc(k.doc.doc_id))!;
+  assert.equal(d.knowhow_validation?.verdict, 'CONFLICT');
+  assert.equal(d.freshness, 'REVIEW_REQUIRED');
+});

@@ -125,7 +125,7 @@ export function createApp(deps: Deps) {
     const a = need(c, ['AUTHOR', ...APPROVERS]);
     const d = await loadDoc(c, c.req.param('id'));
     if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
-    return c.json({ doc_id: d.doc_id, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, classification: d.classification, findings: d.findings });
+    return c.json({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {

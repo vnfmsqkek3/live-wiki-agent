@@ -5,12 +5,20 @@ import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type Finding, type Review } from '../lib/api';
 
 const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
+const VERDICT: Record<string, [string, string]> = {
+  SUPPORTED: ['근거 규정과 맞습니다', 'var(--verified)'],
+  CONFLICT: ['규정과 충돌하는 내용이 있습니다', 'var(--danger)'],
+  OUTDATED: ['개정 전 규정을 근거로 하고 있습니다', 'var(--ochre)'],
+  INSUFFICIENT: ['근거 규정을 확인하지 못했습니다', 'var(--ink-2)'],
+};
+const REL: Record<string, string> = { SUPPORTS: '근거와 일치', CONFLICTS: '충돌', UNRELATED: '관련 조문 없음', INSUFFICIENT: '판단 근거 부족' };
 const TYPES = [['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 const GROUPS: [string, string, (f: Finding) => boolean][] = [
   ['개인정보', '마스킹한 구간입니다. 불확실한 구간은 원문과 대조해 확인하세요.', (f) => f.step === 'PII_SCAN'],
   ['보안 검사', '파일 구조와 문서 안 지시문을 검사한 결과입니다.', (f) => ['FILE_STRUCTURE', 'INJECTION_SCAN', 'TYPE_DETECTION', 'MALWARE'].includes(f.step)],
   ['문자 인식', '인식 신뢰도가 낮은 페이지는 원문과 비교해 주세요.', (f) => f.step === 'OCR'],
   ['출처 확인', '공식 원본과의 대조 결과입니다.', (f) => f.step === 'TRUST_GATE'],
+  // KNOWHOW_VALIDATION Finding은 위 '노하우 검증' 구역에서 근거와 함께 보여준다
 ];
 
 /** [전화번호] 같은 마스킹 표시를 눈에 띄게 */
@@ -86,6 +94,27 @@ function ReviewView() {
           </>
         )}
       </div>
+
+      {r.knowhow_validation && (() => {
+        const k = r.knowhow_validation;
+        const [title, color] = VERDICT[k.verdict]!;
+        return (
+          <section aria-labelledby="kh">
+            <h2 className="section" id="kh">노하우 검증</h2>
+            <p className="notice" style={{ borderLeftColor: color, color }}>{title}. AI가 비교한 결과이며, 게시 여부는 규정 승인자가 결정합니다.</p>
+            {k.outdated.map((o) => <p key={o.cited} className="flag" style={{ display: 'block', marginBottom: 8 }}>개정 전 조문을 인용했습니다. 현행 {o.label} 기준으로 다시 확인하세요.</p>)}
+            <ul className="ledger">
+              {k.items.filter((j) => j.relation !== 'UNRELATED').map((j, i) => (
+                <li key={i} className="entry" style={{ paddingRight: 16, borderLeftColor: j.relation === 'CONFLICTS' ? 'var(--danger)' : j.relation === 'SUPPORTS' ? 'var(--verified)' : undefined }}>
+                  <p style={{ margin: 0 }}><strong>{REL[j.relation]}</strong><br />노하우: “{j.statement}”</p>
+                  {j.verified_quote && <p className="quote" style={{ margin: '6px 0' }}>{j.label}: {j.quote}</p>}
+                  <p className="note" style={{ margin: 0 }}>{j.reason}</p>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })()}
 
       {GROUPS.map(([name, help, pick]) => {
         const fs = r.findings.filter(pick);

@@ -71,6 +71,8 @@ export interface DocumentRecord {
   law_id?: string; law_name?: string; revision_id?: string; effective_from?: string; effective_to?: string; registry_doc_no?: string; previous_revision_id?: string;
   /** 승인된 노하우 인용 (GraphUpsert 입력) */
   citations?: { provision_id: string; evidence_span: string; confidence: number }[];
+  /** 노하우 검증 결과 (TrustGate가 KNOWHOW 문서에 기록) */
+  knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
   parse_reviewed?: boolean;
   workflow_id?: string;

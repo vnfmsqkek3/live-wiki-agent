@@ -1,10 +1,11 @@
 // 단계 Lambda (Owner dhxorb96, docs/05 3장). 입출력 계약: interfaces.md 6장.
 // 진입점은 handlers.ts. 여기 함수들은 의존성을 주입받아 테스트한다.
 import { createHash } from 'node:crypto';
-import type { DocumentRecord, Finding, StepOutput } from './contracts.ts';
+import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
 import { trustGate } from './steps/trust-gate.ts';
+import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
 
@@ -13,6 +14,8 @@ export interface LambdaDeps {
   headObject(key: string): Promise<{ s3_version_id: string } | undefined>;
   getObjectBytes(key: string, versionId?: string, range?: number): Promise<Uint8Array>;
   startWorkflow(d: DocumentRecord): Promise<void>;
+  /** 노하우 검증 의존성 (regulation·search Tool). 없으면 KNOWHOW 문서는 검증 대기로 사람 검토 */
+  knowhow?: KnowhowDeps & { maskedText(d: DocumentRecord): Promise<string> };
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;
@@ -67,8 +70,22 @@ export function makeTrustGate(deps: LambdaDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
     const g = trustGate({ doc: d }); // ponytail: claimed/registry 미연동 (11/19 let522mj Registry)
-    await deps.store.putDoc({ ...addFindings(d, g.findings), trust_gate_result: g.result, authority_status: g.authority_status });
-    return { status: g.result === 'PASS' ? 'OK' : g.result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings: g.findings };
+    let result = g.result;
+    let findings = g.findings;
+    let extra: Partial<DocumentRecord> = {};
+    if (d.classification?.document_type === 'KNOWHOW' && result !== 'QUARANTINED') {
+      if (!deps.knowhow) {
+        findings = [...findings, { finding_id: newId.fnd(), step: 'TRUST_GATE', severity: 'MEDIUM', code: 'KNOWHOW_VALIDATION_PENDING', message: '노하우 검증 Tool 미연결 → 사람 검토', evidence_ref: 'config' }];
+        result = 'REVIEW_REQUIRED';
+      } else {
+        const k = await validateKnowhow(await deps.knowhow.maskedText(d), deps.knowhow);
+        findings = [...findings, ...k.findings];
+        if (k.gate === 'REVIEW_REQUIRED') result = 'REVIEW_REQUIRED';
+        extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
+      }
+    }
+    await deps.store.putDoc({ ...addFindings(d, findings), ...extra, trust_gate_result: result, authority_status: g.authority_status });
+    return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };
 }
 

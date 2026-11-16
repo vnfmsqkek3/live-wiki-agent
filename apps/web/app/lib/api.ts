@@ -104,10 +104,24 @@ export interface Review {
   authority_status: string;
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
   findings: Finding[]; masked_preview?: string;
+  knowhow_validation?: KnowhowValidation;
+}
+export interface KnowhowValidation {
+  verdict: 'SUPPORTED' | 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT';
+  items: { statement: string; provision_id: string; label: string; relation: 'SUPPORTS' | 'CONFLICTS' | 'UNRELATED' | 'INSUFFICIENT'; reason: string; quote: string; verified_quote: boolean }[];
+  outdated: { cited: string; current: string; label: string }[];
+  model?: string;
 }
 const MOCK_REVIEW: Review = {
-  doc_id: 'doc_MOCK', title: '담보평가 실무 체크리스트', lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', authority_status: 'UNVERIFIED',
+  doc_id: 'doc_MOCK', title: '소액 부동산 담보대출 빠른 처리 팁', lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', authority_status: 'UNVERIFIED',
   classification: { document_type: 'KNOWHOW', confidence: 0.82, rationale: '절차·체크 항목 중심의 실무 문서이며 공식 규정 번호 체계가 없습니다.', source: 'MODEL' },
+  knowhow_validation: {
+    verdict: 'CONFLICT', outdated: [], model: 'us.anthropic.claude-sonnet-4-6',
+    items: [
+      { statement: '1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', relation: 'CONFLICTS', reason: '규정은 담보가 부동산이면 금액과 관계없이 현장 실사를 반드시 하도록 정하고 있어, 금액 기준으로 실사를 생략하는 방법은 규정과 어긋납니다.', quote: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', verified_quote: true },
+      { statement: '실사 보고서는 나중에 작성해도 된다', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:2', label: '기업여신 심사규정 제14조제2항', relation: 'INSUFFICIENT', reason: '작성 시점에 대한 기준이 조문에 없어 판단할 수 없습니다.', quote: '', verified_quote: false },
+    ],
+  },
   findings: [
     { finding_id: 'f1', step: 'PII_SCAN', severity: 'LOW', code: 'PII_MASKED_PHONE', message: '전화번호 2건 가림', evidence_ref: 'page:1' },
     { finding_id: 'f2', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', message: '계좌번호 1건 가림 (그중 1건은 개인정보인지 확인 필요)', evidence_ref: 'page:2' },
