@@ -57,11 +57,12 @@ describe("PageRender", () => {
     expect(puts.has("doc_1/work/pages/0000.png")).toBe(false);
   });
 
-  it("uses image original directly", async () => {
-    const { puts, deps } = store("doc_1/original.jpg", new Uint8Array());
+  it("copies image original into work/pages (OCR role never reads original)", async () => {
+    const { puts, deps } = store("doc_1/original.jpeg", new Uint8Array([1, 2]));
     await makeHandler(deps)(input);
     const t = JSON.parse(puts.get("doc_1/work/pages/ocr_targets.json") as string) as OcrTargets;
-    expect(t.pages).toEqual([{ page_index: 0, key: "doc_1/original.jpg", width: 0, height: 0, reason: "image" }]);
+    expect(t.pages).toEqual([{ page_index: 0, key: "doc_1/work/pages/0000.jpg", width: 0, height: 0, reason: "image" }]);
+    expect(puts.get("doc_1/work/pages/0000.jpg")).toEqual(new Uint8Array([1, 2]));
   });
 
   it("no OCR targets for docx", async () => {

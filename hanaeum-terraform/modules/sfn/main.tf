@@ -297,3 +297,4 @@ resource "aws_sqs_queue_policy" "events" {
 output "state_machine_arn" { value = aws_sfn_state_machine.ingest.arn }
 output "trigger_queue_url" { value = aws_sqs_queue.trigger.url }
 output "trigger_queue_arn" { value = aws_sqs_queue.trigger.arn }
+output "step_arns" { value = local.step_arns }

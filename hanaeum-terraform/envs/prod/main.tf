@@ -15,7 +15,7 @@ module "stack" {
   name_suffix = ""
   owner       = "team"
   team_lambdas = [
-    "type-detection", "file-structure-check", "trust-gate", "wait-for-approval", "finalize",
+    "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search",
   ]
 }

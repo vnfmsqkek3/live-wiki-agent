@@ -64,6 +64,17 @@ module "ocr" {
   artifact_bucket   = module.s3.buckets["artifact"]
 }
 
+# 문서 처리 오케스트레이션: AgentCore Gateway(단계 Tool) + Runtime(오케스트레이터). 전환 완료 후 sfn 모듈 폐기
+module "pipeline" {
+  source        = "../modules/agentcore_pipeline"
+  n             = local.n
+  kms_key_arn   = module.kms.key_arn
+  step_arns     = module.sfn.step_arns
+  tables        = module.ddb.tables
+  runtime_image = var.pipeline_runtime_image
+  runtime_env   = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION_NAME = var.region }
+}
+
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
 locals {
   params = merge(
@@ -80,6 +91,9 @@ locals {
       VPC_ID               = module.network.vpc_id
       KB_ID                = module.kb.kb_id
       OCR_ENDPOINT_NAME    = module.ocr.endpoint_name
+      PIPELINE_GATEWAY_URL = module.pipeline.gateway_url
+      PIPELINE_ECR_REPO    = module.pipeline.ecr_repository_url
+      PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : "pending"
       KB_DS_LEGAL_ID       = module.kb.data_source_ids["legal"]
       KB_DS_KNOWLEDGE_ID   = module.kb.data_source_ids["knowledge"]
     },
