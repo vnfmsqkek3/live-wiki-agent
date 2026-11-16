@@ -23,7 +23,7 @@ function setup() {
     presignPut: async (key) => `https://hanaeum-mvp-s3-quarantine.s3.us-east-1.amazonaws.com/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     headObject: async (key) => objects.get(key),
     startWorkflow: async () => {},
-    sendDecision: async (token, decision) => { tasks.push({ token, decision }); },
+    resume: async (d, decision) => { tasks.push({ token: d.task_token!, decision }); return true; },
     search: async () => [],
     guide: async (q, tok) => ({ q, tok }),
     webOrigins: ['http://localhost:3000'],
@@ -170,7 +170,7 @@ test('CORS: 허용 출처만 응답 헤더, 그 외 출처는 없음', async () 
 test('승인 후 워크플로 재개가 실패해도 결정은 유지하고 workflow_resumed=false로 알림', async () => {
   const t = setup();
   const { approval_id } = await submitted(t);
-  const app2 = createApp({ ...t.deps, sendDecision: async () => { throw Object.assign(new Error('x'), { name: 'TaskTimedOut' }); } });
+  const app2 = createApp({ ...t.deps, resume: async () => { throw Object.assign(new Error('x'), { name: 'TaskTimedOut' }); } });
   const r = await app2.request(`/v1/approvals/${approval_id}/decision`, { method: 'POST', headers: { authorization: 'Bearer approver', 'content-type': 'application/json' }, body: JSON.stringify({ decision: 'APPROVE', reason: 'r' }) });
   assert.equal(r.status, 200);
   assert.deepEqual(await r.json(), { approval_id, status: 'APPROVED', workflow_resumed: false });

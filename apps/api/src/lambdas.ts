@@ -158,11 +158,12 @@ export function makeTrustGate(deps: LambdaDeps) {
 }
 
 /** 단계 10 (.waitForTaskToken). 토큰을 문서에 저장하고 작성자 검토 단계로 둔다. 재개는 승인 API의 SendTaskSuccess */
+/** 검토 대기 (AgentCore 오케스트레이터의 await_review Tool, 이전 SFN WaitForApproval 겸용). 문서를 IN_REVIEW로 둔다 */
 export function makeWaitForApproval(deps: LambdaDeps) {
-  return async (i: StepInput & { task_token: string }) => {
+  return async (i: StepInput & { task_token?: string }) => {
     const d = await mustDoc(deps.store, i.doc_id);
-    await deps.store.putDoc({ ...d, task_token: i.task_token, lifecycle: 'IN_REVIEW', updated_at: now() });
-    return { status: 'PENDING' };
+    await deps.store.putDoc({ ...d, ...(i.task_token ? { task_token: i.task_token } : {}), lifecycle: 'IN_REVIEW', updated_at: now() });
+    return { status: i.task_token ? 'PENDING' : 'OK' };
   };
 }
 

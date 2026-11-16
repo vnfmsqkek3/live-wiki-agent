@@ -9,6 +9,7 @@
     "build:lambda": "esbuild src/handlers.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/handlers.mjs --external:@aws-sdk/* --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "3.1169.0",
     "@aws-sdk/client-bedrock-runtime": "3.1169.0",
     "@aws-sdk/client-dynamodb": "3.1169.0",
     "@aws-sdk/client-s3": "3.1169.0",

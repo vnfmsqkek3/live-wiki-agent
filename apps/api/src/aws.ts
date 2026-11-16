@@ -49,6 +49,7 @@ export async function getObjectBytes(key: string, versionId?: string, range?: nu
 
 /** 실행 입력은 문서에서만 만든다. 같은 이름·같은 입력의 재시작은 멱등으로 처리 */
 export async function startWorkflow(d: DocumentRecord) {
+  if (process.env.PIPELINE_RUNTIME_ARN) return invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
   const input = {
     workflow_id: d.workflow_id, doc_id: d.doc_id, version: d.version, bucket: env('BUCKET_QUARANTINE'), prefix: `${d.doc_id}/`,
     actor: { sub: d.owner, groups: ['AUTHOR'] },
@@ -60,8 +61,28 @@ export async function startWorkflow(d: DocumentRecord) {
   }
 }
 
-export async function sendDecision(taskToken: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
-  await sfn().send(new SendTaskSuccessCommand({ taskToken, output: JSON.stringify({ decision }) }));
+// ---- AgentCore 오케스트레이터 (사용자 결정 11/16: SFN 대체). PIPELINE_RUNTIME_ARN이 없으면 이전 SFN 경로 ----
+const stepInput = (d: DocumentRecord) => ({
+  workflow_id: d.workflow_id, doc_id: d.doc_id, version: d.version, bucket: env('BUCKET_QUARANTINE'), prefix: `${d.doc_id}/`, actor: { sub: d.owner, groups: ['AUTHOR'] },
+});
+export async function invokePipeline(payload: Record<string, unknown>, workflow_id: string) {
+  const { BedrockAgentCoreClient, InvokeAgentRuntimeCommand } = await import('@aws-sdk/client-bedrock-agentcore');
+  const r = await new BedrockAgentCoreClient({ region: region() }).send(new InvokeAgentRuntimeCommand({
+    agentRuntimeArn: env('PIPELINE_RUNTIME_ARN'), qualifier: 'DEFAULT',
+    runtimeSessionId: `pipeline-${workflow_id}-${Date.now()}`.padEnd(40, '0'), // 실행마다 새 세션 (상태는 DynamoDB)
+    contentType: 'application/json', accept: 'application/json', payload: new TextEncoder().encode(JSON.stringify(payload)),
+  }));
+  if ((r.statusCode ?? 200) >= 300) throw new Error(`pipeline runtime ${r.statusCode}`);
+}
+
+export async function resume(d: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
+  if (d.task_token) { // 이전 SFN 경로 (전환 완료 후 제거)
+    await sfn().send(new SendTaskSuccessCommand({ taskToken: d.task_token, output: JSON.stringify({ decision }) }));
+    return true;
+  }
+  if (!process.env.PIPELINE_RUNTIME_ARN || !d.workflow_id) return false;
+  await invokePipeline({ action: 'resume', decision, input: stepInput(d) }, d.workflow_id);
+  return true;
 }
 
 /** 가이드 Agent 호출. AGENT_RUNTIME_ARN이면 AgentCore Runtime(JWT authorizer), AGENT_URL이면 로컬 컨테이너 */

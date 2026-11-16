@@ -21,4 +21,5 @@ export const injectionScan = makeInjectionScan(seg);
 export const classify = makeClassify(seg); // 모델 호출 Role (hanaeum-model-caller=true, 원본·work 읽기 거부)
 export const trustGate = makeTrustGate(deps);
 export const waitForApproval = makeWaitForApproval(deps);
+export const awaitReview = waitForApproval; // AgentCore 오케스트레이터 Tool 이름
 export const finalize = makeFinalize(deps);
