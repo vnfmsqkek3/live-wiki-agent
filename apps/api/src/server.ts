@@ -7,6 +7,7 @@ import { env, headObject, invokeAgent, presignPut, sendDecision, startWorkflow, 
 const app = createApp({
   verify: cognitoVerifier(env('COGNITO_USER_POOL_ID'), env('COGNITO_CLIENT_ID')),
   store: storeFromEnv(),
+  webOrigins: (process.env.WEB_ORIGINS ?? '').split(',').filter(Boolean),
   presignPut,
   headObject,
   startWorkflow,

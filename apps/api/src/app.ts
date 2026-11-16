@@ -1,4 +1,5 @@
 import { Hono, type Context } from 'hono';
+import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
@@ -11,6 +12,8 @@ import type { Store } from './store.ts';
 import { submitForApproval } from './submit.ts';
 
 export interface Deps {
+  /** 브라우저 허용 출처 (CORS). 와일드카드 금지 (운영 교훈 #3) */
+  webOrigins?: string[];
   verify: VerifyToken;
   store: Store;
   /** quarantine/{doc_id}/original.{ext} PUT presigned URL (SigV4, 리전 엔드포인트) */
@@ -44,6 +47,9 @@ export function createApp(deps: Deps) {
       await store.audit({ at: new Date().toISOString(), actor: c.get('actor').sub, action: `${c.req.method} ${c.req.routePath}`, resource: c.req.path, result: 'DENIED', trace_id });
     return c.json({ error: { code: e.code, message: e.message, trace_id } }, e.status);
   });
+
+  if (deps.webOrigins?.length)
+    app.use('/v1/*', cors({ origin: deps.webOrigins, allowHeaders: ['authorization', 'content-type'], allowMethods: ['GET', 'POST'], maxAge: 600 }));
 
   app.get('/healthz', (c) => c.json({ ok: true }));
 

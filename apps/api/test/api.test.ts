@@ -26,6 +26,7 @@ function setup() {
     sendDecision: async (token, decision) => { tasks.push({ token, decision }); },
     search: async () => [],
     guide: async (q, tok) => ({ q, tok }),
+    webOrigins: ['http://localhost:3000'],
   };
   const app = createApp(deps);
   const call = (who: string | undefined, method: string, path: string, body?: unknown) =>
@@ -156,4 +157,11 @@ test('분류 수정: 작성자 본인·IN_REVIEW만, 사람 수정 이력 저장
   const e = (await t.store.getDoc(doc_id))!;
   assert.deepEqual([e.classification?.document_type, e.classification?.source, e.classification?.business_path], ['KNOWHOW', 'HUMAN', ['여신']]);
   assert.deepEqual(e.classification_history?.map((h) => [h.from, h.to, h.by]), [['MANUAL', 'KNOWHOW', 'u-author']]);
+});
+
+test('CORS: 허용 출처만 응답 헤더, 그 외 출처는 없음', async () => {
+  const t = setup();
+  const pre = (origin: string) => t.app.request('/v1/search?q=x', { method: 'OPTIONS', headers: { origin, 'access-control-request-method': 'GET' } });
+  assert.equal((await pre('http://localhost:3000')).headers.get('access-control-allow-origin'), 'http://localhost:3000');
+  assert.equal((await pre('https://evil.example')).headers.get('access-control-allow-origin'), null);
 });
