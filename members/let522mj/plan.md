@@ -2,6 +2,9 @@
 
 - 기록 업로드: main push가 거절되면 **push 성공 전 worktree 삭제 금지** (커밋 유실). fetch → merge → 재push
 
+- 배포(11/16 yoyo0704 확인): dev `-let522mj` Lambda·Role은 내 소유, `deploy-dev-let522mj.sh`로 덮어써도 됨(Terraform state 밖). prod 공유 이름은 CodeBuild가 `envs/prod/main.tf` lambda_refs.let522mj 커밋을 clone해 `build-lambdas.ts`로 빌드 → prod 반영 시 main에 push된 검증 커밋을 yoyo0704에게 알림
+- 공유 dev 재배포·Gateway 정책 변경 중에는 Lambda 재배포·파이프라인 실행 금지. 할 때는 공통기록에 시각 예고
+
 ## ▶ 다음 세션 시작 절차 (이 순서대로 자동 실행)
 
 `let522mj`는 이미 원격에 push된 브랜치다. **rebase 후 force push는 금지**이므로 동기화는 merge로 한다.
