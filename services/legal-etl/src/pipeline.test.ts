@@ -161,3 +161,22 @@ test("AgentCore Gateway Target 호출: __actor·task_token·outcome 등 추가 �
   const e = { ...input, __actor: { sub: "x", groups: ["PLATFORM_OPERATOR"] }, task_token: "t", outcome: "PUBLISHED", extra: 1 };
   assert.deepEqual(StepInputSchema.parse(e), input);
 });
+
+test("KbIngest: 다른 문서 색인 중(ConflictException)이면 PENDING → 재호출 시 시작", async () => {
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
+  let busy = true; let started = 0;
+  const api: IngestionApi = {
+    start: async () => { if (busy) throw Object.assign(new Error("ongoing ingestion job"), { name: "ConflictException" }); started++; return "JOB1"; },
+    get: async () => ({ status: "COMPLETE", failed: 0, failureReasons: [] }),
+  };
+  const env = { KB_ID: "KB", KB_DS_LEGAL_ID: "L", KB_DS_KNOWLEDGE_ID: "K", BUCKET_ARTIFACT: "art" };
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
+  assert.equal(started, 0);
+  busy = false;
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
+  assert.equal(started, 1);
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "OK");
+  const boom: IngestionApi = { ...api, start: async () => { throw Object.assign(new Error("denied"), { name: "AccessDeniedException" }); } };
+  await assert.rejects(kbIngestStep({ ...input, version: 2 }, boom, r, s, env), /denied/u);
+});
