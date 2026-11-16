@@ -30,7 +30,9 @@ module "stack" {
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
-  pipeline_runtime_image_tag = "d0eeeae" # agents 이미지 빌드가 없을 때만 (webapp_source_ref 가 있으면 그 커밋으로 빌드)
+  # 지정하면 이 태그 고정(빌드 안 함). null 이면 webapp_source_ref 커밋으로 CodeBuild 빌드.
+  # d0eeeae 유지: 32e5f81~e40e9c6 의 Dockerfile.pipeline 이 @hanaeum/pii 를 레지스트리에서 설치하려다 404 (dhxorb96 수정 대기)
+  pipeline_runtime_image_tag = "d0eeeae"
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋

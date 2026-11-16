@@ -90,7 +90,7 @@ module "pipeline" {
   step_arns                 = module.sfn.step_arns
   tables                    = module.ddb.tables
   create_runtime            = local.agents_ref != null || var.pipeline_runtime_image_tag != null
-  runtime_image_tag         = local.agents_ref != null ? terraform_data.agent_image["pipeline"].output : var.pipeline_runtime_image_tag
+  runtime_image_tag         = var.pipeline_runtime_image_tag != null ? var.pipeline_runtime_image_tag : terraform_data.agent_image["pipeline"].output
   runtime_env               = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off" }
   enable_transaction_search = var.enable_transaction_search
 }
@@ -120,10 +120,11 @@ module "webapp" {
 # Agent 이미지 (agents/, dhxorb96): 웹과 같은 CodeBuild(podman)로 AWS 안에서 빌드. 태그 = 커밋
 locals {
   agents_ref = var.webapp_source_ref == null ? null : coalesce(var.agents_source_ref, var.webapp_source_ref)
-  agent_images = local.agents_ref == null ? {} : {
-    pipeline = { dockerfile = "agents/Dockerfile.pipeline", repo = module.pipeline.ecr_repository_name }
-    guide    = { dockerfile = "agents/Dockerfile", repo = module.user.ecr_repository_name }
-  }
+  # pipeline_runtime_image_tag 를 지정하면 그 태그를 그대로 쓰고 파이프라인 이미지는 빌드하지 않는다
+  agent_images = local.agents_ref == null ? {} : merge(
+    var.pipeline_runtime_image_tag != null ? {} : { pipeline = { dockerfile = "agents/Dockerfile.pipeline", repo = module.pipeline.ecr_repository_name } },
+    { guide = { dockerfile = "agents/Dockerfile", repo = module.user.ecr_repository_name } },
+  )
 }
 
 resource "terraform_data" "agent_image" {
