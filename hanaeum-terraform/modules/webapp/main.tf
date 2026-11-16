@@ -119,8 +119,10 @@ resource "aws_codebuild_project" "app" {
           "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $REF",
         ] }
         build = { commands = [
-          "cd $CODEBUILD_SRC_DIR/src && podman --cgroup-manager=cgroupfs build --network=host --isolation=chroot --platform linux/arm64 -f $${DOCKERFILE:-apps/$APP/Dockerfile} --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
-          "podman push $REGISTRY/$ECR_REPO:$REF",
+          # 태그 불변 ECR: 같은 커밋 이미지가 이미 있으면 빌드·push 생략 (재시도·재적용 멱등)
+          "if aws ecr describe-images --repository-name $ECR_REPO --image-ids imageTag=$REF >/dev/null 2>&1; then echo \"exists $ECR_REPO:$REF\"; touch /tmp/skip; fi",
+          "[ -f /tmp/skip ] || (cd $CODEBUILD_SRC_DIR/src && podman --cgroup-manager=cgroupfs build --network=host --isolation=chroot --platform linux/arm64 -f $${DOCKERFILE:-apps/$APP/Dockerfile} --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .)",
+          "[ -f /tmp/skip ] || podman push $REGISTRY/$ECR_REPO:$REF",
         ] }
       }
     })
