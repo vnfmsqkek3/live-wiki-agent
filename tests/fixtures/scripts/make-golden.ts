@@ -12,7 +12,7 @@ const batchim = (w: string) => { const c = w.replace(/[^가-힣]+$/u, "").slice(
 const endsRieul = (w: string) => { const c = w.replace(/[^가-힣]+$/u, "").slice(-1).charCodeAt(0); return (c - 0xac00) % 28 === 8; };
 const josa = (w: string, withB: string, without: string) => w + (batchim(w) && !(withB === "으로" && endsRieul(w)) ? withB : without);
 const WRONG: Record<string, string> = { "1천만원": "3천만원", "미화 5천달러": "미화 1만달러", "19세": "17세", "20%": "35%", "분기": "연 1회", "5년": "1년", "90일": "1년", "10%": "30%", "2영업일": "당일", "14일": "60일", "30일": "당일" };
-const HEAD = "SYNTHETIC — 한빛은행(Synthetic Bank) 가상 내부 규정. 실제 금융기관 규정이 아님.";
+const HEAD = "SYNTHETIC — 하나은행(가상 데이터) 가상 내부 규정. 실제 금융기관 규정이 아님.";
 
 // ── 12개 가상 규정 도메인 ───────────────────────────────
 interface Domain {
@@ -80,9 +80,9 @@ function regText(d: Domain, ver: 1 | 2): string {
   const v = ver === 1 ? d.a5.v1 : d.a5.v2;
   const changed = ver === 2 && d.a5.v1 !== d.a5.v2;
   return [
-    HEAD, `문서번호: HB-REG-${d.code}-001 / 버전: v${ver} / 시행일: ${date} / 승인: ${d.dept}부 (가상)`, `한빛은행 ${d.name}`,
+    HEAD, `문서번호: HB-REG-${d.code}-001 / 버전: v${ver} / 시행일: ${date} / 승인: ${d.dept}부 (가상)`, `하나은행 ${d.name}`,
     "제1장 총칙",
-    `제1조(목적) 이 규정은 한빛은행의 ${d.topic} 업무 기준을 정함을 목적으로 한다.`,
+    `제1조(목적) 이 규정은 하나은행의 ${d.topic} 업무 기준을 정함을 목적으로 한다.`,
     "제2조(정의) 이 규정에서 사용하는 용어의 뜻은 다음과 같다.",
     ...d.terms.map(([t, def], i) => `${i + 1}. "${t}"${batchim(t) ? "이란" : "란"} ${josa(def, "을", "를")} 말한다.`),
     "제2장 업무 기준",
@@ -109,7 +109,7 @@ const lawId = (d: Domain) => `SYN-${d.code}-001`;
 const pid = (d: Domain, ver: 1 | 2, path: string) => `${lawId(d)}@${ver === 1 ? "2026-11-01" : "2026-12-01"}/${path}`;
 
 function knowhow(id: string, title: string, dept: string, cites: string[], body: string, note: string): string {
-  return `---\ndoc: ${id}\nsynthetic: true\ntitle: ${title}\nauthor: ${dept} 담당자 (가상)\ncites: [${cites.join(", ")}]\n---\nSYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. ${note}\n\n# ${title}\n\n${body}\n`;
+  return `---\ndoc: ${id}\nsynthetic: true\ntitle: ${title}\nauthor: ${dept} 담당자 (가상)\ncites: [${cites.join(", ")}]\n---\nSYNTHETIC — 하나은행(가상 데이터) 가상 노하우 문서. ${note}\n\n# ${title}\n\n${body}\n`;
 }
 
 // ── 생성 ───────────────────────────────────────────────
@@ -122,9 +122,9 @@ D.forEach((d, i) => {
   const id = `G-REG-${String(i + 1).padStart(2, "0")}`;
   const t1 = regText(d, 1);
   const file = write(`${id}.txt`, t1);
-  registry.push({ registry_doc_no: `HB-REG-${d.code}-001`, law_id: lawId(d), law_name: `한빛은행 ${d.name}`, revision_id: "2026-11-01", version: 1, effective_from: 20261101,
+  registry.push({ registry_doc_no: `HB-REG-${d.code}-001`, law_id: lawId(d), law_name: `하나은행 ${d.name}`, revision_id: "2026-11-01", version: 1, effective_from: 20261101,
     effective_to: d.revised ? 20261130 : 99991231, owner_dept: `${d.dept}부`, approved_by: "REG_APPROVER(가상)", content_hash: sha(t1), fixture: file, key_values: { "ARTICLE:5/PARAGRAPH:1": d.a5.v1 } });
-  entries.push({ document_id: id, category: "기반 규정", file, document_type: "REGULATION", law_id: lawId(d), law_name: `한빛은행 ${d.name}`, revision_id: "2026-11-01", dept: d.dept, acl_groups: ["ALL"],
+  entries.push({ document_id: id, category: "기반 규정", file, document_type: "REGULATION", law_id: lawId(d), law_name: `하나은행 ${d.name}`, revision_id: "2026-11-01", dept: d.dept, acl_groups: ["ALL"],
     expected_trust_gate: "PASS", expected_status: "VERIFIED", expected_conflict: false, related_regulation: lawId(d), related_clause: null, expected_kb_visibility: true,
     expected_structure: REG_STRUCTURE(1, d), test_scenario: "공식성·구조 파싱" });
 });
@@ -135,9 +135,9 @@ revised.forEach((d, i) => {
   const id = `G-REV-${String(i + 1).padStart(2, "0")}`;
   const t2 = regText(d, 2);
   const file = write(`${id}.txt`, t2);
-  registry.push({ registry_doc_no: `HB-REG-${d.code}-001`, law_id: lawId(d), law_name: `한빛은행 ${d.name}`, revision_id: "2026-12-01", version: 2, effective_from: 20261201, effective_to: 99991231,
+  registry.push({ registry_doc_no: `HB-REG-${d.code}-001`, law_id: lawId(d), law_name: `하나은행 ${d.name}`, revision_id: "2026-12-01", version: 2, effective_from: 20261201, effective_to: 99991231,
     owner_dept: `${d.dept}부`, approved_by: "REG_APPROVER(가상)", content_hash: sha(t2), fixture: file, key_values: { "ARTICLE:5/PARAGRAPH:1": d.a5.v2 } });
-  entries.push({ document_id: id, category: "개정·삭제", file, document_type: "REGULATION", law_id: lawId(d), law_name: `한빛은행 ${d.name}`, revision_id: "2026-12-01", dept: d.dept, acl_groups: ["ALL"],
+  entries.push({ document_id: id, category: "개정·삭제", file, document_type: "REGULATION", law_id: lawId(d), law_name: `하나은행 ${d.name}`, revision_id: "2026-12-01", dept: d.dept, acl_groups: ["ALL"],
     expected_trust_gate: "PASS", expected_status: "VERIFIED", expected_conflict: false, related_regulation: lawId(d), related_clause: null, expected_kb_visibility: true,
     expected_structure: REG_STRUCTURE(2, d), expected_changes: ["ARTICLE:5/PARAGRAPH:1", "ARTICLE:6/PARAGRAPH:2"], test_scenario: "시행일·변경 영향 (수치 개정 + 항 삭제)" });
   const kid = `G-KREV-${String(i + 1).padStart(2, "0")}`;
@@ -185,7 +185,7 @@ for (let i = 0; i < 9; i++) {
 // 위조 규정 4 (+ F-003 = 5): 같은 문서번호, 수치 변조 → Registry 해시·key_values 불일치
 for (let i = 0; i < 4; i++) {
   const d = D[i + 4]!;
-  const forged = regText(d, 1).replace(`${d.a5.pre} ${d.a5.v1}`, `${d.a5.pre} ${WRONG[d.a5.v1]}`).replace(HEAD, "SYNTHETIC — 한빛은행(Synthetic Bank) 가상 문서. 공식 규정 위장 위조 샘플(테스트용).");
+  const forged = regText(d, 1).replace(`${d.a5.pre} ${d.a5.v1}`, `${d.a5.pre} ${WRONG[d.a5.v1]}`).replace(HEAD, "SYNTHETIC — 하나은행(가상 데이터) 가상 문서. 공식 규정 위장 위조 샘플(테스트용).");
   const id = `G-FORGE-${String(i + 1).padStart(2, "0")}`;
   const file = write(`${id}.txt`, forged);
   entries.push({ document_id: id, category: "악성·위조", file, document_type: "REGULATION", law_id: lawId(d), revision_id: "2026-11-01", dept: d.dept, acl_groups: ["ALL"],

@@ -80,7 +80,8 @@ export interface Records {
    *  같은 워크플로의 재시도(Promote 중간 실패)는 USED + used_by=workflow_id 일 때 허용 (멱등) */
   consumeApproval(a: ConsumeArgs): Promise<ApprovalRecord>;
   /** 게시본 해시 기록 (검색 재검증 기준). Documents의 content_hash(원본 해시)와 별도 필드 */
-  setPublishedHash(docId: string, hash: string): Promise<void>;
+  /** 게시 시각 published_at은 처음 게시할 때만 기록 (같은 workflow 재시도로 바뀌지 않음) */
+  setPublishedHash(docId: string, hash: string, at?: string): Promise<void>;
 }
 
 /** 승인 API(dhxorb96)가 쓴 Documents 항목을 Promote 입력으로: 문서 유형은 최상위 또는 classification(Classify·사람 수정),
@@ -100,7 +101,7 @@ export function normalizeDocument(item: Record<string, unknown>): DocumentRecord
 const bindingError =(id: string) => Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${id}`), { name: "ApprovalBindingError" });
 
 export class MemoryRecords implements Records {
-  readonly documents = new Map<string, DocumentRecord & { published_content_hash?: string }>();
+  readonly documents = new Map<string, DocumentRecord & { published_content_hash?: string; published_at?: string }>();
   readonly approvals = new Map<string, ApprovalRecord>();
   async getDocument(id: string) { return this.documents.get(id); }
   async getApproval(id: string) { const a = this.approvals.get(id); return a && { ...a }; }
@@ -115,7 +116,7 @@ export class MemoryRecords implements Records {
     r.used_by = a.workflow_id;
     return { ...r };
   }
-  async setPublishedHash(id: string, hash: string) { const d = this.documents.get(id); if (d) d.published_content_hash = hash; }
+  async setPublishedHash(id: string, hash: string, at = new Date().toISOString()) { const d = this.documents.get(id); if (d) { d.published_content_hash = hash; d.published_at ??= at; } }
 }
 
 /** DynamoDB 키 규칙 — 테이블 Owner dhxorb96 확정본 (apps/api/src/store-dynamo.ts, 11/16)
@@ -175,11 +176,11 @@ export class DynamoRecords implements Records {
       throw e;
     }
   }
-  async setPublishedHash(docId: string, hash: string) {
+  async setPublishedHash(docId: string, hash: string, at = new Date().toISOString()) {
     await this.db.send(new UpdateCommand({
       TableName: this.tables.documents, Key: KEYS.document(docId),
-      UpdateExpression: "SET published_content_hash = :h", ConditionExpression: "attribute_exists(pk)",
-      ExpressionAttributeValues: { ":h": hash },
+      UpdateExpression: "SET published_content_hash = :h, published_at = if_not_exists(published_at, :t)", ConditionExpression: "attribute_exists(pk)",
+      ExpressionAttributeValues: { ":h": hash, ":t": at },
     }));
   }
 }

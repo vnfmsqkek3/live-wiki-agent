@@ -4,33 +4,33 @@
     {
       "registry_doc_no": "HB-REG-LOAN-001",
       "law_id": "SYN-LOAN-001",
-      "law_name": "한빛은행 기업여신 심사규정",
+      "law_name": "하나은행 기업여신 심사규정",
       "revision_id": "2025-01-01",
       "version": 0,
       "effective_from": 20250101,
       "effective_to": 20261031,
       "owner_dept": "여신정책부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:fb6eba3763e02a39a1b247920a1cb813bbd5d7e703719ba2e1110725a7af0b9c",
+      "content_hash": "sha256:205a8236bce097f406c3bd38a4d7dc7ec3eb04f1d1e9c6a7c75a17534cbdc30e",
       "fixture": "documents/F-000.txt",
       "key_values": {
         "ARTICLE:12/PARAGRAPH:1": "7억원",
         "ARTICLE:13": "3년"
       },
       "pdf_fixture": "documents/pdf/F-000.pdf",
-      "pdf_content_hash": "sha256:b53108898b0007b618750e6cc1e786a69f682e1d96144e720436952e08cd9bb9"
+      "pdf_content_hash": "sha256:d047b3a5a4394126e0d4e4a698b8822316878f1a3701960eb323ba3d32e6d4aa"
     },
     {
       "registry_doc_no": "HB-REG-LOAN-001",
       "law_id": "SYN-LOAN-001",
-      "law_name": "한빛은행 기업여신 심사규정",
+      "law_name": "하나은행 기업여신 심사규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 20261130,
       "owner_dept": "여신정책부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:d6e9c85807edc3f774a085283321e8262498b82a239cec85317a422114a4e09c",
+      "content_hash": "sha256:67b2716ec8e6cc15df64e36e5bdc412b0af2e6f48ef1b6ab848c89986af7ed13",
       "fixture": "documents/F-001.txt",
       "key_values": {
         "ARTICLE:12/PARAGRAPH:1": "5억원",
@@ -38,19 +38,19 @@
         "ARTICLE:13": "5년"
       },
       "pdf_fixture": "documents/pdf/F-001.pdf",
-      "pdf_content_hash": "sha256:2e4f1ee2d9f510d5229609c1c74c93dd6629bec036c222e16963306f8dbf2907"
+      "pdf_content_hash": "sha256:a140f556e6e0d7124793f8fdb864a03b28d4f348d75accb1052c256fa6842565"
     },
     {
       "registry_doc_no": "HB-REG-LOAN-001",
       "law_id": "SYN-LOAN-001",
-      "law_name": "한빛은행 기업여신 심사규정",
+      "law_name": "하나은행 기업여신 심사규정",
       "revision_id": "2026-12-01",
       "version": 2,
       "effective_from": 20261201,
       "effective_to": 99991231,
       "owner_dept": "여신정책부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:ee77ae0006cabb2765eeeff2b6438e03783ee733f447ee36c126dcaa2199a287",
+      "content_hash": "sha256:a09110f01f4628e0595e617258a9d65ba7fbeac8f3020e215efd5bf400fdf45c",
       "fixture": "documents/F-002.txt",
       "key_values": {
         "ARTICLE:12/PARAGRAPH:1": "3억원",
@@ -58,7 +58,7 @@
         "ARTICLE:13": "5년"
       },
       "pdf_fixture": "documents/pdf/F-002.pdf",
-      "pdf_content_hash": "sha256:2fe2554f39c9ad17af59faaad7e95ecfcf741c94f8e66eda2fec263ffe254d50"
+      "pdf_content_hash": "sha256:9e04dde7a1f325a8579ec10fd824d6966a6a07cd6f77affb63854cccc981e588"
     }
   ]
 }

@@ -55,7 +55,7 @@
 | 리전·계정 | us-east-1. AWS 명령 전 계정 ID가 `.env.local`의 `HANAEUM_ACCOUNT_ID`와 같은지 확인 |
 | 네이밍 | 개인 dev `hanaeum-mvp-{약어}-{용도}-{닉네임}` / 최종 `hanaeum-mvp-{약어}-{용도}`. 태그 `Project=hanaeum-mvp`, `Owner={닉네임}` |
 | 배포 | dev는 각자. 공유 dev·prod는 yoyo0704의 Claude만 `hanaeum-terraform/`으로. State는 S3 backend |
-| 데이터 | 실제 은행 문서·고객정보 금지. 합성 문서는 "한빛은행(Synthetic Bank)" + `SYNTHETIC` 표시 |
+| 데이터 | 실제 은행 문서·고객정보 금지. 합성 문서는 가상 **하나은행** 데이터로 만들고 모든 원본 머리에 `SYNTHETIC — 하나은행 가상 데이터 · … 실제 하나은행 … 아님` 표시 (사용자 결정 11/16) |
 | 자료 조사 | `.env.local`의 `HANAEUM_RESEARCH`: `bedrock-websearch`(EC2) / `chrome`(로컬, Claude in Chrome 확장. 없으면 설치 요청). 못 찾는 필수 자료는 사용자에게 PDF 요청 |
 | 자료 저장 | 내려받은 파일은 바로 `자료/{용도}/{카테고리}/`로. 파일명 `YYYYMMDD_{출처}_{제목}.{확장자}`. `자료/README.md` 색인에 한 줄 |
 | 폴더 구조 | 모든 파일은 **사용목적 → 카테고리** 순으로 저장. 루트에는 정해진 파일만. 새 폴더에는 `README.md`에 목적 한 줄. 맞는 곳이 있으면 새로 만들지 않는다 |

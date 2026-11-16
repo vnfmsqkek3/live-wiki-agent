@@ -2,6 +2,7 @@
 import { extractText, getDocumentProxy } from "unpdf";
 import type { StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore } from "./store.ts";
+import { docxPages, hwpxPages } from "./office.ts";
 
 export interface TextLayerPage { page_index: number; text: string; char_count: number; broken_ratio: number; needs_ocr: boolean }
 export interface TextLayer { doc_id: string; source_ext: string; page_count: number; pages: TextLayerPage[] }
@@ -37,11 +38,15 @@ export async function extractTextLayer(body: Buffer, ext: string, doc_id: string
       pages = text.map((t, i) => page(i, t));
       break;
     }
+    case "docx": case "hwpx":
+      // 디지털 문서라 OCR 대상 아님. 문서 속 그림은 텍스트가 없으므로 페이지 이미지 파이프라인에서 다룬다
+      pages = (ext === "docx" ? docxPages(body) : hwpxPages(body)).map((t, i) => ({ ...page(i, t), needs_ocr: false }));
+      break;
     case "png": case "jpg": case "jpeg":
       pages = [page(0, "", true)];
       break;
     default:
-      // ponytail: DOCX·HWPX 구조 추출은 미구현. 조용히 빈 결과를 내지 않고 실패시킨다
+      // 허용 목록 밖 형식: 조용히 빈 결과를 내지 않고 실패시킨다
       throw Object.assign(new Error(`지원하지 않는 형식: ${ext}`), { name: "UnsupportedFormat" });
   }
   if (!pages.length) throw new Error("페이지 0개");

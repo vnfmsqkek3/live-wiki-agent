@@ -4,290 +4,290 @@
     {
       "registry_doc_no": "HB-REG-DEP-001",
       "law_id": "SYN-DEP-001",
-      "law_name": "한빛은행 수신업무 처리규정",
+      "law_name": "하나은행 수신업무 처리규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 20261130,
       "owner_dept": "수신부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:8b3da4d03d6b705be5404e86c1443bdbb62af46e396b93ecd6ed13965e215ade",
+      "content_hash": "sha256:fcfa6d57ca622072b4750eb75951a8b49a4839be27d8c85457c170069f41ab9f",
       "fixture": "golden/G-REG-01.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "1천만원"
       },
       "pdf_fixture": "golden/pdf/G-REG-01.pdf",
-      "pdf_content_hash": "sha256:baab840e5cb3e2857d7a1dfbde30ff26cd9105d54ce1373af05843e6fbf4ac0c"
+      "pdf_content_hash": "sha256:feee392b822eca19dcda1de44853be8b00fbbdb1f80da58a6226ede9ff118a33"
     },
     {
       "registry_doc_no": "HB-REG-FX-001",
       "law_id": "SYN-FX-001",
-      "law_name": "한빛은행 외국환업무 취급규정",
+      "law_name": "하나은행 외국환업무 취급규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 20261130,
       "owner_dept": "외환부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:f8bbe250f345f3661f57aefb1981fab69dac585a8a1ea254555b7526c5209dd2",
+      "content_hash": "sha256:fa8d6e7169f2488f00608184c766f7e0984b10306ff0c9bfd717c06eb0e4d7c2",
       "fixture": "golden/G-REG-02.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "미화 5천달러"
       },
       "pdf_fixture": "golden/pdf/G-REG-02.pdf",
-      "pdf_content_hash": "sha256:36ee92d4ab032229c75c5163d1eaac5c02b2ba5853a4b993713eaf13e3003511"
+      "pdf_content_hash": "sha256:776159979a4aa3fcfbd9915e3b95685f9e77f9a6b08d596c33fad77f767ff718"
     },
     {
       "registry_doc_no": "HB-REG-CARD-001",
       "law_id": "SYN-CARD-001",
-      "law_name": "한빛은행 신용카드 발급규정",
+      "law_name": "하나은행 신용카드 발급규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 20261130,
       "owner_dept": "카드부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:cf80abc3026ec952ac9c9670f8cf89bab9fb622630602b86dae6030f4181d4d7",
+      "content_hash": "sha256:c073afabdc1ea1db0810aca11ef0bdad4207260690bb42a227a11273c556517a",
       "fixture": "golden/G-REG-03.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "19세"
       },
       "pdf_fixture": "golden/pdf/G-REG-03.pdf",
-      "pdf_content_hash": "sha256:b5318fce1034ae2072c3f02ab93b90e5b5ac5aefd287a11c69f1848dae4f045e"
+      "pdf_content_hash": "sha256:4cb54411971f2ee8e356b9524f3cd114db60011ef720cd2584233fd379ec76f9"
     },
     {
       "registry_doc_no": "HB-REG-RISK-001",
       "law_id": "SYN-RISK-001",
-      "law_name": "한빛은행 신용리스크 관리규정",
+      "law_name": "하나은행 신용리스크 관리규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 20261130,
       "owner_dept": "리스크부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:f9e0047bacaf09877250044fffa20cb6dc388a24d1b9d3d4979586e298eb3ebc",
+      "content_hash": "sha256:c12f82042b1fa76c020018ca694cc6accba731c36f5d039f1c683567db3088f5",
       "fixture": "golden/G-REG-04.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "20%"
       },
       "pdf_fixture": "golden/pdf/G-REG-04.pdf",
-      "pdf_content_hash": "sha256:3cab2745b731ce9483624f3cad3ba453793649302ef5b882b3eca49aaf6c75c6"
+      "pdf_content_hash": "sha256:4765ae16bb72ecf06c10df9c474b65db35eb5e1e899b382e943bb09f7e11f745"
     },
     {
       "registry_doc_no": "HB-REG-IC-001",
       "law_id": "SYN-IC-001",
-      "law_name": "한빛은행 내부통제 기준",
+      "law_name": "하나은행 내부통제 기준",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "준법부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:0b346b246c32e852e6c8981506dc4e0e4ea800221702bddc9449596898a4f15c",
+      "content_hash": "sha256:b12ef3a2cb312ec2371d7a924a3b12f04d1bd23a4c84d0221ccccd2d16f56393",
       "fixture": "golden/G-REG-05.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "분기"
       },
       "pdf_fixture": "golden/pdf/G-REG-05.pdf",
-      "pdf_content_hash": "sha256:b1f2f2447432b53d321ae02b3b3a1bb54397c5c8cfa83b3cbff78c33e8a9294b"
+      "pdf_content_hash": "sha256:ae72b928611731f170ffd4965b345bdbec3339d473173df054efda15404ce7a4"
     },
     {
       "registry_doc_no": "HB-REG-PRIV-001",
       "law_id": "SYN-PRIV-001",
-      "law_name": "한빛은행 개인정보 보호규정",
+      "law_name": "하나은행 개인정보 보호규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "정보보호부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:0ee419d7890510f17f1fa0243b617329b54562768faf239649f2e27aa2f65c09",
+      "content_hash": "sha256:28196391691748184e6e7a4b7f181339aadfc90ba6a44fa6afaaa0de8302bdd0",
       "fixture": "golden/G-REG-06.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "5년"
       },
       "pdf_fixture": "golden/pdf/G-REG-06.pdf",
-      "pdf_content_hash": "sha256:8152236c0071d20b3b9889e9ebcfdaf6f56b715791a3533d0b3301df6ba59a2b"
+      "pdf_content_hash": "sha256:867be04021cc24fb7d654e36048cac32935a1fd8a247125d89ad55db2d3df5a0"
     },
     {
       "registry_doc_no": "HB-REG-ITSEC-001",
       "law_id": "SYN-ITSEC-001",
-      "law_name": "한빛은행 전산보안 관리규정",
+      "law_name": "하나은행 전산보안 관리규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "IT부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:03489909ea15cd8b5b84df7b4144d63fba4cf6ac8adbc6e821bc3c36e1473b17",
+      "content_hash": "sha256:819f97db8d82813993a533831a5409d85be03e580caa1b24ab5c2ee639dde068",
       "fixture": "golden/G-REG-07.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "90일"
       },
       "pdf_fixture": "golden/pdf/G-REG-07.pdf",
-      "pdf_content_hash": "sha256:337d2e21022dbd144d60004e89eec4ea74237ffe9cd109b2f9b42d6e34e985e6"
+      "pdf_content_hash": "sha256:ebc4542b3b0459dac5caf262f64ec696e6187ef4297f34b458ade3aac6d59e8e"
     },
     {
       "registry_doc_no": "HB-REG-TRUST-001",
       "law_id": "SYN-TRUST-001",
-      "law_name": "한빛은행 신탁업무 운용규정",
+      "law_name": "하나은행 신탁업무 운용규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "신탁부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:6d16c6e1c21fc72b8c29194082326c0fc81ddd79e991ebf27463f218a96d82c7",
+      "content_hash": "sha256:95dc5825cba1890f180bee6f0aba2b700d12dce91509accadd9ce54cf82439d1",
       "fixture": "golden/G-REG-08.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "10%"
       },
       "pdf_fixture": "golden/pdf/G-REG-08.pdf",
-      "pdf_content_hash": "sha256:a7c8c9ca7d2f46e7d18b7722e2b38d50c5b5fb3edfc0807441073d5184af7e03"
+      "pdf_content_hash": "sha256:bc69f17b93db5d567f05c9ea52201cd92e9e8a6af5c87bbf9201713102d42321"
     },
     {
       "registry_doc_no": "HB-REG-FUND-001",
       "law_id": "SYN-FUND-001",
-      "law_name": "한빛은행 펀드 판매규정",
+      "law_name": "하나은행 펀드 판매규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "자산관리부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:dc1a961b04c05b22637226e86cb19181bbb33348a7987a34718cce4386e38c61",
+      "content_hash": "sha256:51206ec14527dbbe7ad6f1c19987fc3444525fc41ac5ea509f0bfc8a51d0dd57",
       "fixture": "golden/G-REG-09.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "2영업일"
       },
       "pdf_fixture": "golden/pdf/G-REG-09.pdf",
-      "pdf_content_hash": "sha256:88b85486eea58ec9f1e014ac805b739d098ce9e6530ed611e427035af2c9112e"
+      "pdf_content_hash": "sha256:f7671efe685bd7783a7ec5b088485e71dc88e2e3c96883602fdbfb0b24a0becf"
     },
     {
       "registry_doc_no": "HB-REG-AML-001",
       "law_id": "SYN-AML-001",
-      "law_name": "한빛은행 자금세탁방지 업무규정",
+      "law_name": "하나은행 자금세탁방지 업무규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "준법부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:535ee73cdb81ebb9b83177e888ccbb34bf83a5551ca18555516167e81821f589",
+      "content_hash": "sha256:c6bd6660556afdebe9816cb4952e50e8678bef2f4e929ef5c913354e21fbe394",
       "fixture": "golden/G-REG-10.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "1천만원"
       },
       "pdf_fixture": "golden/pdf/G-REG-10.pdf",
-      "pdf_content_hash": "sha256:684cb180adb5c2cfc9591599a4af773c80c219bf3f3222604392529fb5d436a7"
+      "pdf_content_hash": "sha256:cb7bd150847416f3982fa02bbe4a03b2a3ff2d48fa5cc9bbc5cfde58a46da345"
     },
     {
       "registry_doc_no": "HB-REG-CS-001",
       "law_id": "SYN-CS-001",
-      "law_name": "한빛은행 민원 처리규정",
+      "law_name": "하나은행 민원 처리규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "소비자보호부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:3d2fd90fbf4cd81c55833f61c52c34b175663792d2eaa97c781d693e3f184669",
+      "content_hash": "sha256:52a1b7f0c7aa1fed6b0ec97b1fd1183ac07d13fd4e585d4a4c430a1f0cb2bf5f",
       "fixture": "golden/G-REG-11.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "14일"
       },
       "pdf_fixture": "golden/pdf/G-REG-11.pdf",
-      "pdf_content_hash": "sha256:24d7762cc59d840f12927f5bc3433ec6a9bbaae81a904d93f0a64899d827061d"
+      "pdf_content_hash": "sha256:9257334a6b147d2b7598adcc5e77f74f6af35b47c0d7b787285758ae33d1b98f"
     },
     {
       "registry_doc_no": "HB-REG-HR-001",
       "law_id": "SYN-HR-001",
-      "law_name": "한빛은행 직원 겸직 관리규정",
+      "law_name": "하나은행 직원 겸직 관리규정",
       "revision_id": "2026-11-01",
       "version": 1,
       "effective_from": 20261101,
       "effective_to": 99991231,
       "owner_dept": "인사부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:286f042ed02333791d168e40f34c06f66fd353d1b7e2a97c632fa65ac35a010e",
+      "content_hash": "sha256:88a50f936536b28f54fe26bfac5a69e83bb42096f3dd7bffd478794edc0530ae",
       "fixture": "golden/G-REG-12.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "30일"
       },
       "pdf_fixture": "golden/pdf/G-REG-12.pdf",
-      "pdf_content_hash": "sha256:14bf34f7951c2efedf14988aa93e6422b2aa4a739fb2b0e15dcc1630207070ac"
+      "pdf_content_hash": "sha256:fc478452d5568349e7eff89ac74128c5c8751a939d3967b5b590eeff984ef14b"
     },
     {
       "registry_doc_no": "HB-REG-DEP-001",
       "law_id": "SYN-DEP-001",
-      "law_name": "한빛은행 수신업무 처리규정",
+      "law_name": "하나은행 수신업무 처리규정",
       "revision_id": "2026-12-01",
       "version": 2,
       "effective_from": 20261201,
       "effective_to": 99991231,
       "owner_dept": "수신부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:5becdb8d1a30cea9a4902f182094e7e877638d328f463110063b58cc3d8f1f71",
+      "content_hash": "sha256:ec2bef7ae0ad0c1e3640cf170d2ac2572e6d164a1509e6bfd5081267e19ad938",
       "fixture": "golden/G-REV-01.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "5백만원"
       },
       "pdf_fixture": "golden/pdf/G-REV-01.pdf",
-      "pdf_content_hash": "sha256:c93cde6d5b9a82166f6bce8d61025da09fb3bde33b8548adebdf812848874a77"
+      "pdf_content_hash": "sha256:7133d2173059237e96a4a368e43b4d8215b81768d7e894cd10992f7f48c8f8fd"
     },
     {
       "registry_doc_no": "HB-REG-FX-001",
       "law_id": "SYN-FX-001",
-      "law_name": "한빛은행 외국환업무 취급규정",
+      "law_name": "하나은행 외국환업무 취급규정",
       "revision_id": "2026-12-01",
       "version": 2,
       "effective_from": 20261201,
       "effective_to": 99991231,
       "owner_dept": "외환부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:d0fd6ee1ddd0a5f6ef6ca5f3eef3229ee46018203c0cecfeb18e4013c5f133b6",
+      "content_hash": "sha256:18123cb59e2eac314eb5fa60556e6f82e2e80c0da70ffcdf8a71c55bed26a756",
       "fixture": "golden/G-REV-02.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "미화 3천달러"
       },
       "pdf_fixture": "golden/pdf/G-REV-02.pdf",
-      "pdf_content_hash": "sha256:aba8d81bb4afa25c9f3c9d5c8804fc23c3314b79cc8c519571680fcc38b9cb04"
+      "pdf_content_hash": "sha256:8c930eee9e21b0b39514a176a604e71c61585264331c06bbaa6443ed54c55a34"
     },
     {
       "registry_doc_no": "HB-REG-CARD-001",
       "law_id": "SYN-CARD-001",
-      "law_name": "한빛은행 신용카드 발급규정",
+      "law_name": "하나은행 신용카드 발급규정",
       "revision_id": "2026-12-01",
       "version": 2,
       "effective_from": 20261201,
       "effective_to": 99991231,
       "owner_dept": "카드부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:e67f17892d52181c512aaa17a68463714e98098ba2b3c9bb1c1f4316be3c16fb",
+      "content_hash": "sha256:f90f6acd90d10653001a1eddcd0640f4e690575c093383e04aae327679fe24cc",
       "fixture": "golden/G-REV-03.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "20세"
       },
       "pdf_fixture": "golden/pdf/G-REV-03.pdf",
-      "pdf_content_hash": "sha256:a4a3c18886b5e40e91c72ddd4bebc66d72aa04d76e84cbc11ac1c3cbcea07406"
+      "pdf_content_hash": "sha256:4f0f1122d18694bf6e9b31c3200d062629c993cb3651df261f1ca4dac3dbe320"
     },
     {
       "registry_doc_no": "HB-REG-RISK-001",
       "law_id": "SYN-RISK-001",
-      "law_name": "한빛은행 신용리스크 관리규정",
+      "law_name": "하나은행 신용리스크 관리규정",
       "revision_id": "2026-12-01",
       "version": 2,
       "effective_from": 20261201,
       "effective_to": 99991231,
       "owner_dept": "리스크부",
       "approved_by": "REG_APPROVER(가상)",
-      "content_hash": "sha256:3a7762921b07e961cd870275f1de1fc3500a18b357aa364d78ea5198bb9d7c2a",
+      "content_hash": "sha256:f8dd6276ba7015a81da1396bba2932bd8ba2a1b8993fcec7f0d2be1d6ca500f9",
       "fixture": "golden/G-REV-04.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "15%"
       },
       "pdf_fixture": "golden/pdf/G-REV-04.pdf",
-      "pdf_content_hash": "sha256:59c28c9341c6210fe9f4eb1d870b868b58de04bfe38746091e35d460b4b7e81b"
+      "pdf_content_hash": "sha256:9aeac0a937f98f9e3340e6eb406e0661e4cac3e53bd4fdceffb3bac1c771c063"
     }
   ]
 }
