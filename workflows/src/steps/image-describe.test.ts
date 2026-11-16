@@ -27,15 +27,15 @@ function world(files: Record<string, unknown>, modelOut: unknown) {
 const masked = new Uint8Array([9]);
 
 describe("sanitize", () => {
-  it("drops empty descriptions, coerces unknown kinds, masks PII in every text field", () => {
-    const r = sanitize({ figures: [
+  it("drops empty descriptions, coerces unknown kinds, masks PII in every text field", async () => {
+    const r = await sanitize({ figures: [
       { kind: "photo", description: "  " },
       { kind: "hologram", description: "고객 010-1234-5678 상담 화면 캡처", overlay_text: "연락처 010-9999-0000", intent: "절차 안내" },
     ] }, mask);
     expect(r.pii).toBe(2);
     expect(r.figures).toEqual([{ kind: "other", description: "고객 [전화번호] 상담 화면 캡처", overlay_text: "연락처 [전화번호]", intent: "절차 안내" }]);
   });
-  it("tolerates malformed model output", () => expect(sanitize("nope", mask)).toEqual({ figures: [], pii: 0 }));
+  it("tolerates malformed model output", async () => expect(await sanitize("nope", mask)).toEqual({ figures: [], pii: 0 }));
 });
 
 describe("ImageDescribe", () => {
@@ -72,7 +72,7 @@ describe("ImageDescribe", () => {
 describe("shared PII rules (@hanaeum/pii)", () => {
   it("masks a phone number in a figure description", async () => {
     const { detectPii, mask: m } = await import("@hanaeum/pii");
-    const r = sanitize({ figures: [{ kind: "photo", description: "명함 사진, 연락처 010-1234-5678" }] },
+    const r = await sanitize({ figures: [{ kind: "photo", description: "명함 사진, 연락처 010-1234-5678" }] },
       (t) => { const s = detectPii(t); return { text: s.length ? m(t, s) : t, found: s.length }; });
     expect(r.pii).toBe(1);
     expect(r.figures[0]!.description).not.toContain("1234-5678");

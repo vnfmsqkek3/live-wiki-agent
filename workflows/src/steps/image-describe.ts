@@ -4,7 +4,7 @@
 //   마스킹 이미지를 못 만든 그림 페이지는 PiiScan 이 PII_IMAGE_REVIEW 로 사람 검토에 넘긴다 (모델에 보내지 않음).
 // 출력: {doc}/masked/figures/{nnnn}.json, {doc}/masked/segments/{nnnn}.json 의 figures 필드 (색인 계약 interfaces.md 5장)
 // 묘사 결과도 PII 규칙(dhxorb96 pii-detect)으로 다시 마스킹한다. 이미지 속 글은 자료로만 다루고 지시로 따르지 않는다.
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { ApplyGuardrailCommand, BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
@@ -15,7 +15,7 @@ import { detectPii, mask as maskSpans } from "@hanaeum/pii";
 export const STEP = "ImageDescribe";
 export const KINDS = ["photo", "screenshot", "diagram", "chart", "table_image", "signature_or_stamp", "other"] as const;
 export type Figure = { kind: (typeof KINDS)[number]; description: string; overlay_text?: string; intent?: string };
-export type Mask = (text: string) => { text: string; found: number };
+export type Mask = (text: string) => { text: string; found: number } | Promise<{ text: string; found: number }>;
 
 export const SYSTEM = [
   "너는 은행 내부 문서의 그림을 설명하는 분석기다.",
@@ -66,22 +66,22 @@ type Segment = { doc_id: string; page_index: number; text: string; figures?: Fig
 const nnnn = (i: number) => String(i).padStart(4, "0");
 
 // 모델 출력은 신뢰하지 않는다: 형식 검사 + 빈 묘사 제외 + 모든 글 필드 PII 재마스킹
-export function sanitize(raw: unknown, mask: Mask): { figures: Figure[]; pii: number } {
+export async function sanitize(raw: unknown, mask: Mask): Promise<{ figures: Figure[]; pii: number }> {
   const list = (raw as { figures?: unknown })?.figures;
   let pii = 0;
-  const m = (t: unknown) => {
+  const m = async (t: unknown) => {
     if (typeof t !== "string" || !t.trim()) return undefined;
-    const r = mask(t.trim().slice(0, 2000));
+    const r = await mask(t.trim().slice(0, 2000));
     pii += r.found;
     return r.text;
   };
   const figures: Figure[] = [];
   for (const f of Array.isArray(list) ? list : []) {
-    const description = m((f as Figure).description);
+    const description = await m((f as Figure).description);
     if (!description) continue;
     const kind = KINDS.includes((f as Figure).kind) ? (f as Figure).kind : "other";
-    const overlay_text = m((f as Figure).overlay_text);
-    const intent = m((f as Figure).intent);
+    const overlay_text = await m((f as Figure).overlay_text);
+    const intent = await m((f as Figure).intent);
     figures.push({ kind, description, ...(overlay_text ? { overlay_text } : {}), ...(intent ? { intent } : {}) });
   }
   return { figures, pii };
@@ -97,7 +97,7 @@ export function makeHandler(d: Deps) {
       if (!png) continue;
       const segKey = `${e.doc_id}/masked/segments/${nnnn(page_index)}.json`;
       const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index, text: "" };
-      const { figures, pii } = sanitize(await d.describe(png, seg.text.slice(0, 4000)), d.mask);
+      const { figures, pii } = await sanitize(await d.describe(png, seg.text.slice(0, 4000)), d.mask);
       if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref));
       await d.putJson(`${e.doc_id}/masked/figures/${nnnn(page_index)}.json`, { doc_id: e.doc_id, page_index, figures });
       await d.putJson(segKey, { ...seg, figures });
@@ -122,8 +122,21 @@ const getBytes = async (Key: string) => {
   catch (err) { if (notFound(err)) return undefined; throw err; }
 };
 
-// PII 규칙은 한 곳(@hanaeum/pii, dhxorb96)
-const sharedMask: Mask = (t) => { const spans = detectPii(t); return { text: spans.length ? maskSpans(t, spans) : t, found: spans.length }; };
+// PII: 규칙(@hanaeum/pii, dhxorb96) → Guardrail(이름·주소 등 문맥 PII). PiiScan 과 같은 순서, source OUTPUT(INPUT 은 마스킹 안 함, 실측)
+// 묘사문에는 OCR 이 못 읽은 손글씨 이름 등이 모델 표현으로 들어갈 수 있어 Guardrail 까지 거친다
+const sharedMask: Mask = async (t) => {
+  const spans = detectPii(t);
+  let text = spans.length ? maskSpans(t, spans) : t;
+  let found = spans.length;
+  if (process.env.GUARDRAIL_ID) {
+    const r = await bedrock.send(new ApplyGuardrailCommand({
+      guardrailIdentifier: process.env.GUARDRAIL_ID, guardrailVersion: process.env.GUARDRAIL_VERSION ?? "DRAFT", source: "OUTPUT", content: [{ text: { text } }],
+    }));
+    const hits = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
+    if (hits) { text = r.outputs?.[0]?.text ?? text; found += hits; }
+  }
+  return { text, found };
+};
 
 export const handler = makeHandler({
     listMaskedPages: async (doc_id) => {

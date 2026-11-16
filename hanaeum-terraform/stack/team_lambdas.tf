@@ -144,12 +144,16 @@ locals {
     # 문서 속 사진·캡처·도표 묘사·의도 (13항 13). model-caller: PiiScan 이 칠한 masked/pages 만 읽는다
     image-describe = {
       zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/image-describe.handler", memory = 512, timeout = 300, model_caller = true
-      env = { BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name, MODEL_SONNET = var.models["MODEL_SONNET"] }
+      env = {
+        BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name, MODEL_SONNET = var.models["MODEL_SONNET"]
+        GUARDRAIL_ID      = aws_bedrock_guardrail.pii.guardrail_id, GUARDRAIL_VERSION = aws_bedrock_guardrail_version.pii.version
+      }
       statements = [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn, Condition = { StringLike = { "s3:prefix" = ["*/masked/pages/*"] } } },
         { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
         { Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${local.b["quarantine"].arn}/*/masked/figures/*", "${local.b["quarantine"].arn}/*/masked/segments/*"] },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = aws_bedrock_guardrail.pii.guardrail_arn },
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ]
     }

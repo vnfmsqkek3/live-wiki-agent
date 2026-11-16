@@ -23,7 +23,7 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "78d8355"                                  # workflows·auth-triggers·services/ocr
-    dhxorb96 = "e812aac"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    dhxorb96 = "e40e9c6"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "812a58933071d59bad6f7f0f30e948c2780b5114" # PR #9 병합 (하나은행 전환·DOCX·HWPX·OCR 보정)
   }
 
