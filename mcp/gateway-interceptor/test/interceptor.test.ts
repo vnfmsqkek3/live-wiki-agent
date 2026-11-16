@@ -7,13 +7,13 @@ type Out = { mcp: { transformedGatewayRequest?: { body: { params: { arguments: u
 
 const h = makeHandler(async (t) => {
   if (t !== 'good') throw new Error('bad');
-  return { sub: 'u-1', 'cognito:groups': ['AUTHOR', 'ADMIN_FAKE'] };
+  return { sub: 'u-1', 'cognito:groups': ['AUTHOR', 'ADMIN_FAKE'], dept: '여신' };
 });
 const ev = (body: Record<string, unknown>, auth?: string) => ({ mcp: { gatewayRequest: { headers: (auth ? { Authorization: `Bearer ${auth}` } : {}) as Record<string, string>, body } } });
 
 test('tools/call: 서버가 __actor 주입, 클라이언트가 보낸 신원은 덮어씀, 미정의 그룹 제거', async () => {
   const r = (await h(ev({ jsonrpc: '2.0', id: 1, method: 'tools/call', params: { name: 't', arguments: { q: 'x', [ACTOR_KEY]: { sub: 'spoof', groups: ['REG_APPROVER'] } } } }, 'good'))) as Out;
-  assert.deepEqual(r.mcp.transformedGatewayRequest!.body.params.arguments, { q: 'x', [ACTOR_KEY]: { sub: 'u-1', groups: ['AUTHOR'] } });
+  assert.deepEqual(r.mcp.transformedGatewayRequest!.body.params.arguments, { q: 'x', [ACTOR_KEY]: { sub: 'u-1', groups: ['AUTHOR'], dept: '여신' } });
 });
 
 test('tools/call: 토큰 없음·검증 실패는 Tool 호출 전에 오류 응답', async () => {

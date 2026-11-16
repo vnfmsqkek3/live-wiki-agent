@@ -5,7 +5,7 @@ import { api, ApiError, uploadFile } from '../lib/api';
 
 const ACCEPT = '.pdf,.docx,.hwpx,.png,.jpg,.jpeg';
 const MAX = 50 * 1024 * 1024;
-const SCOPES = [['ALL', '전 직원'], ['dept:loan', '여신 부서'], ['dept:compliance', '준법감시 부서']] as const;
+const SCOPES = [['ALL', '전 직원'], ['DEPT#여신', '여신 부서'], ['DEPT#준법감시', '준법감시 부서']] as const;
 
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
@@ -22,7 +22,7 @@ export default function Upload() {
     try {
       setState({ kind: 'busy', msg: '업로드 주소를 받는 중입니다.' });
       const { doc_id, url } = await api<{ doc_id: string; url: string }>('POST', '/v1/documents/upload-url', {
-        filename: file.name, size: file.size, title: title.trim(), dept: acl.startsWith('dept:') ? acl.slice(5) : 'all', acl_groups: [acl],
+        filename: file.name, size: file.size, title: title.trim(), dept: acl.startsWith('DEPT#') ? acl.slice(5) : 'all', acl_groups: [acl],
       });
       setState({ kind: 'busy', msg: '검사 전용 저장소에 올리는 중입니다.' });
       await uploadFile(url, file);

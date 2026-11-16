@@ -175,3 +175,10 @@ test('승인 후 워크플로 재개가 실패해도 결정은 유지하고 work
   assert.deepEqual(await r.json(), { approval_id, status: 'APPROVED', workflow_resumed: false });
   assert.ok(t.store.audits.some((a) => a.action === 'WORKFLOW_RESUME_FAILED'));
 });
+
+test('ACL 키: DEPT#{부서}만 부서 일치로 인정', async () => {
+  const { canRead } = await import('../src/auth.ts');
+  assert.ok(canRead({ sub: 's', groups: ['USER'], dept: '여신' }, ['DEPT#여신']));
+  assert.ok(!canRead({ sub: 's', groups: ['USER'], dept: '여신' }, ['dept:여신']));
+  assert.ok(!canRead({ sub: 's', groups: ['USER'] }, ['DEPT#undefined']));
+});

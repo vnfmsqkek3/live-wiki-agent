@@ -31,7 +31,7 @@ export function hasRole(actor: Actor, allowed: readonly Role[]) {
   return actor.groups.some((g) => allowed.includes(g));
 }
 
-/** 문서 ACL: ALL, 사용자 그룹, 사용자 부서 중 하나와 일치해야 조회 가능 */
+/** 문서 ACL: ALL, 사용자 그룹, `DEPT#{부서}` 중 하나와 일치해야 조회 가능 (interfaces.md v0.1, search Tool aclKeys와 동일) */
 export function canRead(actor: Actor, acl: string[]) {
-  return acl.includes('ALL') || acl.some((g) => (actor.groups as string[]).includes(g) || g === `dept:${actor.dept}`);
+  return acl.includes('ALL') || acl.some((g) => (actor.groups as string[]).includes(g) || (!!actor.dept && g === `DEPT#${actor.dept}`));
 }

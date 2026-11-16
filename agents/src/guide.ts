@@ -52,7 +52,10 @@ export { SYSTEM as GUIDE_SYSTEM };
 export async function guide(query: string, deps: GuideDeps): Promise<GuideResult> {
   const spans = detectPii(query);
   const q = mask(query, spans); // 원문 PII는 Tool·모델에 보내지 않는다
-  const evidence = (await deps.search(q)).filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED');
+  // 삭제 조항은 근거로 쓰지 않는다 (삭제 조항 오인용 0건, docs/02 4장). 과거 버전은 쓰되 불확실로 알린다
+  const all = await deps.search(q);
+  const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED');
+  const historical = evidence.filter((e) => e.search_status === 'HISTORICAL').length;
   const base = { query_masked: spans.length > 0, model: deps.model, evidence };
   if (evidence.length === 0) return { ...base, status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: '열람 가능한 승인 문서에서 근거를 찾지 못했습니다.' };
 
@@ -67,7 +70,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
     if (sources.length === 0) { dropped++; continue; } // 출처 없는 문장은 내보내지 않는다
     steps.push({ text: mask(s.text, detectPii(s.text)), sources });
   }
-  const uncertainty = [draft.uncertainty, dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '']
+  const uncertainty = [draft.uncertainty, dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
   return { ...base, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)) };
 }

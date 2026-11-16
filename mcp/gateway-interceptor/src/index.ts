@@ -30,7 +30,8 @@ export function makeHandler(verify: Verify) {
     }
     const groups = (Array.isArray(claims['cognito:groups']) ? claims['cognito:groups'] : []).filter((g): g is string => ROLES.includes(g as string));
     const params = (body.params ?? {}) as Json;
-    const args = { ...((params.arguments ?? {}) as Json), [ACTOR_KEY]: { sub: claims.sub, groups: groups.length ? groups : ['USER'] } };
+    const dept = typeof claims.dept === 'string' ? claims.dept : undefined; // Pre Token V2 트리거가 access token에 추가 (yoyo0704)
+    const args = { ...((params.arguments ?? {}) as Json), [ACTOR_KEY]: { sub: claims.sub, groups: groups.length ? groups : ['USER'], ...(dept ? { dept } : {}) } };
     return pass({ ...body, params: { ...params, arguments: args } });
   };
 }

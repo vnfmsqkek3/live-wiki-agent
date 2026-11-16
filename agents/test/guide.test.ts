@@ -48,3 +48,15 @@ test('반려·폐지 근거는 모델에 넘기지 않음, 답변의 PII는 마�
   assert.ok(!seen[0]!.includes('doc_R'));
   assert.equal(r.steps[0]!.text, '담당자 [이메일] 에게 등록');
 });
+
+test('삭제 조항은 근거에서 제외, 과거 조문은 불확실로 표시', async () => {
+  const seen: string[] = [];
+  const r = await guide('q', {
+    model: 'm',
+    search: async () => [{ ...MOCK_EVIDENCE[0]!, doc_id: 'doc_DEL', search_status: 'DELETED' }, { ...MOCK_EVIDENCE[1]!, search_status: 'HISTORICAL' }],
+    draft: async (p) => { seen.push(p); return { steps: [{ text: 't', sources: ['doc_K001', 'doc_DEL'] }], uncertainty: '' }; },
+  });
+  assert.ok(!seen[0]!.includes('doc_DEL'));
+  assert.deepEqual(r.steps[0]!.sources.map((e) => e.doc_id), ['doc_K001']);
+  assert.match(r.uncertainty, /과거 조문 1건/);
+});
