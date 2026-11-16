@@ -1,12 +1,17 @@
-// 단계 6 PiiScan. ① 정규식·체크섬·사전 → ② Guardrails ApplyGuardrail(마스킹된 텍스트) → 마스킹.
-// 불확실 구간이 남으면 REVIEW_REQUIRED. 원문은 모델에 보내지 않는다. Finding에 원문을 넣지 않는다.
+// 단계 6 PiiScan. ① 규칙(@hanaeum/pii: 식별값만, 사용자 결정 11/17)이 마스킹을 정한다
+// ② Guardrails는 보조: 비밀값(비밀번호·키·PIN·CVV)만 그 부분을 가리고, 나머지 탐지는 원문을 덮어쓰지 않고 사람 확인 Finding.
+//    (Guardrail이 "이 규정은"→"이 {NAME}은"처럼 공식 조문을 훼손한 사례, let522mj 11/17)
+// 불확실 구간이 남으면 REVIEW_REQUIRED. Finding에 탐지 원문을 넣지 않는다.
 import { newId, type Finding, type StepOutput } from '../contracts.ts';
 
 import { PII_NAME, detectPii, mask } from './pii-detect.ts';
 export { detectPii, mask, rrnChecksumOk, luhnOk, type PiiSpan, type PiiType } from './pii-detect.ts';
 
 /** ApplyGuardrail 결과: 추가로 탐지된 유형 수와 마스킹된 텍스트. GUARDRAIL_ID 없으면 undefined. */
-export type GuardrailCheck = (maskedText: string) => Promise<{ text: string; detected: number } | undefined>;
+export type GuardrailCheck = (maskedText: string) => Promise<{ text: string; detected: number; entities?: { type: string; match: string }[] } | undefined>;
+
+/** 원문에서 가려도 조문 의미가 바뀌지 않는 비밀값 */
+export const SECRET_TYPES = new Set(['PASSWORD', 'PIN', 'AWS_ACCESS_KEY', 'AWS_SECRET_KEY', 'CREDIT_DEBIT_CARD_CVV']);
 
 export async function piiScan(
   segments: { page: number; text: string }[],
@@ -26,9 +31,14 @@ export async function piiScan(
     }
     const g = guardrail ? await guardrail(text) : undefined;
     if (!g) guardrailSkipped = true;
-    else if (g.detected > 0) {
-      text = g.text;
-      findings.push(fnd('MEDIUM', 'PII_GUARDRAIL', `추가 검사에서 개인정보 의심 ${g.detected}건 발견, 확인 필요`, `page:${s.page}`));
+    else {
+      const ents = g.entities ?? [];
+      for (const e of ents.filter((x) => SECRET_TYPES.has(x.type))) text = text.split(e.match).join('[비밀값]');
+      const secrets = ents.filter((x) => SECRET_TYPES.has(x.type)).length;
+      const other = ents.filter((x) => !SECRET_TYPES.has(x.type));
+      if (secrets) findings.push(fnd('MEDIUM', 'SECRET_MASKED', `비밀값(비밀번호·키 등) ${secrets}건 가림`, `page:${s.page}`));
+      if (other.length)
+        findings.push(fnd('MEDIUM', 'PII_GUARDRAIL', `추가 검사에서 개인정보 의심 ${other.length}건(${[...new Set(other.map((x) => x.type))].join(', ')}) — 원문은 그대로 두었습니다. 개인정보면 수정 후 다시 올려 주세요`, `page:${s.page}`));
     }
     masked.push({ page: s.page, text });
   }

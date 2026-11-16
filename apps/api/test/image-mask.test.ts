@@ -43,9 +43,8 @@ test('PiiScan: 그림 페이지는 masked/pages 생성 + PII_IMAGE_REVIEW, OCR �
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 2);
 });
 
-test('그림 속 이름·주소: Guardrails가 가린 줄의 블록도 검게, 줄 수가 바뀌면 페이지 전체', async () => {
-  const page = { page_index: 0, width: 100, height: 100, blocks: [{ text: '담당 김하나', bbox: [0, 0, 10, 10] as [number, number, number, number] }, { text: '감정평가서', bbox: [0, 20, 10, 30] as [number, number, number, number] }] };
-  const g = async (t: string) => ({ text: t.replace('김하나', '{NAME}') });
+test('그림 블록: Guardrail이 찾은 값이 든 블록도 검게', async () => {
+  const page = { page_index: 0, width: 100, height: 100, blocks: [{ text: 'PW: hunter2!', bbox: [0, 0, 10, 10] as [number, number, number, number] }, { text: '감정평가서', bbox: [0, 20, 10, 30] as [number, number, number, number] }] };
+  const g = async (t: string) => ({ text: t, entities: [{ type: 'PASSWORD', match: 'hunter2!' }] });
   assert.deepEqual(await piiBoxes(page, g), [[0, 0, 10, 10]]);
-  assert.deepEqual(await piiBoxes(page, async () => ({ text: 'x' })), [[0, 0, 100, 100]]);
 });

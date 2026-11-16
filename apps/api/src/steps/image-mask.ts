@@ -7,15 +7,14 @@ export interface OcrBlock { text: string; bbox: [number, number, number, number]
 export interface OcrPage { page_index: number; width: number; height: number; blocks: OcrBlock[] }
 
 /** 개인정보가 들어 있는 OCR 블록 bbox. 규칙(@hanaeum/pii) + (설정 시) Guardrails로 이름·주소까지.
- *  Guardrails는 블록을 줄 단위로 한 번에 보내고, 가려진 줄의 블록을 개인정보로 본다 */
-export async function piiBoxes(page: OcrPage, guardrail?: (text: string) => Promise<{ text: string } | undefined>) {
+ *  Guardrails는 블록을 한 번에 보내고, 탐지 값(match)이 들어 있는 블록을 가린다 */
+export async function piiBoxes(page: OcrPage, guardrail?: (text: string) => Promise<{ text: string; entities?: { type: string; match: string }[] } | undefined>) {
   const hit = page.blocks.map((b) => detectPii(b.text).length > 0);
   if (guardrail && page.blocks.length) {
-    const lines = page.blocks.map((b) => b.text.replace(/\s*\n\s*/g, ' '));
-    const out = (await guardrail(lines.join('\n')))?.text.split('\n');
-    // 줄 수가 달라지면 블록과 맞출 수 없으므로 페이지 전체를 가린다 (안전 쪽)
-    if (out && out.length !== lines.length) return [[0, 0, page.width, page.height] as [number, number, number, number]];
-    out?.forEach((l, i) => { if (l !== lines[i]) hit[i] = true; });
+    // 이미지는 검게 칠해도 원문이 훼손되지 않으므로 Guardrail이 찾은 값이 든 블록은 모두 가린다
+    const g = await guardrail(page.blocks.map((b) => b.text).join('\n'));
+    const ms = (g?.entities ?? []).map((e) => e.match);
+    page.blocks.forEach((b, i) => { if (ms.some((m) => b.text.includes(m))) hit[i] = true; });
   }
   return page.blocks.filter((_, i) => hit[i]).map((b) => b.bbox);
 }

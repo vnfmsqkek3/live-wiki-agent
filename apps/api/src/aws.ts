@@ -132,8 +132,12 @@ export async function applyGuardrail(text: string) {
     guardrailIdentifier: id, // INPUT은 ANONYMIZE를 적용하지 않음(실측 11/16: action NONE). 마스킹 결과를 받으려면 OUTPUT
     guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', content: [{ text: { text } }],
   }));
-  const detected = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
-  return { text: r.outputs?.[0]?.text ?? text, detected };
+  // 탐지 값(match)과 유형만 돌려준다. 원문 덮어쓰기 여부는 호출자가 유형별로 정한다 (규정 원문 훼손 방지, 11/17)
+  const entities = (r.assessments ?? []).flatMap((a) => [
+    ...(a.sensitiveInformationPolicy?.piiEntities ?? []).map((e) => ({ type: String(e.type), match: e.match ?? '' })),
+    ...(a.sensitiveInformationPolicy?.regexes ?? []).map((e) => ({ type: `REGEX_${e.name}`, match: e.match ?? '' })),
+  ]).filter((e) => e.match);
+  return { text: r.outputs?.[0]?.text ?? text, detected: entities.length, entities };
 }
 
 /** 문서보관함: 마스킹본 페이지만 읽는다 (masked/segments). 원본·work는 읽지 않는다 */

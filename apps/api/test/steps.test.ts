@@ -37,9 +37,9 @@ test('PII: 불확실 구간이 있으면 REVIEW_REQUIRED, Guardrail 추가 탐�
   assert.equal((await piiScan([{ page: 1, text: '참조 123-45-678901' }])).status, 'REVIEW_REQUIRED');
   const clean = await piiScan([{ page: 1, text: '제12조 담보평가는 감정평가서를 따른다.' }], async (t) => ({ text: t, detected: 0 }));
   assert.equal(clean.status, 'OK');
-  const g = await piiScan([{ page: 1, text: '홍길동 고객' }], async () => ({ text: '{NAME} 고객', detected: 1 }));
+  const g = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
   assert.equal(g.status, 'REVIEW_REQUIRED');
-  assert.equal(g.masked[0]!.text, '{NAME} 고객');
+  assert.equal(g.masked[0]!.text, '연락 1588-1111'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
 });
 
 test('PII: 날짜(시행일)는 계좌로 오탐하지 않음', () => {
@@ -125,4 +125,13 @@ test('FileStructureCheck: DOCX·HWPX 정상 통과, 압축 폭탄·깨진 ZIP �
   assert.ok(bomb.length < 2 * 2 ** 20);
   assert.ok((fileStructureCheck('docx', bomb).findings ?? []).some((x) => x.code === 'ZIP_BOMB'));
   assert.equal(fileStructureCheck('docx', new TextEncoder().encode('PK\x03\x04 word/ broken')).findings?.[0]?.code, 'ZIP_INVALID');
+});
+
+test('PiiScan Guardrail: 원문 덮어쓰기 없음(조문 훼손 방지), 비밀값만 그 부분 가림, 나머지는 사람 확인', async () => {
+  const { piiScan } = await import('../src/steps/pii.ts');
+  const g = async (t: string) => ({ text: t.replace('규정', '{NAME}'), detected: 2, entities: [{ type: 'NAME', match: '규정' }, { type: 'PASSWORD', match: 'Abc!2345' }] });
+  const r = await piiScan([{ page: 0, text: '이 규정은 만 65세 이상에 적용한다. 초기 비밀번호 Abc!2345' }], g);
+  assert.equal(r.masked[0]!.text, '이 규정은 만 65세 이상에 적용한다. 초기 비밀번호 [비밀값]');
+  assert.deepEqual(r.findings?.map((f) => f.code).sort(), ['PII_GUARDRAIL', 'SECRET_MASKED']);
+  assert.equal(r.status, 'REVIEW_REQUIRED');
 });
