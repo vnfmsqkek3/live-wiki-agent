@@ -1,14 +1,31 @@
 {
-  "name": "hanaeum-living-wiki",
+  "name": "live-wiki-agent",
   "private": true,
   "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
   "workspaces": [
     "apps/*",
     "agents",
-    "mcp/*"
+    "mcp/*",
+    "packages/*",
+    "services/*",
+    "workflows",
+    "tests/evaluations/runner"
   ],
   "scripts": {
+    "lint": "eslint .",
     "typecheck": "npm run typecheck --workspaces --if-present",
-    "test": "npm test --workspaces --if-present"
+    "test": "npm test --workspaces --if-present",
+    "build": "npm run build --workspaces --if-present"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "26.6.6",
+    "eslint": "10.15.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
   }
 }

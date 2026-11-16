@@ -15,7 +15,7 @@ const KEY = 'hanaeum.session';
 export function getSession(): Session | undefined {
   try { const s = sessionStorage.getItem(KEY); return s ? (JSON.parse(s) as Session) : undefined; } catch { return undefined; }
 }
-export function logout() { try { sessionStorage.removeItem(KEY); } catch {} }
+export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 시 무시 */ } }
 
 export async function login(username: string, password: string): Promise<Session> {
   let s: Session;

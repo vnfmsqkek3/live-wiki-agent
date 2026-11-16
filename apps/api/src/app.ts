@@ -17,7 +17,8 @@ export interface Deps {
   /** 현재 S3 객체의 버전·해시 (승인 바인딩 검증용) */
   headObject(key: string): Promise<{ s3_version_id: string; content_hash: string } | undefined>;
   startWorkflow(input: { workflow_id: string; doc_id: string; version: number; actor: Actor }): Promise<void>;
-  sendTaskResult(taskToken: string, ok: boolean, output: Record<string, unknown>): Promise<void>;
+  /** WaitForApproval 재개: 결정과 무관하게 SendTaskSuccess({decision}) (interfaces.md 6장). APPROVE만 Promote로 진행 */
+  sendDecision(taskToken: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
 }
@@ -106,8 +107,7 @@ export function createApp(deps: Deps) {
 
   app.get('/v1/documents/:id', async (c) => {
     const d = await loadDoc(c, c.req.param('id'));
-    const { task_token: _t, findings: _f, ...pub } = d;
-    return c.json(pub);
+    return c.json({ ...d, task_token: undefined, findings: undefined }); // JSON에서 빠짐
   });
 
   app.get('/v1/documents/:id/review', async (c) => {
@@ -138,7 +138,7 @@ export function createApp(deps: Deps) {
   app.get('/v1/approvals', async (c) => {
     need(c, APPROVERS);
     const status = (c.req.query('status') ?? 'PENDING') as ApprovalRecord['status'];
-    const items = (await store.listApprovals(status)).map(({ task_token: _t, ...r }) => r);
+    const items = (await store.listApprovals(status)).map((r) => ({ ...r, task_token: undefined }));
     return c.json({ items });
   });
 
@@ -160,7 +160,7 @@ export function createApp(deps: Deps) {
     if (b.decision === 'REVALIDATE') await store.putDoc({ ...d, lifecycle: 'IN_REVIEW', freshness: 'REVIEW_REQUIRED', updated_at: now });
     else if (status === 'REJECTED') await store.putDoc({ ...d, lifecycle: 'BLOCKED', authority_status: 'REJECTED', updated_at: now });
     if (apr.task_token)
-      await deps.sendTaskResult(apr.task_token, status === 'APPROVED', { approval_id: apr.approval_id, decision: b.decision });
+      await deps.sendDecision(apr.task_token, b.decision);
     await audit(c, `DECISION_${b.decision}`, apr.approval_id);
     return c.json({ approval_id: decided.approval_id, status: decided.status });
   });

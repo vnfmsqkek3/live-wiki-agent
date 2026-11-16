@@ -16,14 +16,14 @@ const USERS: Record<string, Actor> = {
 function setup() {
   const store = memoryStore();
   const objects = new Map<string, { s3_version_id: string; content_hash: string }>();
-  const tasks: { token: string; ok: boolean }[] = [];
+  const tasks: { token: string; decision: string }[] = [];
   const deps: Deps = {
     verify: async (t) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'invalid token'); return u; },
     store,
     presignPut: async (key) => `https://hanaeum-mvp-s3-quarantine.s3.us-east-1.amazonaws.com/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     headObject: async (key) => objects.get(key),
     startWorkflow: async () => {},
-    sendTaskResult: async (token, ok) => { tasks.push({ token, ok }); },
+    sendDecision: async (token, decision) => { tasks.push({ token, decision }); },
     search: async () => [],
   };
   const app = createApp(deps);
@@ -74,7 +74,7 @@ test('정상 승인: 다른 사람이 승인하면 APPROVED, task token 성공 �
   const { approval_id } = await submitted(t);
   const r = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: '근거 확인' });
   assert.equal(r.status, 200);
-  assert.deepEqual(t.tasks, [{ token: 'tok-1', ok: true }]);
+  assert.deepEqual(t.tasks, [{ token: 'tok-1', decision: 'APPROVE' }]);
 });
 
 test('보안: 일반 사용자 승인 시도 403 + 감사 기록 (데모 06 Backend 경로)', async () => {
@@ -104,6 +104,7 @@ test('보안: 검사 후 파일 변경 시 승인 거부 (409)', async () => {
   // 반려는 가능
   const r2 = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: '변경됨' });
   assert.equal(r2.status, 200);
+  assert.deepEqual(t.tasks, [{ token: 'tok-1', decision: 'REJECT' }]); // 반려도 SendTaskSuccess로 재개
 });
 
 test('보안: 승인 재사용·중복 결정 거부, USED 전환 1회만', async () => {

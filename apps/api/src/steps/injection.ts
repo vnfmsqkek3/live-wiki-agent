@@ -10,7 +10,7 @@ export const INJECTION_RULES: { re: RegExp; code: string; severity: 'HIGH' | 'ME
   { re: /(답변|응답|대답)[을를]?\s*(항상|반드시|무조건)?\s*[^.\n]{0,30}(바꿔|변경하|으로\s*답하|라고\s*답하)/, code: 'ANSWER_STEERING', severity: 'HIGH' },
   { re: /(AI|모델|어시스턴트|assistant|LLM)(에게|는|은)?\s*[^.\n]{0,20}(지시|명령|instruction)/i, code: 'MODEL_ADDRESSED', severity: 'MEDIUM' },
   { re: /^\s*(system|assistant)\s*:|<\/?(system|instructions?)>|###\s*instruction/im, code: 'ROLE_MARKER', severity: 'MEDIUM' },
-  { re: /[​-‍⁠﻿‪-‮]/, code: 'HIDDEN_UNICODE', severity: 'MEDIUM' },
+  { re: /[\u200B-\u200D\u2060\uFEFF\u202A-\u202E]/, code: 'HIDDEN_UNICODE', severity: 'MEDIUM' },
 ];
 
 export function injectionScan(segments: { page: number; text: string }[]): StepOutput {

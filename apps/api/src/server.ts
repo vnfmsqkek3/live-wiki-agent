@@ -2,7 +2,7 @@
 import { serve } from '@hono/node-server';
 import { HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { SFNClient, SendTaskFailureCommand, SendTaskSuccessCommand, StartExecutionCommand } from '@aws-sdk/client-sfn';
+import { SFNClient, SendTaskSuccessCommand, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import { createApp } from './app.ts';
 import { cognitoVerifier } from './auth.ts';
 import { memoryStore } from './store.ts';
@@ -42,9 +42,8 @@ const app = createApp({
       input: JSON.stringify({ workflow_id: i.workflow_id, doc_id: i.doc_id, version: i.version, bucket, prefix: `${i.doc_id}/`, actor: { sub: i.actor.sub, groups: i.actor.groups } }),
     }));
   },
-  sendTaskResult: async (taskToken, ok, output) => {
-    if (ok) await sfn.send(new SendTaskSuccessCommand({ taskToken, output: JSON.stringify(output) }));
-    else await sfn.send(new SendTaskFailureCommand({ taskToken, error: 'NotApproved', cause: String(output.decision) }));
+  sendDecision: async (taskToken, decision) => {
+    await sfn.send(new SendTaskSuccessCommand({ taskToken, output: JSON.stringify({ decision }) }));
   },
   search: async () => [], // ponytail: let522mj search Tool 연동 전 빈 결과 (11/18)
 });

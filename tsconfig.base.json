@@ -1,14 +1,17 @@
 {
   "compilerOptions": {
-    "target": "ES2023",
+    "target": "ES2024",
     "module": "NodeNext",
     "moduleResolution": "NodeNext",
     "strict": true,
-    "noEmit": true,
+    "noUncheckedIndexedAccess": true,
+    "esModuleInterop": true,
     "skipLibCheck": true,
-    "allowImportingTsExtensions": true,
-    "erasableSyntaxOnly": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "types": ["node"]
+    "declaration": false,
+    "sourceMap": false
   }
 }
