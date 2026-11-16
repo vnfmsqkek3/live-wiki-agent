@@ -73,12 +73,20 @@ export interface DocState {
 }
 export interface DocStates { get(docIds: string[]): Promise<Map<string, DocState>> }
 
+/** 검색 결과 항목. 앞 8개 필드는 dhxorb96 가이드 Agent Evidence 계약 (agents/src/guide.ts) */
 export interface Result {
-  doc_id: string; title: string; document_type: string; provision_id: string; path_label: string; provision_status: string;
-  original_text: string; authority_status: AuthorityStatus; conditional: boolean; freshness: Freshness;
-  effective_from: number; effective_to: number; score: number;
+  doc_id: string; title: string;
+  snippet: string; // 인용 원문 (문맥 헤더 없음)
+  provision?: string; // 사람이 읽는 조문 표기 "한빛은행 기업여신 심사규정 제12조제1항" (규정만)
+  effective_from: string; // YYYY-MM-DD
+  authority_status: AuthorityStatus; freshness: Freshness;
+  search_status: "FOUND" | "HISTORICAL" | "DELETED";
+  // 추가 정보
+  document_type: string; provision_id: string; path_label: string; provision_status: string;
+  conditional: boolean; effective_to: string; score: number;
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
+const isoDate = (ymd: number) => `${String(ymd).slice(0, 4)}-${String(ymd).slice(4, 6)}-${String(ymd).slice(6, 8)}`;
 
 /** 유효기간 판정: DynamoDB 현재 상태가 있으면 그것을, 없으면 KB 메타데이터를 쓴다. 기간 정보 없이 SUPERSEDED면 현행 아님 */
 const current = (st: DocState, m: Record<string, unknown>, asOf: number) => {
@@ -102,13 +110,18 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       && (o.includeHistory || (current(st, m, o.asOf) && m["provision_status"] !== "DELETED"));
     if (!ok) continue;
     const hist = m["provision_status"] === "DELETED" || !current(st, m, o.asOf);
+    const isReg = m["document_type"] === "REGULATION";
+    const pathLabel = String(m["provision_path"] ?? "");
     kept.push({
-      historical: hist,
-      doc_id: st.doc_id, title: String(m["title"] ?? ""), document_type: String(m["document_type"]),
-      provision_id: String(m["provision_id"] ?? ""), path_label: String(m["provision_path"] ?? ""), provision_status: String(m["provision_status"] ?? "ACTIVE"),
-      original_text: String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
-      authority_status: st.authority_status, conditional: !!st.conditional, freshness: st.freshness,
-      effective_from: st.effective_from ?? Number(m["effective_from"]), effective_to: st.effective_to ?? Number(m["effective_to"]), score: h.score,
+      doc_id: st.doc_id, title: String(m["title"] ?? ""),
+      snippet: String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
+      ...(isReg && pathLabel ? { provision: `${String(m["law_name"] ?? m["title"] ?? "")} ${pathLabel}`.trim() } : {}),
+      effective_from: isoDate(st.effective_from ?? Number(m["effective_from"])),
+      authority_status: st.authority_status, freshness: st.freshness,
+      search_status: m["provision_status"] === "DELETED" ? "DELETED" : hist ? "HISTORICAL" : "FOUND",
+      document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
+      provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
+      effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -134,7 +147,7 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7)
     const top = kept.slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
-    return { search_status, results: top, dropped_after_revalidation: dropped, pii_masked: q.masked };
+    return { search_status, items: top, dropped_after_revalidation: dropped, pii_masked: q.masked };
   }
 
   return {

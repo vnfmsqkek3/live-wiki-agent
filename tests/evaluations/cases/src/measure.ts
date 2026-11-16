@@ -109,7 +109,7 @@ export async function measureDeletionSafety() {
       const q = oldText || p.path_label;
       probes++;
       const res = await env.search.search_wiki({ query: q, as_of: "2026-12-15" }, USER);
-      if (res.results.some((x) => x.provision_id === p.provision_id || x.provision_status === "DELETED")) searchMis++;
+      if (res.items.some((x) => x.provision_id === p.provision_id || x.provision_status === "DELETED")) searchMis++;
     }
   }
   return { lookup_cases: lookups.length, lookup_miscitations: lookupMis, search_probes: probes, search_miscitations: searchMis, miscitations: lookupMis + searchMis };

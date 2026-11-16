@@ -101,11 +101,12 @@ export class MemoryRecords implements Records {
   async setPublishedHash(id: string, hash: string) { const d = this.documents.get(id); if (d) d.published_content_hash = hash; }
 }
 
-/** DynamoDB 키 규칙 (interfaces.md 4장: 모든 테이블 pk/sk + gsi1). 키 값은 테이블 Owner(dhxorb96) 확정 전 제안값 — 바뀌면 여기만 수정 */
+/** DynamoDB 키 규칙 — 테이블 Owner dhxorb96 확정본 (apps/api/src/store-dynamo.ts, 11/16)
+ *  Documents pk=DOC#{doc_id} sk=META / Approvals pk=APR#{approval_id} sk=META, gsi1pk=APR_STATUS#{status} gsi1sk={created_at} */
 export const KEYS = {
   document: (docId: string) => ({ pk: `DOC#${docId}`, sk: "META" }),
   approval: (aprId: string) => ({ pk: `APR#${aprId}`, sk: "META" }),
-  approvalsByDoc: (docId: string) => ({ gsi1pk: `DOC#${docId}` }), // gsi1sk = `APR#{version}#{approval_id}`
+  approvalStatus: (status: ApprovalRecord["status"]) => `APR_STATUS#${status}`,
 };
 
 export class DynamoRecords implements Records {
@@ -124,21 +125,31 @@ export class DynamoRecords implements Records {
     return r.Item as ApprovalRecord | undefined;
   }
   async findApproval(docId: string, version: number, wf: string) {
-    const r = await this.db.send(new QueryCommand({
-      TableName: this.tables.approvals, IndexName: "gsi1",
-      KeyConditionExpression: "gsi1pk = :pk", ExpressionAttributeValues: { ":pk": KEYS.approvalsByDoc(docId).gsi1pk },
-    }));
-    return ((r.Items ?? []) as ApprovalRecord[]).find((a) => a.version === version && (a.status === "APPROVED" || (a.status === "USED" && a.used_by === wf)));
+    // gsi1은 상태별 파티션. APPROVED 먼저, 없으면 이 워크플로가 USED한 것(재시도)
+    for (const status of ["APPROVED", "USED"] as const) {
+      let start: Record<string, unknown> | undefined;
+      do {
+        const r: import("@aws-sdk/lib-dynamodb").QueryCommandOutput = await this.db.send(new QueryCommand({
+          TableName: this.tables.approvals, IndexName: "gsi1", ExclusiveStartKey: start,
+          KeyConditionExpression: "gsi1pk = :pk", FilterExpression: "doc_id = :d AND version = :v",
+          ExpressionAttributeValues: { ":pk": KEYS.approvalStatus(status), ":d": docId, ":v": version },
+        }));
+        const hit = ((r.Items ?? []) as ApprovalRecord[]).find((a) => status === "APPROVED" || a.used_by === wf);
+        if (hit) return hit;
+        start = r.LastEvaluatedKey;
+      } while (start);
+    }
+    return undefined;
   }
   async consumeApproval(a: ConsumeArgs) {
     try {
       const r = await this.db.send(new UpdateCommand({
         TableName: this.tables.approvals,
         Key: KEYS.approval(a.approval_id),
-        UpdateExpression: "SET #s = :used, used_by = :wf, used_at = if_not_exists(used_at, :now)",
+        UpdateExpression: "SET #s = :used, gsi1pk = :g, used_by = :wf, used_at = if_not_exists(used_at, :now)",
         ConditionExpression: "(#s = :approved OR (#s = :used AND used_by = :wf)) AND doc_id = :d AND version = :v AND content_hash = :h",
         ExpressionAttributeNames: { "#s": "status" },
-        ExpressionAttributeValues: { ":used": "USED", ":approved": "APPROVED", ":wf": a.workflow_id, ":d": a.doc_id, ":v": a.version, ":h": a.content_hash, ":now": new Date().toISOString() },
+        ExpressionAttributeValues: { ":used": "USED", ":g": KEYS.approvalStatus("USED"), ":approved": "APPROVED", ":wf": a.workflow_id, ":d": a.doc_id, ":v": a.version, ":h": a.content_hash, ":now": new Date().toISOString() },
         ReturnValues: "ALL_NEW",
       }));
       return r.Attributes as ApprovalRecord;
