@@ -103,3 +103,13 @@ test('SDK 내부 Tool은 상한 대상 아님, 현행 조문 조회 결과는 �
   assert.deepEqual([cur[0]!.doc_id, cur[0]!.effective_from, cur[0]!.snippet], ['SYN-LOAN-001@2026-12-01/ARTICLE:12', '2026-12-01', '본부 승인 ① 5억원 이상']);
   assert.equal(citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2025-01-01/ARTICLE:12', original_text: '7억원', current: { revision_id: '2026-12-01' } }).length, 0);
 });
+
+test('같은 규정의 여러 조문: 출처는 조문 ID로 정확히 대조, 조문이 여럿인 doc_id만 쓴 출처는 버림', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const reg = (p: string, label: string) => ({ doc_id: 'doc_R', provision_id: `SYN-LOAN-001@2026-11-01/${p}`, title: '기업여신 심사규정', snippet: label, provision: `기업여신 심사규정 ${label}`, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, search_status: 'FOUND' });
+  const r = await guide('제12조 승인 기준', { model: 'm', search: async () => [reg('ARTICLE:12', '제12조'), reg('ARTICLE:2', '제2조')],
+    draft: async () => ({ steps: [{ text: '본부 승인 기준', sources: ['SYN-LOAN-001@2026-11-01/ARTICLE:12'] }, { text: '모호', sources: ['doc_R'] }], uncertainty: '' }) });
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.steps[0]!.sources[0]!.provision, '기업여신 심사규정 제12조');
+  assert.equal(r.dropped_steps, 1);
+});

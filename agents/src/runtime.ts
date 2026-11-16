@@ -44,6 +44,7 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
   const tool_calls: ToolCall[] = [];
   const evidence: Evidence[] = [];
   agent.addHook(BeforeToolCallEvent, (ev) => {
+    if (!ev.toolUse.name.includes('___')) return; // SDK 내부 Tool(structured_output)은 기록·진행 문구 없음
     const why = budget.check(ev.toolUse.name, ev.toolUse.input);
     if (why) { ev.cancel = why; return; }
     started.set(ev.toolUse.toolUseId, Date.now());
