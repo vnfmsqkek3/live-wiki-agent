@@ -113,6 +113,8 @@ resource "aws_codebuild_project" "app" {
         # podman 사용 (사용자 지시 11/16: docker 라이선스 회피). CodeBuild 컨테이너 안이라 vfs 저장소·cgroupfs
         pre_build = { commands = [
           "dnf install -y -q podman git awscli2",
+          # Docker Hub 비인증 pull 한도(toomanyrequests) 회피: docker.io 공식 이미지는 ECR Public 미러에서 먼저 받는다
+          "printf '[[registry]]\\nprefix = \"docker.io\"\\nlocation = \"docker.io\"\\n[[registry.mirror]]\\nlocation = \"public.ecr.aws/docker\"\\n' > /etc/containers/registries.conf.d/99-ecr-public-mirror.conf",
           "aws ecr get-login-password | podman login --username AWS --password-stdin $REGISTRY",
           "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $REF",
         ] }
