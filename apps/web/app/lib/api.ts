@@ -72,7 +72,6 @@ export const MOCK_ITEMS: SearchItem[] = [
 function mock(method: string, path: string, body?: unknown): unknown {
   if (path.startsWith('/v1/search')) {
     const u = new URL(path, 'http://x');
-  
     const tag = u.searchParams.get('tags');
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
@@ -84,6 +83,11 @@ function mock(method: string, path: string, body?: unknown): unknown {
     ] };
   if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
   if (/\/v1\/documents\/.+\/analyze/.test(path)) return { workflow_id: 'wf_MOCK' };
+  if (/\/v1\/documents\/.+\/review/.test(path)) return MOCK_REVIEW;
+  if (/\/v1\/documents\/.+\/classification/.test(path)) return { document_type: (body as { document_type: string }).document_type };
+  if (/\/v1\/documents\/.+\/submit/.test(path)) return { approval_id: 'apr_MOCK' };
+  if (path === '/v1/guides') return MOCK_GUIDE;
+  if (path === '/v1/feedback') return { ok: true };
   throw new ApiError(404, `mock 없음: ${method} ${path}`);
 }
 
@@ -92,3 +96,34 @@ export async function uploadFile(url: string, file: File) {
   const r = await fetch(url, { method: 'PUT', body: file });
   if (!r.ok) throw new ApiError(r.status, '파일 업로드 실패');
 }
+
+// ---------- 05 검토 · 03 가이드 ----------
+export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
+export interface Review {
+  doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
+  authority_status: string;
+  classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
+  findings: Finding[]; masked_preview?: string;
+}
+const MOCK_REVIEW: Review = {
+  doc_id: 'doc_MOCK', title: '담보평가 실무 체크리스트', lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', authority_status: 'UNVERIFIED',
+  classification: { document_type: 'KNOWHOW', confidence: 0.82, rationale: '절차·체크 항목 중심의 실무 문서이며 공식 규정 번호 체계가 없습니다.', source: 'MODEL' },
+  findings: [
+    { finding_id: 'f1', step: 'PII_SCAN', severity: 'LOW', code: 'PII_MASKED_PHONE', message: '전화번호 2건 가림', evidence_ref: 'page:1' },
+    { finding_id: 'f2', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', message: '계좌번호 1건 가림 (그중 1건은 개인정보인지 확인 필요)', evidence_ref: 'page:2' },
+    { finding_id: 'f3', step: 'OCR', severity: 'MEDIUM', code: 'OCR_LOW_CONFIDENCE', message: '인식 신뢰도가 낮은 페이지 (평균 0.86)', evidence_ref: 'page:3' },
+  ],
+  masked_preview: '1. 감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.\n2. 담당자 연락처 [전화번호]로 평가 일정을 확인한다.\n3. 입금 계좌 [계좌번호]는 고객 확인 후 기재한다.',
+};
+
+export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string }
+export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; dropped_steps: number; uncertainty: string }
+const MOCK_GUIDE: Guide = {
+  status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,
+  evidence: [],
+  steps: [
+    { text: '담보가액이 3억원 이상이면 본부 승인을 받아야 하므로, 담보 4억원 건은 본부 승인 대상입니다.', sources: [{ doc_id: 'doc_F001', title: '기업여신 심사규정 v1', snippet: '', provision: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT' }] },
+    { text: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록합니다.', sources: [{ doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '', provision: '기업여신 심사규정 제12조', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT' }] },
+  ],
+  uncertainty: '"5억원 미만은 지점 전결" 팁은 개정 전 규정을 근거로 하고 있어 재검토 중입니다. 현행 기준은 3억원 이상 본부 승인입니다.',
+};

@@ -108,3 +108,16 @@ label.lbl { display: block; font-size: .875rem; font-weight: 600; margin: 22px 0
   main { padding: 36px 32px; margin-left: max(136px, calc((100vw - 44rem) / 2)); }
   .title { font-size: 2.1rem; }
 }
+
+/* 05 진행 단계 (실제 순서이므로 번호 사용) */
+.stages { display: flex; gap: 0; list-style: none; padding: 0; margin: 0 0 20px; counter-reset: st; font-size: .82rem; }
+.stages li { flex: 1; counter-increment: st; padding: 8px 4px 0; border-top: 3px solid var(--rule); color: var(--ink-2); }
+.stages li::before { content: counter(st) ". "; }
+.stages li.done { border-top-color: var(--verified); color: var(--ink); }
+.stages li[aria-current=step] { border-top-color: var(--ink); color: var(--ink); font-weight: 700; }
+mark.pii { background: var(--ochre-bg); color: var(--ochre); padding: 0 2px; border-radius: 2px; font-family: var(--sans); font-size: .9em; }
+
+/* 03 가이드 단계 */
+.steps { list-style: none; counter-reset: g; padding: 0; margin: 8px 0 0; }
+.steps li { counter-increment: g; position: relative; padding: 14px 0 14px 44px; border-bottom: 1px solid var(--rule); }
+.steps li::before { content: counter(g); position: absolute; left: 0; top: 10px; font: 700 1.5rem/1 var(--serif); color: var(--ink-2); }

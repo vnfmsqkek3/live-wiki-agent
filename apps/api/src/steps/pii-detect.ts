@@ -1,6 +1,9 @@
 // 개인정보 탐지·마스킹 순수 함수 (의존성 없음). API 단계 6과 Agent 질의 검사가 함께 쓴다.
 export type PiiType = 'RRN' | 'PHONE' | 'EMAIL' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO';
 
+/** 화면·Finding 메시지용 한글 이름 */
+export const PII_NAME: Record<PiiType, string> = { RRN: '주민등록번호', PHONE: '전화번호', EMAIL: '이메일', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호' };
+
 export interface PiiSpan {
   type: PiiType;
   start: number;

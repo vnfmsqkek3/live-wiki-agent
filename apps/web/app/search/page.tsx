@@ -53,7 +53,7 @@ function Results() {
               </li>
             ))}
           </ul>
-          {items.length > 0 && <div className="actions"><button className="btn solid" disabled title="11/19 연동 예정">이 문서들로 업무 가이드 만들기</button></div>}
+          {items.length > 0 && <div className="actions"><button className="btn solid" onClick={() => router.push(`/guide?q=${encodeURIComponent(q || tag)}`)}>이 내용으로 업무 가이드 만들기</button></div>}
         </>
       )}
     </>

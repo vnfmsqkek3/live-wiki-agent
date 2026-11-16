@@ -11,7 +11,7 @@ export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
   const [title, setTitle] = useState('');
   const [acl, setAcl] = useState('ALL');
-  const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; msg?: string }>({ kind: 'idle' });
+  const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; msg?: string; doc_id?: string }>({ kind: 'idle' });
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const fileErr = file && (!ACCEPT.includes(`.${ext}`) ? 'PDF, DOCX, HWPX, PNG, JPG 파일만 올릴 수 있습니다.' : file.size > MAX ? '50MB 이하 파일만 올릴 수 있습니다.' : '');
@@ -27,7 +27,7 @@ export default function Upload() {
       setState({ kind: 'busy', msg: '검사 전용 저장소에 올리는 중입니다.' });
       await uploadFile(url, file);
       await api('POST', `/v1/documents/${doc_id}/analyze`);
-      setState({ kind: 'done', msg: '분석을 시작했습니다. 보안 검사, 텍스트 추출, 분류와 개인정보 확인이 끝나면 검토 요청이 옵니다.' });
+      setState({ kind: 'done', doc_id, msg: '분석을 시작했습니다. 보안 검사, 텍스트 추출, 분류와 개인정보 확인이 끝나면 검토할 수 있습니다.' });
     } catch (err) {
       const x = err as ApiError;
       setState({ kind: 'error', msg: x.status === 403 ? '문서 등록은 작성자 권한이 있어야 합니다.' : x.message });
@@ -56,6 +56,7 @@ export default function Upload() {
           <button className="btn solid" type="submit" disabled={!file || !!fileErr || !title.trim() || state.kind === 'busy'}>분석 시작</button>
         </div>
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
+        {state.doc_id && <a className="btn" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </form>
     </>
   );

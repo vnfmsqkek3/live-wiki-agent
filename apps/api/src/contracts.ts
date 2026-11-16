@@ -88,7 +88,7 @@ export interface ApprovalRecord {
 export interface FeedbackRecord {
   doc_id: string;
   user_sub: string;
-  stars: number;
+  stars?: number;
   useful: boolean;
   updated_at: string;
 }
@@ -112,7 +112,7 @@ export const DecisionBody = z.object({
 
 export const FeedbackBody = z.object({
   doc_id: z.string().regex(/^doc_[0-9A-HJKMNP-TV-Z]{26}$/),
-  stars: z.number().int().min(1).max(5),
+  stars: z.number().int().min(1).max(5).optional(), // 가이드의 "도움이 됐어요"는 별점 없이 useful만
   useful: z.boolean(),
 });
 
