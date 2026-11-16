@@ -113,8 +113,8 @@ export const Finding = z.object({
 });
 
 /** 단계가 예외로 끝날 때도 올린 사람이 읽을 수 있게: message = 사유 + 고치는 방법 (오케스트레이터가 STEP# error에 기록) */
-export const stepFailure = (name: string, user_message: string, fix_hint: string) =>
-  Object.assign(new Error(`${user_message} (조치: ${fix_hint})`), { name, user_message, fix_hint });
+export const stepFailure = (name: string, user_message: string, fix_hint: string, details?: string) =>
+  Object.assign(new Error(`${user_message} (조치: ${fix_hint})`), { name, user_message, fix_hint, ...(details ? { details } : {}) }); // details: AWS 원문 오류 등 운영자용 (화면 문장에 섞지 않음)
 export type Finding = z.infer<typeof Finding>;
 
 export const StepInput = z.object({

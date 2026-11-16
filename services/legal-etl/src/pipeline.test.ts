@@ -119,8 +119,9 @@ test("12: 폴링 계약 — 첫 호출 시작·PENDING, 재호출 상태 조회,
   await assert.rejects(kbIngestStep(input, api, r, s, env), /1건이 실패/u);
   state = { status: "COMPLETE", failed: 0, failureReasons: [] };
   assert.equal((await kbIngestStep(input, api, r, s, env)).status, "OK");
-  state = { status: "FAILED", failed: 0, failureReasons: ["x"] };
-  await assert.rejects(kbIngestStep(input, api, r, s, env), /FAILED/u);
+  state = { status: "FAILED", failed: 0, failureReasons: ["Access denied to OpenSearch index"] };
+  await assert.rejects(kbIngestStep(input, api, r, s, env), (e: Error & { user_message?: string; details?: string }) =>
+    e.user_message === "검색 색인에 실패했습니다." && !/[A-Za-z]{4,}/u.test(e.message) && /FAILED: Access denied/u.test(e.details!)); // 화면 문장에 AWS 영문 금지, 원문은 details
 });
 
 test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA256(base64) 형식 해시도 일치 판정", async () => {
