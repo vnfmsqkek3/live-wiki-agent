@@ -16,7 +16,8 @@ export interface Deps {
   presignPut(key: string, contentLength: number): Promise<string>;
   /** 현재 S3 객체의 버전·해시 (승인 바인딩 검증용) */
   headObject(key: string): Promise<{ s3_version_id: string; content_hash: string } | undefined>;
-  startWorkflow(input: { workflow_id: string; doc_id: string; version: number; actor: Actor }): Promise<void>;
+  /** 실행 이름=workflow_id, 입력은 문서로만 결정 → 업로드 이벤트(type-detection)와 analyze가 같은 실행으로 수렴 (멱등) */
+  startWorkflow(doc: DocumentRecord): Promise<void>;
   /** WaitForApproval 재개: 결정과 무관하게 SendTaskSuccess({decision}) (interfaces.md 6장). APPROVE만 Promote로 진행 */
   sendDecision(taskToken: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
@@ -83,7 +84,7 @@ export function createApp(deps: Deps) {
     const doc: DocumentRecord = {
       doc_id: newId.doc(), version: 1, owner: a.sub, title: b.title, dept: b.dept, acl_groups: b.acl_groups,
       ext: ext === 'jpeg' ? 'jpg' : ext, lifecycle: 'QUARANTINED', authority_status: 'UNVERIFIED', freshness: 'CURRENT',
-      findings: [], created_at: now, updated_at: now,
+      workflow_id: newId.wf(), findings: [], created_at: now, updated_at: now,
     };
     await store.putDoc(doc);
     const url = await deps.presignPut(quarantineKey(doc), b.size);
@@ -95,14 +96,13 @@ export function createApp(deps: Deps) {
     const a = need(c, ['AUTHOR']);
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
-    if (d.workflow_id) throw new ApiError('CONFLICT', 'already analyzing');
     const head = await deps.headObject(quarantineKey(d));
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
-    const workflow_id = newId.wf();
-    await store.putDoc({ ...d, workflow_id, s3_version_id: head.s3_version_id, content_hash: head.content_hash, updated_at: new Date().toISOString() });
-    await deps.startWorkflow({ workflow_id, doc_id: d.doc_id, version: d.version, actor: a });
+    const doc = { ...d, s3_version_id: head.s3_version_id, content_hash: head.content_hash, updated_at: new Date().toISOString() };
+    await store.putDoc(doc);
+    await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
-    return c.json({ workflow_id }, 202);
+    return c.json({ workflow_id: d.workflow_id }, 202);
   });
 
   app.get('/v1/documents/:id', async (c) => {
