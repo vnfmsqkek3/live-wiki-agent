@@ -180,3 +180,15 @@ export const isoFromDotted = (s: string): string => {
   const [y, m, d] = s.split(".").map((x) => x.trim()).filter(Boolean);
   return `${y}-${m!.padStart(2, "0")}-${d!.padStart(2, "0")}`;
 };
+
+/** ULID (Crockford base32, 48bit 시간 + 80bit 난수). 접두어는 호출부에서 붙인다 */
+const B32 = "0123456789ABCDEFGHJKMNPQRSTVWXYZ";
+export function newUlid(now = Date.now()): string {
+  let t = "";
+  for (let i = 0; i < 10; i++) { t = B32[now % 32] + t; now = Math.floor(now / 32); }
+  const r = crypto.getRandomValues(new Uint8Array(16));
+  let s = "";
+  for (let i = 0; i < 16; i++) s += B32[r[i]! % 32];
+  return t + s;
+}
+export const newId = (prefix: "doc" | "wf" | "apr" | "fnd"): string => `${prefix}_${newUlid()}`;

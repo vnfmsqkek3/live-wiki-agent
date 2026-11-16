@@ -1,0 +1,63 @@
+// 단계 11 Promote: 승인 바인딩 소비(APPROVED→USED) 후 마스킹본을 published 버킷으로 + .metadata.json (interfaces.md 3·5·7.1장)
+import { createHash } from "node:crypto";
+import { MetadataSidecar, OPEN_END } from "@hanaeum/schemas";
+import type { DocumentMetadata, IndexGroup, StepInput, StepOutput } from "@hanaeum/schemas";
+import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
+
+export const sha256 = (b: Buffer | string) => "sha256:" + createHash("sha256").update(b).digest("hex");
+
+const INDEX_GROUP: Record<DocumentRecord["document_type"], IndexGroup> = {
+  REGULATION: "legal-clauses", KNOWHOW: "wiki-knowledge", MANUAL: "official-manuals",
+};
+export const publishedPrefix = (d: Pick<DocumentRecord, "document_type" | "doc_id">) =>
+  `${d.document_type === "REGULATION" ? "legal" : "knowledge"}/${d.doc_id}/`;
+
+const todayYmd = () => Number(new Date().toISOString().slice(0, 10).replaceAll("-", ""));
+
+export function buildMetadata(doc: DocumentRecord, approval_id: string, content_hash: string): DocumentMetadata {
+  if (doc.authority_status === "REJECTED") throw new Error("REJECTED 문서는 게시 불가");
+  return {
+    doc_id: doc.doc_id,
+    document_type: doc.document_type,
+    index_group: INDEX_GROUP[doc.document_type],
+    authority_status: doc.authority_status,
+    freshness: "CURRENT",
+    lifecycle: "PUBLISHED",
+    ...(doc.law_id ? { law_id: doc.law_id } : {}),
+    ...(doc.revision_id ? { revision_id: doc.revision_id } : {}),
+    effective_from: doc.effective_from ?? (doc.revision_id ? Number(doc.revision_id.replaceAll("-", "")) : todayYmd()),
+    effective_to: doc.effective_to ?? OPEN_END,
+    acl_groups: doc.acl_groups,
+    dept: doc.dept,
+    approval_id,
+    content_hash,
+  };
+}
+
+export interface PromoteInput extends StepInput { approval_id: string; published_bucket: string }
+
+export async function promoteStep(input: PromoteInput, store: ObjectStore, records: Records): Promise<StepOutput> {
+  const doc = await records.getDocument(input.doc_id);
+  if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
+  if (doc.version !== input.version) throw new Error(`버전 불일치: record v${doc.version} ≠ input v${input.version}`);
+
+  // 승인은 원본 객체 해시에 묶인다 (interfaces.md 7.1). 승인 이후 원본이 바뀌었으면 여기서 막힌다.
+  const originals = await store.list(input.bucket, `${input.doc_id}/original.`);
+  if (originals.length !== 1) throw new Error("original 객체가 1개가 아님");
+  const originalHash = sha256(await store.get(input.bucket, originals[0]!));
+  await records.consumeApproval({ approval_id: input.approval_id, doc_id: input.doc_id, version: input.version, content_hash: originalHash });
+
+  // 마스킹본만 게시 (원문·work/ 는 절대 published로 가지 않음)
+  const segKeys = (await store.list(input.bucket, `${input.doc_id}/masked/segments/`)).filter((k) => k.endsWith(".json"));
+  if (!segKeys.length) throw new Error("마스킹 세그먼트 없음");
+  const texts: string[] = [];
+  for (const k of segKeys) texts.push((JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string }).text);
+  const content = texts.join("\n");
+  if (!content.trim()) throw new Error("게시할 본문이 비어 있음");
+
+  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, input.approval_id, sha256(content)) });
+  const key = `${publishedPrefix(doc)}content.txt`;
+  await store.put(input.published_bucket, key, content, "text/plain; charset=utf-8");
+  await store.put(input.published_bucket, `${key}.metadata.json`, JSON.stringify(meta));
+  return { status: "OK", output_key: key };
+}
