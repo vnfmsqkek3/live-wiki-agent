@@ -148,8 +148,4 @@ export const ClassificationBody = z.object({
 /** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 
-export const GuideBody = z.object({
-  question: z.string().trim().min(1).max(1000),
-  /** 화면 대화 ID (UUID). 같은 대화의 후속 질문은 AgentCore Memory로 맥락 유지 */
-  conversation_id: z.string().uuid().optional(),
-});
+export const GuideBody = z.object({ question: z.string().trim().min(1).max(1000) });

@@ -3,11 +3,6 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { Agent, BedrockModel, McpClient } from '@strands-agents/sdk';
 import { GUIDE_SYSTEM, GuideDraft, MOCK_EVIDENCE, guide, type Evidence } from './guide.ts';
-import { agentCoreMemory } from './memory.ts';
-
-const memory = process.env.MEMORY_ID ? agentCoreMemory(process.env.MEMORY_ID, process.env.AWS_REGION ?? 'us-east-1') : undefined;
-/** Runtime JWT authorizer가 서명을 검증한 토큰에서 sub만 꺼낸다 (actorId) */
-const subOf = (auth: string) => { try { return JSON.parse(Buffer.from(auth.replace(/^Bearer\s+/i, '').split('.')[1]!, 'base64url').toString()).sub as string; } catch { return undefined; } };
 
 const env = (k: string) => {
   const v = process.env[k];
@@ -58,10 +53,7 @@ createServer(async (req, res) => {
       const search = process.env.GATEWAY_URL
         ? (q: string) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
-      const sessionId = req.headers['x-amzn-bedrock-agentcore-runtime-session-id'];
-      const actorId = typeof auth === 'string' ? subOf(auth) : undefined;
-      const ctx = memory && actorId && typeof sessionId === 'string' ? { actorId, sessionId } : undefined;
-      return send(200, await guide(b.prompt, { search, draft: draftWithModel, model: env('MODEL_SONNET'), memory }, ctx));
+      return send(200, await guide(b.prompt, { search, draft: draftWithModel, model: env('MODEL_SONNET') }));
     }
     send(404, { error: 'not found' });
   } catch (e) {

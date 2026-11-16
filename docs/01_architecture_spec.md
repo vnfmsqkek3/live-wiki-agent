@@ -676,11 +676,7 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 
 ## 11. AgentCore Identity·Policy·Evaluations
 
-적용 범위: AgentCore Identity + Policy, AgentCore Evaluations, **AgentCore Memory(사용자 Agent만)**. Optimization·AgentCore Registry는 이번 변경 범위에서 제외한다 (Trusted Regulation Registry와 무관하며 Registry 대조 기능은 유지).
-
-> 팀 결정(11/16, 사용자): 문서 처리 오케스트레이션은 Step Functions 대신 **AgentCore Runtime(Strands Graph) + Gateway**로 한다(`interfaces.md` 6.1). 상태 전이는 오케스트레이터가 Gateway Tool(단계 Lambda)과 인증된 API로만 수행하며, 승인·게시 Tool은 없다.
->
-> 팀 결정(11/16, 사용자): **AgentCore Memory 도입** — 가이드·검색 대화의 후속 질문 맥락용. 단기 이벤트(actorId = Cognito sub, sessionId = 화면 대화 ID)와 summary 장기 기억(`/users/{actorId}/`). 마스킹된 텍스트만 저장, 기억 속 조문은 근거로 인용하지 않고 이번 검색(Tool 재검증) 결과만 인용, 사용자 삭제 `DELETE /v1/me/memory`. 파이프라인 오케스트레이터는 Memory를 쓰지 않는다(상태는 DynamoDB).
+적용 범위: AgentCore Identity + Policy, AgentCore Evaluations. AgentCore Memory·Optimization·AgentCore Registry는 이번 변경 범위에서 제외한다 (Trusted Regulation Registry와 무관하며 Registry 대조 기능은 유지).
 
 ### 11.1 Identity + Policy 책임
 

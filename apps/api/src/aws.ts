@@ -71,7 +71,7 @@ export async function resume(d: DocumentRecord, decision: 'APPROVE' | 'REJECT' |
 }
 
 /** 가이드 Agent 호출. AGENT_RUNTIME_ARN이면 AgentCore Runtime(JWT authorizer), AGENT_URL이면 로컬 컨테이너 */
-export async function invokeAgent(question: string, accessToken: string, conversationId?: string) {
+export async function invokeAgent(question: string, accessToken: string) {
   const arn = process.env.AGENT_RUNTIME_ARN;
   const url = arn
     ? `https://bedrock-agentcore.${region()}.amazonaws.com/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`
@@ -81,8 +81,7 @@ export async function invokeAgent(question: string, accessToken: string, convers
     headers: {
       'content-type': 'application/json',
       authorization: `Bearer ${accessToken}`,
-      // 같은 대화는 같은 세션 ID → Agent가 AgentCore Memory(sessionId)로 후속 질문 맥락 유지
-      'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': `guide-${conversationId ?? crypto.randomUUID()}`,
+      'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': `guide-${crypto.randomUUID()}`, // 요청마다 독립 세션 (Memory 미사용)
     },
     body: JSON.stringify({ prompt: question }),
     signal: AbortSignal.timeout(60_000),
@@ -131,10 +130,4 @@ export async function applyGuardrail(text: string) {
   }));
   const detected = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
   return { text: r.outputs?.[0]?.text ?? text, detected };
-}
-
-/** 사용자 AgentCore Memory 삭제 (MEMORY_ID 있을 때만) */
-export async function deleteMemory(actorId: string) {
-  const { agentCoreMemory } = await import('../../../agents/src/memory.ts');
-  return agentCoreMemory(env('MEMORY_ID'), region()).deleteActor(actorId);
 }

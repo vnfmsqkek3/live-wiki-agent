@@ -288,7 +288,7 @@ KB 검색 결과 청크의 `provision_id`로 Neptune에서 `(:CLAUSE_VERSION)<-[
 | Policy | Tool별 deny-by-default. `publish_wiki`·`approve_regulation`은 Agent에 노출하지 않거나 역할 조건으로 Deny (01 §11) |
 | Observability | Runtime·Gateway Trace를 CloudWatch(OTel)로. trace_id를 DynamoDB 워크플로 단계와 연결 → 관리자 화면 08 |
 | Evaluations | Golden Dataset(60건)으로 배포 전 오프라인 평가 + 운영 샘플 평가 분리 |
-| Memory | 사용자 Agent(가이드·검색 대화)만, 마스킹 텍스트·사용자 네임스페이스·근거 재인용 금지 (01 §11 팀 결정 11/16). 파이프라인 오케스트레이터는 미사용 |
+| Memory | 사용하지 않음 (01 §11 범위 제외) |
 
 공통: 모델 ID·리전은 **환경변수/SSM**으로만 주입 (참고 구현은 하드코딩으로 리전 이식 불가).
 

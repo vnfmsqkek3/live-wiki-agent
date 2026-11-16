@@ -25,8 +25,7 @@ function setup() {
     startWorkflow: async () => {},
     resume: async (d, decision) => { tasks.push({ token: d.doc_id, decision }); return true; },
     search: async () => [],
-    guide: async (q, tok, conv) => ({ q, tok, ...(conv ? { conv } : {}) }),
-    deleteMemory: async (sub) => (sub === 'u-user' ? 3 : 0),
+    guide: async (q, tok) => ({ q, tok }),
     webOrigins: ['http://localhost:3000'],
     workflowFailure: async (wf) => (wf === 'wf_FAILED' ? { step: 'ParallelPreprocess', error: 'InvalidPDFException' } : undefined),
   };
@@ -219,13 +218,4 @@ test('파이프라인 실패: QUARANTINED 문서 조회 시 실패 단계·오�
   await t.store.putDoc({ ...d, workflow_id: 'wf_FAILED' });
   const g = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}`)).json()) as Record<string, unknown>;
   assert.deepEqual(g.workflow_failure, { step: 'ParallelPreprocess', error: 'InvalidPDFException' });
-});
-
-test('가이드 대화 ID 전달, Memory 삭제는 본인 것만', async () => {
-  const t = setup();
-  const conv = '3f1c2a4e-1b2c-4d5e-8f90-123456789abc';
-  assert.deepEqual(await (await t.call('user', 'POST', '/v1/guides', { question: 'q', conversation_id: conv })).json(), { q: 'q', tok: 'user', conv });
-  assert.equal((await t.call('user', 'POST', '/v1/guides', { question: 'q', conversation_id: 'x' })).status, 422);
-  assert.deepEqual(await (await t.call('user', 'DELETE', '/v1/me/memory')).json(), { deleted: 3 });
-  assert.ok(t.store.audits.some((a) => a.action === 'MEMORY_DELETE' && a.actor === 'u-user'));
 });
