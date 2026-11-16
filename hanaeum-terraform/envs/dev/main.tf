@@ -34,7 +34,7 @@ module "stack" {
   # SQS 트리거는 공유 이름 type-detection (dhxorb96 개인 Role 에 SQS 권한 없음). zip: scripts/build-team-lambdas.sh
   team_lambdas = ["type-detection"]
   # Lambda 빌드 커밋 (CodeBuild 가 공개 저장소에서 빌드). yoyo0704: workflows·auth-triggers, dhxorb96: type-detection
-  lambda_refs = { yoyo0704 = "PENDING", dhxorb96 = "bc6d26e" }
+  lambda_refs = { yoyo0704 = "3310656", dhxorb96 = "bc6d26e" }
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   pipeline_runtime_image_tag = "d0eeeae"
