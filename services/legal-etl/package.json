@@ -12,7 +12,8 @@
     "@aws-sdk/lib-dynamodb": "3.1169.0",
     "@hanaeum/schemas": "*",
     "fflate": "0.8.3",
-    "unpdf": "2.2.1"
+    "unpdf": "2.2.1",
+    "@hanaeum/pii": "*"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

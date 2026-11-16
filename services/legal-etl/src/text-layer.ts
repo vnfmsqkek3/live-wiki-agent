@@ -1,6 +1,7 @@
 // 단계 3a TextLayerExtract: 디지털 텍스트 추출 + 페이지별 OCR 필요 여부 (docs/04 1.1·1.3)
 import { extractText, getDocumentProxy } from "unpdf";
-import type { StepInput, StepOutput } from "@hanaeum/schemas";
+import { newId } from "@hanaeum/schemas";
+import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore } from "./store.ts";
 import { docxPages, hwpxPages } from "./office.ts";
 
@@ -49,16 +50,40 @@ export async function extractTextLayer(body: Buffer, ext: string, doc_id: string
       // 허용 목록 밖 형식: 조용히 빈 결과를 내지 않고 실패시킨다
       throw Object.assign(new Error(`지원하지 않는 형식: ${ext}`), { name: "UnsupportedFormat" });
   }
-  if (!pages.length) throw new Error("페이지 0개");
+  if (!pages.length) throw Object.assign(new Error("페이지 0개"), { name: "EmptyDocument" });
   return { doc_id, source_ext: ext, page_count: pages.length, pages };
+}
+
+const finding = (code: string, severity: Finding["severity"], user_message: string, fix_hint: string, evidence_ref: string, page?: number): Finding => ({
+  finding_id: newId("fnd"), step: "TextLayerExtract", severity, code, message: user_message, evidence_ref,
+  ...(page ? { location: { page } } : {}), user_message, fix_hint,
+});
+
+/** 파일 자체 문제(형식·손상·암호)는 예외 대신 BLOCKED + 올린 사람용 사유·조치 (사용자 지시 11/17) */
+function fileProblem(e: unknown, ext: string, key: string): StepOutput | undefined {
+  const n = (e as Error).name;
+  const block = (code: string, msg: string, fix: string): StepOutput => ({ status: "BLOCKED", findings: [finding(code, "HIGH", msg, fix, key)] });
+  if (n === "UnsupportedFormat") return block("UNSUPPORTED_FORMAT", `.${ext} 형식은 등록할 수 없습니다.`, "PDF·DOCX·HWPX·PNG·JPG 중 하나로 저장해 다시 올려 주세요.");
+  if (n === "PasswordException") return block("ENCRYPTED_PDF", "암호가 걸린 PDF라 내용을 읽을 수 없습니다.", "PDF 암호를 해제한 뒤 다시 올려 주세요.");
+  if (ext === "pdf" && /InvalidPDF|FormatError|UnknownError/u.test(n)) return block("CORRUPT_PDF", "PDF 파일 구조가 손상되어 열 수 없습니다.", "원본 프로그램에서 'PDF로 저장'으로 다시 만든 뒤 올려 주세요.");
+  if (ext === "docx" || ext === "hwpx") return block("CORRUPT_OFFICE", `${ext.toUpperCase()} 파일이 손상됐거나 본문이 없습니다.`, "원본 프로그램에서 다시 저장하거나 PDF로 저장해 올려 주세요.");
+  if (n === "EmptyDocument") return block("EMPTY_DOCUMENT", "문서에 쪽이 하나도 없습니다.", "내용이 있는 원본 파일을 올려 주세요.");
+  return undefined;
 }
 
 export async function textLayerStep(input: StepInput, store: ObjectStore): Promise<StepOutput> {
   const keys = await store.list(input.bucket, `${input.doc_id}/original.`);
   if (keys.length !== 1) throw new Error(`original 객체가 1개가 아님: ${keys.length}`);
   const ext = keys[0]!.split(".").pop()!.toLowerCase();
-  const layer = await extractTextLayer(await store.get(input.bucket, keys[0]!), ext, input.doc_id);
+  let layer: TextLayer;
+  try { layer = await extractTextLayer(await store.get(input.bucket, keys[0]!), ext, input.doc_id); }
+  catch (e) { const p = fileProblem(e, ext, keys[0]!); if (p) return p; throw e; }
   const output_key = `${input.doc_id}/work/text_layer.json`;
   await store.put(input.bucket, output_key, JSON.stringify(layer));
-  return { status: "OK", output_key };
+  // 스캔 쪽 안내 (디지털 글자 없음 → OCR). PDF에서만: 이미지 파일은 전부 OCR이 당연
+  const scanned = ext === "pdf" ? layer.pages.filter((p) => p.needs_ocr) : [];
+  const findings = scanned.slice(0, 10).map((p) => finding("SCANNED_PAGE", "LOW",
+    `${p.page_index + 1}쪽은 글자 정보가 없는 이미지(스캔)라 문자 인식(OCR)으로 읽습니다. 인식 오류가 있을 수 있습니다.`,
+    "가능하면 원본 문서를 'PDF로 저장'해 글자가 선택되는 PDF로 올려 주세요.", output_key, p.page_index + 1));
+  return { status: "OK", output_key, ...(findings.length ? { findings } : {}) };
 }

@@ -102,7 +102,19 @@ export const Finding = z.object({
   code: z.string().min(1),
   message: z.string(), // 원문 PII 금지
   evidence_ref: z.string(),
+  // v0.3 (사용자 지시 11/17: 올린 사람에게 "몇 쪽 어느 부분이 왜"). 선택 필드, 하위 호환
+  location: z.object({
+    page: z.number().int().positive().optional(), // 1부터. 파일 전체 문제면 생략
+    bbox: z.array(z.array(z.number()).length(4)).max(5).optional(), // 렌더 PNG 픽셀 [x0,y0,x1,y1]
+    excerpt: z.string().max(120).optional(), // 마스킹된 문제 문장 일부 (원문·PII 금지)
+  }).optional(),
+  user_message: z.string().optional(), // 올린 사람용 한 문장: 몇 쪽·무엇이·왜
+  fix_hint: z.string().optional(), // 어떻게 고쳐 다시 올리는지
 });
+
+/** 단계가 예외로 끝날 때도 올린 사람이 읽을 수 있게: message = 사유 + 고치는 방법 (오케스트레이터가 STEP# error에 기록) */
+export const stepFailure = (name: string, user_message: string, fix_hint: string) =>
+  Object.assign(new Error(`${user_message} (조치: ${fix_hint})`), { name, user_message, fix_hint });
 export type Finding = z.infer<typeof Finding>;
 
 export const StepInput = z.object({
