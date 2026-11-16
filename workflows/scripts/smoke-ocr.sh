@@ -37,19 +37,14 @@ aws dynamodb put-item --table-name "$DOCS" --item "$(cat <<JSON
 JSON
 )"
 aws s3 cp "$TMP/page.png" "s3://$BUCKET/$DOC/original.png" --sse aws:kms >/dev/null
-EXEC=None
-for _ in $(seq 1 30); do
-  EXEC=$(aws stepfunctions list-executions --state-machine-arn "$SFN" --max-results 20 --query "executions[?name=='$WF'].executionArn | [0]" --output text)
-  [ "$EXEC" != None ] && break; sleep 3
-done
-[ "$EXEC" != None ] || fail "type-detection did not start workflow"
-echo "started $WF (OCR 엔드포인트가 0대면 최대 30분)"
-
+# 오케스트레이션은 AgentCore(SSM PIPELINE_RUNTIME_ARN 설정 시) 또는 SFN. 둘 다 단계 기록 WF#/STEP# 을 남기므로 그것으로 판단
+echo "uploaded $DOC ($WF). OCR 엔드포인트가 0대면 최대 30분"
 ST=None
 for i in $(seq 1 120); do
   ST=$(aws dynamodb get-item --table-name "$TABLE" --key "{\"pk\":{\"S\":\"WF#$WF\"},\"sk\":{\"S\":\"STEP#OcrIfNeeded\"}}" --query Item.status.S --output text)
   case "$ST" in OK|REVIEW_REQUIRED|FAILED) break ;; esac
-  [ "$(aws stepfunctions describe-execution --execution-arn "$EXEC" --query status --output text)" = RUNNING ] || fail "execution stopped before OCR"
+  EX=$(aws dynamodb get-item --table-name "$TABLE" --key "{\"pk\":{\"S\":\"WF#$WF\"},\"sk\":{\"S\":\"EXECUTION\"}}" --query Item.status.S --output text)
+  [[ "$EX" == FAILED || "$EX" == SUCCEEDED ]] && fail "execution ended ($EX) before OCR"
   (( i % 4 == 0 )) && echo "  waiting OCR ($((i * 15))s, step=$ST)"
   sleep 15
 done
@@ -69,5 +64,5 @@ print(f"blocks={len(blocks)} avg_conf={sum(b['confidence'] for b in blocks)/len(
 PY
 echo "PASS OCR result.json (Korean text, confidence, bbox) step=$ST"
 
-aws stepfunctions stop-execution --execution-arn "$EXEC" --error Smoke.Done >/dev/null 2>&1 || true # OCR 이후 단계는 이 smoke 범위 밖
+# OCR 이후 단계(IN_REVIEW 까지)는 오케스트레이터가 계속 진행한다. 이 smoke 는 OCR 결과만 본다
 echo "ALL PASS ($ENV)"
