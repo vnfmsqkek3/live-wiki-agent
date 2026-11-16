@@ -8,6 +8,7 @@ import {
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
+import { submitForApproval } from './submit.ts';
 
 export interface Deps {
   verify: VerifyToken;
@@ -123,16 +124,7 @@ export function createApp(deps: Deps) {
   app.post('/v1/documents/:id/submit', async (c) => {
     const a = need(c, ['AUTHOR']);
     const d = await loadDoc(c, c.req.param('id'));
-    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
-    if (d.lifecycle !== 'IN_REVIEW' || !d.trust_gate_result || d.trust_gate_result === 'QUARANTINED')
-      throw new ApiError('CONFLICT', `cannot submit in ${d.lifecycle}/${d.trust_gate_result ?? 'NO_GATE'}`);
-    if (!d.s3_version_id || !d.content_hash) throw new ApiError('CONFLICT', 'no analyzed version');
-    const apr: ApprovalRecord = {
-      approval_id: newId.apr(), doc_id: d.doc_id, version: d.version, s3_version_id: d.s3_version_id, content_hash: d.content_hash,
-      author_sub: d.owner, status: 'PENDING', task_token: d.task_token, created_at: new Date().toISOString(),
-    };
-    await store.createApproval(apr);
-    await store.putDoc({ ...d, lifecycle: 'PENDING_APPROVAL', updated_at: new Date().toISOString() });
+    const apr = await submitForApproval(store, d, a.sub);
     await audit(c, 'SUBMIT', d.doc_id);
     return c.json({ approval_id: apr.approval_id }, 201);
   });

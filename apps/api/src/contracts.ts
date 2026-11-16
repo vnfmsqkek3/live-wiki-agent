@@ -20,6 +20,7 @@ export const newId = {
   wf: () => `wf_${ulid()}`,
   apr: () => `apr_${ulid()}`,
   fnd: () => `fnd_${ulid()}`,
+  draft: () => `drf_${ulid()}`,
 };
 
 /** message에 원문 PII를 넣지 않는다. */
@@ -82,6 +83,18 @@ export interface ApprovalRecord {
   task_token?: string;
   reason?: string;
   decided_at?: string;
+  created_at: string;
+}
+
+/** 수정 초안. Agent가 만들지만 게시되지 않는다 (사람 재승인 필요, docs/01 6장) */
+export interface DraftRecord {
+  draft_id: string;
+  doc_id: string;
+  base_version: number;
+  proposed_text: string; // 마스킹·PII 검사 후 저장
+  basis: string[]; // 근거 조문·문서 ID
+  created_by: string;
+  status: 'DRAFT';
   created_at: string;
 }
 

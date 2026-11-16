@@ -46,6 +46,15 @@ for (const [name, make] of stores) {
     await assert.rejects(s.decideApproval('apr_NOPE', ok), /not found/);
   });
 
+  test(`${name}: 수정 초안 저장·조회 (문서와 같은 테이블, 문서 조회에 섞이지 않음)`, async () => {
+    const s = make();
+    const d = doc();
+    await s.putDoc(d);
+    await s.putDraft({ draft_id: newId.draft(), doc_id: d.doc_id, base_version: 1, proposed_text: 't', basis: ['b'], created_by: 'u', status: 'DRAFT', created_at: now() });
+    assert.equal((await s.listDrafts(d.doc_id)).length, 1);
+    assert.deepEqual(await s.getDoc(d.doc_id), d);
+  });
+
   test(`${name}: 동시 승인 2건 중 1건만 성공`, async () => {
     const s = make();
     const a = apr(newId.doc());

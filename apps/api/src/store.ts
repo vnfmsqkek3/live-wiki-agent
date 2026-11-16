@@ -1,4 +1,4 @@
-import type { ApprovalRecord, DocumentRecord, FeedbackRecord } from './contracts.ts';
+import type { ApprovalRecord, DocumentRecord, DraftRecord, FeedbackRecord } from './contracts.ts';
 import { ApiError } from './errors.ts';
 
 export interface AuditEvent {
@@ -23,14 +23,17 @@ export interface Store {
   /** APPROVED → USED. Promote 직전 1회만 성공 */
   consumeApproval(id: string): Promise<ApprovalRecord>;
   putFeedback(f: FeedbackRecord): Promise<void>;
+  putDraft(d: DraftRecord): Promise<void>;
+  listDrafts(doc_id: string): Promise<DraftRecord[]>;
   audit(e: AuditEvent): Promise<void>;
 }
 
-// ponytail: 메모리 구현만. DynamoDB 구현은 yoyo0704 테이블 배포(11/17) 후 같은 인터페이스로 추가.
+// 메모리 구현: 단위 테스트·로컬 단독 실행용. 운영은 store-dynamo.ts
 export function memoryStore() {
   const docs = new Map<string, DocumentRecord>();
   const approvals = new Map<string, ApprovalRecord>();
   const feedback = new Map<string, FeedbackRecord>();
+  const drafts: DraftRecord[] = [];
   const audits: AuditEvent[] = [];
   const clone = <T>(v: T): T => structuredClone(v);
 
@@ -62,6 +65,8 @@ export function memoryStore() {
       return clone(a);
     },
     async putFeedback(f) { feedback.set(`${f.doc_id}#${f.user_sub}`, clone(f)); },
+    async putDraft(d) { drafts.push(clone(d)); },
+    async listDrafts(id) { return drafts.filter((d) => d.doc_id === id).map(clone); },
     async audit(e) { audits.push(e); },
   };
   return store;

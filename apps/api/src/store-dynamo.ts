@@ -2,11 +2,12 @@
 //   Documents   pk=DOC#{doc_id}            sk=META
 //   Approvals   pk=APR#{approval_id}       sk=META   gsi1pk=APR_STATUS#{status}  gsi1sk={created_at}
 //   Feedback    pk=DOC#{doc_id}            sk=USER#{sub}
+//   Drafts      pk=DOC#{doc_id}            sk=DRAFT#{draft_id}   (Documents 테이블)
 //   AuditEvents pk=AUDIT#{yyyy-mm-dd}      sk={at}#{trace_id}
 // 승인 결정·사용은 조건부 쓰기로만 한다 (재사용·자기 승인·검사 후 변경 차단, interfaces.md 7.1).
 import { DynamoDBClient, ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
-import type { ApprovalRecord, DocumentRecord } from './contracts.ts';
+import type { ApprovalRecord, DocumentRecord, DraftRecord } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
 
@@ -99,6 +100,15 @@ export function dynamoStore(t: Tables, client = new DynamoDBClient({})): Store {
     },
     async putFeedback(f) {
       await db.send(new PutCommand({ TableName: t.feedback, Item: { pk: `DOC#${f.doc_id}`, sk: `USER#${f.user_sub}`, ...f } }));
+    },
+    async putDraft(d) {
+      await db.send(new PutCommand({ TableName: t.documents, Item: { pk: `DOC#${d.doc_id}`, sk: `DRAFT#${d.draft_id}`, ...d } }));
+    },
+    async listDrafts(id) {
+      const r = await db.send(new QueryCommand({
+        TableName: t.documents, KeyConditionExpression: 'pk = :p AND begins_with(sk, :s)', ExpressionAttributeValues: { ':p': `DOC#${id}`, ':s': 'DRAFT#' },
+      }));
+      return (r.Items ?? []).map((i) => strip<DraftRecord>(i)!);
     },
     async audit(e) {
       await db.send(new PutCommand({ TableName: t.audit, Item: { pk: `AUDIT#${e.at.slice(0, 10)}`, sk: `${e.at}#${e.trace_id}`, ...e } }));
