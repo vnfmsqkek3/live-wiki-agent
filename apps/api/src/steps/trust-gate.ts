@@ -43,7 +43,7 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
     if (!i.claimed || !i.registry) {
       review = true;
       findings.push(fnd('MEDIUM', 'REGISTRY_NOT_FOUND', 'Trusted Registry에 해당 규정 없음 → 공식 검증 불가', i.claimed?.law_id ?? 'unknown'));
-    } else if (i.registry.content_hash === i.doc.content_hash) {
+    } else if (sameHash(i.registry.content_hash, i.doc.content_hash)) {
       authority = 'VERIFIED';
     } else {
       review = true;
@@ -59,6 +59,9 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
 
   return { result: review ? 'REVIEW_REQUIRED' : 'PASS', authority_status: authority, findings };
 }
+
+/** `sha256:{hex}`·hex 표기 차이를 무시하고 비교 */
+const sameHash = (a?: string, b?: string) => !!a && !!b && a.replace(/^sha256:/, '').toLowerCase() === b.replace(/^sha256:/, '').toLowerCase();
 
 export function diffClauses(official?: Record<string, string>, uploaded?: Record<string, string>) {
   if (!official || !uploaded) return [];

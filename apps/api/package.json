@@ -20,7 +20,8 @@
     "aws-jwt-verify": "5.2.1",
     "hono": "4.13.18",
     "ulid": "3.0.2",
-    "zod": "4.6.7"
+    "zod": "4.6.7",
+    "@hanaeum/regulation-server": "*"
   },
   "devDependencies": {
     "esbuild": "0.28.2"

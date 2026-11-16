@@ -4,7 +4,7 @@ import { createHash } from 'node:crypto';
 import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
-import { trustGate } from './steps/trust-gate.ts';
+import { trustGate, type RegistryEntry } from './steps/trust-gate.ts';
 import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
@@ -19,6 +19,9 @@ export interface LambdaDeps {
   startWorkflow(d: DocumentRecord): Promise<void>;
   /** 노하우 검증 의존성 (regulation·search Tool). 없으면 KNOWHOW 문서는 검증 대기로 사람 검토 */
   knowhow?: KnowhowDeps & { maskedText(d: DocumentRecord): Promise<string> };
+  /** Trusted Registry 대조 (let522mj registryMatch). text 없이 부르면 해시만 대조 */
+  registry?(content_hash: string, text?: string): Promise<{ registry?: RegistryEntry & { law_name?: string; effective_to?: string; registry_doc_no?: string }; claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> } }>;
+  maskedText?(d: DocumentRecord): Promise<string>;
 }
 
 /** 단계 6·7·8 의존성. 6은 work/(원본 등급)을 읽고, 7·8은 masked/만 읽는다 (8은 모델 호출 Role, 원본 읽기 거부) */
@@ -137,7 +140,13 @@ export function makeFileStructureCheck(deps: LambdaDeps) {
 export function makeTrustGate(deps: LambdaDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
-    const g = trustGate({ doc: d }); // ponytail: claimed/registry 미연동 (11/19 let522mj Registry)
+    // Registry 대조: 해시가 기준본과 같으면 그 개정본. 아니면 REGULATION으로 분류된 문서만 본문 머리말로 주장 개정본을 찾는다
+    // (노하우 머리말의 규정명 언급을 '공식 규정 주장'으로 오인하지 않기 위해)
+    let match = deps.registry && d.content_hash ? await deps.registry(d.content_hash) : {};
+    if (deps.registry && !match.registry && d.classification?.document_type === 'REGULATION' && deps.maskedText)
+      match = await deps.registry(d.content_hash ?? '', await deps.maskedText(d));
+    const g = trustGate({ doc: d, claimed: match.claimed, registry: match.registry });
+    const reg = g.authority_status === 'VERIFIED' && match.registry ? match.registry : undefined;
     let result = g.result;
     let findings = g.findings;
     let extra: Partial<DocumentRecord> = {};
@@ -152,7 +161,11 @@ export function makeTrustGate(deps: LambdaDeps) {
         extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
       }
     }
-    await deps.store.putDoc({ ...addFindings(d, findings), ...extra, trust_gate_result: result, authority_status: g.authority_status });
+    const regFields: Partial<DocumentRecord> = reg ? { // Promote는 REGULATION이면 law_id·revision_id 필수 (let522mj)
+      law_id: reg.law_id, revision_id: reg.revision_id, effective_from: reg.effective_from,
+      ...(reg.law_name ? { law_name: reg.law_name } : {}), ...(reg.effective_to ? { effective_to: reg.effective_to } : {}), ...(reg.registry_doc_no ? { registry_doc_no: reg.registry_doc_no } : {}),
+    } : {};
+    await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
     return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };
 }

@@ -155,3 +155,29 @@ test('await_review: 게시된 문서는 검토 대기로 되돌리지 않음 (�
   await t.store.putDoc({ ...t.doc, lifecycle: 'QUARANTINED' });
   assert.equal((await makeWaitForApproval(t.deps)(t.input)).status, 'OK');
 });
+
+test('TrustGate + Registry: 해시 일치 규정은 VERIFIED·PASS, law_id 등 기록 / 노하우는 본문 대조 안 함 / 위조 규정은 REVIEW_REQUIRED', async () => {
+  const reg = { law_id: 'SYN-LOAN-001', law_name: '기업여신 심사규정', revision_id: '2026-11-01', content_hash: 'sha256:aa', effective_from: '2026-11-01', effective_to: '9999-12-31', clauses: { 'ARTICLE:12/PARAGRAPH:1': '5억원' } };
+  const calls: (string | undefined)[] = [];
+  const registry = async (h: string, text?: string) => { calls.push(text); return h === 'sha256:aa' ? { registry: reg, claimed: { law_id: reg.law_id, revision_id: reg.revision_id } } : text ? { registry: reg, claimed: { law_id: reg.law_id, revision_id: reg.revision_id, clauses: { 'ARTICLE:12/PARAGRAPH:1': '3억원' } } } : {}; };
+  const cls = (document_type: 'REGULATION' | 'KNOWHOW') => ({ document_type, business_path: [], tags: [], confidence: 0.95, rationale: '' });
+
+  const t = setup(pdf);
+  await t.store.putDoc({ ...t.doc, content_hash: 'sha256:AA', classification: cls('REGULATION') });
+  assert.equal((await makeTrustGate({ ...t.deps, registry, maskedText: async () => 'x' })(t.input)).status, 'OK');
+  const d = (await t.store.getDoc(t.doc.doc_id))!;
+  assert.deepEqual([d.authority_status, d.law_id, d.revision_id, d.law_name, d.effective_to], ['VERIFIED', 'SYN-LOAN-001', '2026-11-01', '기업여신 심사규정', '9999-12-31']);
+
+  const k = setup(pdf);
+  calls.length = 0;
+  await k.store.putDoc({ ...k.doc, content_hash: 'sha256:bb', classification: cls('KNOWHOW') });
+  await makeTrustGate({ ...k.deps, registry, maskedText: async () => '기업여신 심사규정 노하우' })(k.input);
+  assert.deepEqual(calls, [undefined], '노하우는 해시만 대조');
+
+  const f = setup(pdf);
+  await f.store.putDoc({ ...f.doc, content_hash: 'sha256:ff', classification: cls('REGULATION') });
+  assert.equal((await makeTrustGate({ ...f.deps, registry, maskedText: async () => '한빛은행 기업여신 심사규정 위장본' })(f.input)).status, 'REVIEW_REQUIRED');
+  const e = (await f.store.getDoc(f.doc.doc_id))!;
+  assert.ok(e.findings.some((x) => x.code === 'REGISTRY_MISMATCH' && /ARTICLE:12/.test(x.message)));
+  assert.equal(e.law_id, undefined);
+});
