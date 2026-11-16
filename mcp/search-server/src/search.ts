@@ -43,6 +43,10 @@ export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): 
 // ponytail: 후보 50 → Rerank 15 → 최종 5 고정 기본값 (docs/01 8.5). 실험 후 조정
 export const CANDIDATES = 50;
 export const RERANKED = 15;
+/** Rerank 관련도 하한. 실측(11/16, 공유 dev KB): 관련 질문 20건 top1 최저 0.396, 무관 질문 8건 top1 최고 0.147 → 그 사이 0.25.
+ *  하한 미만은 근거가 아님 → 결과가 비면 UNVERIFIED (무관한 결과를 FOUND로 내지 않음, docs/02 4장).
+ *  ponytail: 고정값. 문서가 늘면 같은 방식(measure-kb 보정 스크립트)으로 다시 잰다. Rerank 장애로 HYBRID 대체 중이면 점수 체계가 달라 적용하지 않음 */
+export const RERANK_MIN_SCORE = 0.25;
 
 export class BedrockRetriever implements Retriever {
   private readonly c: BedrockAgentRuntimeClient;
@@ -76,7 +80,8 @@ export class BedrockRetriever implements Retriever {
         },
       },
     }));
-    return (r.retrievalResults ?? []).map((x) => ({ text: x.content?.text ?? "", score: x.score ?? 0, metadata: (x.metadata ?? {}) as Record<string, unknown> }));
+    const hits = (r.retrievalResults ?? []).map((x) => ({ text: x.content?.text ?? "", score: x.score ?? 0, metadata: (x.metadata ?? {}) as Record<string, unknown> }));
+    return rerankArn ? hits.filter((h) => h.score >= RERANK_MIN_SCORE) : hits;
   }
 }
 
@@ -199,6 +204,10 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
       if (m && law) {
         const exact = await deps.regulation.get_clause({ law, clause: m[3]!, as_of: args["as_of"] }, actor);
         if (exact.search_status !== "UNVERIFIED") return { via: "exact_lookup", ...exact };
+        // 지정한 조문을 확인하지 못함: 상태는 UNVERIFIED 그대로. 의미 검색 결과는 근거가 아닌 참고(related)로만 붙인다
+        // (다른 조문을 FOUND로 내면 "그 조문이 있다"로 오해됨)
+        const r = await run(query, actor, { asOf: asOfYmd(args), indexGroups: ["legal-clauses"], includeHistory: args["include_history"] === true }, topK(args));
+        return { via: "exact_lookup", ...exact, related: r.items };
       }
       const r = await run(query, actor, { asOf: asOfYmd(args), indexGroups: ["legal-clauses"], includeHistory: args["include_history"] === true }, topK(args));
       return { via: "kb_hybrid", ...r };

@@ -70,7 +70,22 @@ export async function measureLive(d: LiveDeps) {
     const r = await d.search.search_wiki({ query: c.query, as_of: c.as_of }, USER);
     if (r.items.some((x) => x.provision_status === "DELETED" || x.provision_id === c.expected_provision_id)) deletionMis++;
   }
-  return { clause, cite, deletionMis, visibility: await measureVisibility(d.raw) };
+  return { clause, cite, deletionMis, unverified: await measureUnverified(d.search, true), visibility: await measureVisibility(d.raw) };
+}
+
+interface UvCase { id: string; tool: "search_legal_clause" | "search_wiki"; query: string; as_of: string; live_only?: boolean }
+/** docs/02 4장 "검색 실패 판정: UNVERIFIED를 부재 확정으로 단정 0건" — 근거가 없거나 불확실한 질의에서
+ *  NOT_FOUND_VERIFIED(단정)·FOUND(무관한 근거 제시)가 나오면 실패. live=false면 실제 Rerank가 필요한 케이스 제외 */
+export async function measureUnverified(search: LiveDeps["search"], live: boolean) {
+  const out = { total: 0, ok: 0, asserted: [] as string[], spurious: [] as string[] };
+  for (const c of jsonl<UvCase>("unverified.jsonl").filter((x) => live || !x.live_only)) {
+    const r = await (search[c.tool] as (a: Record<string, unknown>, u: typeof USER) => Promise<{ search_status: string }>)({ query: c.query, as_of: c.as_of }, USER);
+    out.total++;
+    if (r.search_status === "UNVERIFIED") out.ok++;
+    else if (r.search_status === "NOT_FOUND_VERIFIED") out.asserted.push(c.id);
+    else out.spurious.push(`${c.id}:${r.search_status}`);
+  }
+  return out;
 }
 
 if (import.meta.main) {
@@ -87,6 +102,7 @@ if (import.meta.main) {
   console.log(`| 정확 조문 검색 | 19/20 | ${r.clause.correct}/${r.clause.total} | ${r.clause.correct >= 19 ? "통과" : "미달"} |`);
   console.log(`| 삭제 조항 오인용 | 0 | ${r.deletionMis} | ${r.deletionMis === 0 ? "통과" : "미달"} |`);
   console.log(`| 승인 전·차단 문서 KB 노출 | 0 | ${r.visibility.visible.length}/${r.visibility.checked} ${r.visibility.visible.join(",")} | ${r.visibility.visible.length === 0 ? "통과" : "미달"} |`);
-  console.log(`| 근거 검색 Recall@5 (참고) | — | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | 참고 |`);
+  console.log(`| 근거 인용 (근거 검색 Recall@5) | 19/20 | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | ${r.cite.hit >= 19 && !r.cite.forbidden.length ? "통과" : "미달"} |`);
+  console.log(`| 검색 실패 판정 (UNVERIFIED를 부재로 단정) | 0 | 단정 ${r.unverified.asserted.length}, 무관 근거 ${r.unverified.spurious.length} (UNVERIFIED ${r.unverified.ok}/${r.unverified.total}) ${[...r.unverified.asserted, ...r.unverified.spurious].join(",")} | ${r.unverified.asserted.length === 0 && r.unverified.spurious.length === 0 ? "통과" : "미달"} |`);
   for (const f of r.clause.fails) console.log("  조문 실패", f);
 }

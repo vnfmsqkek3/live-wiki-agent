@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { chunkKnowledge } from "@hanaeum/kb-chunker";
 import { buildEnv } from "./measure.ts";
-import { measureLive, measureVisibility, fingerprints } from "./measure-kb.ts";
+import { measureLive, measureVisibility, measureUnverified, fingerprints } from "./measure-kb.ts";
 
 test("고유 문장 추출: 차단 대상 텍스트 문서 전부(20건)에 게시 대상과 겹치지 않는 문장이 있음", () => {
   const m = JSON.parse(readFileSync(new URL("../../../fixtures/golden/manifest.json", import.meta.url), "utf8")) as { documents: { document_id: string; file: string; expected_kb_visibility: unknown }[] };
@@ -32,4 +32,10 @@ test("검출기 자체 검증: 차단 문서(F-003·A-001)가 색인에 섞이�
   }
   const r = await measureVisibility(env.retriever);
   assert.deepEqual(r.visible.sort(), ["A-001", "F-003"]);
+});
+
+test("검색 실패 판정: 조문 미확인·버전 미보유·미등록 법령은 UNVERIFIED (부재 단정·다른 조문 FOUND 0건)", async () => {
+  const env = buildEnv();
+  const r = await measureUnverified(env.search, false); // 관련도 판정 케이스(실제 Rerank 필요)는 실환경에서
+  assert.deepEqual([r.ok, r.total, r.asserted, r.spurious], [3, 3, [], []]);
 });

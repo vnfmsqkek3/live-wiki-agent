@@ -108,11 +108,13 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
     const vis = revs.filter((r) => visible(r, actor));
     const rev = effectiveAt(vis, asOf);
     if (!rev) {
-      // 모든 버전이 보이고 VERIFIED일 때만 "그 날짜에 시행 버전 없음"을 확정. 아니면 확인 불가
-      const certain = vis.length === revs.length && revs.every((r) => r.authority_status === "VERIFIED");
+      // 모든 버전이 보이고 VERIFIED이며, 기준일이 보유한 가장 이른 버전 이후일 때만 "그 날짜에 시행 버전 없음"을 확정(폐지 등).
+      // 가장 이른 버전보다 앞선 기준일은 그 시점 원문을 보유하지 않은 것이라 확인 불가 (부재 단정 금지, docs/02 4장)
+      const earliest = Math.min(...revs.map((r) => r.effective_from));
+      const certain = asOf >= earliest && vis.length === revs.length && revs.every((r) => r.authority_status === "VERIFIED");
       return certain
         ? { search_status: "NOT_FOUND_VERIFIED", reason: `기준일 ${asOf}에 시행 중인 승인 버전 없음 (등록 버전 ${vis.map((r) => r.revision_id).join(", ")})`, law_id: lawId }
-        : { search_status: "UNVERIFIED", reason: `기준일 ${asOf}에 확인 가능한 승인 버전 없음`, law_id: lawId };
+        : { search_status: "UNVERIFIED", reason: asOf < earliest ? `기준일 ${asOf}은 보유한 가장 이른 버전(${earliest}) 이전 — 그 시점 원문 미보유` : `기준일 ${asOf}에 확인 가능한 승인 버전 없음`, law_id: lawId };
     }
     const base = { law_id: lawId, revision_id: rev.revision_id, effective_from: rev.effective_from, effective_to: rev.effective_to };
     const provs = await store.provisions(lawId, rev.revision_id);
