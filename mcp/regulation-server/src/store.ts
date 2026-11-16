@@ -21,6 +21,12 @@ export interface ClauseStore {
 
 export const relPath = (provisionId: string) => provisionId.slice(provisionId.indexOf("/") + 1);
 const squash = (s: string) => s.replace(/\s+/gu, "");
+/** 질의 문장 속 법령명 매칭: 완전 일치 우선, 없으면 문장에 포함된 가장 긴 법령명 */
+export function matchLawName(text: string, laws: { law_id: string; law_name: string }[]): string | undefined {
+  const t = squash(text);
+  return laws.find((l) => squash(l.law_name) === t)?.law_id
+    ?? laws.filter((l) => t.includes(squash(l.law_name))).sort((a, b) => b.law_name.length - a.law_name.length)[0]?.law_id;
+}
 
 export class MemoryClauseStore implements ClauseStore {
   readonly revs: RevisionRecord[] = [];
@@ -30,7 +36,8 @@ export class MemoryClauseStore implements ClauseStore {
     if (law) this.provs.set(`${rec.law_id}@${rec.revision_id}`, law.provisions);
   }
   async lawIdByName(n: string) {
-    return this.revs.find((r) => r.law_id === n || squash(r.law_name) === squash(n) || (r.registry_doc_no && r.registry_doc_no === n))?.law_id;
+    return this.revs.find((r) => r.law_id === n || r.registry_doc_no === n)?.law_id
+      ?? matchLawName(n, this.revs.map((r) => ({ law_id: r.law_id, law_name: r.law_name })));
   }
   async revisions(lawId: string) { return this.revs.filter((r) => r.law_id === lawId).sort((a, b) => a.effective_from - b.effective_from); }
   async provisions(lawId: string, rev: string) { return this.provs.get(`${lawId}@${rev}`); }
@@ -55,9 +62,10 @@ export class DynamoClauseStore implements ClauseStore {
     return items;
   }
   async lawIdByName(n: string) {
-    // ponytail: 법령 수가 적어 이름 색인 아이템 1개(PK=LAWNAME#{squash}) 조회로 충분. 동명이법 생기면 GSI
-    const r = await this.query(`LAWNAME#${squash(n)}`, "LAW#");
-    return (r[0]?.["law_id"] as string | undefined) ?? (/^[A-Z][A-Z0-9-]+$/u.test(n) ? n : undefined);
+    if (/^[A-Z][A-Z0-9-]+$/u.test(n)) return n;
+    // ponytail: 법령명 목록을 PK=LAWNAMES 한 파티션에 둠 (법령 수백 건까지 충분). 많아지면 GSI
+    const laws = (await this.query("LAWNAMES", "LAW#")) as unknown as { law_id: string; law_name: string }[];
+    return matchLawName(n, laws);
   }
   async revisions(lawId: string) {
     return (await this.query(`LAW#${lawId}`, "REV#")).filter((i) => !String(i["SK"]).includes("#P#")) as unknown as RevisionRecord[];
@@ -69,7 +77,7 @@ export class DynamoClauseStore implements ClauseStore {
   /** 승인된 법령 버전 적재 (Promote 이후 호출). 25건 배치 */
   async putLaw(rec: RevisionRecord, law: ParsedLaw) {
     const items = [
-      { PK: `LAWNAME#${squash(rec.law_name)}`, SK: `LAW#${rec.law_id}`, law_id: rec.law_id },
+      { PK: "LAWNAMES", SK: `LAW#${rec.law_id}`, law_id: rec.law_id, law_name: rec.law_name },
       { PK: `LAW#${rec.law_id}`, SK: `REV#${rec.revision_id}`, ...rec },
       ...law.provisions.map((p) => ({ PK: `LAW#${rec.law_id}`, SK: `REV#${rec.revision_id}#P#${relPath(p.provision_id)}`, ...p })),
     ];

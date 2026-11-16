@@ -12,5 +12,8 @@
     "@hanaeum/mcp-kit": "*",
     "@hanaeum/regulation-server": "*",
     "@hanaeum/schemas": "*"
+  },
+  "devDependencies": {
+    "@hanaeum/kb-chunker": "*"
   }
 }
