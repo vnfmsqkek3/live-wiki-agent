@@ -73,7 +73,13 @@ resource "aws_codebuild_project" "lambda" {
               (cd services/auth-triggers/dist && zip -qr ../../../out/auth-triggers.zip .) ;;
             dhxorb96)
               npm run build:lambda -w apps/api --silent
-              zip -qj out/dhxorb96-handlers.zip apps/api/dist/handlers.mjs ;;
+              zip -qj out/dhxorb96-handlers.zip apps/api/dist/handlers.mjs
+              if [ -d mcp/gateway-interceptor ] && grep -q '"build"' mcp/gateway-interceptor/package.json; then
+                OUT=$CODEBUILD_SRC_DIR/src/out
+                npm run build -w @hanaeum/gateway-interceptor --silent && (cd mcp/gateway-interceptor/dist && zip -q "$OUT/interceptor.zip" index.mjs)
+                npm run build -w @hanaeum/mcp-privacy-server --silent && (cd mcp/privacy-server/dist && zip -q "$OUT/mcp_privacy.zip" index.mjs)
+                npm run build -w @hanaeum/mcp-approval-server --silent && (cd mcp/approval-server/dist && zip -q "$OUT/mcp_approval.zip" index.mjs)
+              fi ;;
             let522mj)
               node services/legal-etl/scripts/build-lambdas.ts
               cp dist/lambda/*.zip out/ ;;

@@ -6,6 +6,11 @@ variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "step_arns" { type = map(string) } # 단계 키 → Lambda ARN
 variable "tables" { type = map(object({ name = string, arn = string })) }
+# Runtime 생성 여부 (plan 시점에 알 수 있어야 함: 이미지 태그는 빌드 뒤에 정해짐)
+variable "create_runtime" {
+  type    = bool
+  default = false
+}
 variable "runtime_image_tag" {
   type    = string
   default = null # 오케스트레이터 ECR 이미지 태그. null 이면 Runtime 은 만들지 않는다
@@ -211,7 +216,7 @@ resource "aws_iam_role_policy" "runtime" {
 }
 
 resource "aws_bedrockagentcore_agent_runtime" "pipeline" {
-  count              = var.runtime_image_tag == null ? 0 : 1
+  count              = var.create_runtime ? 1 : 0
   agent_runtime_name = local.runtime_name
   description        = "문서 처리 오케스트레이터 (Strands Graph, 단계 순서 고정)"
   role_arn           = aws_iam_role.runtime.arn
@@ -232,6 +237,8 @@ output "gateway_id" { value = aws_bedrockagentcore_gateway.pipeline.gateway_id }
 output "gateway_url" { value = aws_bedrockagentcore_gateway.pipeline.gateway_url }
 output "gateway_arn" { value = aws_bedrockagentcore_gateway.pipeline.gateway_arn }
 output "runtime_role_arn" { value = aws_iam_role.runtime.arn }
+output "ecr_repository_name" { value = aws_ecr_repository.orchestrator.name }
+output "ecr_repository_arn" { value = aws_ecr_repository.orchestrator.arn }
 output "ecr_repository_url" { value = aws_ecr_repository.orchestrator.repository_url }
 output "runtime_name" { value = local.runtime_name }
 output "runtime_arn" { value = try(aws_bedrockagentcore_agent_runtime.pipeline[0].agent_runtime_arn, null) }

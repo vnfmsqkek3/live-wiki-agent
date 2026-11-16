@@ -89,7 +89,8 @@ module "pipeline" {
   kms_key_arn               = module.kms.key_arn
   step_arns                 = module.sfn.step_arns
   tables                    = module.ddb.tables
-  runtime_image_tag         = var.pipeline_runtime_image_tag
+  create_runtime            = local.agents_ref != null || var.pipeline_runtime_image_tag != null
+  runtime_image_tag         = local.agents_ref != null ? terraform_data.agent_image["pipeline"].output : var.pipeline_runtime_image_tag
   runtime_env               = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off" }
   enable_transaction_search = var.enable_transaction_search
 }
@@ -108,10 +109,49 @@ module "webapp" {
   cognito_client_id    = module.cognito.client_id
   tables               = module.ddb.tables
   quarantine_bucket    = module.s3.buckets["quarantine"]
-  runtime_arn_patterns = [module.pipeline.runtime_arn_pattern]
+  runtime_arn_patterns = [module.pipeline.runtime_arn_pattern, module.user.runtime_arn_pattern]
+  extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn]
   api_env = {
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
-    AGENT_RUNTIME_ARN    = "" # 공유 가이드 Agent Runtime 생성 후
+    AGENT_RUNTIME_ARN    = module.user.runtime_arn
+  }
+}
+
+# Agent 이미지 (agents/, dhxorb96): 웹과 같은 CodeBuild(podman)로 AWS 안에서 빌드. 태그 = 커밋
+locals {
+  agents_ref = var.webapp_source_ref == null ? null : coalesce(var.agents_source_ref, var.webapp_source_ref)
+  agent_images = local.agents_ref == null ? {} : {
+    pipeline = { dockerfile = "agents/Dockerfile.pipeline", repo = module.pipeline.ecr_repository_name }
+    guide    = { dockerfile = "agents/Dockerfile", repo = module.user.ecr_repository_name }
+  }
+}
+
+resource "terraform_data" "agent_image" {
+  for_each = local.agent_images
+  input    = local.agents_ref # output = 이미지 태그 → Runtime 이 빌드 뒤에 갱신
+  provisioner "local-exec" {
+    command = "${path.module}/../scripts/codebuild-wait.sh ${module.webapp[0].codebuild_project} APP=${each.key} REF=${local.agents_ref} ECR_REPO=${each.value.repo} DOCKERFILE=${each.value.dockerfile}"
+  }
+}
+
+# 사용자 Gateway + 가이드 Runtime (docs/01 11장)
+module "user" {
+  source               = "../modules/agentcore_user"
+  n                    = local.n
+  kms_key_arn          = module.kms.key_arn
+  cognito_user_pool_id = module.cognito.user_pool_id
+  cognito_client_id    = module.cognito.client_id
+  interceptor_arn      = module.team["interceptor"].arn
+  schema_bucket        = { name = module.s3.buckets["artifact"].name, arn = module.s3.buckets["artifact"].arn }
+  model_sonnet         = var.models["MODEL_SONNET"]
+  create_runtime       = local.agents_ref != null
+  image_tag            = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
+  targets = {
+    search     = { lambda_arn = module.team["mcp-search"].arn, tools_json = file("${path.module}/../../mcp/search-server/tools.json") }
+    regulation = { lambda_arn = module.team["mcp-regulation"].arn, tools_json = file("${path.module}/../../mcp/regulation-server/tools.json") }
+    graph      = { lambda_arn = module.team["mcp-graph"].arn, tools_json = file("${path.module}/../../mcp/graph-server/tools.json") }
+    privacy    = { lambda_arn = module.team["mcp-privacy"].arn, tools_json = file("${path.module}/../../mcp/privacy-server/tools.json") }
+    approval   = { lambda_arn = module.team["mcp-approval"].arn, tools_json = file("${path.module}/../../mcp/approval-server/tools.json") }
   }
 }
 
@@ -139,6 +179,9 @@ locals {
       VPC_ID               = module.network.vpc_id
       KB_ID                = module.kb.kb_id
       NEPTUNE_ENDPOINT     = module.neptune.endpoint
+      USER_GATEWAY_URL     = module.user.gateway_url
+      GUARDRAIL_ID         = aws_bedrock_guardrail.pii.guardrail_id
+      GUARDRAIL_VERSION    = aws_bedrock_guardrail_version.pii.version
       OCR_ENDPOINT_NAME    = module.ocr.endpoint_name
       PIPELINE_GATEWAY_URL = module.pipeline.gateway_url
       PIPELINE_ECR_REPO    = module.pipeline.ecr_repository_url

@@ -19,18 +19,18 @@ module "stack" {
   # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
-    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "78d8355"                               # workflows·auth-triggers·services/ocr
-    dhxorb96 = "32e5f81"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    yoyo0704 = "78d8355"                                  # workflows·auth-triggers·services/ocr
+    dhxorb96 = "e812aac"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "ce47b1512f602c7f248a8ce9c3a4d57fdc362bec" # PR #8 병합 (CI 통과, let522mj)
   }
 
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
-  pipeline_runtime_image_tag = "d0eeeae"
+  pipeline_runtime_image_tag = "d0eeeae" # agents 이미지 빌드가 없을 때만 (webapp_source_ref 가 있으면 그 커밋으로 빌드)
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋

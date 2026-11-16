@@ -16,6 +16,11 @@ variable "cognito_client_id" { type = string }
 variable "tables" { type = map(object({ name = string, arn = string })) }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "runtime_arn_patterns" { type = list(string) } # API 가 호출하는 AgentCore Runtime (파이프라인·가이드)
+# 같은 CodeBuild 로 빌드하는 Agent 이미지의 ECR (파이프라인·가이드 Runtime)
+variable "extra_ecr_arns" {
+  type    = list(string)
+  default = []
+}
 variable "api_env" {
   type    = map(string)
   default = {}
@@ -64,7 +69,7 @@ resource "aws_iam_role_policy" "build" {
       { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], Resource = "*" },
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
       {
-        Effect = "Allow", Resource = [for r in aws_ecr_repository.app : r.arn]
+        Effect = "Allow", Resource = concat([for r in aws_ecr_repository.app : r.arn], var.extra_ecr_arns)
         Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage", "ecr:DescribeImages"]
       },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
@@ -112,7 +117,7 @@ resource "aws_codebuild_project" "app" {
           "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $REF",
         ] }
         build = { commands = [
-          "cd $CODEBUILD_SRC_DIR/src && podman --cgroup-manager=cgroupfs build --network=host --isolation=chroot --platform linux/arm64 -f apps/$APP/Dockerfile --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
+          "cd $CODEBUILD_SRC_DIR/src && podman --cgroup-manager=cgroupfs build --network=host --isolation=chroot --platform linux/arm64 -f $${DOCKERFILE:-apps/$APP/Dockerfile} --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
           "podman push $REGISTRY/$ECR_REPO:$REF",
         ] }
       }
@@ -501,3 +506,4 @@ resource "aws_cloudfront_distribution" "this" {
 
 output "url" { value = "https://${aws_cloudfront_distribution.this.domain_name}" }
 output "api_task_role_arn" { value = aws_iam_role.api.arn }
+output "codebuild_project" { value = aws_codebuild_project.app.name }

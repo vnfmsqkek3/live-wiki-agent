@@ -68,3 +68,9 @@ variable "ocr_source_ref" {
   type    = string
   default = null
 }
+
+# agents/ 이미지(파이프라인·가이드) 커밋. null 이면 webapp_source_ref
+variable "agents_source_ref" {
+  type    = string
+  default = null
+}

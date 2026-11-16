@@ -12,6 +12,7 @@ locals {
   # 구성 요소별 S3 접두사 (해당 ref 가 없으면 그 구성 요소 Lambda 는 team_lambdas 에 넣지 않는다)
   dz     = "${try(local.lb.prefix["dhxorb96"], "missing")}/dhxorb96-handlers.zip"
   lz     = try(local.lb.prefix["let522mj"], "missing")
+  dp     = try(local.lb.prefix["dhxorb96"], "missing")
   t      = module.ddb.tables
   b      = module.s3.buckets
   kb_arn = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
@@ -21,6 +22,8 @@ locals {
     TABLE_APPROVALS    = local.t["approvals"].name
     TABLE_AUDIT_EVENTS = local.t["audit_events"].name
     TABLE_FEEDBACK     = local.t["feedback"].name
+    GUARDRAIL_ID       = aws_bedrock_guardrail.pii.guardrail_id
+    GUARDRAIL_VERSION  = aws_bedrock_guardrail_version.pii.version
     BUCKET_QUARANTINE  = local.b["quarantine"].name
     # Runtime 이 아직 없으면 빈 값 (type-detection 은 SFN 경로 유지)
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
@@ -52,6 +55,7 @@ locals {
       zip = local.dz, handler = "handlers.piiScan", env = local.d_env, memory = 512, timeout = 120, model_caller = false
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
+        { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = aws_bedrock_guardrail.pii.guardrail_arn },
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
       ])
     }
@@ -120,6 +124,20 @@ locals {
         { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${local.b["artifact"].arn}/kb-ingest/*" },
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["artifact"].arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = [local.t["documents"].arn, local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
+      ]
+    }
+    # ---- dhxorb96 사용자 Gateway (esbuild 단일 파일 index.mjs) ----
+    # interceptor: JWT 재검증 후 tools/call 인자에 __actor 주입. JWKS 공개 URL 조회(VPC 밖)
+    interceptor = {
+      zip = "${local.dp}/interceptor.zip", handler = "index.handler", memory = 256, timeout = 10, model_caller = false
+      env = { COGNITO_USER_POOL_ID = module.cognito.user_pool_id, COGNITO_CLIENT_ID = module.cognito.client_id }, statements = []
+    }
+    mcp-privacy = { zip = "${local.dp}/mcp_privacy.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = false, env = {}, statements = [] }
+    mcp-approval = {
+      zip = "${local.dp}/mcp_approval.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = false, env = local.d_env
+      statements = [
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:PutItem"], Resource = [local.t["approvals"].arn, local.t["audit_events"].arn] },
       ]
     }
     # ---- yoyo0704 (workflows.zip) ----
