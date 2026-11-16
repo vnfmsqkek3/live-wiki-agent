@@ -15,5 +15,9 @@
   },
   "devDependencies": {
     "esbuild": "0.28.2"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
   }
 }

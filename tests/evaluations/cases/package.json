@@ -14,6 +14,8 @@
     "@hanaeum/graph-server": "*"
   },
   "scripts": {
-    "measure": "node src/measure.ts"
+    "measure": "node src/measure.ts",
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
   }
 }

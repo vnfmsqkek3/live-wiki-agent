@@ -37,7 +37,7 @@ export function graphTools(deps: { graph: GraphStore; clauses: ClauseStore }) {
       const see = canSee(actor);
       const edges = await deps.graph.outgoing(id);
       if (edges.length && !see(edges[0]!.from_acl)) throw new ToolError("ACCESS_DENIED", "열람 권한 없음");
-      return { id, edges: edges.filter((e) => see(e.to_acl)).map(({ to_acl: _t, from_acl: _f, ...e }) => e) };
+      return { id, edges: edges.filter((e) => see(e.to_acl)).map((e) => ({ type: e.type, to: e.to, to_label: e.to_label, props: e.props })) };
     },
   };
 }

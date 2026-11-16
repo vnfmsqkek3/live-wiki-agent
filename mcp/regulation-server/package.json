@@ -11,5 +11,9 @@
     "@hanaeum/legal-parser": "*",
     "@hanaeum/mcp-kit": "*",
     "@hanaeum/schemas": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
   }
 }

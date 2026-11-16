@@ -13,7 +13,9 @@ export const MAX_BROKEN = 0.2;
 const brokenRatio = (s: string) => {
   const chars = [...s.replace(/\s/gu, "")];
   if (!chars.length) return 0;
-  return chars.filter((c) => c === "�" || /[\u0000-\u0008\u000E-\u001F]/u.test(c)).length / chars.length;
+  // 깨진 문자: 대체 문자(U+FFFD) 또는 탭·줄바꿈 외 제어 문자
+  const broken = (c: string) => { const n = c.codePointAt(0)!; return n === 0xfffd || n <= 0x08 || (n >= 0x0e && n <= 0x1f); };
+  return chars.filter(broken).length / chars.length;
 };
 
 export function page(page_index: number, text: string, forceOcr = false): TextLayerPage {

@@ -1,4 +1,0 @@
-{
-  "extends": "./tsconfig.base.json",
-  "include": ["packages/*/src", "services/*/src", "mcp/*/src", "tests/evaluations/cases/src"]
-}

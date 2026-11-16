@@ -49,7 +49,8 @@ export function makeHandler(tools: Record<string, ToolHandler>) {
       const name = toolName(ctx);
       const fn = tools[name];
       if (!fn) throw new ToolError("UNKNOWN_TOOL", name);
-      const { __actor: _a, ...args } = event ?? {}; // Tool 로직에는 신원 인자를 넘기지 않음
+      const args = { ...(event ?? {}) };
+      delete args["__actor"]; // Tool 로직에는 신원 인자를 넘기지 않음
       return await fn(args, actorFrom(event ?? {}));
     } catch (e) {
       if (e instanceof ToolError) return { error: { code: e.code, message: e.message } };
