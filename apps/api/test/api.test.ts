@@ -43,7 +43,7 @@ async function submitted(t: ReturnType<typeof setup>) {
   t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   const d = (await t.store.getDoc(doc_id))!;
-  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', task_token: 'tok-1' });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', task_token: 'tok-1', content_hash: 'sha256:h1' });
   const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 201);
   const { approval_id } = (await s.json()) as { approval_id: string };

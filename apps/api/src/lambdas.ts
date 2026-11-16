@@ -1,5 +1,6 @@
 // 단계 Lambda (Owner dhxorb96, docs/05 3장). 입출력 계약: interfaces.md 6장.
 // 진입점은 handlers.ts. 여기 함수들은 의존성을 주입받아 테스트한다.
+import { createHash } from 'node:crypto';
 import type { DocumentRecord, Finding, StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
@@ -9,7 +10,7 @@ export interface StepInput { workflow_id: string; doc_id: string; version: numbe
 
 export interface LambdaDeps {
   store: Store;
-  headObject(key: string): Promise<{ s3_version_id: string; content_hash: string } | undefined>;
+  headObject(key: string): Promise<{ s3_version_id: string } | undefined>;
   getObjectBytes(key: string, versionId?: string, range?: number): Promise<Uint8Array>;
   startWorkflow(d: DocumentRecord): Promise<void>;
 }
@@ -38,7 +39,8 @@ export function makeTypeDetection(deps: LambdaDeps) {
       const head = await deps.headObject(k);
       if (!head) throw new Error('object missing'); // SQS 재시도 → DLQ
       const t = typeDetection(m[2]!, await deps.getObjectBytes(k, head.s3_version_id, 8192));
-      const next = addFindings({ ...d, s3_version_id: head.s3_version_id, content_hash: head.content_hash }, t.findings);
+      // 검사 대상 버전을 여기서 고정한다. 이후 단계는 모두 이 버전만 읽는다
+      const next = addFindings({ ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id }, t.findings);
       if (t.status === 'BLOCKED') { await deps.store.putDoc({ ...next, lifecycle: 'BLOCKED', trust_gate_result: 'QUARANTINED' }); continue; }
       await deps.store.putDoc(next);
       await deps.startWorkflow(next);
@@ -51,8 +53,11 @@ export function makeFileStructureCheck(deps: LambdaDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
     const kind = (d.ext === 'jpeg' ? 'jpg' : d.ext) as FileKind;
-    const out = fileStructureCheck(kind, await deps.getObjectBytes(key(d), d.s3_version_id));
-    await deps.store.putDoc(addFindings(d, out.findings));
+    const bytes = await deps.getObjectBytes(key(d), d.s3_version_id);
+    const out = fileStructureCheck(kind, bytes);
+    // 승인 바인딩 해시 = 검사한 원본 바이트의 sha256 (Promote가 같은 방식으로 대조, let522mj 합의)
+    const content_hash = `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
+    await deps.store.putDoc({ ...addFindings(d, out.findings), content_hash });
     return { status: out.status, findings: out.findings };
   };
 }

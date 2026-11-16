@@ -32,9 +32,9 @@ export const presignPut = (key: string, len: number) =>
 
 export async function headObject(key: string) {
   try {
-    const h = await s3().send(new HeadObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ChecksumMode: 'ENABLED' }));
-    if (!h.VersionId) return undefined; // 버킷 버전관리 필수 (버전 ID가 승인 바인딩의 1차 기준)
-    return { s3_version_id: h.VersionId, content_hash: h.ChecksumSHA256 ?? h.ChecksumCRC64NVME ?? h.ETag ?? '' };
+    const h = await s3().send(new HeadObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key }));
+    if (!h.VersionId) return undefined; // 버킷 버전관리 필수. 버전 ID는 불변이라 "검사 후 변경" 판정 기준
+    return { s3_version_id: h.VersionId };
   } catch (e) {
     if ((e as { name?: string }).name === 'NotFound') return undefined;
     throw e;

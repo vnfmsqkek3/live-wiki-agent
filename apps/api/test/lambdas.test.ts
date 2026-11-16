@@ -9,7 +9,7 @@ function setup(bytes: Uint8Array) {
   const started: string[] = [];
   const deps: LambdaDeps = {
     store,
-    headObject: async () => ({ s3_version_id: 'v1', content_hash: 'h1' }),
+    headObject: async () => ({ s3_version_id: 'v1' }),
     getObjectBytes: async (_k, _v, range) => (range ? bytes.subarray(0, range) : bytes),
     startWorkflow: async (d) => { started.push(d.workflow_id!); },
   };
@@ -49,6 +49,7 @@ test('단계 체인: FileStructure OK → TrustGate(분류 없음) REVIEW_REQUIR
   const t = setup(pdf);
   await t.store.putDoc(t.doc);
   assert.equal((await makeFileStructureCheck(t.deps)(t.input)).status, 'OK');
+  assert.match((await t.store.getDoc(t.doc.doc_id))!.content_hash!, /^sha256:[0-9a-f]{64}$/);
   assert.equal((await makeTrustGate(t.deps)(t.input)).status, 'REVIEW_REQUIRED');
   await makeWaitForApproval(t.deps)({ ...t.input, task_token: 'tok' });
   let d = (await t.store.getDoc(t.doc.doc_id))!;

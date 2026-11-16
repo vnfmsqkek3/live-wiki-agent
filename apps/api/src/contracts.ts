@@ -63,7 +63,16 @@ export interface DocumentRecord {
   /** 사람 분류 수정 이력 (docs/04 3장: 결과·confidence·rationale·사람 수정 이력 저장) */
   classification_history?: { at: string; by: string; from?: DocumentType; to: DocumentType; reason: string }[];
   s3_version_id?: string;
+  /** `sha256:{hex}` 검사한 원본 바이트. 승인 바인딩·Promote 대조 기준 */
   content_hash?: string;
+  /** let522mj Promote가 기록하는 게시본 해시 (검색 재검증 기준) */
+  published_content_hash?: string;
+  /** 규정 메타데이터 (Classify·TrustGate가 Registry 대조로 채움) */
+  law_id?: string; law_name?: string; revision_id?: string; effective_from?: string; effective_to?: string; registry_doc_no?: string; previous_revision_id?: string;
+  /** 승인된 노하우 인용 (GraphUpsert 입력) */
+  citations?: { provision_id: string; evidence_span: string; confidence: number }[];
+  /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
+  parse_reviewed?: boolean;
   workflow_id?: string;
   task_token?: string;
   findings: Finding[];

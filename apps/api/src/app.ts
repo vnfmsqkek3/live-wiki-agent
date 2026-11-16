@@ -19,7 +19,7 @@ export interface Deps {
   /** quarantine/{doc_id}/original.{ext} PUT presigned URL (SigV4, 리전 엔드포인트) */
   presignPut(key: string, contentLength: number): Promise<string>;
   /** 현재 S3 객체의 버전·해시 (승인 바인딩 검증용) */
-  headObject(key: string): Promise<{ s3_version_id: string; content_hash: string } | undefined>;
+  headObject(key: string): Promise<{ s3_version_id: string } | undefined>;
   /** 실행 이름=workflow_id, 입력은 문서로만 결정 → 업로드 이벤트(type-detection)와 analyze가 같은 실행으로 수렴 (멱등) */
   startWorkflow(doc: DocumentRecord): Promise<void>;
   /** WaitForApproval 재개: 결정과 무관하게 SendTaskSuccess({decision}) (interfaces.md 6장). APPROVE만 Promote로 진행 */
@@ -108,7 +108,8 @@ export function createApp(deps: Deps) {
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
     const head = await deps.headObject(quarantineKey(d));
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
-    const doc = { ...d, s3_version_id: head.s3_version_id, content_hash: head.content_hash, updated_at: new Date().toISOString() };
+    // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
+    const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString() };
     await store.putDoc(doc);
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
@@ -173,7 +174,8 @@ export function createApp(deps: Deps) {
     if (!head) throw new ApiError('CONFLICT', 'object missing');
     const status = b.decision === 'APPROVE' ? 'APPROVED' : 'REJECTED';
     // 반려·재검증은 변경된 객체에도 가능해야 하므로 바인딩 검증은 APPROVE에만 적용
-    const bind = status === 'APPROVED' ? head : { s3_version_id: apr.s3_version_id, content_hash: apr.content_hash };
+    // 버전 ID는 불변 → 현재 객체 버전이 게시 요청 때와 같아야 승인. 해시는 Promote가 바이트로 재검증한다
+    const bind = { s3_version_id: status === 'APPROVED' ? head.s3_version_id : apr.s3_version_id, content_hash: apr.content_hash };
     const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, reason: b.reason, ...bind });
     const now = new Date().toISOString();
     if (b.decision === 'REVALIDATE') await store.putDoc({ ...d, lifecycle: 'IN_REVIEW', freshness: 'REVIEW_REQUIRED', updated_at: now });
