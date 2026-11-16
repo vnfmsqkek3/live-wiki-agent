@@ -10,7 +10,10 @@
 | 문서 | `doc_` + ULID | `doc_01JD3…` |
 | 문서 버전 | `{doc_id}@v{n}` | `doc_01JD3…@v2` |
 | 법령·규정 | `{law_id}@{revision_yyyy-mm-dd}` | `SYN-LOAN-001@2026-11-01` |
-| 조문 | `{law_id}@{rev}/ARTICLE:{n}[-{branch}]/PARAGRAPH:{n}/ITEM:{n}/SUBITEM:{GA..HA}` | `SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA` |
+| 조문 | `{law_id}@{rev}/ARTICLE:{n}[-{branch}]/PARAGRAPH:{n}/ITEM:{n}[-{branch}]/SUBITEM:{GA..HA}` | `SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA` |
+| 부칙 조 | `{law_id}@{rev}/SUPPLEMENTARY:{k}/ARTICLE:{n}` (본칙과 별도 네임스페이스) | `…@2026-11-01/SUPPLEMENTARY:1/ARTICLE:2` |
+| 별표 | `{law_id}@{rev}/ANNEX:{n}[-{m}]` | `…@2026-11-01/ANNEX:1-2` (별표 1의2) |
+| 노하우 청크 | `{doc_id}#s{n}` (섹션 순번) | `K-001#s2` |
 | 워크플로 | `wf_` + ULID | |
 | 승인 | `apr_` + ULID | |
 | Finding | `fnd_` + ULID | |
@@ -27,6 +30,9 @@
 | `provision_status` | `ACTIVE` / `HISTORICAL` / `DELETED` |
 | `search_status` | `FOUND` / `HISTORICAL` / `DELETED` / `NOT_FOUND_VERIFIED` / `UNVERIFIED` / `ACCESS_DENIED` |
 | `role` | `USER` / `AUTHOR` / `REG_APPROVER` / `SECURITY_REVIEWER` / `PLATFORM_OPERATOR` (Cognito 그룹명과 동일) |
+| `index_group` | `legal-clauses` / `wiki-knowledge` / `official-manuals` |
+
+ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
 
 ## 3. S3 레이아웃 (Owner yoyo0704)
 
@@ -67,8 +73,11 @@
 
 ## 5. 메타데이터 사이드카 (Owner let522mj)
 
-`04` 4.1의 `.metadata.json` 그대로. 필수: `doc_id, document_type, index_group, authority_status, freshness, lifecycle, law_id?, revision_id?, effective_from(yyyymmdd 숫자), effective_to, acl_groups[], dept, approval_id, content_hash`.
-청크 메타데이터(Chunker가 추가): `provision_id, provision_path, provision_status, parent_id, source_page`.
+`04` 4.1의 `.metadata.json` 그대로. 필수: `doc_id, title, document_type, index_group, authority_status, freshness, lifecycle, law_id?, law_name?, revision_id?, effective_from(yyyymmdd 숫자), effective_to, acl_groups[], dept, approval_id, content_hash`.
+- REGULATION은 `law_id`·`revision_id` 필수. `content_hash` = 게시 본문(마스킹본)의 `sha256:{hex}`.
+- 청크 메타데이터(Chunker가 추가): `provision_id, provision_path, provision_status, parent_id, source_page, original_text`.
+- `original_text`는 인용용 원문. 임베딩 입력(contentBody)은 문맥 헤더 + 본문인 `augmented_search_text`이며 인용에 쓰지 않는다.
+- 위치: `published/{legal|knowledge}/{doc_id}/content.txt` + `content.txt.metadata.json`.
 
 ## 6. 단계 입출력 (Owner yoyo0704, 단계별 Owner는 `05` 3장)
 
@@ -138,7 +147,10 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | Strands Agents TS SDK | | dhxorb96 |
 | Backend 프레임워크 | | dhxorb96 |
 | Next.js | | dhxorb96 |
-| zod | | let522mj |
+| zod | 4.6.7 | let522mj |
+| unpdf (PDF 텍스트 레이어) | 2.2.1 | let522mj |
+| AWS SDK v3 (`@aws-sdk/client-*`, `lib-dynamodb`) | 3.1169.0 | let522mj |
+| `@smithy/signature-v4` / `@aws-crypto/sha256-js` (Neptune SigV4) | 5.7.5 / 5.2.0 | let522mj |
 | TypeScript / ESLint / Vitest | typescript 6.0.3 (typescript-eslint가 7.x 미지원), eslint 10.15.0, typescript-eslint 8.72.2, vitest 5.1.0 | yoyo0704 |
 | Bedrock 모델 inference profile ID (Haiku/Sonnet/Opus 5.5, Titan V2, Cohere Rerank 3.5) | **5.5 미허용으로 임시 대체**: `us.anthropic.claude-haiku-4-5-20251001-v1:0` / `us.anthropic.claude-sonnet-4-6` / `us.anthropic.claude-opus-4-6-v1`, `amazon.titan-embed-text-v2:0`, `cohere.rerank-v3-5:0` (트러블슈팅 11/16) | yoyo0704 |
 
@@ -158,3 +170,4 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | 2026-11-16 | 초기 설정 | 전체 | v0 기본값 |
 | 2026-11-16 | yoyo0704 | 6.1 | AgentCore 파이프라인 Gateway·Tool 이름·Runtime 계약 (긴급 전환) |
 | 2026-11-16 | yoyo0704 | 4·6·8 | TABLE_WORKFLOWS·SQS_INGEST_TRIGGER 추가, DynamoDB 키 규칙, 모델 호출 Role 태그, 단계 PENDING·outcome·task_token, 버전 고정 |
+| 2026-11-16 | let522mj | 1·2·5·8 | v0.1: 부칙·별표·노하우 청크 ID, `index_group` enum, ACL 키 규칙(`DEPT#`), 메타데이터 `title`·`law_name`·청크 `original_text` 추가, 버전 기입 |

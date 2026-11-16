@@ -1,0 +1,23 @@
+{
+  "name": "@hanaeum/search-server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agent-runtime": "3.1169.0",
+    "@aws-sdk/client-dynamodb": "3.1169.0",
+    "@aws-sdk/lib-dynamodb": "3.1169.0",
+    "@hanaeum/mcp-kit": "*",
+    "@hanaeum/regulation-server": "*",
+    "@hanaeum/schemas": "*"
+  },
+  "devDependencies": {
+    "@hanaeum/kb-chunker": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}

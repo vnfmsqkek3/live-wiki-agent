@@ -1,0 +1,33 @@
+{
+  "_note": "SYNTHETIC. 사람이 작성한 정답. 파서 출력에서 생성하지 않는다.",
+  "meta": { "law_id": "SYN-VLOAN-001", "law_name": "가상여신거래법", "revision_id": "2026-11-01" },
+  "provisions": [
+    ["ARTICLE:1", "ACTIVE"], ["ARTICLE:2", "ACTIVE"],
+    ["ARTICLE:2/ITEM:1", "ACTIVE"], ["ARTICLE:2/ITEM:2", "ACTIVE"], ["ARTICLE:2/ITEM:3", "ACTIVE"],
+    ["ARTICLE:2/ITEM:3/SUBITEM:GA", "ACTIVE"], ["ARTICLE:2/ITEM:3/SUBITEM:NA", "ACTIVE"], ["ARTICLE:2/ITEM:3/SUBITEM:DA", "ACTIVE"],
+    ["ARTICLE:12", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:1", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:2", "ACTIVE"],
+    ["ARTICLE:12/PARAGRAPH:2/ITEM:1", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:2/ITEM:1-2", "ACTIVE"],
+    ["ARTICLE:12/PARAGRAPH:2/ITEM:2", "DELETED"], ["ARTICLE:12/PARAGRAPH:2/ITEM:3", "ACTIVE"],
+    ["ARTICLE:12/PARAGRAPH:3", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:4", "DELETED"],
+    ["ARTICLE:12/PARAGRAPH:5", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:6", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:7", "ACTIVE"],
+    ["ARTICLE:12/PARAGRAPH:8", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:9", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:10", "ACTIVE"],
+    ["ARTICLE:12/PARAGRAPH:11", "ACTIVE"], ["ARTICLE:12/PARAGRAPH:12", "ACTIVE"],
+    ["ARTICLE:12-2", "ACTIVE"], ["ARTICLE:13", "DELETED"], ["ARTICLE:14", "ACTIVE"],
+    ["SUPPLEMENTARY:1", "ACTIVE"], ["SUPPLEMENTARY:1/ARTICLE:1", "ACTIVE"], ["SUPPLEMENTARY:1/ARTICLE:2", "ACTIVE"],
+    ["ANNEX:1", "ACTIVE"], ["ANNEX:1-2", "ACTIVE"]
+  ],
+  "references": [
+    { "from": "ARTICLE:12/PARAGRAPH:2", "to": "ARTICLE:12/PARAGRAPH:1", "exception_candidate": true },
+    { "from": "ARTICLE:12/PARAGRAPH:3", "to": "ARTICLE:12/PARAGRAPH:2" },
+    { "from": "ARTICLE:12/PARAGRAPH:3", "to": "ARTICLE:12" },
+    { "from": "ARTICLE:12/PARAGRAPH:7", "to": "ANNEX:1" },
+    { "from": "ARTICLE:12/PARAGRAPH:8", "to": "ANNEX:1-2" },
+    { "from": "ARTICLE:12/PARAGRAPH:11", "to": "ARTICLE:12/PARAGRAPH:10" },
+    { "from": "ARTICLE:12-2", "to": "ARTICLE:12/PARAGRAPH:2/ITEM:1" },
+    { "from": "ARTICLE:12-2", "to": "ARTICLE:12", "exception_candidate": true },
+    { "from": "ARTICLE:14", "to": "ARTICLE:12-2" },
+    { "from": "SUPPLEMENTARY:1/ARTICLE:2", "to": "ARTICLE:12" }
+  ],
+  "amendments": { "ARTICLE:1": [["개정", ["2013-12-03", "2016-10-05"]]], "ARTICLE:12/PARAGRAPH:11": [["개정", ["2016-10-05"]]] },
+  "deletion_dates": { "ARTICLE:12/PARAGRAPH:2/ITEM:2": "2013-12-03", "ARTICLE:12/PARAGRAPH:4": "2025-01-01", "ARTICLE:13": "2016-10-05" }
+}

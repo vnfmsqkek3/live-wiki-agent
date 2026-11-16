@@ -14,6 +14,8 @@ node_modules/
 !자료/**/
 !자료/README.md
 !자료/**/.gitkeep
+# 공개 법령 원문(저작권 보호 대상 아님, 저작권법 제7조)은 공유한다
+!자료/데이터원천/법령/*.md
 dist/
 *.tfplan
 .terraform.tfstate.lock.info
