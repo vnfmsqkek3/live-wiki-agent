@@ -6,7 +6,8 @@
     "start": "node src/server.ts",
     "test": "node --test test/*.test.ts",
     "typecheck": "tsc -p .",
-    "build:lambda": "esbuild src/handlers.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/handlers.mjs --external:@aws-sdk/* --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
+    "build:lambda": "esbuild src/handlers.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/handlers.mjs --external:@aws-sdk/* --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\"",
+    "build:server": "esbuild src/server.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/server.mjs --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-agentcore": "3.1169.0",

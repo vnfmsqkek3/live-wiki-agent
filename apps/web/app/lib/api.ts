@@ -1,11 +1,12 @@
 'use client';
-// API·인증 클라이언트. NEXT_PUBLIC_API_URL이 없으면 합성 mock으로 동작한다 (11/17 공유 dev 연동 전).
+// API·인증 클라이언트. NEXT_PUBLIC_API_URL이 정의되지 않으면 합성 mock으로 동작한다 (11/17 공유 dev 연동 전).
 // 버튼 노출은 편의일 뿐 권한은 서버가 강제한다 (01 §3.1).
 
 const API = process.env.NEXT_PUBLIC_API_URL;
 const REGION = process.env.NEXT_PUBLIC_AWS_REGION ?? 'us-east-1';
 const CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID;
-export const MOCK = !API;
+// 빈 문자열 = 같은 도메인(CloudFront가 /v1/* 를 API로 전달). 정의되지 않았을 때만 mock
+export const MOCK = API === undefined;
 
 export type Role = 'USER' | 'AUTHOR' | 'REG_APPROVER' | 'SECURITY_REVIEWER' | 'PLATFORM_OPERATOR';
 export interface Session { token: string; groups: Role[]; username: string }
