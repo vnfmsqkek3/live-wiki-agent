@@ -1,0 +1,23 @@
+{
+  "name": "hanaeum-living-wiki",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "packages/*",
+    "services/*",
+    "mcp/*",
+    "tests/evaluations/cases"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test --test-reporter=dot \"packages/*/src/**/*.test.ts\" \"services/*/src/**/*.test.ts\" \"mcp/*/src/**/*.test.ts\" \"tests/evaluations/cases/**/*.test.ts\"",
+    "lint": "npm run typecheck"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "devDependencies": {
+    "@types/node": "^24.19.2",
+    "typescript": "^7.0.2"
+  }
+}

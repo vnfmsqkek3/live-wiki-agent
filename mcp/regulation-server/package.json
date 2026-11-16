@@ -1,0 +1,6 @@
+{
+  "name": "@hanaeum/regulation-server",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}

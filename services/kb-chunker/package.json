@@ -1,0 +1,6 @@
+{
+  "name": "@hanaeum/kb-chunker",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./src/index.ts" }
+}
