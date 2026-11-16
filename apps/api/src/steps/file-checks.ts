@@ -64,9 +64,34 @@ export function fileStructureCheck(kind: FileKind, body: Uint8Array): StepOutput
   if (kind === 'docx' || kind === 'hwpx') {
     const s = ascii(body);
     if (/vbaProject\.bin|activeX\//.test(s)) add('HIGH', 'OFFICE_MACRO', '매크로·스크립트 포함', 'zip');
+    const z = zipSizes(body);
+    if (!z) add('HIGH', 'ZIP_INVALID', 'ZIP 목록(central directory)을 읽을 수 없음', 'zip');
+    else if (z.total > ZIP_MAX_TOTAL || z.maxRatio > ZIP_MAX_RATIO)
+      add('HIGH', 'ZIP_BOMB', `압축 해제 크기 ${Math.round(z.total / 2 ** 20)}MB, 최대 압축률 ${Math.round(z.maxRatio)}배 (기준 ${ZIP_MAX_TOTAL / 2 ** 20}MB·${ZIP_MAX_RATIO}배)`, 'zip');
   }
   const status = findings.some((x) => x.severity === 'HIGH') ? 'BLOCKED' : findings.length ? 'REVIEW_REQUIRED' : 'OK';
   return { status, findings };
+}
+
+// 압축 폭탄 차단: 본문 추출(3a)이 압축을 풀기 전에 ZIP 목록의 크기만 본다
+const ZIP_MAX_TOTAL = 200 * 2 ** 20; // ponytail: 50MB 업로드 기준 여유값. 정상 대형 문서가 걸리면 조정
+const ZIP_MAX_RATIO = 100;
+export function zipSizes(b: Uint8Array): { total: number; maxRatio: number } | undefined {
+  const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+  let eocd = -1;
+  for (let i = b.length - 22; i >= Math.max(0, b.length - 22 - 65_535); i--) if (dv.getUint32(i, true) === 0x06054b50) { eocd = i; break; }
+  if (eocd < 0) return undefined;
+  const count = dv.getUint16(eocd + 10, true);
+  let p = dv.getUint32(eocd + 16, true);
+  let total = 0, maxRatio = 0;
+  for (let n = 0; n < count; n++) {
+    if (p + 46 > b.length || dv.getUint32(p, true) !== 0x02014b50) return undefined;
+    const comp = dv.getUint32(p + 20, true), raw = dv.getUint32(p + 24, true);
+    total += raw;
+    if (raw > 1_048_576) maxRatio = Math.max(maxRatio, raw / Math.max(comp, 1)); // 작은 파일의 높은 압축률은 정상
+    p += 46 + dv.getUint16(p + 28, true) + dv.getUint16(p + 30, true) + dv.getUint16(p + 32, true);
+  }
+  return { total, maxRatio };
 }
 
 function* pngChunks(b: Uint8Array) {

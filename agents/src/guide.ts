@@ -14,6 +14,8 @@ export interface Evidence {
   authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   search_status?: string;
+  /** false = 그림 설명 등 원문이 아닌 결과 (let522mj search). 출처로 쓰지 않는다 */
+  quotable?: boolean;
 }
 
 export const GuideDraft = z.object({
@@ -67,7 +69,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   // 삭제 조항은 근거로 쓰지 않는다 (삭제 조항 오인용 0건, docs/02 4장). 과거 버전은 쓰되 불확실로 알린다
   say(PROGRESS.search);
   const all = await deps.search(q);
-  const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED');
+  const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && e.quotable !== false);
   const historical = evidence.filter((e) => e.search_status === 'HISTORICAL').length;
   const base = { query_masked: spans.length > 0, model: deps.model, evidence };
   if (evidence.length === 0) return { ...base, status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: '열람 가능한 승인 문서에서 근거를 찾지 못했습니다.' };

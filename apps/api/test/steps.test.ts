@@ -112,3 +112,17 @@ test('TrustGate: 보안 HIGH는 QUARANTINED, 저신뢰 분류는 REVIEW_REQUIRED
   const k = trustGate({ doc: { classification: cls('KNOWHOW'), findings: [] } });
   assert.deepEqual([k.result, k.authority_status], ['PASS', 'UNVERIFIED']);
 });
+
+test('FileStructureCheck: DOCX·HWPX 정상 통과, 압축 폭탄·깨진 ZIP 차단', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { zipSync } = await import('fflate');
+  const dir = new URL('../../../tests/fixtures/documents/office/', import.meta.url);
+  for (const f of readdirSync(dir).filter((x) => /\.(docx|hwpx)$/.test(x))) {
+    const r = fileStructureCheck(f.endsWith('docx') ? 'docx' : 'hwpx', new Uint8Array(readFileSync(new URL(f, dir))));
+    assert.equal(r.status, 'OK', `${f}: ${JSON.stringify(r.findings)}`);
+  }
+  const bomb = zipSync({ '[Content_Types].xml': new TextEncoder().encode('<Types/>'), 'word/document.xml': new Uint8Array(300 * 2 ** 20) }, { level: 9 });
+  assert.ok(bomb.length < 2 * 2 ** 20);
+  assert.ok((fileStructureCheck('docx', bomb).findings ?? []).some((x) => x.code === 'ZIP_BOMB'));
+  assert.equal(fileStructureCheck('docx', new TextEncoder().encode('PK\x03\x04 word/ broken')).findings?.[0]?.code, 'ZIP_INVALID');
+});
