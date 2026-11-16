@@ -4,7 +4,7 @@
 상태: **완료**(실환경 증빙 있음) / **부분**(로직·오프라인 또는 일부 실환경만, 남은 조건 명시) / **대기**(선행 조건 미충족) / **미착수**
 `docs/02` 1장: 화면·mock만으로 완료 처리 금지, 입력→판단→통제→결과→검증 근거 연결, 반복 실행 가능한 테스트.
 
-마지막 갱신: 2026-11-16 20:16 (실 E2E 하류 구간 통과, PR #4)
+마지막 갱신: 2026-11-16 21:03 (AgentCore 전 구간 E2E 통과, 실환경 재측정, Browser Tool PR #6)
 
 ## 1. 기능별 DoD (`docs/02` 2장, let522mj 담당분)
 
@@ -24,7 +24,7 @@
 | 정확 조문 검색 | 19/20 | 실환경 20/20 (`measure-kb.ts`, 조문 조회 경로), 오프라인 20/20 | 실 DynamoDB + 실 KB(빈 상태) | 부분 (KB 색인 후 KB 경로 포함 재측정) |
 | 삭제 조항 오인용 | 0 | 0 (조회 6 + 자유질의 8) | 오프라인 | 부분 (실 KB 재측정) |
 | 변경 영향 탐지 | 5/5 | 5/5, 오탐 0 | 오프라인 | 부분 (실 Neptune 재측정) |
-| 승인 전 KB 가시성 | 0건 | 0/20 (빈 KB 기준값 — 증빙 아님) | 실 KB (`measure-kb.ts`) | 대기 (E2E 색인 후 재측정. 검출기는 오프라인에서 차단 문서 혼입을 잡아냄 확인) |
+| 승인 전 KB 가시성 | 0건 | 0/20, 금지 근거 0 (11/16 21시, KB 게시 소수) | 실 KB (`measure-kb.ts`) | 부분 (Golden 차단 문서를 실제 업로드해 재측정 필요) |
 
 ## 3. 데이터 (`docs/02` 3장)
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 11/16 M0 | `packages/schemas` v0, 합성 10건 | 완료 | schemas 리뷰는 PR #3 (dhxorb96) |
 | 11/17 | Parser v0, Registry 기준본·해시 fixture | 완료 | 공개 법령 검증까지 |
-| 11/18 | Chunker·Promote·KbIngest·search Tool, **E2E 1건** | 부분 (하류 구간 실환경 통과 11/16 20:16, 6·9단계 대체) | Lambda 7개 배포·SFN·KB chunker 연결 완료(yoyo0704, 11/16). E2E는 승인 API 경유로 진행 예정 |
+| 11/18 | Chunker·Promote·KbIngest·search Tool, **E2E 1건** | 완료 (11/16 21:01 AgentCore 오케스트레이터 전 구간 대체 없이 PUBLISHED, dhxorb96 검증 `doc_01M7J3JDCF85X2T0AENC1F14K8`) | Lambda 7개 배포·SFN·KB chunker 연결 완료(yoyo0704, 11/16). E2E는 승인 API 경유로 진행 예정 |
 | 11/19 | Exact Lookup·검색 상태, Golden 60 | 완료 | 실 DynamoDB 20/20 |
 | 11/20 | GraphUpsert·Change Impact | 부분 | 로직·오프라인 완료, Neptune 대기 |
 | 11/21 | 정량 기준 측정 | 부분 | 오프라인 완료, 실환경 재측정 필요 |
