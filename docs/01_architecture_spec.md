@@ -596,7 +596,23 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 
 - 모델 ID, 리전, Inference Profile은 배포 시 실제 계정에서 검증한다 (확인 필요).
 - 모든 모델을 상시 호출하지 않는다. 정책 기반 에스컬레이션을 적용한다.
-- Agent는 승인·게시·원본 삭제 권한을 직접 보유하지 않는다. 상태 전이는 Step Functions와 인증된 API가 수행한다.
+- Agent는 승인·게시·원본 삭제 권한을 직접 보유하지 않는다. 상태 전이는 AgentCore 오케스트레이터(Gateway Tool = 단계 Lambda)와 인증된 API가 수행한다 (11/16 팀 결정, Step Functions 대체).
+
+> MVP 구현 대응 (11/16, dhxorb96). 위 10개 역할은 **독립 Agent 10개가 아니라 역할 단위**로 구현했다. 판단 흐름이 고정된 역할은 오케스트레이터의 단계(규칙 + 필요할 때만 모델 1회)로, 사용자와 대화하는 역할만 Agent로 둔다. 이유: 단계마다 Agent를 두면 Agent 간 LLM 왕복이 늘어 지연·비용·비결정성이 커지고, 승인 전 상태 전이를 LLM이 고를 여지가 생긴다(9.1 마지막 원칙과 충돌).
+>
+> | 9.1 역할 | 구현 | 모델 | 상태 |
+> |---|---|---|---|
+> | Orchestrator | AgentCore Runtime 파이프라인 오케스트레이터 (Strands Graph, 단계 순서 고정) | 없음 | 완료 |
+> | Document Intelligence | Classify 단계 (분류 + 문서·쪽 요약) | Haiku → 신뢰도 0.7 미만 Sonnet | 완료 |
+> | Privacy & Security | PiiScan·InjectionScan 단계 (규칙·체크섬) + Guardrails | 규칙. Guardrails는 GUARDRAIL_ID 설정 시 | 규칙 완료, **Guardrails 미설정** |
+> | Authority Verification | TrustGate 단계 Registry 해시·조문 대조 | 없음 (Registry 우선) | 완료 |
+> | Trust Verification | TrustGate 단계 노하우 검증 (인용 추출·조문 검색·판정·인용 원문 대조) | Sonnet | 완료 |
+> | Knowledge Graph | GraphUpsert 단계·graph Tool (let522mj) | 없음 | 완료 |
+> | Change Impact | graph `trace_impact` Tool (let522mj) + 화면 07·초안 (dhxorb96) | 없음 | **탐지 Tool만. 게시된 노하우 자동 재검증 표시·화면 07 미구현** |
+> | Wiki Maintenance | approval `draft_change` Tool (DRAFT 저장, 자동 게시 없음) | **초안 생성 모델 미연결** | 부분 |
+> | Recommendation | 피드백 API(별점)만 | — | P1 미착수 |
+> | Knowledge Synthesis | 가이드 Agent (AgentCore Runtime, 검색 Tool 근거만 인용) | Sonnet | 완료 (검색 Tool 실연동 전) |
+> | 고위험 Opus 검토 | 없음 | — | **미구현** |
 - 고위험 조항은 Opus 5.5 검토를 추가하되 최종 승인자는 사람이다.
 
 ---
