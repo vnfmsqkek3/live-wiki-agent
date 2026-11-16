@@ -1,4 +1,4 @@
-// Regulation MCP Tool (읽기 전용): get_official_policy, verify_version, get_clause, resolve_reference, compare_versions
+// Regulation MCP Tool (읽기 전용): get_official_policy, verify_version, get_clause, resolve_reference, compare_versions, fetch_official_law
 // 검색 상태 원칙 (docs/01 8.7): 부재는 "확인한 버전·범위"가 있을 때만 NOT_FOUND_VERIFIED. 근거 부족은 UNVERIFIED.
 import { SUBITEM_CODES } from "@hanaeum/schemas";
 import type { Provision, SearchStatus, SubitemChar } from "@hanaeum/schemas";
@@ -6,6 +6,8 @@ import { diffLaws } from "@hanaeum/legal-parser";
 import { ToolError, aclKeys, asOfYmd, str } from "@hanaeum/mcp-kit";
 import type { Actor } from "@hanaeum/mcp-kit";
 import { relPath } from "./store.ts";
+import { fetchOfficialLaw } from "./browser.ts";
+import type { LawPageFetcher } from "./browser.ts";
 import type { ClauseStore, RevisionRecord } from "./store.ts";
 
 const SUB = Object.keys(SUBITEM_CODES).join("");
@@ -59,7 +61,7 @@ async function resolveLaw(store: ClauseStore, args: Record<string, unknown>): Pr
   return store.lawIdByName(law);
 }
 
-export function regulationTools(store: ClauseStore, opts: { today?: () => number } = {}) {
+export function regulationTools(store: ClauseStore, opts: { today?: () => number; fetcher?: LawPageFetcher } = {}) {
   const todayYmd = opts.today ?? systemToday;
   /** 버전이 박힌 조문 ID 조회: 그 버전 원문 + (현행이 아니면) 같은 위치 현행 조문 */
   async function getCitedClause(pid: string, asOf: number, actor: Actor): Promise<ClauseResult> {
@@ -217,6 +219,15 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
       if (!op || !np) throw new ToolError("NOT_FOUND", "조문 구조 데이터 없음");
       const law = (rev: string, provisions: Provision[]) => ({ law_id: lawId, law_name: "", revision_id: rev, effective_from: 0, parser_version: "", provisions, issues: [] });
       return { law_id: lawId, old_revision: o, new_revision: n, changes: diffLaws(law(o, op), law(n, np)) };
+    },
+
+    /** 최신 공식 법령 원문 (AgentCore Browser, 국가법령정보센터 한정). 참고용 UNVERIFIED */
+    async fetch_official_law(args: Record<string, unknown>) {
+      if (!opts.fetcher) throw new ToolError("UNKNOWN_TOOL", "Browser 미설정");
+      const law_name = str(args, "law_name");
+      if (!/^[가-힣A-Za-z0-9·ㆍ\s()]{2,60}$/u.test(law_name)) throw new ToolError("INVALID_ARGUMENT", "law_name은 법령명만 (URL 불가)");
+      const clause = str(args, "clause", false);
+      return fetchOfficialLaw(opts.fetcher, store, { law_name, ...(clause ? { clause } : {}) });
     },
   };
 }
