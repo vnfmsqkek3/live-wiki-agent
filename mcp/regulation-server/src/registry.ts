@@ -3,7 +3,7 @@
 // 2) 다르면 본문 머리말(법령명·시행일)로 "주장하는" 개정본을 찾고, 업로드 본문을 같은 조문 ID로 파싱해 조문 차이를 낼 수 있게 한다
 //    (불일치 → REVIEW_REQUIRED. 위조 확정은 사람)
 import { parseLaw } from "@hanaeum/legal-parser";
-import { isoFromDotted, ymd } from "@hanaeum/schemas";
+import { isoFromDotted, isoOfYmd, ymd } from "@hanaeum/schemas";
 import { relPath } from "./store.ts";
 import type { ClauseStore, RevisionRecord } from "./store.ts";
 
@@ -19,7 +19,7 @@ export interface RegistryMatch {
   claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> };
 }
 
-const iso = (n: number) => `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}`;
+const iso = isoOfYmd;
 const clausesOf = async (store: ClauseStore, r: RevisionRecord) =>
   Object.fromEntries(((await store.provisions(r.law_id, r.revision_id)) ?? []).map((p) => [relPath(p.provision_id), p.normalized_text]));
 
