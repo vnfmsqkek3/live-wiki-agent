@@ -78,6 +78,12 @@ test("Lambda transform: 배치 읽기 → 청크 배치 쓰기, 메타데이터 
   // 숫자 필드가 문자열로 와도 처리
   const strMeta = { ...meta(), effective_from: "20261101", effective_to: "99991231" } as unknown as Record<string, unknown>;
   assert.equal((await transform({ bucketName: "inter", inputFiles: [{ originalFileLocation: loc, fileMetadata: strMeta, contentBatches: [{ key: "in/F-001.json" }] }] }, io)).outputFiles.length, 1);
-  await assert.rejects(transform({ bucketName: "inter", inputFiles: [{ originalFileLocation: loc, fileMetadata: { doc_id: "x" }, contentBatches: [{ key: "in/F-001.json" }] }] }, io));
-  await assert.rejects(transform({ bucketName: "inter", inputFiles: [{ originalFileLocation: loc, fileMetadata: meta({ lifecycle: "IN_REVIEW" }), contentBatches: [{ key: "in/F-001.json" }] }] }, io), /PUBLISHED 아닌/u);
+  // 계약 위반·미게시 파일은 색인 제외(원문 1청크로 넘기지 않음), 같은 호출의 정상 파일은 색인
+  const mixed = await transform({ bucketName: "inter", inputFiles: [
+    { originalFileLocation: loc, fileMetadata: { doc_id: "x" }, contentBatches: [{ key: "in/F-001.json" }] },
+    { originalFileLocation: loc, fileMetadata: meta({ lifecycle: "IN_REVIEW" }), contentBatches: [{ key: "in/F-001.json" }] },
+    { originalFileLocation: loc, fileMetadata: meta(), contentBatches: [{ key: "in/F-001.json" }] },
+  ] }, io);
+  assert.equal(mixed.outputFiles.length, 1);
+  assert.deepEqual(mixed.outputFiles[0]!.fileMetadata, meta());
 });

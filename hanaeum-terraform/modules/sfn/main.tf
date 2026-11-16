@@ -14,7 +14,7 @@ variable "lambda_s3" { type = object({ bucket = string, key = string }) }
 locals {
   steps = [
     "malware_check", "file_structure_check", "text_layer_extract", "page_render", "ocr_if_needed",
-    "segment_build", "pii_scan", "injection_scan", "classify", "trust_gate", "wait_for_approval",
+    "segment_build", "pii_scan", "image_describe", "injection_scan", "classify", "trust_gate", "wait_for_approval",
     "promote", "kb_ingest", "graph_upsert", "finalize",
   ]
   # yoyo0704 소유 단계 Lambda (workflows/src/steps)

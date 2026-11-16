@@ -61,6 +61,8 @@ export interface DocumentRecord {
   revision_id?: string;
   effective_from?: number;
   effective_to?: number;
+  business_path?: string[];
+  tags?: string[];
 }
 
 export interface ApprovalRecord {
@@ -84,11 +86,13 @@ export interface Records {
 /** 승인 API(dhxorb96)가 쓴 Documents 항목을 Promote 입력으로: 문서 유형은 최상위 또는 classification(Classify·사람 수정),
  *  시행일은 "YYYY-MM-DD" 문자열 또는 YYYYMMDD 숫자. 유형을 못 정하면 게시하지 않는다 */
 export function normalizeDocument(item: Record<string, unknown>): DocumentRecord {
-  const cls = item["classification"] as { document_type?: DocumentType } | undefined;
+  const cls = item["classification"] as { document_type?: DocumentType; business_path?: string[]; tags?: string[] } | undefined;
   const document_type = (item["document_type"] ?? cls?.document_type) as DocumentType | undefined;
   if (!document_type) throw Object.assign(new Error(`document_type 미정: ${String(item["doc_id"])}`), { name: "UnclassifiedDocument" });
   const day = (v: unknown) => (typeof v === "string" ? ymd(v) : (v as number | undefined));
   const d = { ...item, document_type } as unknown as DocumentRecord;
+  // 업무 경로·태그는 Classify(사람 수정 포함) 결과에서. 빈 값은 싣지 않음
+  for (const k of ["business_path", "tags"] as const) { const v = (cls?.[k] ?? []).filter((x) => typeof x === "string" && x.trim()); if (v.length) d[k] = v; else delete d[k]; }
   for (const k of ["effective_from", "effective_to"] as const) { const v = day(item[k]); if (v === undefined) delete d[k]; else d[k] = v; }
   return d;
 }

@@ -219,6 +219,8 @@ resource "aws_bedrockagentcore_agent_runtime" "pipeline" {
     container_configuration { container_uri = "${aws_ecr_repository.orchestrator.repository_url}:${var.runtime_image_tag}" }
   }
   network_configuration { network_mode = "PUBLIC" }
+  # 새 단계 노드(env 로 켬)가 호출할 Tool·permit 이 먼저 있어야 한다
+  depends_on = [aws_bedrockagentcore_gateway_target.step, aws_bedrockagentcore_policy.orchestrator_only]
   environment_variables = merge(var.runtime_env, {
     PIPELINE_GATEWAY_URL = aws_bedrockagentcore_gateway.pipeline.gateway_url
     TABLE_DOCUMENTS      = var.tables["documents"].name

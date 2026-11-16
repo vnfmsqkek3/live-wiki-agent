@@ -13,6 +13,7 @@ function world(files: Record<string, unknown>, modelOut: unknown) {
   const sent: Uint8Array[] = [];
   const saved: unknown[] = [];
   const deps = {
+    listMaskedPages: async () => Object.keys(files).flatMap((k) => /masked\/pages\/(\d{4})\.png$/.exec(k) ? [Number(k.slice(-8, -4))] : []),
     getJson: async <T,>(k: string) => (puts.get(k) ?? files[k]) as T | undefined,
     getBytes: async (k: string) => files[k] as Uint8Array | undefined,
     putJson: async (k: string, b: unknown) => { puts.set(k, b); },
@@ -23,13 +24,6 @@ function world(files: Record<string, unknown>, modelOut: unknown) {
   return { puts, sent, saved, handler: makeHandler(deps) };
 }
 
-const targets = {
-  doc_id: "doc_1", page_count: 2,
-  pages: [
-    { page_index: 0, key: "doc_1/work/pages/0000.png", width: 2000, height: 2800, reason: "images", has_images: true },
-    { page_index: 1, key: "doc_1/work/pages/0001.png", width: 2000, height: 2800, reason: "chars<50", has_images: false },
-  ],
-};
 const masked = new Uint8Array([9]);
 
 describe("sanitize", () => {
@@ -47,7 +41,6 @@ describe("sanitize", () => {
 describe("ImageDescribe", () => {
   it("sends only the PII-masked image of image pages and merges figures into the masked segment", async () => {
     const w = world({
-      "doc_1/work/pages/ocr_targets.json": targets,
       "doc_1/masked/pages/0000.png": masked,
       "doc_1/masked/segments/0000.json": { doc_id: "doc_1", page_index: 0, text: "제5조 담보평가" },
     }, { figures: [{ kind: "screenshot", description: "담보평가 시스템 입력 화면", overlay_text: "감정가 입력", intent: "입력 위치 안내" }] });
@@ -60,23 +53,28 @@ describe("ImageDescribe", () => {
     });
   });
 
-  it("never sends an unmasked page: missing masked image → REVIEW_REQUIRED, no model call", async () => {
-    const w = world({ "doc_1/work/pages/ocr_targets.json": targets }, { figures: [] });
-    const out = await w.handler(input);
+  it("no masked page → no model call, OK (PiiScan already flagged image pages it could not mask)", async () => {
+    const w = world({ "doc_1/masked/segments/0001.json": { doc_id: "doc_1", page_index: 1, text: "본문" } }, { figures: [] });
+    expect(await w.handler(input)).toEqual({ status: "OK" });
     expect(w.sent).toEqual([]);
-    expect(out.status).toBe("REVIEW_REQUIRED");
-    expect(out.findings?.map((f) => f.code)).toEqual(["FIGURE_NOT_ANALYZED"]);
   });
 
   it("PII found in the model's description → masked and REVIEW_REQUIRED", async () => {
-    const w = world({ "doc_1/work/pages/ocr_targets.json": targets, "doc_1/masked/pages/0000.png": masked },
+    const w = world({ "doc_1/masked/pages/0000.png": masked },
       { figures: [{ kind: "photo", description: "명함 사진, 010-1234-5678" }] });
     const out = await w.handler(input);
     expect(out.findings?.map((f) => f.code)).toEqual(["PII_IN_FIGURE"]);
     expect(JSON.stringify(w.puts.get("doc_1/masked/figures/0000.json"))).not.toContain("1234");
   });
 
-  it("fails without OCR targets (PageRender must run first)", async () => {
-    await expect(world({}, {}).handler(input)).rejects.toThrow(/OcrTargetsNotFound/);
+});
+
+describe("shared PII rules (@hanaeum/pii)", () => {
+  it("masks a phone number in a figure description", async () => {
+    const { detectPii, mask: m } = await import("@hanaeum/pii");
+    const r = sanitize({ figures: [{ kind: "photo", description: "명함 사진, 연락처 010-1234-5678" }] },
+      (t) => { const s = detectPii(t); return { text: s.length ? m(t, s) : t, found: s.length }; });
+    expect(r.pii).toBe(1);
+    expect(r.figures[0]!.description).not.toContain("1234-5678");
   });
 });

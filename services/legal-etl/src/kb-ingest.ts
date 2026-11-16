@@ -44,8 +44,11 @@ export async function kbIngestStep(input: StepInput, api: IngestionApi, records:
     const doc = await records.getDocument(input.doc_id);
     if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
     const ds = doc.document_type === "REGULATION" ? env.KB_DS_LEGAL_ID : env.KB_DS_KNOWLEDGE_ID;
-    // clientToken 결정적: 저장 전에 Lambda가 죽어 재호출돼도 같은 Job (멱등). 데이터 소스당 동시 Job 충돌(ConflictException)은 예외 → SFN Retry/Catch
-    const job_id = await api.start(env.KB_ID, ds, ingestToken(input));
+    // clientToken 결정적: 저장 전에 Lambda가 죽어 재호출돼도 같은 Job (멱등).
+    // 데이터 소스당 동시 Job은 1개 → 다른 문서 색인 중(ConflictException)이면 PENDING으로 돌려 오케스트레이터가 재호출 (여러 문서 동시 게시)
+    let job_id: string;
+    try { job_id = await api.start(env.KB_ID, ds, ingestToken(input)); }
+    catch (e) { if ((e as Error).name === "ConflictException") return { status: "PENDING" }; throw e; }
     await store.put(env.BUCKET_ARTIFACT, key, JSON.stringify({ job_id, data_source_id: ds } satisfies JobState));
     return { status: "PENDING" };
   }

@@ -37,6 +37,8 @@ export function buildMetadata(doc: DocumentRecord, approval_id: string, content_
     effective_to: doc.effective_to ?? OPEN_END,
     acl_groups: doc.acl_groups,
     dept: doc.dept,
+    ...(doc.business_path?.length ? { business_path: doc.business_path.slice(0, 3) } : {}),
+    ...(doc.tags?.length ? { tags: doc.tags.slice(0, 8) } : {}),
     approval_id,
     content_hash,
   };

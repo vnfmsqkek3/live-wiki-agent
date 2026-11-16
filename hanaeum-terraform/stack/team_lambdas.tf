@@ -122,6 +122,19 @@ locals {
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = [local.t["documents"].arn, local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
       ]
     }
+    # ---- yoyo0704 (workflows.zip) ----
+    # 문서 속 사진·캡처·도표 묘사·의도 (13항 13). model-caller: PiiScan 이 칠한 masked/pages 만 읽는다
+    image-describe = {
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/image-describe.handler", memory = 512, timeout = 300, model_caller = true
+      env = { BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name, MODEL_SONNET = var.models["MODEL_SONNET"] }
+      statements = [
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn, Condition = { StringLike = { "s3:prefix" = ["*/masked/pages/*"] } } },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
+        { Effect = "Allow", Action = ["s3:PutObject"], Resource = ["${local.b["quarantine"].arn}/*/masked/figures/*", "${local.b["quarantine"].arn}/*/masked/segments/*"] },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ]
+    }
     # 그래프 (Neptune, VPC). graph-upsert 는 쓰기 직렬화를 위해 reserved concurrency 1 (docs/04 5장)
     graph-upsert = {
       zip = "${local.lz}/graph_upsert.zip", handler = "index.handler", memory = 512, timeout = 300, model_caller = false, vpc = true, reserved = 1
@@ -221,7 +234,7 @@ locals {
   # 파이프라인 단계 키 → 팀 Lambda 키 (Gateway Tool 로 등록)
   step_fn = {
     file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
-    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
 

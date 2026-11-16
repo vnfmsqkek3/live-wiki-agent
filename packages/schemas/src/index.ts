@@ -73,6 +73,9 @@ export const DocumentMetadata = z.object({
   dept: z.string().min(1),
   approval_id: z.string().min(1),
   content_hash: z.string().regex(/^sha256:[0-9a-f]{64}$/),
+  // v0.2: Classify 결과 (업무 경로·태그). 문서보관함 카드·검색 필터. 비어 있으면 생략 (KB 목록 메타데이터에 빈 배열 금지)
+  business_path: z.array(z.string().min(1)).min(1).max(3).optional(),
+  tags: z.array(z.string().min(1)).min(1).max(8).optional(),
 }).refine((m) => m.effective_from <= m.effective_to, "effective_from > effective_to")
   .refine((m) => m.document_type !== "REGULATION" || (m.law_id && m.revision_id), "REGULATION은 law_id·revision_id 필수");
 export type DocumentMetadata = z.infer<typeof DocumentMetadata>;

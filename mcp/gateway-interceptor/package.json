@@ -1,0 +1,9 @@
+{
+  "name": "@hanaeum/gateway-interceptor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p ."
+  }
+}

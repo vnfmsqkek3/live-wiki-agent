@@ -76,7 +76,7 @@ module "kb" {
 
 module "ocr" {
   source            = "../modules/ocr"
-  source_ref        = var.lambda_refs["yoyo0704"] # services/ocr 도 yoyo0704 커밋으로 빌드
+  source_ref        = coalesce(var.ocr_source_ref, var.lambda_refs["yoyo0704"]) # services/ocr 커밋 (바뀌면 이미지 재빌드·엔드포인트 교체)
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
   quarantine_bucket = module.s3.buckets["quarantine"]
@@ -90,7 +90,7 @@ module "pipeline" {
   step_arns                 = module.sfn.step_arns
   tables                    = module.ddb.tables
   runtime_image_tag         = var.pipeline_runtime_image_tag
-  runtime_env               = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region }
+  runtime_env               = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off" }
   enable_transaction_search = var.enable_transaction_search
 }
 

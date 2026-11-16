@@ -1,16 +1,16 @@
 // 단계 ImageDescribe (사용자 13항 13, Owner yoyo0704). 순서: PiiScan → ImageDescribe → InjectionScan → Classify.
 // 문서 속 사진·캡처·도표·사진 위 표기를 Claude 비전으로 묘사하고 문서 맥락상 의도를 적는다.
-// 입력: {doc}/work/pages/ocr_targets.json 의 has_images 페이지, PiiScan 이 PII 를 칠한 {doc}/masked/pages/{nnnn}.png 만.
-//   (원본 등급 work/pages 는 모델 Role 이 읽을 수 없다. 마스킹 이미지가 없으면 그 페이지는 모델에 보내지 않는다)
+// 입력: PiiScan 이 has_images 페이지의 PII 를 칠해 만든 {doc}/masked/pages/{nnnn}.png 만 (model-caller Role 은 work/* 를 읽을 수 없다).
+//   마스킹 이미지를 못 만든 그림 페이지는 PiiScan 이 PII_IMAGE_REVIEW 로 사람 검토에 넘긴다 (모델에 보내지 않음).
 // 출력: {doc}/masked/figures/{nnnn}.json, {doc}/masked/segments/{nnnn}.json 의 figures 필드 (색인 계약 interfaces.md 5장)
 // 묘사 결과도 PII 규칙(dhxorb96 pii-detect)으로 다시 마스킹한다. 이미지 속 글은 자료로만 다루고 지시로 따르지 않는다.
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { GetObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
+import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { finding, type Finding, type StepInput, type StepOutput } from "./common.js";
 import { dynamoFindingsStore, type FindingsStore } from "./findings-store.js";
-import type { OcrTargets } from "./page-render.js";
+import { detectPii, mask as maskSpans } from "@hanaeum/pii";
 
 export const STEP = "ImageDescribe";
 export const KINDS = ["photo", "screenshot", "diagram", "chart", "table_image", "signature_or_stamp", "other"] as const;
@@ -53,6 +53,7 @@ export const TOOL = {
 } as const;
 
 export type Deps = {
+  listMaskedPages: (doc_id: string) => Promise<number[]>;
   getJson: <T>(key: string) => Promise<T | undefined>;
   getBytes: (key: string) => Promise<Uint8Array | undefined>;
   putJson: (key: string, body: unknown) => Promise<void>;
@@ -88,23 +89,17 @@ export function sanitize(raw: unknown, mask: Mask): { figures: Figure[]; pii: nu
 
 export function makeHandler(d: Deps) {
   return async (e: StepInput): Promise<StepOutput> => {
-    const targets = await d.getJson<OcrTargets>(`${e.doc_id}/work/pages/ocr_targets.json`);
-    if (!targets) throw new Error(`OcrTargetsNotFound: ${e.doc_id}`); // PageRender 선행 필수
     const findings: Finding[] = [];
     let described = 0;
-    for (const p of targets.pages.filter((t) => t.has_images)) {
-      const ref = `${e.doc_id}/masked/pages/${nnnn(p.page_index)}.png`;
+    for (const page_index of await d.listMaskedPages(e.doc_id)) {
+      const ref = `${e.doc_id}/masked/pages/${nnnn(page_index)}.png`;
       const png = await d.getBytes(ref);
-      if (!png) {
-        // PiiScan 이 마스킹 이미지를 만들지 않음(이미지 PII 검토 대상 등) → 모델에 보내지 않고 사람 검토
-        findings.push(finding(STEP, "MEDIUM", "FIGURE_NOT_ANALYZED", `페이지 ${p.page_index + 1}: 마스킹 이미지 없음, 그림 묘사 생략`, ref));
-        continue;
-      }
-      const segKey = `${e.doc_id}/masked/segments/${nnnn(p.page_index)}.json`;
-      const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index: p.page_index, text: "" };
+      if (!png) continue;
+      const segKey = `${e.doc_id}/masked/segments/${nnnn(page_index)}.json`;
+      const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index, text: "" };
       const { figures, pii } = sanitize(await d.describe(png, seg.text.slice(0, 4000)), d.mask);
-      if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${p.page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref));
-      await d.putJson(`${e.doc_id}/masked/figures/${nnnn(p.page_index)}.json`, { doc_id: e.doc_id, page_index: p.page_index, figures });
+      if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref));
+      await d.putJson(`${e.doc_id}/masked/figures/${nnnn(page_index)}.json`, { doc_id: e.doc_id, page_index, figures });
       await d.putJson(segKey, { ...seg, figures });
       described += figures.length;
     }
@@ -127,16 +122,14 @@ const getBytes = async (Key: string) => {
   catch (err) { if (notFound(err)) return undefined; throw err; }
 };
 
-// PII 규칙은 dhxorb96 pii-detect 한 곳에만 둔다 (공유 패키지 @hanaeum/pii). 없으면 실패: 마스킹 없이 그림 묘사를 쓰지 않는다
-async function sharedMask(): Promise<Mask> {
-  const name = "@hanaeum/pii";
-  const m = (await import(name)) as { detectPii: (t: string) => unknown[]; mask: (t: string, spans: unknown[]) => string };
-  return (t) => { const spans = m.detectPii(t); return { text: spans.length ? m.mask(t, spans) : t, found: spans.length }; };
-}
+// PII 규칙은 한 곳(@hanaeum/pii, dhxorb96)
+const sharedMask: Mask = (t) => { const spans = detectPii(t); return { text: spans.length ? maskSpans(t, spans) : t, found: spans.length }; };
 
-let ready: ReturnType<typeof makeHandler> | undefined;
-export const handler = async (e: StepInput) => {
-  ready ??= makeHandler({
+export const handler = makeHandler({
+    listMaskedPages: async (doc_id) => {
+      const r = await s3.send(new ListObjectsV2Command({ Bucket: BUCKET, Prefix: `${doc_id}/masked/pages/` }));
+      return (r.Contents ?? []).map((o) => /\/(\d{4})\.png$/.exec(o.Key ?? "")?.[1]).filter((n): n is string => !!n).map(Number);
+    },
     getBytes,
     getJson: async <T>(k: string) => { const b = await getBytes(k); return b ? (JSON.parse(new TextDecoder().decode(b)) as T) : undefined; },
     putJson: async (Key, body) => {
@@ -155,8 +148,6 @@ export const handler = async (e: StepInput) => {
       }));
       return r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input; // 구조화 출력만 사용, 자유 텍스트 무시
     },
-    mask: await sharedMask(),
+    mask: sharedMask,
     saveFindings: dynamoFindingsStore(DynamoDBDocumentClient.from(new DynamoDBClient({})), process.env.TABLE_DOCUMENTS ?? ""),
-  });
-  return ready(e);
-};
+});
