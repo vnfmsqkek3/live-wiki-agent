@@ -11,7 +11,7 @@ resource "aws_cloudwatch_log_group" "agentcore" {
 locals {
   obs_sources = merge(
     { gateway = aws_bedrockagentcore_gateway.pipeline.gateway_arn },
-    var.runtime_image_tag == null ? {} : { runtime = aws_bedrockagentcore_agent_runtime.pipeline[0].agent_runtime_arn },
+    var.create_runtime ? { runtime = aws_bedrockagentcore_agent_runtime.pipeline[0].agent_runtime_arn } : {},
   )
 }
 
