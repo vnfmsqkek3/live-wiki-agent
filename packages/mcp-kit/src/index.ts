@@ -31,11 +31,19 @@ export const toolName = (ctx: LambdaContext): string => {
 export const aclKeys = (a: Actor): string[] => ["ALL", ...a.groups, ...(a.dept ? [`DEPT#${a.dept}`] : [])];
 
 /** 질의·인자의 명백한 PII 패턴 치환 (모델·임베딩 호출 전 최소 방어. 정밀 검사는 privacy-server) */
-const PII: [RegExp, string][] = [
-  [/\d{6}\s*-\s*[1-4]\d{6}/gu, "[주민번호]"],
-  [/01[016789]-?\d{3,4}-?\d{4}/gu, "[전화번호]"],
-  [/\d{3,6}-\d{2,6}-\d{2,6}(?:-\d{1,3})?/gu, "[계좌번호]"],
-  [/[\w.+-]+@[\w-]+\.[\w.]+/gu, "[이메일]"],
+/** YYYY-MM-DD 형태의 실제 날짜 (계좌번호 오탐 제외용). 시행일 기준 질의의 날짜를 지우지 않기 위함 (dhxorb96 요청 1912) */
+export const isDate = (s: string): boolean => {
+  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/u);
+  if (!m) return false;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const dt = new Date(Date.UTC(y, mo - 1, d));
+  return y >= 1900 && y <= 2999 && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
+};
+const PII: [RegExp, (m: string) => string][] = [
+  [/\d{6}\s*-\s*[1-4]\d{6}/gu, () => "[주민번호]"],
+  [/01[016789]-?\d{3,4}-?\d{4}/gu, () => "[전화번호]"],
+  [/\d{3,6}-\d{2,6}-\d{2,6}(?:-\d{1,3})?/gu, (m) => (isDate(m) ? m : "[계좌번호]")],
+  [/[\w.+-]+@[\w-]+\.[\w.]+/gu, () => "[이메일]"],
 ];
 export const maskPii = (s: string): { text: string; masked: boolean } => {
   let t = s;

@@ -45,3 +45,15 @@ test("F-001 → F-002 Diff가 정답 변경 조항과 일치, 수치 변화 추�
   assert.deepEqual([c12.numbers_changed.old, c12.numbers_changed.new], [["5억원"], ["3억원"]]);
   assert.equal(changes.find((c) => c.path === "ARTICLE:15/PARAGRAPH:2")!.kind, "DELETED");
 });
+
+test("데모 업로드 PDF: Registry pdf_content_hash와 일치, F-003(위조) PDF는 어떤 기준본과도 불일치", () => {
+  const reg = readFixtureJson<{ regulations: { pdf_fixture?: string; pdf_content_hash?: string }[] }>("registry/registry.json");
+  const withPdf = reg.regulations.filter((r) => r.pdf_fixture);
+  assert.equal(withPdf.length, 3);
+  for (const r of withPdf) assert.equal(sha(r.pdf_fixture!), r.pdf_content_hash, r.pdf_fixture);
+  const all = reg.regulations.flatMap((r) => [r.pdf_content_hash]);
+  assert.ok(!all.includes(sha("documents/pdf/F-003.pdf")));
+  for (const d of manifest.documents as (Doc & { upload_file?: string | null })[]) {
+    if (d.upload_file) assert.match(d.upload_file, /\.(pdf|png)$/u, d.document_id);
+  }
+});

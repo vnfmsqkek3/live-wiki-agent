@@ -1,5 +1,5 @@
 {
-  "_note": "SYNTHETIC. Trusted Regulation Registry 기준본 (가상 규정관리시스템 스냅샷). Trust Gate는 업로드 문서가 아니라 이 기준과 대조한다. 해시는 원본 파일 바이트의 SHA-256.",
+  "_note": "SYNTHETIC. Trusted Regulation Registry 기준본 (가상 규정관리시스템 스냅샷). Trust Gate는 업로드 문서가 아니라 이 기준과 대조한다. 해시는 원본 파일 바이트의 SHA-256. 데모 업로드는 PDF(업로드 허용 형식)이므로 pdf_content_hash도 기준본으로 둔다 — Trust Gate는 업로드 원본 바이트 해시를 content_hash 또는 pdf_content_hash와 대조.",
   "regulations": [
     {
       "registry_doc_no": "HB-REG-LOAN-001",
@@ -16,7 +16,9 @@
       "key_values": {
         "ARTICLE:12/PARAGRAPH:1": "7억원",
         "ARTICLE:13": "3년"
-      }
+      },
+      "pdf_fixture": "documents/pdf/F-000.pdf",
+      "pdf_content_hash": "sha256:b53108898b0007b618750e6cc1e786a69f682e1d96144e720436952e08cd9bb9"
     },
     {
       "registry_doc_no": "HB-REG-LOAN-001",
@@ -34,7 +36,9 @@
         "ARTICLE:12/PARAGRAPH:1": "5억원",
         "ARTICLE:15/PARAGRAPH:1": "70%",
         "ARTICLE:13": "5년"
-      }
+      },
+      "pdf_fixture": "documents/pdf/F-001.pdf",
+      "pdf_content_hash": "sha256:2e4f1ee2d9f510d5229609c1c74c93dd6629bec036c222e16963306f8dbf2907"
     },
     {
       "registry_doc_no": "HB-REG-LOAN-001",
@@ -52,7 +56,9 @@
         "ARTICLE:12/PARAGRAPH:1": "3억원",
         "ARTICLE:15/PARAGRAPH:1": "60%",
         "ARTICLE:13": "5년"
-      }
+      },
+      "pdf_fixture": "documents/pdf/F-002.pdf",
+      "pdf_content_hash": "sha256:2fe2554f39c9ad17af59faaad7e95ecfcf741c94f8e66eda2fec263ffe254d50"
     }
   ]
 }
