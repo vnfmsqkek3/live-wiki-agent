@@ -1,11 +1,11 @@
 'use client';
-// 04 문서 업로드: 허용 형식, 문서명, 공개 범위, 문서 유형(AI 자동 분류 예정), 실문서 금지 경고 → [분석 시작]
+// 04 문서 등록: 서식 기입란 형태. 업로드 → 격리 저장 → 분석 시작
 import { useState } from 'react';
 import { api, ApiError, uploadFile } from '../lib/api';
 
 const ACCEPT = '.pdf,.docx,.hwpx,.png,.jpg,.jpeg';
 const MAX = 50 * 1024 * 1024;
-const DEPTS = [['ALL', '전체 공개'], ['dept:loan', '여신 부서'], ['dept:compliance', '준법감시 부서']] as const;
+const SCOPES = [['ALL', '전 직원'], ['dept:loan', '여신 부서'], ['dept:compliance', '준법감시 부서']] as const;
 
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
@@ -14,45 +14,48 @@ export default function Upload() {
   const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; msg?: string }>({ kind: 'idle' });
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
-  const fileErr = file && (!ACCEPT.includes(`.${ext}`) ? '허용되지 않은 형식입니다' : file.size > MAX ? '50MB 이하만 업로드할 수 있습니다' : '');
+  const fileErr = file && (!ACCEPT.includes(`.${ext}`) ? 'PDF, DOCX, HWPX, PNG, JPG 파일만 올릴 수 있습니다.' : file.size > MAX ? '50MB 이하 파일만 올릴 수 있습니다.' : '');
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!file || fileErr || !title.trim()) return;
-    setState({ kind: 'busy', msg: '업로드 URL 발급 중' });
     try {
+      setState({ kind: 'busy', msg: '업로드 주소를 받는 중입니다.' });
       const { doc_id, url } = await api<{ doc_id: string; url: string }>('POST', '/v1/documents/upload-url', {
         filename: file.name, size: file.size, title: title.trim(), dept: acl.startsWith('dept:') ? acl.slice(5) : 'all', acl_groups: [acl],
       });
-      setState({ kind: 'busy', msg: '격리 저장소에 업로드 중' });
+      setState({ kind: 'busy', msg: '검사 전용 저장소에 올리는 중입니다.' });
       await uploadFile(url, file);
-      setState({ kind: 'busy', msg: '분석 시작 요청 중' });
       await api('POST', `/v1/documents/${doc_id}/analyze`);
-      setState({ kind: 'done', msg: `분석을 시작했습니다 (${doc_id}). 보안 검사 → OCR → 분류·PII 순으로 진행됩니다.` });
+      setState({ kind: 'done', msg: '분석을 시작했습니다. 보안 검사, 텍스트 추출, 분류와 개인정보 확인이 끝나면 검토 요청이 옵니다.' });
     } catch (err) {
-      const e2 = err as ApiError;
-      setState({ kind: 'error', msg: e2.status === 403 ? '작성자 권한이 필요합니다' : e2.message });
+      const x = err as ApiError;
+      setState({ kind: 'error', msg: x.status === 403 ? '문서 등록은 작성자 권한이 있어야 합니다.' : x.message });
     }
   }
 
   return (
     <>
-      <h1>문서 등록</h1>
-      <p className="banner b-bad" role="note">실제 은행 문서·고객정보는 업로드하지 마세요. 합성 문서(SYNTHETIC)만 허용됩니다.</p>
-      <form onSubmit={submit} className="card">
-        <label htmlFor="f">파일 (PDF · DOCX · HWPX · PNG/JPG, 50MB 이하)</label>
-        <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-err" />
-        {fileErr && <p id="f-err" className="error">{fileErr}</p>}
-        <label htmlFor="t">문서명</label>
-        <input id="t" type="text" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} required />
-        <label htmlFor="a">공개 범위</label>
-        <select id="a" value={acl} onChange={(e) => setAcl(e.target.value)}>{DEPTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
-        <label>문서 유형</label>
-        <p className="muted" style={{ margin: 0 }}>AI 자동 분류 예정 (기반 규정 / 노하우 / 매뉴얼). 분석 후 수정할 수 있습니다.</p>
-        <div style={{ marginTop: 16 }}>
-          <button className="primary" type="submit" disabled={!file || !!fileErr || !title.trim() || state.kind === 'busy'}>분석 시작</button>
+      <h1 className="title">문서 등록</h1>
+      <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 한빛은행 합성 문서만 등록할 수 있습니다.</p>
+      <form onSubmit={submit} className="sheet" noValidate>
+        <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
+        <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />
+        <p id="f-help" className={fileErr ? 'error' : 'note'}>{fileErr || 'PDF, DOCX, HWPX, PNG, JPG 파일, 50MB 이하'}</p>
+
+        <label className="lbl" htmlFor="t">문서명</label>
+        <input id="t" className="field" type="text" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />
+
+        <label className="lbl" htmlFor="a">열람 범위</label>
+        <select id="a" className="field" value={acl} onChange={(e) => setAcl(e.target.value)}>{SCOPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
+
+        <label className="lbl">문서 종류</label>
+        <p className="note" style={{ margin: '6px 0 0' }}>분석이 끝나면 규정, 노하우, 매뉴얼 중 하나로 제안합니다. 검토할 때 바꿀 수 있습니다.</p>
+
+        <div className="actions" style={{ marginTop: 24 }}>
+          <button className="btn solid" type="submit" disabled={!file || !!fileErr || !title.trim() || state.kind === 'busy'}>분석 시작</button>
         </div>
-        <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'muted'}>{state.msg}</p>
+        <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
       </form>
     </>
   );

@@ -58,14 +58,15 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 
 // ---------- 합성 mock (한빛은행 · SYNTHETIC) ----------
 export interface SearchItem {
-  doc_id: string; title: string; snippet: string; team: string; date: string; stars: number;
+  doc_id: string; title: string; snippet: string; team: string; updated: string; stars: number;
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED';
-  document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; citation?: string; reason: string;
+  document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
+  basis?: string; effective_from?: string; reason: string;
 }
 export const MOCK_ITEMS: SearchItem[] = [
-  { doc_id: 'doc_F001', title: '[SYNTHETIC] 기업여신 심사규정 v1', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', date: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', citation: 'SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2', reason: '질의의 "담보 승인 기준"과 조문 일치' },
-  { doc_id: 'doc_K001', title: '[SYNTHETIC] 담보평가 실무 체크리스트', snippet: '감정평가서 수령 후 3영업일 내 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', date: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', citation: 'SYN-LOAN-001 제12조 근거 부합', reason: '같은 팀 조회 다수 · 근거 규정 최신' },
-  { doc_id: 'doc_K003', title: '[SYNTHETIC] 소액 담보 처리 팁 (2025)', snippet: '5억원 미만은 지점 전결로 처리 가능 (구 규정 기준).', team: '여신심사2팀', date: '2025-06-02', stars: 4.8, tags: ['실무사례'], authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', document_type: 'KNOWHOW', citation: 'SYN-LOAN-001@2025-01-01 (과거 버전)', reason: '평점은 높지만 근거 규정이 개정되어 재검증 필요' },
+  { doc_id: 'doc_F001', title: '기업여신 심사규정 v1', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', updated: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', basis: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', reason: '찾는 내용과 조문이 직접 일치합니다' },
+  { doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', updated: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조', effective_from: '2026-11-01', reason: '같은 업무 담당자가 자주 찾고, 근거 규정이 최신입니다' },
+  { doc_id: 'doc_K003', title: '소액 담보 처리 팁 (2025)', snippet: '5억원 미만은 지점 전결로 처리할 수 있다.', team: '여신심사2팀', updated: '2025-06-02', stars: 4.8, tags: ['실무사례'], authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조 (2025-01-01 개정 전)', effective_from: '2025-01-01', reason: '평점은 높지만 근거 규정이 개정되었습니다' },
 ];
 
 function mock(method: string, path: string, body?: unknown): unknown {
@@ -78,8 +79,8 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
   if (path === '/v1/approvals?status=PENDING')
     return { items: [
-      { approval_id: 'apr_F003', doc_id: 'doc_F003', kind: 'MISMATCH', title: '[SYNTHETIC] 기업여신 심사규정 (출처 불명)', detail: '공식 원본 3억 / 업로드 5억 (제12조제2항)' },
-      { approval_id: 'apr_K001', doc_id: 'doc_K001', kind: 'PENDING', title: '[SYNTHETIC] 담보평가 실무 체크리스트', detail: '작성자 검토 완료 · PII 마스킹 확인' },
+      { approval_id: 'apr_F003', doc_id: 'doc_F003', kind: 'MISMATCH', title: '기업여신 심사규정 (출처 미확인 사본)', detail: '제12조제2항 담보 기준이 공식 원본은 3억원, 업로드본은 5억원입니다.', stage: 1 },
+      { approval_id: 'apr_K001', doc_id: 'doc_K001', kind: 'PENDING', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },
     ] };
   if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
   if (/\/v1\/documents\/.+\/analyze/.test(path)) return { workflow_id: 'wf_MOCK' };

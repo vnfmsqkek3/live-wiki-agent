@@ -1,10 +1,10 @@
 'use client';
-// 01 사용자 홈: 검색창 + 자주 찾는 태그 + 추천 Wiki 카드
+// 01 사용자 홈: 검색이 주 동작. 추천은 신뢰 인장과 함께 장부 행으로.
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, MOCK, type SearchItem } from './lib/api';
-import { TrustBadges } from './badges';
+import { FreshnessFlag, Seal } from './seal';
 
 const TAGS = ['체크리스트', '실무사례', '공식규정', '여신'];
 
@@ -16,24 +16,29 @@ export default function Home() {
   const go = (query: string, tag?: string) => router.push(`/search?q=${encodeURIComponent(query)}${tag ? `&tags=${encodeURIComponent(tag)}` : ''}`);
   return (
     <>
-      <h1>무엇을 찾으세요?</h1>
-      {MOCK && <p className="banner b-warn">합성 mock 데이터 (API 미연결)</p>}
-      <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }} className="row">
-        <input className="grow" type="search" aria-label="검색어" placeholder="예: 담보 승인 기준" value={q} onChange={(e) => setQ(e.target.value)} />
-        <button className="primary" type="submit">검색</button>
+      {MOCK && <p className="mock">서버에 연결되지 않아 한빛은행 합성 예시를 보여주고 있습니다.</p>}
+      <h1 className="title">어떤 기준을 확인하시겠어요?</h1>
+      <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
+        <input className="field lg" type="search" aria-label="검색어" placeholder="예: 담보 3억원 이상 승인 절차" value={q} onChange={(e) => setQ(e.target.value)} />
+        <p className="note" style={{ marginTop: 8 }}>승인된 문서만 검색되며, 결과마다 근거 조문과 시행일을 함께 보여줍니다.</p>
       </form>
-      <h2>자주 찾는 태그</h2>
-      <div className="row">{TAGS.map((t) => <button key={t} className="chip" onClick={() => go(t, t)}>#{t}</button>)}<Link href="/search" className="muted">전체 보기</Link></div>
-      <h2>추천 Wiki</h2>
-      {items.map((i) => (
-        <article className="card" key={i.doc_id}>
-          <TrustBadges i={i} />
-          <h3 style={{ margin: '6px 0' }}>{i.title}</h3>
-          <div className="muted">{i.team} · {i.date} · ★ {i.stars.toFixed(1)}</div>
-          <p className="muted" style={{ margin: '6px 0 0' }}>추천 이유: {i.reason}</p>
-        </article>
-      ))}
-      <Link href="/search" className="btn">검색 결과 보기</Link>
+
+      <h2 className="section">자주 찾는 주제</h2>
+      <ul className="tags">{TAGS.map((t) => <li key={t}><button onClick={() => go(t, t)}>{t}</button></li>)}</ul>
+
+      <h2 className="section">이번 주 많이 본 문서</h2>
+      <ul className="ledger">
+        {items.map((i) => (
+          <li className="entry" key={i.doc_id}>
+            <Seal i={i} />
+            <h3 className="doc-title">{i.title}</h3>
+            <div className="meta">{i.team}, {i.updated} 수정</div>
+            <FreshnessFlag freshness={i.freshness} />
+            <p className="note" style={{ margin: '8px 0 0' }}>{i.reason}</p>
+          </li>
+        ))}
+      </ul>
+      <div className="actions"><Link href="/search" className="btn">전체 문서 검색</Link></div>
     </>
   );
 }

@@ -1,11 +1,11 @@
 'use client';
-// 02 검색 결과: 태그 필터, 결과 건수, "적합도순 · 권한 적용", 신뢰 배지, 근거 링크
+// 02 검색 결과: 권한이 적용된 적합도순. 행마다 인장, 근거 조문, 시행일, 평점(신뢰와 분리)
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type SearchItem } from '../lib/api';
-import { TrustBadges } from '../badges';
+import { FreshnessFlag, Seal } from '../seal';
 
-const FILTERS = [['', '전체'], ['체크리스트', '체크리스트'], ['실무사례', '실무사례'], ['공식규정', '공식규정']] as const;
+const FILTERS = [['', '전체'], ['체크리스트', '체크리스트'], ['실무사례', '실무사례'], ['공식규정', '공식 규정']] as const;
 
 function Results() {
   const router = useRouter();
@@ -20,32 +20,40 @@ function Results() {
     setItems(null); setErr('');
     api<{ items: SearchItem[] }>('GET', `/v1/search?q=${encodeURIComponent(q || tag)}${tag ? `&tags=${encodeURIComponent(tag)}` : ''}`)
       .then((r) => setItems(r.items))
-      .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인이 필요합니다' : e.message); setItems([]); });
+      .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 검색하세요.' : e.message); setItems([]); });
   }, [q, tag]);
   const nav = (nq: string, nt: string) => router.push(`/search?q=${encodeURIComponent(nq)}${nt ? `&tags=${encodeURIComponent(nt)}` : ''}`);
   return (
     <>
-      <form role="search" className="row" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), tag); }}>
-        <input className="grow" type="search" aria-label="검색어" value={input} onChange={(e) => setInput(e.target.value)} />
-        <button className="primary">검색</button>
+      <form role="search" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), tag); }}>
+        <input className="field lg" type="search" aria-label="검색어" placeholder="찾을 기준이나 업무" value={input} onChange={(e) => setInput(e.target.value)} />
       </form>
-      <div className="row" style={{ margin: '12px 0' }} role="group" aria-label="태그 필터">
-        {FILTERS.map(([v, l]) => <button key={l} className="chip" aria-pressed={tag === v} onClick={() => nav(q, v)}>{l}</button>)}
+      <div className="filter" role="group" aria-label="문서 종류">
+        {FILTERS.map(([v, l]) => <button key={l} aria-pressed={tag === v} onClick={() => nav(q, v)}>{l}</button>)}
       </div>
       {err && <p className="error" role="alert">{err}</p>}
-      {items === null ? <p className="muted">검색 중…</p> : (
+      {items === null ? <p className="note">찾는 중입니다.</p> : items.length === 0 && !err ? (
+        <p className="note">{q || tag ? '열람 권한이 있는 승인 문서 중에 맞는 결과가 없습니다. 다른 표현으로 찾아보세요.' : '찾을 기준이나 업무를 입력하세요.'}</p>
+      ) : (
         <>
-          <p className="muted">{items.length}건 · 적합도순 · 권한 적용</p>
-          {items.map((i) => (
-            <article className="card" key={i.doc_id}>
-              <TrustBadges i={i} />
-              <h3 style={{ margin: '6px 0' }}>{i.title}</h3>
-              <p style={{ margin: '0 0 6px' }}>{i.snippet}</p>
-              {i.citation && <div className="muted">근거: {i.citation}</div>}
-              <div className="muted">추천 근거: {i.reason} · ★ {i.stars.toFixed(1)}</div>
-            </article>
-          ))}
-          {items.length > 0 && <button className="primary" disabled title="11/19 가이드 Agent 연동 예정">AI 업무 가이드 생성</button>}
+          <p className="note">열람 권한이 있는 승인 문서 {items.length}건, 관련도 높은 순</p>
+          <ul className="ledger">
+            {items.map((i) => (
+              <li className="entry" key={i.doc_id}>
+                <Seal i={i} />
+                <h3 className="doc-title">{i.title}</h3>
+                <p className="quote">{i.snippet}</p>
+                <FreshnessFlag freshness={i.freshness} />
+                <dl>
+                  {i.basis && <><dt>근거</dt><dd>{i.basis}</dd></>}
+                  {i.effective_from && <><dt>시행일</dt><dd>{i.effective_from}</dd></>}
+                  <dt>작성</dt><dd>{i.team}</dd>
+                  <dt>평점</dt><dd>{i.stars.toFixed(1)} / 5</dd>
+                </dl>
+              </li>
+            ))}
+          </ul>
+          {items.length > 0 && <div className="actions"><button className="btn solid" disabled title="11/19 연동 예정">이 문서들로 업무 가이드 만들기</button></div>}
         </>
       )}
     </>
@@ -53,5 +61,5 @@ function Results() {
 }
 
 export default function SearchPage() {
-  return <><h1>검색</h1><Suspense fallback={<p className="muted">불러오는 중…</p>}><Results /></Suspense></>;
+  return <><h1 className="title">검색</h1><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
 }
