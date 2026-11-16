@@ -116,7 +116,8 @@ module "webapp" {
   api_env = {
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
     AGENT_RUNTIME_ARN    = module.user.runtime_arn
-    KB_ID                = module.kb.kb_id # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
+    USER_GATEWAY_URL     = module.user.gateway_url # 상세 '외부 법령 최신본': 사용자 토큰으로 regulation___fetch_official_law (NAT 경유 HTTPS)
+    KB_ID                = module.kb.kb_id         # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
     MODEL_RERANK         = var.models["MODEL_RERANK"]
   }
 }

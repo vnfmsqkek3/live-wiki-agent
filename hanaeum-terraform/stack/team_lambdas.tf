@@ -35,6 +35,11 @@ locals {
     },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${local.b["quarantine"].arn}/*" },
   ]
+  # 검증 실패·반려 파일 삭제 (사용자 지시 11/17, dhxorb96 purgePrefix): 원본·work 즉시 전 버전, masked 7일 뒤(freshness-sweep)
+  purge = [
+    { Effect = "Allow", Action = ["s3:ListBucketVersions", "s3:ListBucket"], Resource = local.b["quarantine"].arn },
+    { Effect = "Allow", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = "${local.b["quarantine"].arn}/*" },
+  ]
   q_rw = [
     { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
     { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.b["quarantine"].arn}/*" },
@@ -93,12 +98,12 @@ locals {
     # 규정 개정판 게시 시 그 규정을 근거로 쓴 게시 노하우를 REVIEW_REQUIRED 로 (Documents Scan, dhxorb96 6a3f40a)
     finalize = {
       zip        = local.dz, handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 60, model_caller = false
-      statements = concat(local.d_statements, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
+      statements = concat(local.d_statements, local.purge, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
     }
     # 일 1회: 시행일이 된 개정판의 근거 노하우를 재검토 대상으로 (EventBridge Scheduler, freshness.tf)
     freshness-sweep = {
       zip        = local.dz, handler = "handlers.freshnessSweep", env = local.d_env, memory = 256, timeout = 300, model_caller = false
-      statements = concat(local.d_statements, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
+      statements = concat(local.d_statements, local.purge, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
     }
 
     # ---- let522mj (dist/lambda/{name}.zip, index.handler) ----
