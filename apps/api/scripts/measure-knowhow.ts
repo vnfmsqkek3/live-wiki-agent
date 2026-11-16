@@ -1,7 +1,8 @@
 // 노하우 충돌 정량 측정 (docs/02 4장 "노하우 충돌 5건 중 4건 이상", 측정 Owner dhxorb96). 실모델 호출.
 // 사용: git archive origin/let522mj tests/fixtures | tar -x -C <dir>
 //       AWS_REGION=us-east-1 MODEL_SONNET=<id> node apps/api/scripts/measure-knowhow.ts <dir>/tests/fixtures
-// ponytail: 조문 파서·인용 추출·의미 검색은 측정용 최소 구현. PR #3 머지 후 @hanaeum/legal-parser·regulation store·search Tool로 교체
+//       REAL=1 (+ ssm-env: TABLE_REGULATIONS·KB_ID·TABLE_DOCUMENTS·MODEL_RERANK) → TrustGate와 같은 실제 의존성(규정 저장소·KB 검색) 사용
+// 기본 모드의 조문 파서·인용 추출·의미 검색은 측정용 최소 구현 (REAL=1이 실제 경로)
 import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { structured } from '../src/model.ts';
@@ -86,6 +87,24 @@ async function searchClauses(text: string) {
   return currentClauses.map((c) => ({ c, s: [...grams(c.text)].filter((g) => q.has(g)).length })).sort((a, b) => b.s - a.s).slice(0, 5).map((x) => x.c);
 }
 
+// REAL=1: TrustGate Lambda와 같은 의존성 (handlers.ts와 동일 구성)
+async function realDeps() {
+  const { DynamoClauseStore, regulationTools } = await import('@hanaeum/regulation-server');
+  const { BedrockRetriever, DynamoDocStates, searchTools } = await import('@hanaeum/search-server');
+  const { extractCitations: extract } = await import('@hanaeum/graph-server');
+  const { knowhowDeps } = await import('../src/knowhow-deps.ts');
+  const e = process.env;
+  const clauses = new DynamoClauseStore(e.TABLE_REGULATIONS!);
+  const search = searchTools({ retriever: new BedrockRetriever(e.KB_ID!, e.MODEL_RERANK), states: new DynamoDocStates(e.TABLE_DOCUMENTS!), regulation: regulationTools(clauses) });
+  return knowhowDeps({
+    store: clauses as never,
+    extract: (t, st, asOf) => extract(t, st as never, asOf),
+    searchProvisionIds: async (q) => ((await search.search_wiki({ query: q, index_groups: ['legal-clauses'], top_k: 5 }, { sub: 'system:measure', groups: ['REG_APPROVER'] })).items ?? [])
+      .filter((i) => i.search_status === 'FOUND').map((i) => i.provision_id).filter(Boolean),
+    judge,
+  });
+}
+
 const judge = async (t: string, clauses: Clause[]) => {
   const r = await structured<{ items: Judgement[] }>('SONNET', JUDGE_SYSTEM, judgePrompt(t, clauses), 'submit_judgement', JUDGE_SCHEMA as unknown as Record<string, unknown>);
   return { items: r.value.items, model: r.model };
@@ -100,13 +119,15 @@ const cases: [string, string][] = [
 ];
 const fileOf = (id: string) => (id.startsWith('G-') ? `golden/${id}.md` : `documents/${id}.md`);
 
+const real = process.env.REAL === '1' ? await realDeps() : undefined;
+console.log(`모드: ${real ? '실제 (규정 저장소·KB 검색)' : '임시 (fixture 파서·2-gram 검색)'}`);
 let conflictHit = 0;
 let falsePositive = 0;
 console.log('| 문서 | 기대 | 판정 | 결과 | 근거 |\n|---|---|---|---|---|');
 for (const [id, expected] of cases) {
   const raw = read(fileOf(id)).replace(/^---\n[\s\S]*?\n---\n/, ''); // 작성자 선언 cites는 쓰지 않는다 (본문만)
   const text = mask(raw, detectPii(raw));
-  const r = await validateKnowhow(text, { extractCitations, getClause: async (pid) => clauseIndex.get(pid), searchClauses, judge });
+  const r = await validateKnowhow(text, real ?? { extractCitations, getClause: async (pid) => clauseIndex.get(pid), searchClauses, judge });
   const v = r.validation.verdict;
   const ok = expected === 'NOT_CONFLICT' ? v !== 'CONFLICT' : v === expected;
   if (conflict5.includes(id) && v === 'CONFLICT') conflictHit++;
