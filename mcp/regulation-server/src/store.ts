@@ -25,7 +25,9 @@ const squash = (s: string) => s.replace(/\s+/gu, "");
 export function matchLawName(text: string, laws: { law_id: string; law_name: string }[]): string | undefined {
   const t = squash(text);
   return laws.find((l) => squash(l.law_name) === t)?.law_id
-    ?? laws.filter((l) => t.includes(squash(l.law_name))).sort((a, b) => b.law_name.length - a.law_name.length)[0]?.law_id;
+    ?? laws.filter((l) => t.includes(squash(l.law_name))).sort((a, b) => b.law_name.length - a.law_name.length)[0]?.law_id
+    // 약칭: "기업여신 심사규정" → "한빛은행 기업여신 심사규정" (기관명 생략). 후보가 하나일 때만
+    ?? (() => { const c = [...new Set(laws.filter((l) => t.length >= 4 && squash(l.law_name).endsWith(t)).map((l) => l.law_id))]; return c.length === 1 ? c[0] : undefined; })();
 }
 
 export class MemoryClauseStore implements ClauseStore {
