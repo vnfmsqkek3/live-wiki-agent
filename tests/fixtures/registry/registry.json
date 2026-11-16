@@ -1,0 +1,19 @@
+{
+  "_note": "SYNTHETIC. Trusted Regulation Registry 기준본 (가상 규정관리시스템 스냅샷). Trust Gate는 업로드 문서가 아니라 이 기준과 대조한다. 해시는 원본 파일 바이트의 SHA-256.",
+  "regulations": [
+    {
+      "registry_doc_no": "HB-REG-LOAN-001", "law_id": "SYN-LOAN-001", "law_name": "한빛은행 기업여신 심사규정",
+      "revision_id": "2026-11-01", "version": 1, "effective_from": 20261101, "effective_to": 20261130,
+      "owner_dept": "여신정책부", "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:d6e9c85807edc3f774a085283321e8262498b82a239cec85317a422114a4e09c", "fixture": "documents/F-001.txt",
+      "key_values": { "ARTICLE:12/PARAGRAPH:1": "5억원", "ARTICLE:15/PARAGRAPH:1": "70%", "ARTICLE:13": "5년" }
+    },
+    {
+      "registry_doc_no": "HB-REG-LOAN-001", "law_id": "SYN-LOAN-001", "law_name": "한빛은행 기업여신 심사규정",
+      "revision_id": "2026-12-01", "version": 2, "effective_from": 20261201, "effective_to": 99991231,
+      "owner_dept": "여신정책부", "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:ee77ae0006cabb2765eeeff2b6438e03783ee733f447ee36c126dcaa2199a287", "fixture": "documents/F-002.txt",
+      "key_values": { "ARTICLE:12/PARAGRAPH:1": "3억원", "ARTICLE:15/PARAGRAPH:1": "60%", "ARTICLE:13": "5년" }
+    }
+  ]
+}
