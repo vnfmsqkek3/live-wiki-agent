@@ -147,3 +147,19 @@ mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2p
 .basis cite { display: block; font: 600 .82rem var(--sans); font-style: normal; color: var(--ink-2); margin-bottom: 4px; }
 .basis p { font-family: var(--serif); margin: 0; white-space: pre-line; }
 @media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* 업로드 진행 (한 번에 파일 1개) */
+.bar-wrap { margin: 12px 0; }
+.bar { height: 8px; background: var(--rule); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.bar > span { display: block; height: 100%; background: var(--ledger); transition: width .4s ease; }
+.bar.danger > span { background: var(--danger); }
+.prog-steps { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 2px 12px; font-size: .85rem; }
+.prog-steps li { color: var(--ink-2); padding-left: 1.2em; position: relative; }
+.prog-steps li::before { content: "○"; position: absolute; left: 0; }
+.prog-steps li.done { color: var(--ink); }
+.prog-steps li.done::before { content: "●"; color: var(--verified); }
+.prog-steps li.running { color: var(--ink); font-weight: 700; }
+.prog-steps li.running::before { content: "◐"; color: var(--ledger); }
+.prog-steps li.failed, .prog-steps li.blocked { color: var(--danger); font-weight: 700; }
+.prog-steps li.failed::before, .prog-steps li.blocked::before { content: "×"; }
+@media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }

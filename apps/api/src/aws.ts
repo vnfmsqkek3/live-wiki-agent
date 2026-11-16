@@ -138,3 +138,13 @@ export async function pages(doc_id: string) {
   const segs = await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string }>(k)));
   return segs.map((s) => ({ page: s.page_index, text: s.text }));
 }
+
+/** WORKFLOWS 단계 기록 (업로드 진행바). 상태·종료 시각만, 오류는 이름만 */
+export async function workflowSteps(workflow_id: string) {
+  const { DynamoDBClient, QueryCommand } = await import('@aws-sdk/client-dynamodb');
+  const r = await new DynamoDBClient({ region: region() }).send(new QueryCommand({
+    TableName: env('TABLE_WORKFLOWS'), KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': { S: `WF#${workflow_id}` } },
+  }));
+  return (r.Items ?? []).filter((i) => i.sk?.S?.startsWith('STEP#'))
+    .map((i) => ({ step: i.sk!.S!.slice(5), status: i.status?.S ?? '', ended_at: i.ended_at?.S ?? '', error: i.error?.S }));
+}

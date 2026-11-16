@@ -27,6 +27,7 @@ function setup() {
     search: async () => [],
     guide: async (q, tok) => ({ q, tok }),
     webOrigins: ['http://localhost:3000'],
+    workflowSteps: async () => [{ step: 'MalwareCheck', status: 'OK', ended_at: 't' }, { step: 'FileStructureCheck', status: 'OK', ended_at: 't' }],
     workflowFailure: async (wf) => (wf === 'wf_FAILED' ? { step: 'ParallelPreprocess', error: 'InvalidPDFException' } : undefined),
   };
   const app = createApp(deps);
@@ -218,4 +219,15 @@ test('파이프라인 실패: QUARANTINED 문서 조회 시 실패 단계·오�
   await t.store.putDoc({ ...d, workflow_id: 'wf_FAILED' });
   const g = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}`)).json()) as Record<string, unknown>;
   assert.deepEqual(g.workflow_failure, { step: 'ParallelPreprocess', error: 'InvalidPDFException' });
+});
+
+test('업로드 진행: 작성자·승인자만, 완료 단계 수와 진행 중 단계', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const p = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/progress`)).json()) as { done: number; total: number; steps: { key: string; state: string }[] };
+  assert.equal(p.done, 2);
+  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'TextLayerExtract');
+  assert.equal((await t.call('author2', 'GET', `/v1/documents/${doc_id}/progress`)).status, 404);
+  assert.equal((await t.call('approver', 'GET', `/v1/documents/${doc_id}/progress`)).status, 200);
 });

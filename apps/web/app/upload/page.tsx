@@ -1,7 +1,7 @@
 'use client';
 // 04 문서 등록: 서식 기입란 형태. 업로드 → 격리 저장 → 분석 시작
-import { useState } from 'react';
-import { api, ApiError, uploadFile } from '../lib/api';
+import { useEffect, useState } from 'react';
+import { api, ApiError, uploadFile, type Progress } from '../lib/api';
 
 const ACCEPT = '.pdf,.docx,.hwpx,.png,.jpg,.jpeg';
 const MAX = 50 * 1024 * 1024;
@@ -12,6 +12,24 @@ export default function Upload() {
   const [title, setTitle] = useState('');
   const [acl, setAcl] = useState('ALL');
   const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; msg?: string; doc_id?: string }>({ kind: 'idle' });
+  const [sent, setSent] = useState(0);
+  const [prog, setProg] = useState<Progress | null>(null);
+
+  // 분석 진행: 끝나거나 멈출 때까지 2초마다 확인
+  useEffect(() => {
+    if (state.kind !== 'done' || !state.doc_id) return;
+    let stop = false;
+    const tick = async () => {
+      try {
+        const p = await api<Progress>('GET', `/v1/documents/${state.doc_id}/progress`);
+        if (stop) return;
+        setProg(p);
+        if (!p.finished && !p.halted) setTimeout(tick, 2000);
+      } catch { if (!stop) setTimeout(tick, 4000); }
+    };
+    tick();
+    return () => { stop = true; };
+  }, [state.kind, state.doc_id]);
 
   const ext = file?.name.split('.').pop()?.toLowerCase() ?? '';
   const fileErr = file && (!ACCEPT.includes(`.${ext}`) ? 'PDF, DOCX, HWPX, PNG, JPG 파일만 올릴 수 있습니다.' : file.size > MAX ? '50MB 이하 파일만 올릴 수 있습니다.' : '');
@@ -25,9 +43,10 @@ export default function Upload() {
         filename: file.name, size: file.size, title: title.trim(), dept: acl.startsWith('DEPT#') ? acl.slice(5) : 'all', acl_groups: [acl],
       });
       setState({ kind: 'busy', msg: '검사 전용 저장소에 올리는 중입니다.' });
-      await uploadFile(url, file);
+      setProg(null); setSent(0);
+      await uploadFile(url, file, setSent);
       await api('POST', `/v1/documents/${doc_id}/analyze`);
-      setState({ kind: 'done', doc_id, msg: '분석을 시작했습니다. 보안 검사, 텍스트 추출, 분류와 개인정보 확인이 끝나면 검토할 수 있습니다.' });
+      setState({ kind: 'done', doc_id, msg: '분석을 시작했습니다.' });
     } catch (err) {
       const x = err as ApiError;
       setState({ kind: 'error', msg: x.status === 403 ? '문서 등록은 작성자 권한이 있어야 합니다.' : x.message });
@@ -56,8 +75,28 @@ export default function Upload() {
           <button className="btn solid" type="submit" disabled={!file || !!fileErr || !title.trim() || state.kind === 'busy'}>분석 시작</button>
         </div>
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
-        {state.doc_id && <a className="btn" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
+        {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}
+        {prog && (
+          <section aria-label="분석 진행" className="progress">
+            <Bar label={prog.halted ? '분석이 멈췄습니다' : prog.finished ? '분석이 끝났습니다' : `분석 중 (${prog.done}/${prog.total})`} value={prog.done / prog.total} danger={prog.halted} />
+            <ol className="prog-steps">
+              {prog.steps.map((s) => <li key={s.key} className={s.state}>{s.label}{s.state === 'running' && ' 중'}{s.state === 'failed' && ' 실패'}{s.state === 'blocked' && ' 차단'}</li>)}
+            </ol>
+            {prog.lifecycle === 'BLOCKED' && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 차단 사유는 검토 화면에서 확인하세요.</p>}
+          </section>
+        )}
+        {state.doc_id && (prog?.finished || prog?.halted) && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </form>
     </>
+  );
+}
+
+function Bar({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
+  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
+  return (
+    <div className="bar-wrap">
+      <span className="note">{label} · {pct}%</span>
+      <div className={`bar${danger ? ' danger' : ''}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></div>
+    </div>
   );
 }

@@ -96,7 +96,8 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: [{ doc_id: 'doc_F003', title: '기업여신 심사규정 (출처 미확인 사본)', dept: '여신', findings: [{ message: '공식 원본과 내용 불일치 (조문 1개: ARTICLE:12/PARAGRAPH:1, 원본 5억원 · 업로드본 3억원). 위조 확정 아님, 출처 검토 필요', evidence_ref: 'SYN-LOAN-001@2026-11-01' }] }] };
   if (/\/v1\/documents\/.+\/source-review/.test(path)) return { lifecycle: 'BLOCKED' };
   if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
-  if (/\/v1\/documents\/.+\/analyze/.test(path)) return { workflow_id: 'wf_MOCK' };
+  if (/\/v1\/documents\/.+\/analyze/.test(path)) { mockTick = 0; return { workflow_id: 'wf_MOCK' }; }
+  if (/\/v1\/documents\/.+\/progress/.test(path)) return mockProgress();
   if (/\/v1\/documents\/.+\/review/.test(path)) return MOCK_REVIEW;
   if (/\/v1\/documents\/.+\/classification/.test(path)) return { document_type: (body as { document_type: string }).document_type };
   if (/\/v1\/documents\/.+\/submit/.test(path)) return { approval_id: 'apr_MOCK' };
@@ -105,10 +106,26 @@ function mock(method: string, path: string, body?: unknown): unknown {
   throw new ApiError(404, `mock 없음: ${method} ${path}`);
 }
 
-export async function uploadFile(url: string, file: File) {
-  if (url.startsWith('mock://')) return;
-  const r = await fetch(url, { method: 'PUT', body: file });
-  if (!r.ok) throw new ApiError(r.status, '파일 업로드 실패');
+/** presigned PUT. fetch는 업로드 진행률을 주지 않아 XHR 사용 */
+export function uploadFile(url: string, file: File, onProgress?: (ratio: number) => void): Promise<void> {
+  if (url.startsWith('mock://')) { onProgress?.(1); return Promise.resolve(); }
+  return new Promise((resolve, reject) => {
+    const x = new XMLHttpRequest();
+    x.open('PUT', url);
+    x.upload.onprogress = (e) => { if (e.lengthComputable) onProgress?.(e.loaded / e.total); };
+    x.onload = () => (x.status < 300 ? resolve() : reject(new ApiError(x.status, '파일 업로드 실패')));
+    x.onerror = () => reject(new ApiError(0, '네트워크 오류로 업로드하지 못했습니다'));
+    x.send(file);
+  });
+}
+
+export interface Progress { lifecycle: string; total: number; done: number; finished: boolean; halted: boolean; steps: { key: string; label: string; state: 'done' | 'running' | 'pending' | 'failed' | 'blocked' }[] }
+let mockTick = 0;
+function mockProgress(): Progress {
+  const labels = ['악성코드 검사', '파일 구조 검사', '텍스트 추출', '페이지 이미지', '문자 인식', '본문 정리', '개인정보 가림', '지시문 검사', '분류·요약', '출처·근거 검증', '검토 준비'];
+  const done = Math.min(labels.length, ++mockTick);
+  return { lifecycle: done === labels.length ? 'IN_REVIEW' : 'QUARANTINED', total: labels.length, done, finished: done === labels.length, halted: false,
+    steps: labels.map((label, i) => ({ key: String(i), label, state: i < done ? 'done' : i === done ? 'running' : 'pending' })) };
 }
 
 // ---------- 05 검토 · 03 가이드 ----------

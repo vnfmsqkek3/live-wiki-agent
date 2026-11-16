@@ -4,6 +4,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { card, matches, type Mark, type Page } from './library.ts';
+import { progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
@@ -31,6 +32,8 @@ export interface Deps {
   guide(question: string, accessToken: string): Promise<unknown>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string } | undefined>;
+  /** 업로드 진행바: WORKFLOWS 단계 기록 */
+  workflowSteps?(workflow_id: string): Promise<{ step: string; status: string; ended_at: string; error?: string }[]>;
   /** 문서보관함: 마스킹본 페이지 (`{doc_id}/masked/segments/`). 원본은 읽지 않는다 */
   pages?(doc_id: string): Promise<Page[]>;
   /** let522mj buildMarks: 판정·Finding → 밑줄 (page = pages 배열 인덱스, 못 찾으면 null) */
@@ -135,6 +138,14 @@ export function createApp(deps: Deps) {
     if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
     const workflow_failure = d.workflow_id && d.lifecycle === 'QUARANTINED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     return c.json({ workflow_failure, doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
+  });
+
+  app.get('/v1/documents/:id/progress', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('NOT_FOUND', 'document not found');
+    const rec = d.workflow_id && deps.workflowSteps ? await deps.workflowSteps(d.workflow_id) : [];
+    return c.json(progress(d.lifecycle, rec));
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {
