@@ -4,6 +4,7 @@
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "table_workflows" { type = object({ name = string, arn = string }) }
+variable "table_documents" { type = object({ name = string, arn = string }) }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "step_functions" { type = map(string) }
 variable "lambda_dist" {
@@ -18,8 +19,16 @@ locals {
     "segment_build", "pii_scan", "injection_scan", "classify", "trust_gate", "wait_for_approval",
     "promote", "kb_ingest", "graph_upsert", "finalize",
   ]
-  # 비어 있는 단계는 stub(mock)
-  step_arns = { for s in local.steps : s => lookup(var.step_functions, s, aws_lambda_function.fn["stub-step"].arn) }
+  # yoyo0704 소유 단계 Lambda (workflows/src/steps)
+  own_steps = {
+    malware_check = { handler = "steps/malware-check.handler", timeout = 30, memory = 256 }
+  }
+  # 우선순위: 변수(다른 Owner Lambda) > 내 단계 > stub(mock)
+  step_arns = merge(
+    { for s in local.steps : s => aws_lambda_function.fn["stub-step"].arn },
+    { for k, v in aws_lambda_function.step : k => v.arn },
+    var.step_functions,
+  )
 }
 
 data "aws_region" "this" {}
@@ -86,6 +95,55 @@ resource "aws_lambda_function" "fn" {
   }
   tracing_config { mode = "Active" }
   depends_on = [aws_cloudwatch_log_group.fn]
+}
+
+# ---------- yoyo0704 소유 단계 Lambda ----------
+resource "aws_iam_role" "step" {
+  name               = "${var.n.prefix}-role-wf-step${var.n.suffix}"
+  assume_role_policy = data.aws_iam_policy_document.lambda_assume.json
+}
+
+resource "aws_iam_role_policy_attachment" "step_logs" {
+  role       = aws_iam_role.step.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "step" {
+  role = aws_iam_role.step.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*" },
+      { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = var.table_documents.arn },
+      { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
+    ]
+  })
+}
+
+resource "aws_cloudwatch_log_group" "step" {
+  for_each          = local.own_steps
+  name              = "/aws/lambda/${var.n.prefix}-lambda-${replace(each.key, "_", "-")}${var.n.suffix}"
+  retention_in_days = 30
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_lambda_function" "step" {
+  for_each         = local.own_steps
+  function_name    = "${var.n.prefix}-lambda-${replace(each.key, "_", "-")}${var.n.suffix}"
+  role             = aws_iam_role.step.arn
+  runtime          = "nodejs24.x"
+  architectures    = ["arm64"]
+  handler          = each.value.handler
+  filename         = data.archive_file.workflows.output_path
+  source_code_hash = data.archive_file.workflows.output_base64sha256
+  timeout          = each.value.timeout
+  memory_size      = each.value.memory
+  environment {
+    variables = { TABLE_DOCUMENTS = var.table_documents.name }
+  }
+  tracing_config { mode = "Active" }
+  depends_on = [aws_cloudwatch_log_group.step]
 }
 
 # ---------- Step Functions ----------

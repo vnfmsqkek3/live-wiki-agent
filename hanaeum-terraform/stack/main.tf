@@ -36,6 +36,7 @@ module "sfn" {
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
   table_workflows   = module.ddb.tables["workflows"]
+  table_documents   = module.ddb.tables["documents"]
   quarantine_bucket = module.s3.buckets["quarantine"]
   step_functions    = var.step_functions
 }

@@ -137,3 +137,79 @@ resource "aws_s3_bucket_policy" "b" {
 output "buckets" {
   value = { for k, v in aws_s3_bucket.b : k => { name = v.id, arn = v.arn } }
 }
+
+# ---------- 단계 1 MalwareCheck: GuardDuty Malware Protection for S3 (quarantine) ----------
+# 스캔 결과는 객체 태그 GuardDutyMalwareScanStatus 로 남는다 → workflows/src/steps/malware-check.ts 가 읽음.
+data "aws_caller_identity" "me" {}
+data "aws_region" "this" {}
+
+resource "aws_iam_role" "guardduty" {
+  name = "${var.n.prefix}-role-gd-malware${var.n.suffix}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "malware-protection-plan.guardduty.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+      Condition = { StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.me.account_id } }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "guardduty" {
+  role = aws_iam_role.guardduty.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EventBridgeManagedRule"
+        Effect    = "Allow"
+        Action    = ["events:PutRule", "events:DeleteRule", "events:PutTargets", "events:RemoveTargets"]
+        Resource  = "arn:aws:events:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+        Condition = { StringLike = { "events:ManagedBy" = "malware-protection-plan.guardduty.amazonaws.com" } }
+      },
+      {
+        Sid      = "EventBridgeDescribe"
+        Effect   = "Allow"
+        Action   = ["events:DescribeRule", "events:ListTargetsByRule"]
+        Resource = "arn:aws:events:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+      },
+      {
+        Sid      = "BucketNotification"
+        Effect   = "Allow"
+        Action   = ["s3:PutBucketNotification", "s3:GetBucketNotification", "s3:ListBucket"]
+        Resource = aws_s3_bucket.b["quarantine"].arn
+      },
+      {
+        Sid      = "ValidationObject"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.b["quarantine"].arn}/malware-protection-resource-validation-object"
+      },
+      {
+        Sid      = "ScanAndTag"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectTagging", "s3:GetObjectVersionTagging", "s3:PutObjectTagging", "s3:PutObjectVersionTagging"]
+        Resource = "${aws_s3_bucket.b["quarantine"].arn}/*"
+      },
+      {
+        Sid       = "Kms"
+        Effect    = "Allow"
+        Action    = ["kms:GenerateDataKey", "kms:Decrypt"]
+        Resource  = var.kms_key_arn
+        Condition = { StringLike = { "kms:ViaService" = "s3.*.amazonaws.com" } }
+      },
+    ]
+  })
+}
+
+resource "aws_guardduty_malware_protection_plan" "quarantine" {
+  role = aws_iam_role.guardduty.arn
+  protected_resource {
+    s3_bucket { bucket_name = aws_s3_bucket.b["quarantine"].id }
+  }
+  actions {
+    tagging { status = "ENABLED" }
+  }
+  depends_on = [aws_iam_role_policy.guardduty, aws_s3_bucket_notification.quarantine]
+}
