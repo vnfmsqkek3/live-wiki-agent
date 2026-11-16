@@ -27,7 +27,8 @@ export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* ì 
 export async function login(username: string, password: string): Promise<Session> {
   let s: Session;
   if (MOCK || !CLIENT_ID) {
-    const groups: Role[] = username.includes('approver') ? ['REG_APPROVER'] : username.includes('author') ? ['AUTHOR'] : ['USER'];
+    const groups: Role[] = username.includes('approver') ? ['REG_APPROVER'] : username.includes('author') ? ['AUTHOR']
+      : username.includes('security') ? ['SECURITY_REVIEWER'] : username.includes('operator') ? ['PLATFORM_OPERATOR'] : ['USER'];
     s = { token: 'mock', groups, username };
   } else {
     const r = await fetch(`https://cognito-idp.${REGION}.amazonaws.com/`, {

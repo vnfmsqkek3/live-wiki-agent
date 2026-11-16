@@ -1,12 +1,12 @@
 'use client';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
-import { api, ApiError, getSession } from '../lib/api';
+import { api, ApiError, getSession, type Role } from '../lib/api';
+import { ROLE_NAME } from '../lib/roles';
 import { Seal } from '../seal';
 
 interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number }
 interface Mismatch { doc_id: string; title: string; dept: string; findings: { message: string; evidence_ref: string }[] }
-const ROLE_NAME: Record<string, string> = { USER: '일반 사용자', AUTHOR: '작성자', REG_APPROVER: '규정 승인자', SECURITY_REVIEWER: '보안 검토자', PLATFORM_OPERATOR: '운영 관리자' };
 
 function ApprovalBox({ stage, approved }: { stage: number; approved?: boolean }) {
   const steps = ['작성', '검토', '승인'];
@@ -31,7 +31,7 @@ export default function Admin() {
   const [msg, setMsg] = useState('');
   const [role, setRole] = useState('');
   useEffect(() => {
-    setRole(getSession()?.groups.map((g) => ROLE_NAME[g] ?? g).join(', ') ?? '');
+    setRole(getSession()?.groups.map((g) => ROLE_NAME[g as Role] ?? g).join(', ') ?? '');
     api<{ items: Item[] }>('GET', '/v1/approvals?status=PENDING').then((r) => setItems(r.items))
       .catch((e: ApiError) => { setErr(e.status === 403 ? '승인 대기 목록은 규정 승인자와 보안 검토자만 볼 수 있습니다.' : e.message); setItems([]); });
     api<{ items: Mismatch[] }>('GET', '/v1/review-queue').then((r) => setMismatch(r.items)).catch(() => setMismatch([]));
