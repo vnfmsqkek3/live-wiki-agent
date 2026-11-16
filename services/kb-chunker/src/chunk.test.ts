@@ -73,8 +73,11 @@ test("Lambda transform: 배치 읽기 → 청크 배치 쓰기, 메타데이터 
   const key = out.outputFiles[0]!.contentBatches[0]!.key;
   const batch = JSON.parse(files.get(key)!);
   assert.ok(batch.fileContents.length > 5);
-  assert.equal(batch.fileContents[0].contentType, "string");
+  assert.equal(batch.fileContents[0].contentType, "TEXT");
   assert.ok(batch.fileContents[0].contentMetadata.provision_id);
+  // 숫자 필드가 문자열로 와도 처리
+  const strMeta = { ...meta(), effective_from: "20261101", effective_to: "99991231" } as unknown as Record<string, unknown>;
+  assert.equal((await transform({ bucketName: "inter", inputFiles: [{ originalFileLocation: loc, fileMetadata: strMeta, contentBatches: [{ key: "in/F-001.json" }] }] }, io)).outputFiles.length, 1);
   await assert.rejects(transform({ bucketName: "inter", inputFiles: [{ originalFileLocation: loc, fileMetadata: { doc_id: "x" }, contentBatches: [{ key: "in/F-001.json" }] }] }, io));
   await assert.rejects(transform({ bucketName: "inter", inputFiles: [{ originalFileLocation: loc, fileMetadata: meta({ lifecycle: "IN_REVIEW" }), contentBatches: [{ key: "in/F-001.json" }] }] }, io), /PUBLISHED 아닌/u);
 });

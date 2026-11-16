@@ -16,7 +16,7 @@ gh pr list --state all                  # PR #1·#2 병합 여부 확인
 ```
 
 그다음 읽기: `공통기록/` 최신 10건 → `요청기록/` 중 `*_to_let522mj.md` OPEN 건 → 이 파일 '남은 작업' → `트러블슈팅.md`.
-마지막 상태 (11/16 18:30): 로직·오프라인 테스트 완료, AWS 실연동 대기. 다음 작업은 아래 '남은 작업 (실연동)' 첫 행부터.
+마지막 상태 (11/16 18:30, 2차): ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
 
 기준: `TODO.md`, DoD `docs/02` 4장. AWS 리소스(KB·DynamoDB·Neptune)는 yoyo0704 배포 전이라 **AWS 호출부는 얇은 어댑터 + 인메모리 mock**으로 두고, 로직은 오프라인 테스트로 검증한다.
 
@@ -45,10 +45,11 @@ gh pr list --state all                  # PR #1·#2 병합 여부 확인
 
 | 작업 | 선행 조건 | DoD |
 |---|---|---|
-| KB 1건 색인 → HYBRID Retrieve 성공 확인, Custom Transformation 이벤트 형식 검증 | yoyo0704 KB·OpenSearch·Lambda 배포 | 실제 이벤트로 `kb-chunker` 통과 |
+| KB 1건 색인 → HYBRID Retrieve 성공 확인, Custom Transformation 이벤트 형식 검증 | yoyo0704 `kb_chunker` 연결 (KB·데이터소스는 배포됨, Retrieve 형식 확인됨) | 실제 이벤트로 `kb-chunker` 통과 |
 | **E2E 1건**: 승인된 F-001 → 색인 → 검색 | 위 + dhxorb96 승인 API | 검색 결과에 F-001 조문·`original_text` |
 | 승인 전 문서 KB 가시성 0건 | dhxorb96 미승인 문서 생성 | `golden` expected_kb_visibility=false 전부 0건 |
-| Regulations 키 합의 → `DynamoClauseStore` 실연동 | yoyo0704 회신 (요청기록) | `get_clause` 실 테이블에서 FOUND |
+| ~~Regulations 실연동~~ 완료 (11/16): 실 테이블 20/20 | — | — |
+| Documents·Approvals 키 확정 → Promote·검색 재검증 실연동 | dhxorb96 회신 | Promote가 실 Approvals USED 전환 |
 | Neptune 실연동 (`NeptuneGraphStore`) | 11/20 Neptune 배포 | trace_impact 5/5 실그래프 |
 | 공개 법령 샘플로 파서 일반화 검증 | 국가법령정보센터 자료 (자료/데이터원천/법령) | 조·항·호·목 95% |
 | DOCX·HWPX 텍스트 추출 | 필요 시 (데모는 PDF/텍스트) | 미구현 상태 명시 실패 → 구현 |

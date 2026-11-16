@@ -1,5 +1,6 @@
 // Bedrock KB Custom Transformation Lambda (POST_CHUNKING, chunkingStrategy=NONE)
-// [확인 필요] 이벤트·출력 JSON 형식은 AWS 문서 "custom transformation Lambda" 기준으로 작성. 배포 전 실제 이벤트로 재검증.
+// 이벤트·출력 JSON 형식: AWS 문서 "Use a custom transformation Lambda function" (kb-custom-transformation.html, 11/16 확인).
+// contentType은 enum(TEXT, PDF …). 실제 이벤트 1건으로 재검증은 Lambda 연결 후.
 //   입력: { bucketName, inputFiles: [{ originalFileLocation, fileMetadata, contentBatches: [{ key }] }] }
 //   배치 파일: { fileContents: [{ contentBody, contentType, contentMetadata }] }
 //   출력: { outputFiles: [{ originalFileLocation, fileMetadata, contentBatches: [{ key }] }] }
@@ -14,11 +15,16 @@ export interface InputFile { originalFileLocation: unknown; fileMetadata?: Recor
 export interface TransformEvent { bucketName: string; inputFiles: InputFile[]; knowledgeBaseId?: string; dataSourceId?: string; ingestionJobId?: string; priorTask?: string }
 export interface Io { read(bucket: string, key: string): Promise<string>; write(bucket: string, key: string, body: string): Promise<void> }
 
+/** fileMetadata 숫자 필드가 문자열로 와도 처리 (KB 전달 형식 보장 문서 없음) */
+const NUM_FIELDS = ["effective_from", "effective_to"];
+export const coerceMeta = (m: Record<string, unknown>) =>
+  Object.fromEntries(Object.entries(m).map(([k, v]) => [k, NUM_FIELDS.includes(k) && typeof v === "string" && /^\d+$/u.test(v) ? Number(v) : v]));
+
 export async function transform(event: TransformEvent, io: Io) {
   const outputFiles = [];
   for (const f of event.inputFiles) {
     // 메타데이터 검증 (docs/01 8.3 6단계): 누락·형식 오류는 격리 대상 → 예외로 Ingestion 실패 처리
-    const meta = DocumentMetadata.parse(f.fileMetadata ?? {});
+    const meta = DocumentMetadata.parse(coerceMeta(f.fileMetadata ?? {}));
     if (meta.lifecycle !== "PUBLISHED") throw new Error(`PUBLISHED 아닌 문서 색인 시도: ${meta.doc_id}`);
     const parts: string[] = [];
     for (const b of f.contentBatches) {
@@ -29,7 +35,7 @@ export async function transform(event: TransformEvent, io: Io) {
     if (!chunks.length) throw new Error(`청크 0개: ${meta.doc_id}`);
     const outKey = `${f.contentBatches[0]!.key}.hanaeum-chunks.json`;
     const out: BatchFile = {
-      fileContents: chunks.map((c) => ({ contentBody: c.augmented_search_text, contentType: "string", contentMetadata: c.metadata })),
+      fileContents: chunks.map((c) => ({ contentBody: c.augmented_search_text, contentType: "TEXT", contentMetadata: c.metadata })),
     };
     await io.write(event.bucketName, outKey, JSON.stringify(out));
     outputFiles.push({ originalFileLocation: f.originalFileLocation, fileMetadata: f.fileMetadata, contentBatches: [{ key: outKey }] });
