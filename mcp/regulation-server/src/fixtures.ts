@@ -4,7 +4,7 @@ import { parseLaw } from "@hanaeum/legal-parser";
 import { MemoryClauseStore } from "./store.ts";
 
 const ROOT = new URL("../../../tests/fixtures/", import.meta.url);
-interface RegEntry { registry_doc_no: string; law_id: string; law_name: string; revision_id: string; effective_from: number; effective_to: number; content_hash: string; fixture: string }
+interface RegEntry { registry_doc_no: string; law_id: string; law_name: string; revision_id: string; effective_from: number; effective_to: number; content_hash: string; pdf_content_hash?: string; fixture: string }
 
 export function fixtureClauseStore(): MemoryClauseStore {
   const store = new MemoryClauseStore();
@@ -14,7 +14,7 @@ export function fixtureClauseStore(): MemoryClauseStore {
     store.put({
       law_id: r.law_id, law_name: r.law_name, revision_id: r.revision_id, registry_doc_no: r.registry_doc_no,
       effective_from: r.effective_from, effective_to: r.effective_to, authority_status: "VERIFIED",
-      doc_id: r.fixture.replace(/^.*\/|\.\w+$/gu, ""), content_hash: r.content_hash, acl_groups: ["ALL"], parse_ok: law.issues.length === 0,
+      doc_id: r.fixture.replace(/^.*\/|\.\w+$/gu, ""), content_hash: r.content_hash, ...(r.pdf_content_hash ? { pdf_content_hash: r.pdf_content_hash } : {}), acl_groups: ["ALL"], parse_ok: law.issues.length === 0,
     }, law);
   }
   // L-001: 엣지 케이스 법령 (의도적 이슈 포함 → parse_ok=false 이므로 부재 판정 금지 대상)
