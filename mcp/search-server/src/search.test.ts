@@ -160,3 +160,14 @@ test("업무 분류·태그 필터: business_path·tags 메타데이터로 거�
   assert.ok((await tools.search_wiki({ ...q, tags: ["없는태그", "감정평가"] }, user)).items.every((x) => x.doc_id === "K-001"));
   assert.equal((await tools.search_wiki({ ...q, business: "외환" }, user)).items.length, 0);
 });
+
+test("그림 묘사 청크는 검색되지만 quotable=false, 스니펫에 '원문 아님' 표시", async () => {
+  const { retriever, states, tools } = setup();
+  retriever.add("[부동산 담보평가 실무 노하우 · 그림 (1쪽)]\n표: 현장 실사 체크리스트 사진", { ...docs[2]![1], provision_id: "K-001#fig0", provision_path: "그림 (1쪽)", provision_status: "ACTIVE", parent_id: "K-001", source_page: 0, original_text: "", has_figure: true });
+  void states;
+  const r = await tools.search_wiki({ query: "현장 실사 체크리스트 사진", as_of: "2026-12-15", top_k: 10 }, user);
+  const fig = r.items.find((x) => x.provision_id === "K-001#fig0")!;
+  assert.equal(fig.quotable, false);
+  assert.match(fig.snippet, /^\[그림 설명 · 원문 아님\] 표: 현장 실사 체크리스트 사진$/u);
+  assert.ok(r.items.filter((x) => x.provision_id !== "K-001#fig0").every((x) => x.quotable));
+});

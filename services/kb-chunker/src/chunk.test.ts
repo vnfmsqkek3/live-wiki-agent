@@ -87,3 +87,18 @@ test("Lambda transform: 배치 읽기 → 청크 배치 쓰기, 메타데이터 
   assert.equal(mixed.outputFiles.length, 1);
   assert.deepEqual(mixed.outputFiles[0]!.fileMetadata, meta());
 });
+
+test("그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빠지고 별도 청크(has_figure, 인용 원문 없음)로", async () => {
+  const { figureLine } = await import("@hanaeum/schemas");
+  const law = readFileSync(new URL("../../../tests/fixtures/documents/F-001.txt", import.meta.url), "utf8");
+  const fig = figureLine(1, { kind: "표", description: "여신 금액별 승인권자 표", overlay_text: "5억원 이상 본부", intent: "승인 기준 요약" });
+  const base = chunkDocument(law, meta());
+  const withFig = chunkDocument(`${law}\n${fig}`, meta());
+  assert.equal(withFig.length, base.length + 1, "본문 청크는 그대로, 그림 청크 1개 추가");
+  assert.deepEqual(withFig.slice(0, -1).map((c) => c.metadata.original_text), base.map((c) => c.metadata.original_text));
+  const f = withFig.at(-1)!;
+  assert.equal(f.metadata.has_figure, true);
+  assert.equal(f.metadata.original_text, "", "그림 묘사는 인용 원문이 아님");
+  assert.equal(f.metadata.source_page, 1);
+  assert.match(f.augmented_search_text, /그림 \(2쪽\)[\s\S]*승인권자 표 \/ 표기: 5억원 이상 본부 \/ 의도: 승인 기준 요약/u);
+});

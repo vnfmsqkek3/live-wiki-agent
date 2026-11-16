@@ -1,7 +1,7 @@
 // 단계 11 Promote: 승인 바인딩 소비(APPROVED→USED) 후 마스킹본을 published 버킷으로 + .metadata.json (interfaces.md 3·5·7.1장)
 import { createHash } from "node:crypto";
-import { MetadataSidecar, OPEN_END } from "@hanaeum/schemas";
-import type { DocumentMetadata, IndexGroup, StepInput, StepOutput } from "@hanaeum/schemas";
+import { MetadataSidecar, OPEN_END, figureLine } from "@hanaeum/schemas";
+import type { DocumentMetadata, Figure, IndexGroup, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
 
 export const sha256 = (b: Buffer | string) => "sha256:" + createHash("sha256").update(b).digest("hex");
@@ -65,9 +65,13 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   const expected = Array.from({ length: page_count }, (_, i) => `${input.doc_id}/masked/segments/${String(i).padStart(4, "0")}.json`);
   const segKeys = (await store.list(input.bucket, `${input.doc_id}/masked/segments/`)).filter((k) => k.endsWith(".json"));
   if (segKeys.join() !== expected.join()) throw new Error(`마스킹 세그먼트 불일치: ${segKeys.length}개 / 기대 ${page_count}개`);
-  const texts: string[] = [];
-  for (const k of segKeys) texts.push((JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string }).text);
-  const content = texts.join("\n");
+  const texts: string[] = []; const figs: string[] = [];
+  for (const [page, k] of segKeys.entries()) {
+    const seg = JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string; figures?: Figure[] };
+    texts.push(seg.text);
+    for (const f of seg.figures ?? []) if (f.description?.trim()) figs.push(figureLine(page, f));
+  }
+  const content = [texts.join("\n"), ...figs].join("\n");
   if (!content.trim()) throw new Error("게시할 본문이 비어 있음");
 
   const contentHash = sha256(content);

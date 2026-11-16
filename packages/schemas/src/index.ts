@@ -198,3 +198,9 @@ export function newUlid(now = Date.now()): string {
   return t + s;
 }
 export const newId = (prefix: "doc" | "wf" | "apr" | "fnd"): string => `${prefix}_${newUlid()}`;
+
+/** 페이지 그림 묘사 (ImageDescribe 단계, yoyo0704) → 게시 본문 끝에 한 줄씩. 인용 원문이 아니므로 별도 청크(has_figure)로만 색인 */
+export interface Figure { kind: string; description: string; overlay_text?: string; intent?: string }
+export const FIGURE_RE = /^⟦그림 p(\d+)⟧ (.+)$/u;
+export const figureLine = (page: number, f: Figure) =>
+  `⟦그림 p${page}⟧ ${[`${f.kind}: ${f.description}`, f.overlay_text ? `표기: ${f.overlay_text}` : "", f.intent ? `의도: ${f.intent}` : ""].filter(Boolean).join(" / ").replace(/\s+/gu, " ")}`;
