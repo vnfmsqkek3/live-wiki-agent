@@ -3,6 +3,12 @@ variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 # auth-triggers.zip (lambda_build 모듈이 CodeBuild 로 빌드)
 variable "lambda_s3" { type = object({ bucket = string, key = string }) }
+# 데모 계정 공통 비밀번호 (사용자 지정 11/17). 값은 git 에 두지 않고 TF_VAR_demo_password(.env.local)로만. null 이면 무작위
+variable "demo_password" {
+  type      = string
+  default   = null
+  sensitive = true
+}
 
 locals {
   roles = ["USER", "AUTHOR", "REG_APPROVER", "SECURITY_REVIEWER", "PLATFORM_OPERATOR"]
@@ -28,7 +34,7 @@ resource "aws_cognito_user_pool" "this" {
   username_configuration { case_sensitive = false }
   admin_create_user_config { allow_admin_create_user_only = true }
   password_policy {
-    minimum_length    = 12
+    minimum_length    = var.n.suffix == "" ? 12 : 8 # dev 는 데모 공통 비밀번호(10자) 허용, prod 12자
     require_lowercase = true
     require_uppercase = true
     require_numbers   = true
@@ -123,7 +129,7 @@ resource "aws_cognito_user" "demo" {
   for_each       = local.demo
   user_pool_id   = aws_cognito_user_pool.this.id
   username       = each.key
-  password       = random_password.demo[each.key].result
+  password       = coalesce(var.demo_password, random_password.demo[each.key].result)
   message_action = "SUPPRESS"
   attributes     = { "dept" = "여신" }
 }
@@ -143,7 +149,7 @@ resource "aws_secretsmanager_secret" "demo" {
 
 resource "aws_secretsmanager_secret_version" "demo" {
   secret_id     = aws_secretsmanager_secret.demo.id
-  secret_string = jsonencode({ for k, v in local.demo : k => { roles = v, password = random_password.demo[k].result } })
+  secret_string = jsonencode({ for k, v in local.demo : k => { roles = v, password = coalesce(var.demo_password, random_password.demo[k].result) } })
 }
 
 output "user_pool_id" { value = aws_cognito_user_pool.this.id }

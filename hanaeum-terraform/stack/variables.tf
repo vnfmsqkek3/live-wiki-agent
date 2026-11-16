@@ -74,3 +74,9 @@ variable "agents_source_ref" {
   type    = string
   default = null
 }
+
+variable "demo_password" {
+  type      = string
+  default   = null
+  sensitive = true
+}

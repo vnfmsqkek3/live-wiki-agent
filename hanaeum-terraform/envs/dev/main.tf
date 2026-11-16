@@ -9,11 +9,19 @@ terraform {
   }
 }
 
+# 데모 계정 공통 비밀번호: TF_VAR_demo_password (.env.local, git 제외)
+variable "demo_password" {
+  type      = string
+  default   = null
+  sensitive = true
+}
+
 module "stack" {
-  source      = "../../stack"
-  env         = "dev"
-  name_suffix = "-dev"
-  owner       = "team"
+  source        = "../../stack"
+  demo_password = var.demo_password
+  env           = "dev"
+  name_suffix   = "-dev"
+  owner         = "team"
 
   # 공유 dev 는 개인 dev 자원을 참조하지 않는다 (사용자 지시 11/16, 요청기록 2242, docs/06).
   # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev

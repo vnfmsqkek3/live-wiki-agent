@@ -42,10 +42,11 @@ locals {
 }
 
 module "cognito" {
-  source      = "../modules/cognito"
-  n           = local.n
-  kms_key_arn = module.kms.key_arn
-  lambda_s3   = { bucket = local.yoyo_s3.bucket, key = "${local.yoyo_s3.prefix}/auth-triggers.zip" }
+  source        = "../modules/cognito"
+  n             = local.n
+  kms_key_arn   = module.kms.key_arn
+  lambda_s3     = { bucket = local.yoyo_s3.bucket, key = "${local.yoyo_s3.prefix}/auth-triggers.zip" }
+  demo_password = var.demo_password
 }
 
 module "sfn" {
