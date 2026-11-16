@@ -1,0 +1,10 @@
+{
+  "name": "hanaeum-living-wiki",
+  "private": true,
+  "type": "module",
+  "workspaces": ["apps/*", "agents"],
+  "scripts": {
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "test": "npm test --workspaces --if-present"
+  }
+}

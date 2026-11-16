@@ -1,0 +1,135 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { createApp, type Deps } from '../src/app.ts';
+import { memoryStore } from '../src/store.ts';
+import { ApiError } from '../src/errors.ts';
+import type { Actor } from '../src/contracts.ts';
+
+const USERS: Record<string, Actor> = {
+  author: { sub: 'u-author', groups: ['AUTHOR'], dept: 'loan' },
+  author2: { sub: 'u-author2', groups: ['AUTHOR'], dept: 'loan' },
+  approver: { sub: 'u-approver', groups: ['REG_APPROVER'], dept: 'compliance' },
+  authorApprover: { sub: 'u-author', groups: ['AUTHOR', 'REG_APPROVER'] }, // 같은 sub로 자기 승인 시도
+  user: { sub: 'u-user', groups: ['USER'], dept: 'loan' },
+};
+
+function setup() {
+  const store = memoryStore();
+  const objects = new Map<string, { s3_version_id: string; content_hash: string }>();
+  const tasks: { token: string; ok: boolean }[] = [];
+  const deps: Deps = {
+    verify: async (t) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'invalid token'); return u; },
+    store,
+    presignPut: async (key) => `https://hanaeum-mvp-s3-quarantine.s3.us-east-1.amazonaws.com/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256`,
+    headObject: async (key) => objects.get(key),
+    startWorkflow: async () => {},
+    sendTaskResult: async (token, ok) => { tasks.push({ token, ok }); },
+    search: async () => [],
+  };
+  const app = createApp(deps);
+  const call = (who: string | undefined, method: string, path: string, body?: unknown) =>
+    app.request(path, { method, headers: { 'content-type': 'application/json', ...(who ? { authorization: `Bearer ${who}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
+  return { app, store, objects, tasks, call };
+}
+
+const upload = { filename: 'F-001.pdf', size: 1000, title: '기업여신 심사규정 v1 (SYNTHETIC)', dept: 'loan', acl_groups: ['ALL'] };
+
+/** 업로드 → 분석 → (Trust Gate 결과를 워크플로가 기록했다고 가정) → 게시 요청 */
+async function submitted(t: ReturnType<typeof setup>) {
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', task_token: 'tok-1' });
+  const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
+  assert.equal(s.status, 201);
+  const { approval_id } = (await s.json()) as { approval_id: string };
+  return { doc_id, approval_id };
+}
+
+test('토큰 없으면 401, 공통 오류 형식', async () => {
+  const t = setup();
+  const r = await t.call(undefined, 'GET', '/v1/approvals');
+  assert.equal(r.status, 401);
+  const j = (await r.json()) as { error: { code: string; trace_id: string } };
+  assert.equal(j.error.code, 'UNAUTHORIZED');
+  assert.ok(j.error.trace_id);
+});
+
+test('업로드 URL: AUTHOR만, 허용 확장자만, SigV4 리전 엔드포인트', async () => {
+  const t = setup();
+  assert.equal((await t.call('user', 'POST', '/v1/documents/upload-url', upload)).status, 403);
+  assert.equal((await t.call('author', 'POST', '/v1/documents/upload-url', { ...upload, filename: 'a.pptx' })).status, 422);
+  assert.equal((await t.call('author', 'POST', '/v1/documents/upload-url', { ...upload, size: 999_999_999 })).status, 422);
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  assert.equal(r.status, 201);
+  const j = (await r.json()) as { doc_id: string; url: string };
+  assert.match(j.doc_id, /^doc_[0-9A-Z]{26}$/);
+  assert.match(j.url, /s3\.us-east-1\.amazonaws\.com.*AWS4-HMAC-SHA256/);
+});
+
+test('정상 승인: 다른 사람이 승인하면 APPROVED, task token 성공 전송', async () => {
+  const t = setup();
+  const { approval_id } = await submitted(t);
+  const r = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: '근거 확인' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(t.tasks, [{ token: 'tok-1', ok: true }]);
+});
+
+test('보안: 일반 사용자 승인 시도 403 + 감사 기록 (데모 06 Backend 경로)', async () => {
+  const t = setup();
+  const { approval_id } = await submitted(t);
+  for (let i = 0; i < 5; i++) {
+    const r = await t.call('user', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
+    assert.equal(r.status, 403);
+  }
+  assert.equal(t.store.audits.filter((a) => a.result === 'DENIED').length, 5);
+  assert.equal(t.tasks.length, 0);
+});
+
+test('보안: 자기 승인 거부', async () => {
+  const t = setup();
+  const { approval_id } = await submitted(t);
+  const r = await t.call('authorApprover', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
+  assert.equal(r.status, 403);
+});
+
+test('보안: 검사 후 파일 변경 시 승인 거부 (409)', async () => {
+  const t = setup();
+  const { doc_id, approval_id } = await submitted(t);
+  t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v2', content_hash: 'h2' });
+  const r = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
+  assert.equal(r.status, 409);
+  // 반려는 가능
+  const r2 = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: '변경됨' });
+  assert.equal(r2.status, 200);
+});
+
+test('보안: 승인 재사용·중복 결정 거부, USED 전환 1회만', async () => {
+  const t = setup();
+  const { approval_id } = await submitted(t);
+  assert.equal((await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' })).status, 200);
+  assert.equal((await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' })).status, 409);
+  await t.store.consumeApproval(approval_id);
+  await assert.rejects(t.store.consumeApproval(approval_id), /not usable/);
+});
+
+test('ACL: 미게시 문서는 작성자·승인자 외 404', async () => {
+  const t = setup();
+  const { doc_id } = await submitted(t);
+  assert.equal((await t.call('user', 'GET', `/v1/documents/${doc_id}`)).status, 404);
+  assert.equal((await t.call('author2', 'GET', `/v1/documents/${doc_id}/review`)).status, 404);
+  assert.equal((await t.call('author', 'GET', `/v1/documents/${doc_id}`)).status, 200);
+  const j = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}`)).json()) as Record<string, unknown>;
+  assert.equal(j.task_token, undefined);
+});
+
+test('QUARANTINED 문서는 게시 요청 불가', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'QUARANTINED', s3_version_id: 'v', content_hash: 'h' });
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`)).status, 409);
+});
