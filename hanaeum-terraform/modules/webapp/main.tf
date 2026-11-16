@@ -206,6 +206,8 @@ resource "aws_iam_role_policy" "api" {
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/segments/*" },
+      # 실패·검토 사유 위치 표시: PII 를 칠한 페이지 이미지 위에 bbox 강조 (요청기록 20261117-0106)
+      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/pages/*" },
       {
         Effect    = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn
         Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*"] } }
