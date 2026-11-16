@@ -111,9 +111,12 @@ module "webapp" {
   quarantine_bucket    = module.s3.buckets["quarantine"]
   runtime_arn_patterns = [module.pipeline.runtime_arn_pattern, module.user.runtime_arn_pattern]
   extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn]
+  kb_arn               = local.kb_arn
   api_env = {
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
     AGENT_RUNTIME_ARN    = module.user.runtime_arn
+    KB_ID                = module.kb.kb_id # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
+    MODEL_RERANK         = var.models["MODEL_RERANK"]
   }
 }
 

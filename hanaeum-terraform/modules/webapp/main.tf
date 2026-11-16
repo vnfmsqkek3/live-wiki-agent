@@ -16,6 +16,8 @@ variable "cognito_client_id" { type = string }
 variable "tables" { type = map(object({ name = string, arn = string })) }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "runtime_arn_patterns" { type = list(string) } # API 가 호출하는 AgentCore Runtime (파이프라인·가이드)
+# API 검색(/v1/search: KB Retrieve·Rerank)용 KB ARN
+variable "kb_arn" { type = string }
 # 같은 CodeBuild 로 빌드하는 Agent 이미지의 ECR (파이프라인·가이드 Runtime)
 variable "extra_ecr_arns" {
   type    = list(string)
@@ -213,6 +215,9 @@ resource "aws_iam_role_policy" "api" {
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
       { Effect = "Allow", Action = ["bedrock-agentcore:InvokeAgentRuntime"], Resource = flatten([for p in var.runtime_arn_patterns : [p, "${p}/*"]]) },
       { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = "arn:aws:bedrock:${local.region}:${local.acct}:guardrail/*" },
+      # 검색 화면 /v1/search (let522mj search_wiki 를 API 가 직접 사용): KB Retrieve + Cohere Rerank
+      { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = var.kb_arn },
+      { Effect = "Allow", Action = ["bedrock:Rerank", "bedrock:InvokeModel"], Resource = "*" },
     ]
   })
 }

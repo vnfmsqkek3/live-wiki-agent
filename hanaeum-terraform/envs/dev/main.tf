@@ -23,7 +23,7 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "0adacd4"                                  # workflows·auth-triggers·services/ocr
-    dhxorb96 = "ac6869c"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    dhxorb96 = "b869ac0"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "812a58933071d59bad6f7f0f30e948c2780b5114" # PR #9 병합 (하나은행 전환·DOCX·HWPX·OCR 보정)
   }
 
@@ -35,8 +35,8 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "4a45302" # 첫 화면 로그인 필수·그룹별 화면
-  agents_source_ref = "ac6869c" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "b869ac0" # PII 범위(고유식별정보)·로그인·그룹별 화면
+  agents_source_ref = "b869ac0" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
