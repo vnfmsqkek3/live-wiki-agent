@@ -98,7 +98,11 @@ export function makeHandler(d: Deps) {
       const segKey = `${e.doc_id}/masked/segments/${nnnn(page_index)}.json`;
       const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index, text: "" };
       const { figures, pii } = await sanitize(await d.describe(png, seg.text.slice(0, 4000)), d.mask);
-      if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref));
+      if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref, {
+        location: { page: page_index + 1 },
+        user_message: `${page_index + 1}쪽 그림(사진·캡처)에 개인정보로 보이는 내용이 ${pii}건 있어 가렸습니다.`,
+        fix_hint: "그림 속 전화번호·카드번호 등 개인 식별 정보를 지우거나 가린 뒤 다시 올리는 것을 권장합니다.",
+      }));
       await d.putJson(`${e.doc_id}/masked/figures/${nnnn(page_index)}.json`, { doc_id: e.doc_id, page_index, figures });
       await d.putJson(segKey, { ...seg, figures });
       described += figures.length;
