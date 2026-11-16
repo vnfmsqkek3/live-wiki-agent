@@ -4,7 +4,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { card, matches, type Mark, type Page } from './library.ts';
-import { progress } from './progress.ts';
+import { blockedReasons, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
@@ -147,7 +147,7 @@ export function createApp(deps: Deps) {
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('NOT_FOUND', 'document not found');
     const rec = d.workflow_id && deps.workflowSteps ? await deps.workflowSteps(d.workflow_id) : [];
-    return c.json(progress(d.lifecycle, rec));
+    return c.json({ ...progress(d.lifecycle, rec), blocked_reasons: d.lifecycle === 'BLOCKED' ? blockedReasons(d.findings) : [] });
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {
@@ -209,7 +209,8 @@ export function createApp(deps: Deps) {
       const failure = d?.workflow_id && d.lifecycle !== 'PUBLISHED' && status !== 'PENDING' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
       return { ...r, task_token: undefined, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure };
     }));
-    return c.json({ items });
+    // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
+    return c.json({ items: items.filter((i) => i.lifecycle && i.lifecycle !== 'DELETED' && (status !== 'PENDING' || i.lifecycle === 'PENDING_APPROVAL')) });
   });
 
   app.post('/v1/approvals/:id/decision', async (c) => {

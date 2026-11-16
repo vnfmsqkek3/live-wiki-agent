@@ -129,7 +129,7 @@ export function uploadFile(url: string, file: File, onProgress?: (ratio: number)
   });
 }
 
-export interface Progress { lifecycle: string; total: number; done: number; finished: boolean; halted: boolean; steps: { key: string; label: string; state: 'done' | 'running' | 'pending' | 'failed' | 'blocked' | 'skipped' }[] }
+export interface Progress { lifecycle: string; total: number; done: number; finished: boolean; halted: boolean; blocked_reasons?: string[]; steps: { key: string; label: string; state: 'done' | 'running' | 'pending' | 'failed' | 'blocked' | 'skipped' }[] }
 let mockTick = 0;
 function mockProgress(): Progress {
   const labels = ['악성코드 검사', '파일 구조 검사', '텍스트 추출', '페이지 이미지', '문자 인식', '본문 정리', '개인정보 가림', '지시문 검사', '분류·요약', '출처·근거 검증', '검토 준비'];

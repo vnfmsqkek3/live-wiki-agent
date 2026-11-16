@@ -287,3 +287,10 @@ test('분류 전 문서는 게시 요청 409, 승인 뒤 게시가 멈추면 결
   assert.equal(list.items[0]!.title, upload.title);
   assert.equal(list.items[0]!.workflow_failure?.step, 'ParallelPreprocess');
 });
+
+test('차단 사유: 코드별 사용자 문장, 원문 없음', async () => {
+  const { blockedReasons } = await import('../src/progress.ts');
+  assert.deepEqual(blockedReasons([{ severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', step: 'FILE_STRUCTURE' }, { severity: 'MEDIUM', code: 'X', step: 'PII_SCAN' }]),
+    ['첨부 파일이 포함된 PDF는 보안상 등록할 수 없습니다. 첨부를 뺀 PDF로 다시 올려 주세요.']);
+  assert.match(blockedReasons([{ severity: 'HIGH', code: 'OVERRIDE_KO', step: 'INJECTION_SCAN' }])[0]!, /지시하는 문구/);
+});

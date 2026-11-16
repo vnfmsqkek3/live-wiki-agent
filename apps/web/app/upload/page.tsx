@@ -82,7 +82,12 @@ export default function Upload() {
             <ol className="prog-steps">
               {prog.steps.map((s) => <li key={s.key} className={s.state}>{s.label}{s.state === 'running' && ' 중'}{s.state === 'failed' && ' 실패'}{s.state === 'blocked' && ' 차단'}</li>)}
             </ol>
-            {prog.lifecycle === 'BLOCKED' && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 차단 사유는 검토 화면에서 확인하세요.</p>}
+            {prog.lifecycle === 'BLOCKED' && (
+              <div className="notice" role="alert">
+                <p style={{ margin: 0 }}>보안 검사에서 차단되어 등록할 수 없습니다.</p>
+                {(prog.blocked_reasons ?? []).length > 0 && <ul style={{ margin: '6px 0 0', paddingLeft: '1.2em' }}>{prog.blocked_reasons!.map((r) => <li key={r}>{r}</li>)}</ul>}
+              </div>
+            )}
           </section>
         )}
         {state.doc_id && (prog?.finished || prog?.halted) && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}

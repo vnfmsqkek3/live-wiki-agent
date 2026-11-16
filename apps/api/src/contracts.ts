@@ -9,7 +9,8 @@ export type Role = (typeof ROLES)[number];
 export type DocumentType = 'REGULATION' | 'KNOWHOW' | 'MANUAL';
 export type AuthorityStatus = 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
 export type Freshness = 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
-export type Lifecycle = 'QUARANTINED' | 'IN_REVIEW' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'BLOCKED';
+/** DELETED: 폐기(이력 보존, 검색·보관함 제외). let522mj 재게시·테스트 정리에서 사용 */
+export type Lifecycle = 'QUARANTINED' | 'IN_REVIEW' | 'PENDING_APPROVAL' | 'PUBLISHED' | 'BLOCKED' | 'DELETED';
 export type TrustGateResult = 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
 export type Severity = 'LOW' | 'MEDIUM' | 'HIGH';
 export type StepStatus = 'OK' | 'REVIEW_REQUIRED' | 'BLOCKED';
@@ -78,6 +79,7 @@ export interface DocumentRecord {
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
   /** 근거 규정 개정·시행으로 재검토가 필요해진 이유 (freshness=REVIEW_REQUIRED). 자동 수정 없음 */
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string };
+  deleted_reason?: string;
   /** 출처 불일치 처리 결과 */
   source_review?: { decision: 'REJECT'; by: string; reason: string; at: string };
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
