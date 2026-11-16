@@ -13,6 +13,7 @@ export interface Mark {
 export interface Page { page: number; text: string }
 
 const lawOf = (provision_id: string) => provision_id.split('@')[0]!;
+const revOf = (provision_id: string) => provision_id.split('@')[1]?.split('/')[0];
 
 /** 밑줄 후보 수 (목록용). 모델 판단은 인용 원문 대조 통과분만 센다 */
 export function markCount(d: DocumentRecord) {
@@ -28,7 +29,9 @@ export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[]
   const add = (r: Related) => { if (r.doc_id !== d.doc_id && (!out.has(r.doc_id) || r.relation === 'CONFLICTS')) out.set(r.doc_id, r); };
   for (const j of d.knowhow_validation?.items ?? []) {
     if (!j.verified_quote || (j.relation !== 'SUPPORTS' && j.relation !== 'CONFLICTS')) continue;
-    const reg = visible.find((x) => x.law_id === lawOf(j.provision_id) && x.lifecycle === 'PUBLISHED');
+    // 인용한 개정판과 같은 문서 우선 (같은 규정의 시행 전 개정판으로 잘못 연결 방지)
+    const regs = visible.filter((x) => x.law_id === lawOf(j.provision_id) && x.lifecycle === 'PUBLISHED');
+    const reg = regs.find((x) => x.revision_id === revOf(j.provision_id)) ?? regs[0];
     if (reg) add({ doc_id: reg.doc_id, title: reg.title, relation: j.relation === 'CONFLICTS' ? 'CONFLICTS' : 'CITES', reason: j.label });
   }
   if (d.law_id) for (const k of visible) {

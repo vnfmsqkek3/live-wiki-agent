@@ -19,7 +19,8 @@ const item = (provision_id: string, relation: 'SUPPORTS' | 'CONFLICTS' | 'INSUFF
 
 async function setup() {
   const store = memoryStore();
-  await store.putDoc(base({ doc_id: 'REG', title: '기업여신 심사규정', law_id: 'SYN-LOAN-001', document_type: 'REGULATION', classification: { document_type: 'REGULATION', business_path: ['여신'], tags: ['공식규정'], confidence: 1, rationale: '' } }));
+  await store.putDoc(base({ doc_id: 'REG', title: '기업여신 심사규정', law_id: 'SYN-LOAN-001', revision_id: '2026-11-01', document_type: 'REGULATION', classification: { document_type: 'REGULATION', business_path: ['여신'], tags: ['공식규정'], confidence: 1, rationale: '' } }));
+  await store.putDoc(base({ doc_id: 'REG_NEXT', title: '기업여신 심사규정 (12-01 개정)', law_id: 'SYN-LOAN-001', revision_id: '2026-12-01', document_type: 'REGULATION' }));
   await store.putDoc(base({ doc_id: 'SECRET', title: '권한 밖 규정', law_id: 'SYN-HR-001', acl_groups: ['DEPT#hr'] }));
   await store.putDoc(base({
     doc_id: 'KH', title: '소액 담보 팁', document_type: 'KNOWHOW', authority_status: 'UNVERIFIED', summary: '요약문',
@@ -44,7 +45,7 @@ async function setup() {
 test('목록: 권한 내 게시 문서 + 본인 문서만, 타인 미게시·권한 밖 제외', async () => {
   const t = await setup();
   const ids = ((await (await t.get('author', '/v1/library')).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id).sort();
-  assert.deepEqual(ids, ['DRAFT', 'KH', 'REG']);
+  assert.deepEqual(ids, ['DRAFT', 'KH', 'REG', 'REG_NEXT']);
 });
 
 test('카드: 요약·태그·연관(권한 밖 규정 제외)·밑줄 수(대조 통과분만)', async () => {
