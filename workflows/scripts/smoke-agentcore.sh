@@ -55,3 +55,11 @@ echo "lifecycle=$LC document_type=$(aws dynamodb get-item --table-name "$DOCS" -
 [ "$LC" = IN_REVIEW ] || { echo "FAIL lifecycle=$LC"; exit 1; }
 echo "PASS upload -> type-detection -> AgentCore Runtime -> Gateway Tools -> IN_REVIEW"
 echo "doc_id=$DOC workflow_id=$WF"
+
+# 점검 문서가 공유 dev 결재함·보관함에 쌓이지 않게 스스로 폐기 (게시 전이라 KB 에는 없음). KEEP=1 이면 남김
+if [[ "${KEEP:-0}" != 1 ]]; then
+  aws dynamodb update-item --table-name "$DOCS" --key "{\"pk\":{\"S\":\"DOC#$DOC\"},\"sk\":{\"S\":\"META\"}}" \
+    --update-expression 'SET lifecycle = :d, deleted_reason = :r, updated_at = :t' \
+    --expression-attribute-values "{\":d\":{\"S\":\"DELETED\"},\":r\":{\"S\":\"smoke-agentcore 점검 문서 자동 정리\"},\":t\":{\"S\":\"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}}" >/dev/null
+  echo "cleanup: $DOC lifecycle=DELETED"
+fi
