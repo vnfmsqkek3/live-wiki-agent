@@ -32,7 +32,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "2443244"                                  # workflows·auth-triggers·services/ocr
     dhxorb96 = "4af9e27"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "812a58933071d59bad6f7f0f30e948c2780b5114" # PR #9 병합 (하나은행 전환·DOCX·HWPX·OCR 보정)
+    let522mj = "7646838" # PR #10 병합 (검색 판정·Rerank 하한·@hanaeum/pii)
   }
 
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
