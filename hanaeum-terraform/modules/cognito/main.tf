@@ -1,6 +1,10 @@
 # 역할 그룹 5종 (interfaces.md 2장 role) + 데모 계정. 데모 비밀번호는 Secrets Manager 에만 둔다.
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
+variable "lambda_dist" {
+  type    = string
+  default = "../../../services/auth-triggers/dist" # npm run build -w services/auth-triggers
+}
 
 locals {
   roles = ["USER", "AUTHOR", "REG_APPROVER", "SECURITY_REVIEWER", "PLATFORM_OPERATOR"]
@@ -16,6 +20,13 @@ locals {
 resource "aws_cognito_user_pool" "this" {
   name                = "${var.n.prefix}-cognito-users${var.n.suffix}"
   deletion_protection = var.n.suffix == "" ? "ACTIVE" : "INACTIVE"
+  user_pool_tier      = "ESSENTIALS" # Pre Token Generation V2(access token 커스텀 claim) 필요
+  lambda_config {
+    pre_token_generation_config {
+      lambda_arn     = aws_lambda_function.pre_token.arn
+      lambda_version = "V2_0"
+    }
+  }
   username_configuration { case_sensitive = false }
   admin_create_user_config { allow_admin_create_user_only = true }
   password_policy {
@@ -34,6 +45,52 @@ resource "aws_cognito_user_pool" "this" {
       max_length = 64
     }
   }
+}
+
+# ---------- Pre Token Generation V2: access token 에 dept claim ----------
+data "archive_file" "auth" {
+  type        = "zip"
+  source_dir  = abspath("${path.root}/${var.lambda_dist}")
+  output_path = "${path.root}/.build/auth-triggers.zip"
+}
+
+resource "aws_iam_role" "pre_token" {
+  name = "${var.n.prefix}-role-pretoken${var.n.suffix}"
+  assume_role_policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" }, Action = "sts:AssumeRole" }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "pre_token" {
+  role       = aws_iam_role.pre_token.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_cloudwatch_log_group" "pre_token" {
+  name              = "/aws/lambda/${var.n.prefix}-lambda-pretoken${var.n.suffix}"
+  retention_in_days = 30
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_lambda_function" "pre_token" {
+  function_name    = "${var.n.prefix}-lambda-pretoken${var.n.suffix}"
+  role             = aws_iam_role.pre_token.arn
+  runtime          = "nodejs24.x"
+  architectures    = ["arm64"]
+  handler          = "pre-token.handler"
+  filename         = data.archive_file.auth.output_path
+  source_code_hash = data.archive_file.auth.output_base64sha256
+  timeout          = 5
+  depends_on       = [aws_cloudwatch_log_group.pre_token]
+}
+
+resource "aws_lambda_permission" "cognito" {
+  statement_id  = "AllowCognito"
+  action        = "lambda:InvokeFunction"
+  function_name = aws_lambda_function.pre_token.function_name
+  principal     = "cognito-idp.amazonaws.com"
+  source_arn    = aws_cognito_user_pool.this.arn
 }
 
 resource "aws_cognito_user_pool_client" "web" {

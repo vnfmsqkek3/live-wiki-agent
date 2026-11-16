@@ -54,7 +54,7 @@
 | `SFN_INGEST_ARN` | | API |
 | `SQS_INGEST_TRIGGER` | 업로드 이벤트 큐 URL | type-detection Lambda (dhxorb96) |
 | `KMS_KEY_ARN`, `VPC_ID` | | Lambda·리소스 추가 시 |
-| `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | | API·Web |
+| `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | | API·Web. access token claim: `sub`, `cognito:groups`, `dept`(Pre Token V2) |
 | `OCR_ENDPOINT_NAME` | | OCR 단계 |
 
 값은 Terraform output → SSM Parameter Store `/hanaeum-mvp/{env}/{name}` → 각 런타임이 읽음. `.env.example`에 이름만 둔다. 공유 dev는 `env=dev`(리소스 접미사 `-dev`).
