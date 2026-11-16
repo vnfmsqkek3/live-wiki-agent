@@ -298,6 +298,21 @@ export function createApp(deps: Deps) {
     return c.json({ items });
   });
 
+  // 다른 유형의 비슷한 문서 (매뉴얼·규정·노하우 상호 보완). 검색 2회라 상세 본문과 따로 부른다
+  app.get('/v1/library/:id/similar', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const d = vis.find((x) => x.doc_id === c.req.param('id'));
+    if (!d) throw new ApiError('NOT_FOUND', 'document not found');
+    const q = (d.summary ?? d.title).slice(0, 300);
+    // 규정은 결과가 규정 조문으로만 채워지지 않게 노하우·매뉴얼 색인을 따로 찾는다
+    const isReg = (d.document_type ?? d.classification?.document_type) === 'REGULATION';
+    const hits = (await Promise.all([
+      deps.search(q, c.get('actor'), { tags: [] }),
+      ...(isReg ? [deps.search(q, c.get('actor'), { tags: [], index_groups: ['wiki-knowledge', 'official-manuals'] })] : []),
+    ].map((p) => p.catch(() => [])))).flat().reverse() as { doc_id: string; title: string; document_type?: string }[];
+    return c.json({ items: similar(d, hits, vis, card(d, vis).related) });
+  });
+
   app.get('/v1/library/:id', async (c) => {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
@@ -308,17 +323,8 @@ export function createApp(deps: Deps) {
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
-    // 다른 유형의 비슷한 문서 (검색 Tool, ACL·현재 상태 재검증 포함). 실패해도 상세는 보여 준다
-    // 규정은 결과가 규정 조문으로만 채워지지 않게 노하우·매뉴얼 색인을 따로 찾는다
-    const q = (d.summary ?? d.title).slice(0, 300);
-    const isReg = (d.document_type ?? d.classification?.document_type) === 'REGULATION';
-    const hits = (await Promise.all([
-      deps.search(q, c.get('actor'), { tags: [] }),
-      ...(isReg ? [deps.search(q, c.get('actor'), { tags: [], index_groups: ['wiki-knowledge', 'official-manuals'] })] : []),
-    ].map((p) => p.catch(() => [])))).flat().reverse() as { doc_id: string; title: string; document_type?: string }[];
     return c.json({
       ...base,
-      related: [...base.related, ...similar(d, hits, vis, base.related)],
       doc_date: docDate(pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
@@ -335,7 +341,12 @@ export function createApp(deps: Deps) {
     const as_of = c.req.query('as_of');
     if (as_of && !/^\d{4}-\d{2}-\d{2}$/.test(as_of)) throw new ApiError('VALIDATION', 'as_of: YYYY-MM-DD');
     const business = c.req.query('business')?.slice(0, 40) || undefined;
-    return c.json({ items: await deps.search(q, a, { tags, as_of, business }) });
+    // 문서 종류 필터 (규정·노하우·매뉴얼). 태그는 AI가 붙인 자유 문구라 화면 필터로 쓰지 않는다
+    const type = c.req.query('type');
+    if (type && !['REGULATION', 'KNOWHOW', 'MANUAL'].includes(type)) throw new ApiError('VALIDATION', 'type: REGULATION|KNOWHOW|MANUAL');
+    const groups = type === 'REGULATION' ? ['legal-clauses'] : type ? ['wiki-knowledge', 'official-manuals'] : undefined;
+    const items = await deps.search(q, a, { tags, as_of, business, ...(groups ? { index_groups: groups } : {}) }) as { document_type?: string }[];
+    return c.json({ items: type ? items.filter((i) => i.document_type === type) : items });
   });
 
   app.post('/v1/guides', async (c) => {

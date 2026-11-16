@@ -7,7 +7,8 @@ import { api, getSession, MOCK, type LibraryCard, type Session } from './lib/api
 import { accountLabel, isAdmin } from './lib/roles';
 import { FreshnessFlag, Seal } from './seal';
 
-const TAGS = ['체크리스트', '실무사례', '공식규정', '여신'];
+// 자주 찾는 주제: 검색어로 찾는다 (태그 일치 필터는 결과가 비기 쉬움)
+const TOPICS = ['담보 현장 실사', '고액 현금 인출', '개인정보 수집', '외국환 송금'];
 
 export default function Home() {
   const router = useRouter();
@@ -34,7 +35,7 @@ export default function Home() {
   }, []);
   const isAuthor = !!s?.groups.includes('AUTHOR');
   const STATE: Record<string, string> = { QUARANTINED: '분석 중', IN_REVIEW: '내 검토 대기', PENDING_APPROVAL: '승인 대기·게시 중', BLOCKED: '차단·반려', DELETED: '폐기' };
-  const go = (query: string, tag?: string) => router.push(`/search?q=${encodeURIComponent(query)}${tag ? `&tags=${encodeURIComponent(tag)}` : ''}`);
+  const go = (query: string) => router.push(`/search?q=${encodeURIComponent(query)}`);
   return (
     <>
       {MOCK && <p className="mock">서버에 연결되지 않아 하나은행(가상 데이터) 예시를 보여주고 있습니다.</p>}
@@ -74,7 +75,7 @@ export default function Home() {
       )}
 
       <h2 className="section">자주 찾는 주제</h2>
-      <ul className="tags">{TAGS.map((t) => <li key={t}><button onClick={() => go(t, t)}>{t}</button></li>)}</ul>
+      <ul className="tags">{TOPICS.map((t) => <li key={t}><button onClick={() => go(t)}>{t}</button></li>)}</ul>
 
       <h2 className="section">최근 게시된 문서</h2>
       {items.length === 0 ? <p className="note">아직 볼 수 있는 게시 문서가 없습니다.</p> : (

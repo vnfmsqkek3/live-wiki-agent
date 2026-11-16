@@ -84,6 +84,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
     const tag = u.searchParams.get('tags');
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
+  if (/\/v1\/library\/.+\/similar/.test(path)) return { items: [] };
   if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
   if (path.startsWith('/v1/library/')) {
     const d = MOCK_LIBRARY.find((x) => x.doc_id === decodeURIComponent(path.slice('/v1/library/'.length)));

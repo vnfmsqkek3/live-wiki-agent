@@ -15,6 +15,10 @@ export interface PipelineDeps {
   sleep(ms: number): Promise<void>;
   pollMs?: number;
   maxPolls?: number;
+  /** 실행 잠금: 같은 workflow·phase가 이미 돌았거나 도는 중이면 false (업로드 이벤트와 analyze가 둘 다 start를 보낸다).
+   *  Step Functions의 실행 이름 중복 방지를 대신한다. 없으면 잠그지 않는다 */
+  claim?(workflow_id: string, phase: string): Promise<boolean>;
+  release?(workflow_id: string, phase: string, status: 'DONE' | 'FAILED'): Promise<void>;
   /** 그림 분석 단계(13항, yoyo0704 Lambda). Gateway Target 등록 전에는 끈다 (env IMAGE_DESCRIBE=on) */
   imageDescribe?: boolean;
 }

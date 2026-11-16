@@ -45,4 +45,28 @@ export async function record(workflow_id: string, doc_id: string, step: string, 
   }));
 }
 
-export const awsDeps: PipelineDeps = { callTool, record, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), imageDescribe: process.env.IMAGE_DESCRIBE === 'on' };
+const STALE_MS = 30 * 60_000; // 30분 넘게 RUNNING이면 죽은 실행으로 보고 다시 허용
+
+/** WORKFLOWS `WF#{id}` / `LOCK#{phase}` 조건부 쓰기. 없거나 FAILED거나 오래된 RUNNING일 때만 가져간다 (DONE이면 중복 실행) */
+export async function claim(workflow_id: string, phase: string): Promise<boolean> {
+  ddb ??= new DynamoDBClient({ region: region() });
+  try {
+    await ddb.send(new PutItemCommand({
+      TableName: env('TABLE_WORKFLOWS'),
+      Item: { pk: { S: `WF#${workflow_id}` }, sk: { S: `LOCK#${phase}` }, status: { S: 'RUNNING' }, started_at: { S: new Date().toISOString() } },
+      ConditionExpression: 'attribute_not_exists(pk) OR #s = :failed OR (#s = :running AND started_at < :stale)',
+      ExpressionAttributeNames: { '#s': 'status' },
+      ExpressionAttributeValues: { ':failed': { S: 'FAILED' }, ':running': { S: 'RUNNING' }, ':stale': { S: new Date(Date.now() - STALE_MS).toISOString() } },
+    }));
+    return true;
+  } catch (e) {
+    if ((e as Error).name === 'ConditionalCheckFailedException') return false;
+    throw e;
+  }
+}
+export async function release(workflow_id: string, phase: string, status: 'DONE' | 'FAILED') {
+  ddb ??= new DynamoDBClient({ region: region() });
+  await ddb.send(new PutItemCommand({ TableName: env('TABLE_WORKFLOWS'), Item: { pk: { S: `WF#${workflow_id}` }, sk: { S: `LOCK#${phase}` }, status: { S: status }, ended_at: { S: new Date().toISOString() } } }));
+}
+
+export const awsDeps: PipelineDeps = { callTool, record, claim, release, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), imageDescribe: process.env.IMAGE_DESCRIBE === 'on' };

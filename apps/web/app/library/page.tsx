@@ -144,7 +144,13 @@ function Detail({ id }: { id: string }) {
   const [active, setActive] = useState(0);
   useEffect(() => {
     api<LibraryDoc>('GET', `/v1/library/${encodeURIComponent(id)}`)
-      .then(setD)
+      .then((x) => {
+        setD(x);
+        // 다른 유형의 비슷한 문서는 검색이 필요해 따로 불러와 붙인다
+        api<{ items: LibraryDoc['related'] }>('GET', `/v1/library/${encodeURIComponent(id)}/similar`)
+          .then((r) => setD((cur) => (cur ? { ...cur, related: [...cur.related, ...r.items.filter((s) => !cur.related.some((c) => c.doc_id === s.doc_id))] } : cur)))
+          .catch(() => {});
+      })
       .catch((e: ApiError) => setErr(e.status === 404 ? '문서를 찾을 수 없거나 볼 권한이 없습니다.' : e.message));
   }, [id]);
   if (err) return <><p className="error" role="alert">{err}</p><Link href="/library">보관함으로 돌아가기</Link></>;

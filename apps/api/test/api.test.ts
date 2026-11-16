@@ -321,3 +321,14 @@ test('사유 목록: 단계 Finding(쪽·안내) + 게시 실패 문장(사유/�
   assert.equal((await call('author', `/v1/documents/${doc_id}/pages/1/image`)).status, 404);
   assert.equal((await call('author2', `/v1/documents/${doc_id}/pages/2/image`)).status, 404);
 });
+
+test('검색 종류 필터: type이면 해당 색인만 찾고 결과도 그 종류만, 잘못된 type은 422', async () => {
+  const t = setup();
+  let seen: unknown;
+  t.deps.search = async (_q, _a, o) => { seen = o; return [{ doc_id: 'a', document_type: 'MANUAL' }, { doc_id: 'b', document_type: 'KNOWHOW' }]; };
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const r = await app.request('/v1/search?q=x&type=MANUAL', { headers: { authorization: 'Bearer user' } });
+  assert.deepEqual(((await r.json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id), ['a']);
+  assert.deepEqual((seen as { index_groups: string[] }).index_groups, ['wiki-knowledge', 'official-manuals']);
+  assert.equal((await app.request('/v1/search?q=x&type=BAD', { headers: { authorization: 'Bearer user' } })).status, 422); // VALIDATION
+});
