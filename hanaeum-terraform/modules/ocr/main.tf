@@ -166,7 +166,8 @@ resource "aws_sagemaker_model" "ocr" {
 }
 
 resource "aws_sagemaker_endpoint_configuration" "ocr" {
-  name        = "${local.name}-${local.tag}"
+  # 설정이 바뀔 때마다 새 이름 → 엔드포인트가 새 설정으로 갱신됨 (고정 이름이면 교체돼도 엔드포인트는 그대로)
+  name_prefix = "${local.name}-"
   kms_key_arn = var.kms_key_arn
   production_variants {
     variant_name                                      = "AllTraffic"
@@ -174,6 +175,8 @@ resource "aws_sagemaker_endpoint_configuration" "ocr" {
     instance_type                                     = var.instance_type
     initial_instance_count                            = 1
     container_startup_health_check_timeout_in_seconds = 1800 # 첫 기동 시 모델 다운로드
+    # 기본 AMI 드라이버로는 paddle cu126 이 GPU 를 못 잡음 → 드라이버 550 / CUDA 12.4 AMI (트러블슈팅 11/16)
+    inference_ami_version = "al2-ami-sagemaker-inference-gpu-3-1"
   }
   async_inference_config {
     client_config { max_concurrent_invocations_per_instance = 1 }

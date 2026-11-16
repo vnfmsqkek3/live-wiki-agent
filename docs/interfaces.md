@@ -88,6 +88,17 @@
 | PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason}]}` | PDF 페이지 글자 수 < 50 또는 깨진 문자 > 20%만 렌더링(가로 2000px). 이미지는 원본이 대상. DOCX·HWPX는 대상 없음 |
 | OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
 
+### 6.1 AgentCore 파이프라인 (긴급 전환 11/16, SFN 대체 진행 중)
+
+| 항목 | 값 |
+|---|---|
+| Gateway | `hanaeum-mvp-gw-pipeline{-dev}`, inbound `AWS_IAM`(SigV4 service `bedrock-agentcore`), URL은 SSM `PIPELINE_GATEWAY_URL`. 호출 권한(`bedrock-agentcore:InvokeGateway`)은 오케스트레이터 Role 만 |
+| Tool 이름 | `{target}___{단계키}`. target = 단계 키의 `_`를 `-`로 (예: `malware-check___malware_check`). 14개: wait_for_approval 제외 전 단계 |
+| Tool 입력 | 공통 입력 6필드 (`actor`는 `{sub, groups[]}`) + `outcome`(finalize 전용). 출력은 Lambda 응답 JSON 그대로(`content[0].text`) |
+| 오류 | `exception_level=DEBUG`: 단계 예외는 `isError:true` + `{errorType, errorMessage}` |
+| Runtime | `hanaeum_mvp_rt_pipeline{_dev}` (이름에 하이픈 불가). 이미지: SSM `PIPELINE_ECR_REPO`(linux/arm64). Role `hanaeum-mvp-role-rt-pipeline{-dev}`: Gateway 호출, Documents·Workflows RW. Runtime ARN 은 SSM `PIPELINE_RUNTIME_ARN` (생성 전 `pending`) |
+| 시작 | type-detection·승인 API: `InvokeAgentRuntime` (env `PIPELINE_RUNTIME_ARN`가 비어 있으면 SFN 경로) |
+
 - SegmentBuild(let522mj)는 `work/text_layer.json` + `work/ocr/result.json`을 페이지 번호로 병합한다. OCR 결과에 없는 페이지는 텍스트 레이어를 쓴다.
 - 단계 Lambda는 Terraform 변수 `step_functions = { malware_check = "<arn>", … }`로 연결한다. 비어 있으면 dev stub(`{status:"OK"}`). 단계 키: `workflows/src/asl.ts`.
 - `Finding = { finding_id, step, severity: LOW|MEDIUM|HIGH, code, message, evidence_ref }` (원문 PII를 message에 넣지 않음)
@@ -145,4 +156,5 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | 날짜 | 작성자 | 섹션 | 변경 |
 |---|---|---|---|
 | 2026-11-16 | 초기 설정 | 전체 | v0 기본값 |
+| 2026-11-16 | yoyo0704 | 6.1 | AgentCore 파이프라인 Gateway·Tool 이름·Runtime 계약 (긴급 전환) |
 | 2026-11-16 | yoyo0704 | 4·6·8 | TABLE_WORKFLOWS·SQS_INGEST_TRIGGER 추가, DynamoDB 키 규칙, 모델 호출 Role 태그, 단계 PENDING·outcome·task_token, 버전 고정 |
