@@ -16,7 +16,8 @@ module "s3" {
   source      = "../modules/s3"
   n           = local.n
   kms_key_arn = module.kms.key_arn
-  web_origins = var.web_origins
+  # CloudFront 도메인(웹 배포 시) 자동 추가: 브라우저 presigned PUT
+  web_origins = concat(var.web_origins, [for w in module.webapp : w.url])
 }
 
 module "ddb" {
@@ -76,11 +77,25 @@ module "pipeline" {
   enable_transaction_search = var.enable_transaction_search
 }
 
-# 사용자 Agent 대화 메모리 (사용자 결정 11/16). 사용자 Agent Runtime Role 에 agent_policy_arn 을 attach
-module "memory" {
-  source      = "../modules/agentcore_memory"
-  n           = local.n
-  kms_key_arn = module.kms.key_arn
+# 웹·API (ECS Fargate + ALB + CloudFront/WAF). webapp_source_ref 가 있으면 배포
+module "webapp" {
+  source               = "../modules/webapp"
+  count                = var.webapp_source_ref == null ? 0 : 1
+  n                    = local.n
+  kms_key_arn          = module.kms.key_arn
+  vpc_id               = module.network.vpc_id
+  public_subnet_ids    = module.network.subnet_ids["public"]
+  app_subnet_ids       = module.network.subnet_ids["app"]
+  source_ref           = var.webapp_source_ref
+  cognito_user_pool_id = module.cognito.user_pool_id
+  cognito_client_id    = module.cognito.client_id
+  tables               = module.ddb.tables
+  quarantine_bucket    = module.s3.buckets["quarantine"]
+  runtime_arn_patterns = [module.pipeline.runtime_arn_pattern]
+  api_env = {
+    PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
+    AGENT_RUNTIME_ARN    = "" # 공유 가이드 Agent Runtime 생성 후
+  }
 }
 
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
@@ -100,7 +115,6 @@ locals {
       OCR_ENDPOINT_NAME    = module.ocr.endpoint_name
       PIPELINE_GATEWAY_URL = module.pipeline.gateway_url
       PIPELINE_ECR_REPO    = module.pipeline.ecr_repository_url
-      MEMORY_ID            = module.memory.memory_id
       PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : "pending"
       KB_DS_LEGAL_ID       = module.kb.data_source_ids["legal"]
       KB_DS_KNOWLEDGE_ID   = module.kb.data_source_ids["knowledge"]
@@ -117,5 +131,6 @@ resource "aws_ssm_parameter" "p" {
 }
 
 output "ssm_prefix" { value = "/hanaeum-mvp/${var.env}/" }
+output "web_url" { value = try(module.webapp[0].url, null) }
 output "demo_users_secret" { value = module.cognito.demo_users_secret }
 output "network" { value = module.network }

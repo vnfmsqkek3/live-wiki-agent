@@ -53,3 +53,9 @@ variable "enable_transaction_search" {
   type    = bool
   default = false
 }
+
+# 웹·API 이미지로 빌드할 커밋 (dhxorb96 apps/web·apps/api). null 이면 웹·API 미배포
+variable "webapp_source_ref" {
+  type    = string
+  default = null
+}

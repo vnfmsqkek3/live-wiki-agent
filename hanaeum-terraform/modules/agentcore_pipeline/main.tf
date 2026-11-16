@@ -53,7 +53,17 @@ resource "aws_iam_role_policy" "gateway" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = distinct(concat(values(local.steps), [for a in values(local.steps) : "${a}:*"])) },
-      # Policy 평가 (https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-permissions.html)
+    ]
+  })
+}
+
+# Policy 평가 권한 (https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-permissions.html)
+# 단계 Lambda 목록과 분리: Gateway 가 이 정책만 기다리게 해서 순환 참조를 피한다
+resource "aws_iam_role_policy" "gateway_policy_engine" {
+  role = aws_iam_role.gateway.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
       { Effect = "Allow", Action = ["bedrock-agentcore:GetPolicyEngine"], Resource = aws_bedrockagentcore_policy_engine.pipeline.policy_engine_arn },
       {
         Effect   = "Allow", Action = ["bedrock-agentcore:AuthorizeAction", "bedrock-agentcore:PartiallyAuthorizeActions"]
@@ -77,6 +87,8 @@ resource "aws_bedrockagentcore_gateway" "pipeline" {
     arn  = aws_bedrockagentcore_policy_engine.pipeline.policy_engine_arn
     mode = "ENFORCE"
   }
+  # 엔진 연결 시 Gateway Role 의 GetPolicyEngine 권한을 검사한다 → Role 정책 먼저
+  depends_on = [aws_iam_role_policy.gateway_policy_engine]
   # ponytail: AWS 관리 키. Gateway 에는 Tool 설정만 있고 문서 데이터는 없음.
   # CMK 를 쓰려면 KMS 키 정책에 bedrock-agentcore 서비스 권한 추가 필요 (트러블슈팅 11/16)
 }

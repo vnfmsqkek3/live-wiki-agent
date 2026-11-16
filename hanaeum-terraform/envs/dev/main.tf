@@ -37,7 +37,11 @@ module "stack" {
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   pipeline_runtime_image_tag = "d0eeeae"
   enable_transaction_search  = true
+
+  # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
+  webapp_source_ref = "0f30ebf"
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
 output "demo_users_secret" { value = module.stack.demo_users_secret }
+output "web_url" { value = module.stack.web_url }

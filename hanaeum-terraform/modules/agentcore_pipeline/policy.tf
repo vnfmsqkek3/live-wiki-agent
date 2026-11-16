@@ -1,7 +1,7 @@
 # AgentCore Policy (사용자 결정 11/16, 요청기록 let522mj_to_yoyo0704_AgentCore-Policy)
 # 파이프라인 Gateway: 기본 거부(Cedar default deny) + 오케스트레이터 Role 의 단계 Tool 만 허용. ENFORCE.
 # Cedar 문법: https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-understanding-cedar.html
-#   AWS_IAM Gateway 의 principal = AgentCore::IamEntity, principal.id = 호출자 IAM ARN (assumed-role)
+#   AWS_IAM Gateway 의 principal = AgentCore::IamEntity, principal.id = "arn:aws:sts::<acct>:assumed-role/<role>" (세션 이름 없음, 실측 11/16)
 #   action in AgentCore::Action::"<Target 이름>" 으로 Target 의 Tool 전체 허용
 
 resource "aws_bedrockagentcore_policy_engine" "pipeline" {
@@ -22,6 +22,7 @@ resource "aws_bedrockagentcore_policy" "orchestrator_only" {
           action in [${join(", ", [for t in keys(local.steps) : "AgentCore::Action::\"${replace(t, "_", "-")}\""])}],
           resource == AgentCore::Gateway::"${aws_bedrockagentcore_gateway.pipeline.gateway_arn}"
         ) when {
+          principal.id == "arn:aws:sts::${local.acct}:assumed-role/${aws_iam_role.runtime.name}" ||
           principal.id like "arn:aws:sts::${local.acct}:assumed-role/${aws_iam_role.runtime.name}/*"
         };
       CEDAR

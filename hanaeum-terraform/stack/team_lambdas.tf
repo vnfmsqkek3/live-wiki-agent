@@ -66,7 +66,23 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ])
     }
-    trust-gate        = { zip = "dhxorb96-handlers.zip", handler = "handlers.trustGate", env = local.d_env, memory = 256, timeout = 60, model_caller = false, statements = local.d_statements }
+    # 노하우 검증(Sonnet 판정) → 모델 호출 Role (dhxorb96 11/16). quarantine 은 masked/ 만 읽음 (원본 등급은 버킷 정책이 거부)
+    trust-gate = {
+      zip = "dhxorb96-handlers.zip", handler = "handlers.trustGate", memory = 512, timeout = 300, model_caller = true
+      env = merge(local.d_env, {
+        TABLE_REGULATIONS = local.t["regulations"].name, KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"]
+        MODEL_SONNET      = var.models["MODEL_SONNET"], MODEL_HAIKU = var.models["MODEL_HAIKU"]
+      })
+      statements = [
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:BatchGetItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:Query"], Resource = local.t["regulations"].arn },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
+        { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
+        { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ]
+    }
     wait-for-approval = { zip = "dhxorb96-handlers.zip", handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
     finalize          = { zip = "dhxorb96-handlers.zip", handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
 

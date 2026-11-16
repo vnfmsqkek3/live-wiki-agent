@@ -117,7 +117,8 @@ resource "aws_iam_role_policy" "step" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:PutObject", "s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/*" },
+      # CopyObject 는 원본 태그(GuardDuty 스캔 결과)를 같이 복사하므로 PutObjectTagging 필요 (OcrIfNeeded)
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:PutObject", "s3:PutObjectTagging", "s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/*" },
       { Effect = "Allow", Action = ["sagemaker:InvokeEndpointAsync"], Resource = "arn:aws:sagemaker:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:endpoint/${var.ocr_endpoint_name}" },
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = var.table_documents.arn },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
