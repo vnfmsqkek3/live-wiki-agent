@@ -3,6 +3,11 @@
 //   node apps/api/scripts/measure-pii.ts            # 규칙만
 //   GUARDRAIL_ID=... node apps/api/scripts/measure-pii.ts   # 규칙 + Guardrails (설정 시)
 import { detectPii, mask } from '@hanaeum/pii';
+import { applyGuardrail } from '../src/aws.ts';
+
+// PiiScan과 같은 순서: 규칙 마스킹 → (설정 시) Guardrails
+const scan = async (t: string) => { const m = mask(t, detectPii(t)); return (await applyGuardrail(m))?.text ?? m; };
+const mode = process.env.GUARDRAIL_ID ? `규칙 + Guardrails(${process.env.GUARDRAIL_ID}@${process.env.GUARDRAIL_VERSION ?? 'DRAFT'})` : '규칙만';
 
 let seed = 20261116;
 const rnd = (n: number) => { seed = (seed * 1103515245 + 12345) % 2 ** 31; return seed % n; };
@@ -58,7 +63,7 @@ function covered(text: string, value: string, masked: string) {
 
 const byKind = new Map<string, { n: number; hit: number; rule: boolean }>();
 for (const c of cases) {
-  const m = mask(c.text, detectPii(c.text));
+  const m = await scan(c.text);
   for (const p of c.pii) {
     const k = byKind.get(p.kind) ?? { n: 0, hit: 0, rule: p.rule };
     k.n++; if (covered(c.text, p.value, m)) k.hit++;
@@ -67,8 +72,9 @@ for (const c of cases) {
 }
 let fp = 0;
 const fpEx: string[] = [];
-for (const t of NEGATIVES) { const s = detectPii(t); if (s.length) { fp++; fpEx.push(`${t} → ${mask(t, s)}`); } }
+for (const t of NEGATIVES) { const m = await scan(t); if (m !== t) { fp++; fpEx.push(`${t} → ${m}`); } }
 
+console.log(`모드: ${mode}`);
 console.log('| 유형 | 규칙 대상 | 정답 수 | 가린 수 | 재현율 |\n|---|---|---|---|---|');
 let rn = 0, rh = 0;
 for (const [kind, k] of byKind) {
