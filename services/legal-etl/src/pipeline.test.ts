@@ -141,7 +141,9 @@ test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA25
 test("승인 API 형식의 Documents 항목 정규화: classification 유형·문자열 시행일, 유형 없으면 게시 거부", async () => {
   const { normalizeDocument } = await import("./store.ts");
   const base = { doc_id: DOC, version: 1, title: "t", dept: "d", acl_groups: ["ALL"], authority_status: "VERIFIED" };
-  const d = normalizeDocument({ ...base, classification: { document_type: "REGULATION" }, effective_from: "2026-11-01", effective_to: "9999-12-31" });
+  const d = normalizeDocument({ ...base, classification: { document_type: "REGULATION", business_path: ["여신", "심사"], tags: ["승인", " "] }, effective_from: "2026-11-01", effective_to: "9999-12-31" });
+  assert.deepEqual([d.business_path, d.tags], [["여신", "심사"], ["승인"]]);
+  assert.equal(normalizeDocument({ ...base, classification: { document_type: "KNOWHOW", business_path: [], tags: [] } }).business_path, undefined, "빈 분류는 싣지 않음");
   assert.equal(d.document_type, "REGULATION");
   assert.equal(d.effective_from, 20261101);
   assert.equal(d.effective_to, 99991231);
@@ -160,4 +162,23 @@ test("KbIngest clientToken은 Bedrock 제약(영숫자·하이픈, 33~256자)을
 test("AgentCore Gateway Target 호출: __actor·task_token·outcome 등 추가 필드는 무시 (공통 입력 6필드만 사용)", () => {
   const e = { ...input, __actor: { sub: "x", groups: ["PLATFORM_OPERATOR"] }, task_token: "t", outcome: "PUBLISHED", extra: 1 };
   assert.deepEqual(StepInputSchema.parse(e), input);
+});
+
+test("KbIngest: 다른 문서 색인 중(ConflictException)이면 PENDING → 재호출 시 시작", async () => {
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
+  let busy = true; let started = 0;
+  const api: IngestionApi = {
+    start: async () => { if (busy) throw Object.assign(new Error("ongoing ingestion job"), { name: "ConflictException" }); started++; return "JOB1"; },
+    get: async () => ({ status: "COMPLETE", failed: 0, failureReasons: [] }),
+  };
+  const env = { KB_ID: "KB", KB_DS_LEGAL_ID: "L", KB_DS_KNOWLEDGE_ID: "K", BUCKET_ARTIFACT: "art" };
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
+  assert.equal(started, 0);
+  busy = false;
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
+  assert.equal(started, 1);
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "OK");
+  const boom: IngestionApi = { ...api, start: async () => { throw Object.assign(new Error("denied"), { name: "AccessDeniedException" }); } };
+  await assert.rejects(kbIngestStep({ ...input, version: 2 }, boom, r, s, env), /denied/u);
 });

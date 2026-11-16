@@ -13,7 +13,7 @@ const base = { index_group: "legal-clauses" as const, authority_status: "VERIFIE
 const docs: [string, DocumentMetadata][] = [
   ["documents/F-001.txt", { ...base, doc_id: "F-001", title: "한빛은행 기업여신 심사규정", law_name: "한빛은행 기업여신 심사규정", document_type: "REGULATION", law_id: "SYN-LOAN-001", revision_id: "2026-11-01", effective_from: 20261101, effective_to: 20261130, content_hash: H("1") }],
   ["documents/F-002.txt", { ...base, doc_id: "F-002", title: "한빛은행 기업여신 심사규정", law_name: "한빛은행 기업여신 심사규정", document_type: "REGULATION", law_id: "SYN-LOAN-001", revision_id: "2026-12-01", effective_from: 20261201, effective_to: 99991231, content_hash: H("2") }],
-  ["documents/K-001.md", { ...base, doc_id: "K-001", title: "부동산 담보평가 실무 노하우", document_type: "KNOWHOW", index_group: "wiki-knowledge", effective_from: 20261101, effective_to: 99991231, content_hash: H("3") }],
+  ["documents/K-001.md", { ...base, doc_id: "K-001", title: "부동산 담보평가 실무 노하우", document_type: "KNOWHOW", index_group: "wiki-knowledge", effective_from: 20261101, effective_to: 99991231, content_hash: H("3"), business_path: ["여신", "담보"], tags: ["현장실사", "감정평가"] }],
   // 부서 B 전용 문서 (ACL 테스트)
   ["documents/K-004.md", { ...base, doc_id: "K-004", title: "재무제표 검토 시 체크 포인트", document_type: "KNOWHOW", index_group: "wiki-knowledge", acl_groups: ["DEPT#리스크"], effective_from: 20261101, effective_to: 99991231, content_hash: H("4") }],
 ];
@@ -146,4 +146,17 @@ test("rerank 모델 접근 거부면 HYBRID로 대체, 다른 오류는 그대�
   assert.equal(hits[0]?.text, "본문");
   const other = Object.assign(new Error("Throttled"), { name: "ThrottlingException" });
   await assert.rejects(new BedrockRetriever("KB", "cohere.rerank-v3-5:0", fake(other)).retrieve("q"), /Throttled/u);
+});
+
+test("업무 분류·태그 필터: business_path·tags 메타데이터로 거르고 결과에 함께 반환", async () => {
+  const { tools } = setup();
+  const q = { query: "현장 실사 감정평가", as_of: "2026-12-15", top_k: 10 };
+  const all = await tools.search_wiki(q, user);
+  assert.ok(all.items.some((x) => x.doc_id !== "K-001"), "필터 없으면 규정도 나옴");
+  const loan = await tools.search_wiki({ ...q, business: "여신" }, user);
+  assert.ok(loan.items.length > 0 && loan.items.every((x) => x.doc_id === "K-001"));
+  assert.deepEqual(loan.items[0]!.business_path, ["여신", "담보"]);
+  assert.deepEqual(loan.items[0]!.tags, ["현장실사", "감정평가"]);
+  assert.ok((await tools.search_wiki({ ...q, tags: ["없는태그", "감정평가"] }, user)).items.every((x) => x.doc_id === "K-001"));
+  assert.equal((await tools.search_wiki({ ...q, business: "외환" }, user)).items.length, 0);
 });

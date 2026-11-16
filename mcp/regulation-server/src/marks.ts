@@ -1,0 +1,132 @@
+// 문서보관함 페이지 하이라이트 (요청기록 20261116-2220): 검사·검증 결과를 "몇 페이지 몇 번째 글자부터"로 바꾼다.
+// 밑줄마다 이유·근거(조문 원문·시행일)·수정할 사항. 모델 판단은 인용 원문 대조를 통과한 것만 밑줄로 쓴다.
+import type { ClauseStore } from "./store.ts";
+import type { RegistryMatch } from "./registry.ts";
+
+export type MarkKind = "CONFLICT" | "OUTDATED" | "INSUFFICIENT" | "REGISTRY_MISMATCH" | "PII_UNCERTAIN" | "INJECTION";
+export interface Basis { provision_id: string; label: string; text: string; effective_from?: string }
+export interface Mark {
+  page: number | null; start: number | null; end: number | null; // 위치를 못 찾으면 null (문서 단위 표시)
+  severity: "HIGH" | "MEDIUM" | "LOW"; kind: MarkKind; reason: string; basis?: Basis; fix?: string;
+}
+export interface MarkSources {
+  /** dhxorb96 KnowhowValidation (apps/api/src/steps/knowhow.ts) */
+  knowhow?: {
+    items: { statement: string; provision_id: string; relation: string; reason: string; quote: string; label: string; verified_quote: boolean }[];
+    outdated: { cited: string; current: string; label: string }[];
+  };
+  /** 규정 문서: registryMatch 결과 (해시 불일치일 때 claimed.clauses 포함) */
+  registry?: RegistryMatch;
+  /** 단계 Finding. evidence_ref "page:n" 이면 그 페이지 */
+  findings?: { step?: string; severity: string; code: string; message: string; evidence_ref: string }[];
+}
+
+const SKIP = /[\s「」"'“”‘’·ㆍ]/u;
+/** 공백·따옴표를 무시하고 찾은 뒤 원래 글자 위치로 되돌린다. 전체가 없으면 앞 30자로 다시 찾는다 */
+export function locate(pages: string[], needle: string): { page: number; start: number; end: number } | null {
+  const n = [...needle].filter((c) => !SKIP.test(c)).join("");
+  if (n.length < 4) return null;
+  for (const probe of [n, n.slice(0, 30)]) {
+    for (let p = 0; p < pages.length; p++) {
+      const chars = [...pages[p]!];
+      const idx: number[] = []; let norm = ""; let off = 0;
+      for (const c of chars) { if (!SKIP.test(c)) { idx.push(off); norm += c; } off += c.length; }
+      const at = norm.indexOf(probe);
+      if (at < 0) continue;
+      const last = at + [...probe].length - 1;
+      return { page: p, start: idx[at]!, end: idx[last]! + [...norm][last]!.length };
+    }
+  }
+  return null;
+}
+
+/** needle이 anchor(법령 이름) 바로 뒤 40자 안에 나오는 자리가 정확히 한 곳이면 그 위치 */
+function locateNear(pages: string[], needle: string, anchor: string): { page: number; start: number; end: number } | null {
+  if (!anchor) return null;
+  const hits: { page: number; start: number; end: number }[] = [];
+  for (let p = 0; p < pages.length; p++) {
+    const t = pages[p]!;
+    for (let i = t.indexOf(needle); i >= 0; i = t.indexOf(needle, i + 1)) {
+      if (t.slice(Math.max(0, i - 40), i).includes(anchor)) hits.push({ page: p, start: i, end: i + needle.length });
+    }
+  }
+  return hits.length === 1 ? hits[0]! : null;
+}
+
+const iso = (n?: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}` : undefined);
+
+/** 조문 ID → 근거 (원문·표기·시행일). 저장소에 없으면 undefined */
+async function basisOf(store: ClauseStore, pid: string): Promise<Basis | undefined> {
+  const [lawRev] = pid.split("/");
+  const [lawId, revId] = lawRev!.split("@") as [string, string];
+  const rev = (await store.revisions(lawId)).find((r) => r.revision_id === revId);
+  const provs = (await store.provisions(lawId, revId)) ?? [];
+  const p = provs.find((x) => x.provision_id === pid);
+  if (!rev || !p) return undefined;
+  const ef = iso(rev.effective_from);
+  // 조·항 단위면 하위 항·호·목 원문까지 (조 머리 자체는 본문이 비어 있는 경우가 많음)
+  const text = provs.filter((x) => x.provision_id === pid || x.provision_id.startsWith(`${pid}/`))
+    .map((x) => `${x.original_marker}${x.title ? `(${x.title})` : ""} ${x.original_text}`.trim()).join("\n");
+  return { provision_id: pid, label: `${rev.law_name} ${p.path_label}`, text, ...(ef ? { effective_from: ef } : {}) };
+}
+
+const at = (pages: string[], needle: string) => locate(pages, needle) ?? { page: null, start: null, end: null };
+
+export async function buildMarks(pages: string[], src: MarkSources, store: ClauseStore): Promise<Mark[]> {
+  const marks: Mark[] = [];
+  for (const it of src.knowhow?.items ?? []) {
+    if (it.relation !== "CONFLICTS" && it.relation !== "INSUFFICIENT") continue;
+    if (it.relation === "CONFLICTS" && !it.verified_quote) continue; // 인용 원문 대조 실패한 충돌 판단은 밑줄로 확정하지 않음
+    const basis = await basisOf(store, it.provision_id);
+    marks.push({
+      ...at(pages, it.statement), kind: it.relation === "CONFLICTS" ? "CONFLICT" : "INSUFFICIENT",
+      severity: it.relation === "CONFLICTS" ? "HIGH" : "MEDIUM", reason: it.reason,
+      ...(basis ? { basis } : {}),
+      fix: it.relation === "CONFLICTS" ? `근거 조문에 맞게 수정: "${it.quote}"` : "근거 조문을 명시하거나 담당 부서 확인",
+    });
+  }
+  for (const o of src.knowhow?.outdated ?? []) {
+    const basis = await basisOf(store, o.current);
+    const cited = await basisOf(store, o.cited);
+    // 본문에는 "제14조제1항"처럼 조문 표기만 쓰는 경우가 많다. 다른 법령의 같은 조문 표기에 잘못 걸리지 않도록
+    // 그 법령 이름(마지막 단어, 예: 심사규정)이 바로 앞 40자 안에 있고 그런 자리가 한 곳뿐일 때만 위치로 쓴다. 아니면 문서 단위(null)
+    const lawWord = (cited?.label ?? o.label).split(" ").slice(0, -1).pop() ?? "";
+    const where = locate(pages, cited?.text ?? "") ?? locateNear(pages, o.label.split(" ").pop() ?? o.label, lawWord);
+    marks.push({
+      ...(where ?? { page: null, start: null, end: null }), kind: "OUTDATED", severity: "HIGH",
+      reason: `개정 전 조문 인용 (${cited?.effective_from ?? "이전 버전"} 시행분)`,
+      ...(basis ? { basis } : {}), fix: basis ? `현행 ${basis.label}(${basis.effective_from ?? ""} 시행)으로 수정: "${basis.text}"` : "현행 조문으로 수정",
+    });
+  }
+  const reg = src.registry;
+  if (reg?.registry && reg.claimed?.clauses) {
+    const official = reg.registry.clauses; const uploaded = reg.claimed.clauses;
+    const has = (c: Record<string, string>, k: string) => k in c || Object.keys(c).some((x) => x.startsWith(`${k}/`));
+    const marked: string[] = [];
+    const under = (k: string) => marked.some((m) => k.startsWith(`${m}/`));
+    for (const path of Object.keys({ ...official, ...uploaded }).filter((k) => official[k] !== uploaded[k]).sort()) {
+      if (under(path)) continue; // 상위 조를 이미 "내용이 다름"으로 표시함
+      const pid = `${reg.registry.law_id}@${reg.registry.revision_id}/${path}`;
+      const basis = await basisOf(store, pid);
+      const inOfficial = has(official, path);
+      if (uploaded[path] && inOfficial) marked.push(path); // 항 구성이 달라도 조 단위 1건으로
+      marks.push({
+        ...(uploaded[path] ? at(pages, uploaded[path]) : { page: null, start: null, end: null }),
+        kind: "REGISTRY_MISMATCH", severity: "HIGH",
+        reason: uploaded[path] ? (inOfficial ? "공식 원본과 내용이 다름" : "공식 원본에 없는 조문") : "공식 원본의 조문이 빠짐",
+        ...(basis ? { basis } : {}), fix: inOfficial ? `공식 원문으로 수정: "${basis?.text ?? official[path]}"` : "출처 확인 후 삭제 또는 근거 제시",
+      });
+    }
+  }
+  for (const f of src.findings ?? []) {
+    // 인젝션은 단계로 판별 (code는 OVERRIDE_KO·ROLE_HIJACK 등), PII는 확인 필요 코드만 (확정 마스킹 PII_MASKED_* 제외)
+    const kind: MarkKind | undefined = f.step === "INJECTION_SCAN" ? "INJECTION"
+      : f.code.startsWith("PII_UNCERTAIN") || f.code === "PII_GUARDRAIL" ? "PII_UNCERTAIN" : undefined;
+    if (!kind) continue;
+    const m = /^page:(\d+)$/u.exec(f.evidence_ref);
+    marks.push({ page: m ? Number(m[1]) : null, start: null, end: null, kind, severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM", reason: f.message,
+      fix: kind === "PII_UNCERTAIN" ? "개인정보 여부 확인 후 삭제 또는 가림" : "지시문 형태 문구 삭제" });
+  }
+  return marks.sort((a, b) => (a.page ?? 1e9) - (b.page ?? 1e9) || (a.start ?? 0) - (b.start ?? 0));
+}
+

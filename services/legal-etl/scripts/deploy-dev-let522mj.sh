@@ -50,7 +50,7 @@ EOF
 # 3) MCP Tool (게시본·조문만 읽음, 모델 호출 Role → 원본 읽기 거부 태그)
 MCP_ROLE=$(role mcp "$(cat <<EOF
 {"Version":"2012-10-17","Statement":[
- {"Effect":"Allow","Action":["dynamodb:Query"],"Resource":"$DDB/$TR"},
+ {"Effect":"Allow","Action":["dynamodb:Query","dynamodb:GetItem","dynamodb:PutItem"],"Resource":"$DDB/$TR"},
  {"Effect":"Allow","Action":["dynamodb:BatchGetItem"],"Resource":"$DDB/$TD"},
  {"Effect":"Allow","Action":["bedrock:Retrieve"],"Resource":"$KB_ARN"},
  {"Effect":"Allow","Action":["bedrock:Rerank","bedrock:InvokeModel"],"Resource":["arn:aws:bedrock:$R::foundation-model/cohere.rerank-v3-5:0","arn:aws:bedrock:$R::foundation-model/amazon.titan-embed-text-v2:0"]},

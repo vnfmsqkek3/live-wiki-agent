@@ -34,6 +34,18 @@
         "include_history": {
           "type": "boolean",
           "description": "과거·삭제 조문 포함 (기본 false)"
+        },
+        "business": {
+          "type": "string",
+          "description": "업무 분류 필터 (예: 여신, 수신, 외환). Classify business_path 1단계"
+        },
+        "tags": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "maxItems": 8,
+          "description": "태그 필터 (하나라도 일치)"
         }
       },
       "required": [

@@ -75,6 +75,8 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 
 `04` 4.1의 `.metadata.json` 그대로. 필수: `doc_id, title, document_type, index_group, authority_status, freshness, lifecycle, law_id?, law_name?, revision_id?, effective_from(yyyymmdd 숫자), effective_to, acl_groups[], dept, approval_id, content_hash`.
 - REGULATION은 `law_id`·`revision_id` 필수. `content_hash` = 게시 본문(마스킹본)의 `sha256:{hex}`.
+- v0.2 선택: `business_path[]`(최대 3, Classify 업무 경로)·`tags[]`(최대 8). 빈 값이면 키 생략. 청크 메타데이터에 그대로 복사되며 search_wiki `business`·`tags` 필터(`listContains`)와 결과 필드로 쓴다.
+- Regulations 테이블 추가 키(let522mj): `REGHASH#{sha256}`/`REV` → Registry 해시 → 개정본, `WEBLAW#{법령명}`/`LATEST` → Browser 조회 캐시(1일).
 - 청크 메타데이터(Chunker가 추가): `provision_id, provision_path, provision_status, parent_id, source_page, original_text`.
 - `original_text`는 인용용 원문. 임베딩 입력(contentBody)은 문맥 헤더 + 본문인 `augmented_search_text`이며 인용에 쓰지 않는다.
 - 위치: `published/{legal|knowledge}/{doc_id}/content.txt` + `content.txt.metadata.json`.
@@ -185,3 +187,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-16 | dhxorb96 | 8·9 | dhxorb96 행 버전 기입, 신원 전달 M0 실험 결과로 확정 (access token, Gateway interceptor `__actor` 주입) |
 | 2026-11-16 | dhxorb96 | 7.1·9 | 승인 바인딩: 버전 ID 불변 비교 + `content_hash=sha256:{hex}`(검사 원본 바이트, Promote 대조). interceptor `__actor.dept` 주입. 부서 ACL 키 `DEPT#{부서}` |
 | 2026-11-16 | dhxorb96 | 7.1 | Approvals `task_token` 폐기, `used_by`(let522mj Promote) 추가, 재개는 AgentCore resume |
+| 2026-11-16 | let522mj | 5 | v0.2: 메타데이터 `business_path`·`tags`(문서보관함·분류 필터), Regulations `REGHASH#`·`WEBLAW#` 키 |

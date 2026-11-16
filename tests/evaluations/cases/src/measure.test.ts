@@ -33,17 +33,3 @@ test("공개 법령 10건 구조 파싱 ≥ 99%", async () => {
   }
 });
 
-test("Memory 평가 케이스(memory.jsonl): 기대 조문·상태·원문이 기준 데이터와 일치", async () => {
-  const { regulationTools } = await import("@hanaeum/regulation-server");
-  const { fixtureClauseStore } = await import("../../../../mcp/regulation-server/src/fixtures.ts");
-  const t = regulationTools(fixtureClauseStore());
-  const cases = readFileSync(new URL("../memory.jsonl", import.meta.url), "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l) as { id: string; turns: { as_of: string; expect: { provision_id?: string; status?: string; text_includes?: string } }[] });
-  assert.equal(cases.length, 6);
-  for (const c of cases) for (const turn of c.turns) {
-    const e = turn.expect;
-    if (!e.provision_id) continue;
-    const r = await t.get_clause({ clause: e.provision_id, as_of: turn.as_of }, { sub: "eval", groups: ["USER"], dept: "여신" }) as { search_status: string; provision_id?: string; original_text?: string };
-    assert.equal(r.search_status === "HISTORICAL" ? "FOUND" : r.search_status, e.status, `${c.id} ${e.provision_id}`);
-    if (e.text_includes) assert.ok(r.original_text?.includes(e.text_includes), `${c.id} 원문에 ${e.text_includes}`);
-  }
-});

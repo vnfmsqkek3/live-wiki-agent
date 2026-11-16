@@ -8,7 +8,7 @@ import type { Actor } from "@hanaeum/mcp-kit";
 import type { regulationTools } from "@hanaeum/regulation-server";
 
 // ── 필터 ───────────────────────────────────────────────
-export interface FilterOpts { asOf: number; indexGroups?: IndexGroup[]; includeHistory?: boolean; docIds?: string[] }
+export interface FilterOpts { asOf: number; indexGroups?: IndexGroup[]; includeHistory?: boolean; docIds?: string[]; business?: string; tags?: string[] }
 
 export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   const keys = aclKeys(actor);
@@ -29,6 +29,9 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   }
   if (o.indexGroups?.length) conds.push({ in: { key: "index_group", value: o.indexGroups } });
   if (o.docIds?.length) conds.push({ in: { key: "doc_id", value: o.docIds } });
+  // 업무 분류(1단계 일치)·태그(하나라도 일치)
+  if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
+  if (o.tags?.length) conds.push(o.tags.length === 1 ? { listContains: { key: "tags", value: o.tags[0]! } } : { orAll: o.tags.map((t) => ({ listContains: { key: "tags", value: t } })) });
   return { andAll: conds };
 }
 
@@ -100,8 +103,10 @@ export interface Result {
   // 추가 정보
   document_type: string; provision_id: string; path_label: string; provision_status: string;
   conditional: boolean; effective_to: string; score: number;
+  business_path: string[]; tags: string[];
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
+const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
 const isoDate = (ymd: number) => `${String(ymd).slice(0, 4)}-${String(ymd).slice(4, 6)}-${String(ymd).slice(6, 8)}`;
 
 /** 유효기간 판정: DynamoDB 현재 상태가 있으면 그것을, 없으면 KB 메타데이터를 쓴다. 기간 정보 없이 SUPERSEDED면 현행 아님 */
@@ -138,6 +143,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
+      business_path: strs(m["business_path"]), tags: strs(m["tags"]),
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -150,6 +156,12 @@ const groupsArg = (args: Record<string, unknown>): IndexGroup[] | undefined => {
   const allowed = ["legal-clauses", "wiki-knowledge", "official-manuals"];
   if (!Array.isArray(v) || v.some((g) => !allowed.includes(g as string))) throw new ToolError("INVALID_ARGUMENT", "index_groups");
   return v as IndexGroup[];
+};
+/** 업무 분류·태그 필터 인자 (문서보관함·검색 화면) */
+const classArgs = (args: Record<string, unknown>) => {
+  const business = str(args, "business", false);
+  const tags = Array.isArray(args["tags"]) ? (args["tags"] as unknown[]).filter((t): t is string => typeof t === "string" && !!t.trim()).slice(0, 8) : [];
+  return { ...(business ? { business } : {}), ...(tags.length ? { tags } : {}) };
 };
 const topK = (args: Record<string, unknown>) => Math.min(Math.max(Number(args["top_k"] ?? 5) || 5, 1), RERANKED);
 const CLAUSE_IN_QUERY = /(?:「([^」]+)」|([가-힣A-Za-z0-9·\s]+?))\s*((?:부칙\s*)?제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?(?:\s*제\s*\d+\s*호(?:\s*의\s*\d+)?)?(?:\s*[가-하]\s*목)?)/u;
@@ -168,7 +180,7 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
 
   return {
     async search_wiki(args: Record<string, unknown>, actor: Actor) {
-      return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true }, topK(args));
+      return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true, ...classArgs(args) }, topK(args));
     },
 
     async retrieve_evidence(args: Record<string, unknown>, actor: Actor) {
