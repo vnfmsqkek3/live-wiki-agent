@@ -27,7 +27,7 @@ cd $W && git add -A && git commit -m "[let522mj] 기록: …" && git push origin
 ```
 
 그다음 읽기: `공통기록/` 최신 10건 → `요청기록/` 중 `*_to_let522mj.md` OPEN 건 → 이 파일 '남은 작업' → `트러블슈팅.md`.
-마지막 상태 (11/16 18:55): 개인 dev Lambda 7개 배포·실행 확인, yoyo0704에 ARN 연결 요청. 요구사항 대비 상태는 `requirements.md`. 이전 (18:45): 검색 응답을 dhxorb96 Evidence 계약(items)으로 변경, Approvals 키 dhxorb96 확정본 채택, 기록 main 반영. 이전 — ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
+마지막 상태 (11/16 19:35): PR #1 병합본을 브랜치에 merge — root는 yoyo0704 버전(TS 6.0.3·eslint·워크스페이스별 test), 내 9개 워크스페이스에 `test`(node --test)·`typecheck` 스크립트와 tsconfig 추가, lint 4건 수정. 로컬 lint·typecheck·test·build 통과. yoyo0704 회신: 1734 DONE, 동기화 규칙 반영, chunker 연결은 1830과 함께 apply 예정. dev 연결은 내 `-let522mj` Lambda, prod는 내 zip을 공유 이름으로 배포(`build-team-lambdas.sh`). 이전 (18:55): 개인 dev Lambda 7개 배포·실행 확인, yoyo0704에 ARN 연결 요청. 요구사항 대비 상태는 `requirements.md`. 이전 (18:45): 검색 응답을 dhxorb96 Evidence 계약(items)으로 변경, Approvals 키 dhxorb96 확정본 채택, 기록 main 반영. 이전 — ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
 
 기준: `TODO.md`, DoD `docs/02` 4장. AWS 리소스(KB·DynamoDB·Neptune)는 yoyo0704 배포 전이라 **AWS 호출부는 얇은 어댑터 + 인메모리 mock**으로 두고, 로직은 오프라인 테스트로 검증한다.
 
@@ -65,7 +65,7 @@ cd $W && git add -A && git commit -m "[let522mj] 기록: …" && git push origin
 | ~~공개 법령 파서 검증~~ 완료 (11/16): 10건 12,589/12,589 | — | PDF·OCR 입력 검증은 OCR 배포 후 |
 | DOCX·HWPX 텍스트 추출 | 필요 시 (데모는 PDF/텍스트) | 미구현 상태 명시 실패 → 구현 |
 
-## PR #1(yoyo0704 repo 골격) 병합 후 할 일
+## ~~PR #1 병합 후 할 일~~ 완료 (11/16 19:35)
 
 - root `package.json`·`tsconfig.base.json`·`package-lock.json` 충돌 예상 → **yoyo0704 버전 채택** (Owner). 내 root 3파일·`.npmrc`는 버리고 rebase
 - yoyo0704 root는 워크스페이스별 `npm test`/`typecheck` 실행 → 각 워크스페이스 `package.json`에 `"test": "node --test src/**/*.test.ts"`, `"typecheck": "tsc -p ../../tsconfig.json"` 류 스크립트 추가 필요
