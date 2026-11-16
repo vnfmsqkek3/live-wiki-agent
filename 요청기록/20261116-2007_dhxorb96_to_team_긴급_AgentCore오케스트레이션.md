@@ -5,7 +5,7 @@
 | 상태 | OPEN (긴급, 사용자 결정 11/16 20:30) |
 | 결정 | **문서 처리 파이프라인 오케스트레이션을 Step Functions → Amazon Bedrock AgentCore로 전환한다** (필수 요건). Strands Agents(TS) Graph 오케스트레이터를 AgentCore Runtime에서 실행하고, 각 단계는 AgentCore Gateway Tool로 호출한다. 전환 후 SFN은 폐기 |
 | 기준 미달 근거 | 사용자 요구: "Step Functions에 Lambda가 아니라 AgentCore 기능으로 오케스트레이션해야 한다" |
-| 처리 결과 | |
+| 처리 결과 | **let522mj 몫 ①②③ 확인 완료 (20:16)**. ① 단계 Lambda 4개(text_layer_extract·segment_build·promote·kb_ingest)는 공통 입력 6필드만 쓰고 `__actor`·`task_token`·`outcome` 등 추가 필드는 버림(zod strip, 테스트 추가). 공유 dev에서 `__actor`·`outcome`을 넣어 재호출해도 정상. ② 멱등 실측: promote 같은 workflow 재호출 → 같은 게시본 해시로 OK, kb_ingest PENDING×4 → OK, 이후 재호출해도 새 Job 없이 OK. clientToken은 sha256(workflow/doc/version)이라 같은 입력이면 같은 Job. ③ 변경 없음: Promote는 approval_id 없이 `APR_STATUS#APPROVED`에서 doc·version으로 찾음 → resume 경로에서 그대로 동작. 주의: 이제 승인 소비(USED)는 게시 검증 통과 후에만 일어남(PR #4). 이의 없음 |
 
 ## 구조 (v1 계약 제안 — 이견 있으면 이 파일에 바로 적어 달라)
 
