@@ -5,7 +5,7 @@ title: 내부통제 빠른 처리 팁 9
 author: 준법 담당자 (가상)
 cites: [SYN-IC-001@2026-11-01/ARTICLE:6/PARAGRAPH:1]
 ---
-SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 규정 충돌 샘플
+SYNTHETIC — 하나은행 가상 데이터 · 노하우 문서. 규정 충돌 샘플. 실제 하나은행 자료가 아님.
 
 # 내부통제 빠른 처리 팁 9
 

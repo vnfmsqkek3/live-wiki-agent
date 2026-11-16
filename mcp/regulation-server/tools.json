@@ -7,7 +7,7 @@
       "properties": {
         "law": {
           "type": "string",
-          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001). clause가 버전 박힌 조문 ID면 생략 가능"
+          "description": "법령·규정 이름 또는 law_id (예: 하나은행 기업여신 심사규정, SYN-LOAN-001). clause가 버전 박힌 조문 ID면 생략 가능"
         },
         "clause": {
           "type": "string",
@@ -33,7 +33,7 @@
       "properties": {
         "law": {
           "type": "string",
-          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+          "description": "법령·규정 이름 또는 law_id (예: 하나은행 기업여신 심사규정, SYN-LOAN-001)"
         },
         "as_of": {
           "type": "string",
@@ -55,7 +55,7 @@
       "properties": {
         "law": {
           "type": "string",
-          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+          "description": "법령·규정 이름 또는 law_id (예: 하나은행 기업여신 심사규정, SYN-LOAN-001)"
         },
         "revision_id": {
           "type": "string",
@@ -103,7 +103,7 @@
       "properties": {
         "law": {
           "type": "string",
-          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+          "description": "법령·규정 이름 또는 law_id (예: 하나은행 기업여신 심사규정, SYN-LOAN-001)"
         },
         "old_revision": {
           "type": "string",

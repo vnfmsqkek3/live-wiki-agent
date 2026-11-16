@@ -5,7 +5,7 @@ title: 직원 겸직 체크 포인트 12
 author: 인사 담당자 (가상)
 cites: [SYN-HR-001@2026-11-01/ARTICLE:6/PARAGRAPH:1]
 ---
-SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 정상 노하우
+SYNTHETIC — 하나은행 가상 데이터 · 노하우 문서. 정상 노하우. 실제 하나은행 자료가 아님.
 
 # 직원 겸직 체크 포인트 12
 

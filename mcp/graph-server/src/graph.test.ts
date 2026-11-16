@@ -11,7 +11,7 @@ const read = (p: string) => readFileSync(new URL(p, FIX), "utf8");
 const manifest = JSON.parse(read("documents/manifest.json")) as { documents: { document_id: string; expected_impacted?: string[] }[] };
 const frontCites = (p: string) => (read(p).match(/^cites: \[(.*)\]$/mu)![1]!).split(",").map((s) => s.trim()).filter(Boolean);
 const base = { workflow_id: "wf_x", bucket: "q", prefix: "", actor: { sub: "s", groups: ["REG_APPROVER"] }, acl_groups: ["ALL"], content_hash: "sha256:x", authority_status: "VERIFIED" as const };
-const LAW = { law_id: "SYN-LOAN-001", law_name: "한빛은행 기업여신 심사규정" };
+const LAW = { law_id: "SYN-LOAN-001", law_name: "하나은행 기업여신 심사규정" };
 
 /** 3개 버전 규정 + K-001~K-003 노하우를 GraphUpsert 단계로 적재 */
 async function loaded() {

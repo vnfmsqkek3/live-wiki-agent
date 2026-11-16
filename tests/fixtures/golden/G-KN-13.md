@@ -5,7 +5,7 @@ title: 예금 수신 체크 포인트 13
 author: 수신 담당자 (가상)
 cites: [SYN-DEP-001@2026-11-01/ARTICLE:7-2]
 ---
-SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 정상 노하우
+SYNTHETIC — 하나은행 가상 데이터 · 노하우 문서. 정상 노하우. 실제 하나은행 자료가 아님.
 
 # 예금 수신 체크 포인트 13
 

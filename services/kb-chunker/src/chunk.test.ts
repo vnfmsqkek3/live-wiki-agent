@@ -8,7 +8,7 @@ import type { Io } from "./index.ts";
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const read = (p: string) => readFileSync(new URL(p, FIX), "utf8");
 const meta = (o: Partial<DocumentMetadata> = {}): DocumentMetadata => ({
-  doc_id: "F-001", title: "한빛은행 기업여신 심사규정", law_name: "한빛은행 기업여신 심사규정", document_type: "REGULATION", index_group: "legal-clauses",
+  doc_id: "F-001", title: "하나은행 기업여신 심사규정", law_name: "하나은행 기업여신 심사규정", document_type: "REGULATION", index_group: "legal-clauses",
   authority_status: "VERIFIED", freshness: "CURRENT", lifecycle: "PUBLISHED", law_id: "SYN-LOAN-001", revision_id: "2026-11-01",
   effective_from: 20261101, effective_to: 99991231, acl_groups: ["ALL"], dept: "여신", approval_id: "apr_1", content_hash: "sha256:" + "0".repeat(64), ...o,
 });
@@ -22,7 +22,7 @@ test("법령: 항 단위 청크, 항 없는 조는 조 전체, 문맥 헤더에 
   assert.ok(ids.includes("ARTICLE:10/PARAGRAPH:1"));
   assert.ok(!ids.some((i) => i.includes("ITEM")), "짧은 항의 호는 항 청크에 포함");
   const c = chunks.find((x) => x.metadata.provision_id.endsWith("ARTICLE:12/PARAGRAPH:1"))!;
-  assert.equal(c.augmented_search_text.split("\n")[0], "[한빛은행 기업여신 심사규정 · 시행 2026-11-01 · 제2장 심사 절차 · 제12조(승인 기준) · 제12조제1항]");
+  assert.equal(c.augmented_search_text.split("\n")[0], "[하나은행 기업여신 심사규정 · 시행 2026-11-01 · 제2장 심사 절차 · 제12조(승인 기준) · 제12조제1항]");
   assert.equal(c.metadata.parent_id, "SYN-LOAN-001@2026-11-01/ARTICLE:12");
   assert.equal(c.metadata.provision_path, "제12조제1항");
 });

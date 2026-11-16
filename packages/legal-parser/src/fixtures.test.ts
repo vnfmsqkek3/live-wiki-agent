@@ -10,7 +10,7 @@ const manifest = readFixtureJson<{ documents: Doc[] }>("documents/manifest.json"
 const registry = readFixtureJson<{ regulations: { fixture: string; content_hash: string; revision_id: string; key_values: Record<string, string> }[] }>("registry/registry.json");
 const sha = (rel: string) => "sha256:" + createHash("sha256").update(readFileSync(FIXTURE_ROOT + rel)).digest("hex");
 const F = (id: string) => manifest.documents.find((d) => d.document_id === id)!;
-const parseDoc = (id: string) => { const d = F(id); return parseLaw(readFixture(d.file), { law_id: d.law_id!, law_name: "한빛은행 기업여신 심사규정", revision_id: d.revision_id! }); };
+const parseDoc = (id: string) => { const d = F(id); return parseLaw(readFixture(d.file), { law_id: d.law_id!, law_name: "하나은행 기업여신 심사규정", revision_id: d.revision_id! }); };
 
 test("데모 핵심 10건 존재 + 텍스트 문서 전부 SYNTHETIC 표시", () => {
   assert.equal(manifest.documents.length, 10);

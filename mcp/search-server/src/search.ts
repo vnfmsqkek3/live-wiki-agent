@@ -96,7 +96,7 @@ export interface DocStates { get(docIds: string[]): Promise<Map<string, DocState
 export interface Result {
   doc_id: string; title: string;
   snippet: string; // 인용 원문 (문맥 헤더 없음)
-  provision?: string; // 사람이 읽는 조문 표기 "한빛은행 기업여신 심사규정 제12조제1항" (규정만)
+  provision?: string; // 사람이 읽는 조문 표기 "하나은행 기업여신 심사규정 제12조제1항" (규정만)
   effective_from: string; // YYYY-MM-DD
   authority_status: AuthorityStatus; freshness: Freshness;
   search_status: "FOUND" | "HISTORICAL" | "DELETED";

@@ -256,7 +256,7 @@
       "file": "golden/G-REG-01.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-DEP-001",
-      "law_name": "한빛은행 수신업무 처리규정",
+      "law_name": "하나은행 수신업무 처리규정",
       "revision_id": "2026-11-01",
       "dept": "수신",
       "acl_groups": [
@@ -346,7 +346,7 @@
       "file": "golden/G-REG-02.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-FX-001",
-      "law_name": "한빛은행 외국환업무 취급규정",
+      "law_name": "하나은행 외국환업무 취급규정",
       "revision_id": "2026-11-01",
       "dept": "외환",
       "acl_groups": [
@@ -436,7 +436,7 @@
       "file": "golden/G-REG-03.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-CARD-001",
-      "law_name": "한빛은행 신용카드 발급규정",
+      "law_name": "하나은행 신용카드 발급규정",
       "revision_id": "2026-11-01",
       "dept": "카드",
       "acl_groups": [
@@ -526,7 +526,7 @@
       "file": "golden/G-REG-04.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-RISK-001",
-      "law_name": "한빛은행 신용리스크 관리규정",
+      "law_name": "하나은행 신용리스크 관리규정",
       "revision_id": "2026-11-01",
       "dept": "리스크",
       "acl_groups": [
@@ -616,7 +616,7 @@
       "file": "golden/G-REG-05.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-IC-001",
-      "law_name": "한빛은행 내부통제 기준",
+      "law_name": "하나은행 내부통제 기준",
       "revision_id": "2026-11-01",
       "dept": "준법",
       "acl_groups": [
@@ -706,7 +706,7 @@
       "file": "golden/G-REG-06.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-PRIV-001",
-      "law_name": "한빛은행 개인정보 보호규정",
+      "law_name": "하나은행 개인정보 보호규정",
       "revision_id": "2026-11-01",
       "dept": "정보보호",
       "acl_groups": [
@@ -796,7 +796,7 @@
       "file": "golden/G-REG-07.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-ITSEC-001",
-      "law_name": "한빛은행 전산보안 관리규정",
+      "law_name": "하나은행 전산보안 관리규정",
       "revision_id": "2026-11-01",
       "dept": "IT",
       "acl_groups": [
@@ -886,7 +886,7 @@
       "file": "golden/G-REG-08.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-TRUST-001",
-      "law_name": "한빛은행 신탁업무 운용규정",
+      "law_name": "하나은행 신탁업무 운용규정",
       "revision_id": "2026-11-01",
       "dept": "신탁",
       "acl_groups": [
@@ -976,7 +976,7 @@
       "file": "golden/G-REG-09.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-FUND-001",
-      "law_name": "한빛은행 펀드 판매규정",
+      "law_name": "하나은행 펀드 판매규정",
       "revision_id": "2026-11-01",
       "dept": "자산관리",
       "acl_groups": [
@@ -1066,7 +1066,7 @@
       "file": "golden/G-REG-10.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-AML-001",
-      "law_name": "한빛은행 자금세탁방지 업무규정",
+      "law_name": "하나은행 자금세탁방지 업무규정",
       "revision_id": "2026-11-01",
       "dept": "준법",
       "acl_groups": [
@@ -1156,7 +1156,7 @@
       "file": "golden/G-REG-11.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-CS-001",
-      "law_name": "한빛은행 민원 처리규정",
+      "law_name": "하나은행 민원 처리규정",
       "revision_id": "2026-11-01",
       "dept": "소비자보호",
       "acl_groups": [
@@ -1246,7 +1246,7 @@
       "file": "golden/G-REG-12.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-HR-001",
-      "law_name": "한빛은행 직원 겸직 관리규정",
+      "law_name": "하나은행 직원 겸직 관리규정",
       "revision_id": "2026-11-01",
       "dept": "인사",
       "acl_groups": [
@@ -1336,7 +1336,7 @@
       "file": "golden/G-REV-01.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-DEP-001",
-      "law_name": "한빛은행 수신업무 처리규정",
+      "law_name": "하나은행 수신업무 처리규정",
       "revision_id": "2026-12-01",
       "dept": "수신",
       "acl_groups": [
@@ -1451,7 +1451,7 @@
       "file": "golden/G-REV-02.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-FX-001",
-      "law_name": "한빛은행 외국환업무 취급규정",
+      "law_name": "하나은행 외국환업무 취급규정",
       "revision_id": "2026-12-01",
       "dept": "외환",
       "acl_groups": [
@@ -1566,7 +1566,7 @@
       "file": "golden/G-REV-03.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-CARD-001",
-      "law_name": "한빛은행 신용카드 발급규정",
+      "law_name": "하나은행 신용카드 발급규정",
       "revision_id": "2026-12-01",
       "dept": "카드",
       "acl_groups": [
@@ -1681,7 +1681,7 @@
       "file": "golden/G-REV-04.txt",
       "document_type": "REGULATION",
       "law_id": "SYN-RISK-001",
-      "law_name": "한빛은행 신용리스크 관리규정",
+      "law_name": "하나은행 신용리스크 관리규정",
       "revision_id": "2026-12-01",
       "dept": "리스크",
       "acl_groups": [

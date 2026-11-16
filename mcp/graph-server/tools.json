@@ -7,7 +7,7 @@
       "properties": {
         "law": {
           "type": "string",
-          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+          "description": "법령·규정 이름 또는 law_id (예: 하나은행 기업여신 심사규정, SYN-LOAN-001)"
         },
         "old_revision": {
           "type": "string",
