@@ -15,8 +15,17 @@ npm install && npx tsc -p tsconfig.json && npm test   # 55개 통과가 기준
 gh pr list --state all                  # PR #1·#2 병합 여부 확인
 ```
 
+**기록 올리는 규칙 (팀 관행, 11/16 사용자 확인)**: 기록 파일(`요청기록/`, `공통기록/`, `members/let522mj/`, `트러블슈팅.md`)은 **기록 전용 커밋으로 main에 직접 push**한다. 코드·계약 문서(`docs/`)는 `let522mj` 브랜치 → PR. 요청이 브랜치에만 있으면 다른 팀원이 못 본다.
+
+```bash
+W=$(mktemp -d)/main-records; git worktree add --detach $W origin/main
+for f in 요청기록/*let522mj* 공통기록/*let522mj* members/let522mj/*; do mkdir -p "$W/$(dirname "$f")"; cp "$f" "$W/$f"; done
+# 내가 처리 결과를 적은 남의 요청기록, 트러블슈팅.md도 필요하면 복사 (남의 줄을 지우지 않았는지 git diff --cached로 확인)
+cd $W && git add -A && git commit -m "[let522mj] 기록: …" && git push origin HEAD:main && cd - && git worktree remove $W
+```
+
 그다음 읽기: `공통기록/` 최신 10건 → `요청기록/` 중 `*_to_let522mj.md` OPEN 건 → 이 파일 '남은 작업' → `트러블슈팅.md`.
-마지막 상태 (11/16 18:30, 2차): ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
+마지막 상태 (11/16 18:45): 검색 응답을 dhxorb96 Evidence 계약(items)으로 변경, Approvals 키 dhxorb96 확정본 채택, 기록 main 반영. 이전 — ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
 
 기준: `TODO.md`, DoD `docs/02` 4장. AWS 리소스(KB·DynamoDB·Neptune)는 yoyo0704 배포 전이라 **AWS 호출부는 얇은 어댑터 + 인메모리 mock**으로 두고, 로직은 오프라인 테스트로 검증한다.
 
