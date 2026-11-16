@@ -6,13 +6,18 @@ variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "step_arns" { type = map(string) } # 단계 키 → Lambda ARN
 variable "tables" { type = map(object({ name = string, arn = string })) }
-variable "runtime_image" {
+variable "runtime_image_tag" {
   type    = string
-  default = null # ECR 이미지 URI. null 이면 Runtime 은 만들지 않는다
+  default = null # 오케스트레이터 ECR 이미지 태그. null 이면 Runtime 은 만들지 않는다
 }
 variable "runtime_env" {
   type    = map(string)
   default = {}
+}
+# 계정 단위 설정(Transaction Search). 같은 계정의 env 하나에서만 true
+variable "enable_transaction_search" {
+  type    = bool
+  default = false
 }
 
 data "aws_region" "this" {}
@@ -22,8 +27,12 @@ locals {
   region       = data.aws_region.this.region
   acct         = data.aws_caller_identity.me.account_id
   runtime_name = replace("${var.n.prefix}_rt_pipeline${var.n.suffix}", "-", "_")
-  # task token 방식 폐기 → wait_for_approval 은 Tool 로 등록하지 않음
-  steps = { for k, v in var.step_arns : k => v if k != "wait_for_approval" }
+  # task token 방식 폐기: wait_for_approval Lambda 는 await_review Tool 로 등록
+  # (오케스트레이터가 Trust Gate 뒤 문서를 IN_REVIEW 로 두는 단계, dhxorb96 요청 11/16 20:50)
+  steps = merge(
+    { for k, v in var.step_arns : k => v if k != "wait_for_approval" },
+    { await_review = var.step_arns["wait_for_approval"] },
+  )
 }
 
 # ---------- Gateway ----------
@@ -175,12 +184,12 @@ resource "aws_iam_role_policy" "runtime" {
 }
 
 resource "aws_bedrockagentcore_agent_runtime" "pipeline" {
-  count              = var.runtime_image == null ? 0 : 1
+  count              = var.runtime_image_tag == null ? 0 : 1
   agent_runtime_name = local.runtime_name
   description        = "문서 처리 오케스트레이터 (Strands Graph, 단계 순서 고정)"
   role_arn           = aws_iam_role.runtime.arn
   agent_runtime_artifact {
-    container_configuration { container_uri = var.runtime_image }
+    container_configuration { container_uri = "${aws_ecr_repository.orchestrator.repository_url}:${var.runtime_image_tag}" }
   }
   network_configuration { network_mode = "PUBLIC" }
   environment_variables = merge(var.runtime_env, {

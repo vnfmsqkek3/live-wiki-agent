@@ -42,8 +42,14 @@ variable "web_origins" {
   default = ["http://localhost:3000"]
 }
 
-# 문서 처리 오케스트레이터 이미지 (dhxorb96 agents/, linux/arm64). ECR: SSM PIPELINE_ECR_REPO. null 이면 Runtime 미생성
-variable "pipeline_runtime_image" {
+# 문서 처리 오케스트레이터 이미지 태그 (dhxorb96 agents/, linux/arm64, ECR SSM PIPELINE_ECR_REPO). null 이면 Runtime 미생성
+variable "pipeline_runtime_image_tag" {
   type    = string
   default = null
+}
+
+# 계정 단위 X-Ray → CloudWatch Logs (Transaction Search). 계정당 env 하나에서만 true
+variable "enable_transaction_search" {
+  type    = bool
+  default = false
 }

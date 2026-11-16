@@ -73,6 +73,8 @@ resource "aws_iam_role_policy" "build" {
       { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], Resource = "*" },
       { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${var.artifact_bucket.arn}/build/ocr/*" },
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
+      # 베이스 이미지: AWS DLC (SageMaker GPU, 계정 763104351884)
+      { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:us-east-1:763104351884:repository/pytorch-inference" },
       {
         Effect = "Allow", Resource = aws_ecr_repository.ocr.arn
         Action = ["ecr:BatchCheckLayerAvailability", "ecr:InitiateLayerUpload", "ecr:UploadLayerPart", "ecr:CompleteLayerUpload", "ecr:PutImage", "ecr:BatchGetImage", "ecr:DescribeImages"]
@@ -107,7 +109,10 @@ resource "aws_codebuild_project" "ocr" {
     buildspec = yamlencode({
       version = "0.2"
       phases = {
-        pre_build = { commands = ["aws ecr get-login-password | docker login --username AWS --password-stdin $${REPO%%/*}"] }
+        pre_build = { commands = [
+          "aws ecr get-login-password | docker login --username AWS --password-stdin $${REPO%%/*}",
+          "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 763104351884.dkr.ecr.us-east-1.amazonaws.com",
+        ] }
         build = { commands = [
           "if aws ecr describe-images --repository-name $${REPO#*/} --image-ids imageTag=$TAG >/dev/null 2>&1; then echo exists; exit 0; fi",
           "docker build -t $REPO:$TAG .",
@@ -159,8 +164,7 @@ resource "aws_sagemaker_model" "ocr" {
   name               = "${local.name}-${local.tag}"
   execution_role_arn = aws_iam_role.sm.arn
   primary_container {
-    image       = "${aws_ecr_repository.ocr.repository_url}:${local.tag}"
-    environment = { OCR_DEVICE = "gpu" }
+    image = "${aws_ecr_repository.ocr.repository_url}:${local.tag}"
   }
   depends_on = [terraform_data.build, aws_iam_role_policy.sm]
 }

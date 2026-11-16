@@ -66,13 +66,14 @@ module "ocr" {
 
 # 문서 처리 오케스트레이션: AgentCore Gateway(단계 Tool) + Runtime(오케스트레이터). 전환 완료 후 sfn 모듈 폐기
 module "pipeline" {
-  source        = "../modules/agentcore_pipeline"
-  n             = local.n
-  kms_key_arn   = module.kms.key_arn
-  step_arns     = module.sfn.step_arns
-  tables        = module.ddb.tables
-  runtime_image = var.pipeline_runtime_image
-  runtime_env   = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION_NAME = var.region }
+  source                    = "../modules/agentcore_pipeline"
+  n                         = local.n
+  kms_key_arn               = module.kms.key_arn
+  step_arns                 = module.sfn.step_arns
+  tables                    = module.ddb.tables
+  runtime_image_tag         = var.pipeline_runtime_image_tag
+  runtime_env               = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region }
+  enable_transaction_search = var.enable_transaction_search
 }
 
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
