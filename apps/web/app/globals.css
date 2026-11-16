@@ -1,0 +1,174 @@
+/* Living Wiki — 장부 용지 + 먹 + 인주. 빨강(--seal)은 공식 규정 인장에만 쓴다. */
+:root {
+  --paper: #eef1ec;
+  --sheet: #f8f9f6;
+  --ink: #1b2430;
+  --ink-2: #5b6672;
+  --rule: #cfd6cc;
+  --ledger: #3a6ea5;
+  --seal: #b8322a;
+  --ochre: #a86b14;
+  --ochre-bg: #f6ead2;
+  --verified: #2f6b4f;
+  --danger: #a3261d;
+  --serif: var(--font-batang), "Nanum Myeongjo", serif;
+  --sans: var(--font-plex), "Apple SD Gothic Neo", sans-serif;
+  --tab-h: 64px;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #142030; --sheet: #1a2839; --ink: #e6ebe4; --ink-2: #9daab6; --rule: #2d3d50;
+    --ledger: #8db6e3; --seal: #e0675d; --ochre: #e0b15f; --ochre-bg: #3a2f1a; --verified: #86c9a6; --danger: #f08a80;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 400 16px/1.6 var(--sans); }
+main { max-width: 44rem; margin: 0 auto; padding: 20px 16px calc(var(--tab-h) + 32px); }
+a { color: var(--ledger); text-underline-offset: 3px; }
+:focus-visible { outline: 3px solid var(--ledger); outline-offset: 2px; border-radius: 2px; }
+p { margin: 0 0 .75em; }
+
+/* 타입 스케일 (1.25) */
+.title { font: 700 1.75rem/1.25 var(--serif); margin: 4px 0 18px; letter-spacing: -.01em; }
+.section { font: 600 1rem/1.4 var(--sans); margin: 32px 0 10px; color: var(--ink); }
+.doc-title { font: 700 1.2rem/1.35 var(--serif); margin: 0 0 6px; }
+.meta { color: var(--ink-2); font-size: .875rem; }
+.note { font-size: .9rem; color: var(--ink-2); }
+
+/* 입력 — 서식 기입란처럼 밑줄 강조 */
+.field { display: block; width: 100%; padding: 12px 2px 10px; border: 0; border-bottom: 2px solid var(--ink); background: transparent; color: var(--ink); font: inherit; border-radius: 0; }
+.field:focus-visible { outline: none; border-bottom-color: var(--ledger); box-shadow: 0 2px 0 var(--ledger); }
+.field.lg { font: 400 1.35rem/1.4 var(--serif); padding: 14px 2px; }
+select.field { appearance: none; background: linear-gradient(45deg, transparent 50%, var(--ink) 50%) right 8px center / 6px 6px no-repeat, linear-gradient(-45deg, transparent 50%, var(--ink) 50%) right 2px center / 6px 6px no-repeat; }
+label.lbl { display: block; font-size: .875rem; font-weight: 600; margin: 22px 0 2px; }
+
+.btn { min-height: 44px; padding: 0 18px; border: 1.5px solid var(--ink); border-radius: 6px; background: transparent; color: var(--ink); font: 600 .95rem var(--sans); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; text-decoration: none; }
+.btn.solid { background: var(--ink); color: var(--paper); }
+.btn:disabled { opacity: .45; cursor: not-allowed; }
+.actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+
+/* 장부 행: 왼쪽 여백선 + 하단 괘선 */
+.ledger { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.entry { position: relative; padding: 16px 84px 16px 16px; border-bottom: 1px solid var(--rule); border-left: 3px double var(--rule); border-right: 1px solid var(--rule); background: var(--sheet); }
+.entry .seal { position: absolute; top: 14px; right: 12px; }
+.entry dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 12px; margin: 8px 0 0; font-size: .875rem; }
+.entry dt { color: var(--ink-2); }
+.entry dd { margin: 0; }
+.quote { font-family: var(--serif); margin: 6px 0 0; }
+
+/* 인장 */
+.seal { width: 60px; height: 60px; border-radius: 50%; display: grid; place-items: center; text-align: center; font: 700 .8rem/1.15 var(--serif); transform: rotate(-8deg); flex: none; }
+.seal.official { color: var(--seal); border: 2.5px solid var(--seal); box-shadow: inset 0 0 0 3px var(--sheet), inset 0 0 0 4.5px var(--seal); }
+.seal.verified { color: var(--verified); border: 2px solid var(--verified); }
+.seal.unverified { color: var(--ink-2); border: 2px dashed var(--ink-2); transform: none; }
+.flag { display: inline-block; margin-top: 8px; padding: 2px 8px; background: var(--ochre-bg); color: var(--ochre); font-size: .8rem; font-weight: 600; border-left: 3px solid var(--ochre); }
+@media (prefers-reduced-motion: no-preference) {
+  .seal.stamp { animation: stamp .38s cubic-bezier(.2, 1.6, .4, 1) both; }
+  @keyframes stamp { from { transform: rotate(-8deg) scale(1.9); opacity: 0; } to { transform: rotate(-8deg) scale(1); opacity: 1; } }
+}
+
+/* 태그: 칩 대신 문서 색인어 */
+.tags { display: flex; flex-wrap: wrap; gap: 4px 16px; margin: 0; padding: 0; list-style: none; }
+.tags button, .filter button { background: none; border: 0; padding: 8px 0; min-height: 44px; font: 500 .95rem var(--sans); color: var(--ink); cursor: pointer; border-bottom: 2px solid transparent; }
+.tags button:hover { color: var(--ledger); }
+.filter { display: flex; gap: 18px; overflow-x: auto; border-bottom: 1px solid var(--rule); margin: 18px 0 12px; }
+.filter button[aria-pressed=true] { border-bottom-color: var(--ink); font-weight: 700; }
+
+/* 결재란 */
+.approval-box { display: grid; grid-template-columns: repeat(3, minmax(64px, 1fr)); border: 1.5px solid var(--ink); max-width: 260px; margin: 10px 0 0; text-align: center; font-size: .8rem; }
+.approval-box > div { border-right: 1px solid var(--ink); }
+.approval-box > div:last-child { border-right: 0; }
+.approval-box span { display: block; padding: 3px; border-bottom: 1px solid var(--ink); background: var(--paper); }
+.approval-box b { display: grid; place-items: center; height: 46px; font: 700 .8rem var(--serif); }
+.approval-box b.done { color: var(--verified); }
+.approval-box b.wait { color: var(--ink-2); font-weight: 400; }
+
+.sheet { background: var(--sheet); border: 1px solid var(--rule); border-radius: 4px; padding: 18px 16px 20px; }
+.notice { border-left: 3px solid var(--danger); padding: 6px 12px; color: var(--danger); font-size: .9rem; margin: 0 0 18px; }
+.mock { border-left: 3px solid var(--ochre); padding: 6px 12px; color: var(--ochre); font-size: .85rem; margin: 0 0 16px; }
+.error { color: var(--danger); font-size: .9rem; }
+.counts { display: flex; gap: 32px; margin: 4px 0 8px; }
+.counts strong { display: block; font: 700 2rem/1.1 var(--serif); }
+
+/* 탭 */
+.tabs { position: fixed; inset: auto 0 0 0; height: calc(var(--tab-h) + env(safe-area-inset-bottom)); padding-bottom: env(safe-area-inset-bottom); background: var(--sheet); border-top: 1px solid var(--rule); display: grid; grid-template-columns: repeat(5, 1fr); z-index: 10; }
+.tabs a { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; color: var(--ink-2); text-decoration: none; font-size: .78rem; }
+.tabs a[aria-current=page] { color: var(--ink); font-weight: 700; box-shadow: inset 0 3px 0 var(--ink); }
+.tabs svg { width: 22px; height: 22px; }
+.wordmark { display: none; }
+
+@media (min-width: 900px) {
+  .tabs { inset: 0 auto 0 0; width: 104px; height: auto; grid-template-columns: 1fr; grid-auto-rows: 68px; align-content: start; padding-top: 12px; border-top: 0; border-right: 1px solid var(--rule); }
+  .tabs a[aria-current=page] { box-shadow: inset 3px 0 0 var(--ink); }
+  .wordmark { display: block; font: 700 .95rem/1.2 var(--serif); text-align: center; padding: 8px 6px 18px; color: var(--ink); }
+  main { padding: 36px 32px; margin-left: max(136px, calc((100vw - 44rem) / 2)); }
+  .title { font-size: 2.1rem; }
+}
+
+/* 05 진행 단계 (실제 순서이므로 번호 사용) */
+.stages { display: flex; gap: 0; list-style: none; padding: 0; margin: 0 0 20px; counter-reset: st; font-size: .82rem; }
+.stages li { flex: 1; counter-increment: st; padding: 8px 4px 0; border-top: 3px solid var(--rule); color: var(--ink-2); }
+.stages li::before { content: counter(st) ". "; }
+.stages li.done { border-top-color: var(--verified); color: var(--ink); }
+.stages li[aria-current=step] { border-top-color: var(--ink); color: var(--ink); font-weight: 700; }
+mark.pii { background: var(--ochre-bg); color: var(--ochre); padding: 0 2px; border-radius: 2px; font-family: var(--sans); font-size: .9em; }
+
+/* 03 가이드 단계 */
+.steps { list-style: none; counter-reset: g; padding: 0; margin: 8px 0 0; }
+.steps li { counter-increment: g; position: relative; padding: 14px 0 14px 44px; border-bottom: 1px solid var(--rule); }
+.steps li::before { content: counter(g); position: absolute; left: 0; top: 10px; font: 700 1.5rem/1 var(--serif); color: var(--ink-2); }
+
+/* 문서보관함: 고칠 곳은 빨간 형광펜(--danger). 인장 빨강(--seal)과 구분 */
+.card-link { color: inherit; text-decoration: none; }
+.card-link:hover, .card-link:focus-visible { text-decoration: underline; }
+.danger-text { color: var(--danger); font-weight: 600; }
+.doc-title.lg { font-size: 1.5rem; }
+.lead { font: 400 1.05rem/1.75 var(--serif); margin: 12px 0; }
+.meta-grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; font-size: .9rem; margin: 8px 0 0; }
+.meta-grid dt { color: var(--ink-2); }
+.meta-grid dd { margin: 0; }
+.rel { display: block; }
+.pager { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 28px 0 10px; font-size: .9rem; }
+.page { padding: 24px 20px; }
+.page-text { font: 400 1rem/1.95 var(--serif); white-space: pre-wrap; overflow-wrap: anywhere; }
+mark.hl { background: linear-gradient(transparent 62%, color-mix(in srgb, var(--danger) 42%, transparent) 62%); color: inherit; cursor: pointer; padding: 0 1px; }
+mark.hl.on { background: color-mix(in srgb, var(--danger) 18%, transparent); box-shadow: inset 0 -2px 0 var(--danger); }
+mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2px; }
+.fixes { list-style: none; margin: 0; padding: 0; border-top: 1px solid var(--rule); }
+.fix { padding: 12px 0 12px 14px; border-bottom: 1px solid var(--rule); border-left: 3px solid transparent; }
+.fix.on { border-left-color: var(--danger); background: var(--sheet); }
+.fix-head { font-weight: 700; margin-bottom: 4px; }
+.fix-n { display: inline-grid; place-items: center; width: 1.5em; height: 1.5em; margin-right: 8px; border: 1.5px solid var(--danger); border-radius: 50%; color: var(--danger); font-size: .8rem; }
+.basis { margin: 8px 0; padding: 8px 12px; border-left: 3px double var(--rule); background: var(--sheet); }
+.basis cite { display: block; font: 600 .82rem var(--sans); font-style: normal; color: var(--ink-2); margin-bottom: 4px; }
+.basis p { font-family: var(--serif); margin: 0; white-space: pre-line; }
+@media (prefers-reduced-motion: reduce) { html { scroll-behavior: auto; } }
+
+/* 업로드 진행 (한 번에 파일 1개) */
+.bar-wrap { margin: 12px 0; }
+.bar { height: 8px; background: var(--rule); border-radius: 4px; overflow: hidden; margin-top: 4px; }
+.bar > span { display: block; height: 100%; background: var(--ledger); transition: width .4s ease; }
+.bar.danger > span { background: var(--danger); }
+.prog-steps { list-style: none; padding: 0; margin: 8px 0 0; display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 2px 12px; font-size: .85rem; }
+.prog-steps li { color: var(--ink-2); padding-left: 1.2em; position: relative; }
+.prog-steps li::before { content: "○"; position: absolute; left: 0; }
+.prog-steps li.done { color: var(--ink); }
+.prog-steps li.done::before { content: "●"; color: var(--verified); }
+.prog-steps li.running { color: var(--ink); font-weight: 700; }
+.prog-steps li.running::before { content: "◐"; color: var(--ledger); }
+.prog-steps li.skipped { text-decoration: line-through; opacity: .6; }
+.prog-steps li.failed, .prog-steps li.blocked { color: var(--danger); font-weight: 700; }
+.prog-steps li.failed::before, .prog-steps li.blocked::before { content: "×"; }
+@media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }
+
+/* 가이드 진행 문구 (스트리밍) */
+.live-steps { list-style: none; padding: 0; margin: 16px 0; font-size: .92rem; }
+.live-steps li { padding: 3px 0 3px 1.3em; position: relative; color: var(--ink-2); }
+.live-steps li::before { content: "✓"; position: absolute; left: 0; color: var(--verified); }
+.live-steps li.now { color: var(--ink); font-weight: 600; }
+.live-steps li.now::before { content: "◐"; color: var(--ledger); }
+@media (prefers-reduced-motion: no-preference) { .live-steps li.now::before { display: inline-block; animation: spin 1.2s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } }

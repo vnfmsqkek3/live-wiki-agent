@@ -1,0 +1,8 @@
+**/node_modules
+**/.next
+**/dist
+.env*
+.git
+자료
+공통문서
+**/.omc
