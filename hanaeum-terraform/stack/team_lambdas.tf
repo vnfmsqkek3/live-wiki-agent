@@ -1,0 +1,153 @@
+# 다른 Owner 의 Lambda 를 공유 이름으로 배포 (요청기록 11/16 dhxorb96_to_yoyo0704, let522mj_to_yoyo0704_lambda배포).
+# zip 은 scripts/build-team-lambdas.sh 가 .artifacts/ 에 만든다. 코드 출처는 .artifacts/SOURCES.txt.
+# 권한은 각 요청서의 "필요 권한" 그대로. graph 계열은 Neptune(11/20) 이후.
+# 공유 이름으로 배포할 팀 Lambda 키 목록 (local.team 의 키 + "kb-chunker").
+# dev: Owner 개인 Lambda 를 step_functions 로 연결하고 여기엔 type-detection 만 (SQS 권한). prod: 전부.
+variable "team_lambdas" {
+  type    = list(string)
+  default = []
+}
+
+locals {
+  art     = "${path.root}/../../.artifacts"
+  t       = module.ddb.tables
+  b       = module.s3.buckets
+  sfn_arn = "arn:aws:states:${var.region}:${data.aws_caller_identity.me.account_id}:stateMachine:hanaeum-mvp-sfn-ingest${var.name_suffix}"
+  kb_arn  = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
+
+  d_env = {
+    TABLE_DOCUMENTS    = local.t["documents"].name
+    TABLE_APPROVALS    = local.t["approvals"].name
+    TABLE_AUDIT_EVENTS = local.t["audit_events"].name
+    TABLE_FEEDBACK     = local.t["feedback"].name
+    BUCKET_QUARANTINE  = local.b["quarantine"].name
+    SFN_INGEST_ARN     = local.sfn_arn
+  }
+  d_statements = [
+    {
+      Effect   = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"]
+      Resource = [local.t["documents"].arn, local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*", local.t["audit_events"].arn, local.t["feedback"].arn]
+    },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${local.b["quarantine"].arn}/*" },
+  ]
+  q_rw = [
+    { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion", "s3:PutObject", "s3:DeleteObject"], Resource = "${local.b["quarantine"].arn}/*" },
+  ]
+
+  team = {
+    # ---- dhxorb96 (apps/api handlers.mjs) ----
+    type-detection = {
+      zip = "dhxorb96-handlers.zip", handler = "handlers.typeDetection", env = local.d_env, memory = 256, timeout = 60, model_caller = false
+      statements = concat(local.d_statements, [
+        { Effect = "Allow", Action = ["states:StartExecution"], Resource = local.sfn_arn },
+        { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = module.sfn.trigger_queue_arn },
+      ])
+    }
+    file-structure-check = { zip = "dhxorb96-handlers.zip", handler = "handlers.fileStructureCheck", env = local.d_env, memory = 512, timeout = 60, model_caller = false, statements = local.d_statements }
+    trust-gate           = { zip = "dhxorb96-handlers.zip", handler = "handlers.trustGate", env = local.d_env, memory = 256, timeout = 60, model_caller = false, statements = local.d_statements }
+    wait-for-approval    = { zip = "dhxorb96-handlers.zip", handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+    finalize             = { zip = "dhxorb96-handlers.zip", handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+
+    # ---- let522mj (dist/lambda/{name}.zip, index.handler) ----
+    text-layer-extract = { zip = "text_layer_extract.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
+    segment-build      = { zip = "segment_build.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
+    promote = {
+      zip = "promote.zip", handler = "index.handler", memory = 1024, timeout = 300, model_caller = false
+      env = { BUCKET_PUBLISHED = local.b["published"].name, TABLE_DOCUMENTS = local.t["documents"].name, TABLE_APPROVALS = local.t["approvals"].name }
+      statements = concat(local.q_rw, [
+        { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["published"].arn}/*" },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:UpdateItem"], Resource = [local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
+      ])
+    }
+    kb-ingest = {
+      zip = "kb_ingest.zip", handler = "index.handler", memory = 256, timeout = 60, model_caller = false
+      env = {
+        KB_ID           = module.kb.kb_id, KB_DS_LEGAL_ID = module.kb.data_source_ids["legal"], KB_DS_KNOWLEDGE_ID = module.kb.data_source_ids["knowledge"]
+        BUCKET_ARTIFACT = local.b["artifact"].name, TABLE_DOCUMENTS = local.t["documents"].name, TABLE_APPROVALS = local.t["approvals"].name
+      }
+      statements = [
+        { Effect = "Allow", Action = ["bedrock:StartIngestionJob", "bedrock:GetIngestionJob", "bedrock:ListIngestionJobs"], Resource = local.kb_arn },
+        { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${local.b["artifact"].arn}/kb-ingest/*" },
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["artifact"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = [local.t["documents"].arn, local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
+      ]
+    }
+    mcp-regulation = {
+      zip        = "mcp_regulation.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = false
+      env        = { TABLE_REGULATIONS = local.t["regulations"].name }
+      statements = [{ Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn }]
+    }
+    mcp-search = {
+      zip = "mcp_search.zip", handler = "index.handler", memory = 512, timeout = 30, model_caller = true
+      env = { KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], TABLE_DOCUMENTS = local.t["documents"].name, TABLE_REGULATIONS = local.t["regulations"].name }
+      statements = [
+        { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
+        { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:${var.region}::foundation-model/${var.models["MODEL_RERANK"]}" },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:BatchGetItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+      ]
+    }
+  }
+}
+
+data "aws_caller_identity" "me" {}
+
+module "team" {
+  source       = "../modules/fn"
+  for_each     = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
+  n            = local.n
+  name         = each.key
+  zip          = "${local.art}/${each.value.zip}"
+  handler      = each.value.handler
+  env          = each.value.env
+  statements   = each.value.statements
+  memory       = each.value.memory
+  timeout      = each.value.timeout
+  model_caller = each.value.model_caller
+  kms_key_arn  = module.kms.key_arn
+}
+
+# KB Custom Transformation (let522mj services/kb-chunker). KB 가 참조하므로 team 묶음과 분리 (순환 참조 방지)
+module "kb_chunker" {
+  source      = "../modules/fn"
+  count       = contains(var.team_lambdas, "kb-chunker") ? 1 : 0
+  n           = local.n
+  name        = "kb-chunker"
+  zip         = "${local.art}/kb_chunker.zip"
+  handler     = "index.handler"
+  memory      = 1024
+  timeout     = 900
+  kms_key_arn = module.kms.key_arn
+  statements = [
+    { Effect = "Allow", Action = ["s3:ListBucket"], Resource = module.s3.buckets["artifact"].arn },
+    { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${module.s3.buckets["artifact"].arn}/kb-intermediate/*" },
+  ]
+}
+
+# 업로드 트리거 큐 → type-detection (batch 1)
+resource "aws_lambda_event_source_mapping" "upload" {
+  count            = contains(var.team_lambdas, "type-detection") ? 1 : 0
+  event_source_arn = module.sfn.trigger_queue_arn
+  function_name    = module.team["type-detection"].arn
+  batch_size       = 1
+}
+
+locals {
+  # Step Functions 단계 키(workflows/src/asl.ts) → 팀 Lambda 키. graph_upsert 는 Neptune 전까지 stub.
+  step_fn = {
+    file_structure_check = "file-structure-check", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest"
+  }
+  team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
+
+  # 변수에는 함수·Role 이름 또는 ARN 을 받는다 (public 저장소에 계정 ID 를 적지 않기 위해)
+  acct            = data.aws_caller_identity.me.account_id
+  lambda_arn      = { for k, v in var.step_functions : k => startswith(v, "arn:") ? v : "arn:aws:lambda:${var.region}:${local.acct}:function:${v}" }
+  chunker_arn_var = var.kb_chunker_lambda_arn == null ? null : (startswith(var.kb_chunker_lambda_arn, "arn:") ? var.kb_chunker_lambda_arn : "arn:aws:lambda:${var.region}:${local.acct}:function:${var.kb_chunker_lambda_arn}")
+  reader_roles    = [for r in var.kb_reader_role_arns : startswith(r, "arn:") ? r : "arn:aws:iam::${local.acct}:role/${r}"]
+}
+
+output "team_lambdas" { value = { for k, m in module.team : k => m.name } }

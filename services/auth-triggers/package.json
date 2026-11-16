@@ -1,0 +1,10 @@
+{
+  "name": "@hanaeum/auth-triggers",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json && echo {\\\"type\\\":\\\"module\\\"} > dist/package.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  }
+}
