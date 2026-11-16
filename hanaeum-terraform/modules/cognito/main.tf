@@ -1,10 +1,8 @@
 # 역할 그룹 5종 (interfaces.md 2장 role) + 데모 계정. 데모 비밀번호는 Secrets Manager 에만 둔다.
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
-variable "lambda_dist" {
-  type    = string
-  default = "../../../services/auth-triggers/dist" # npm run build -w services/auth-triggers
-}
+# auth-triggers.zip (lambda_build 모듈이 CodeBuild 로 빌드)
+variable "lambda_s3" { type = object({ bucket = string, key = string }) }
 
 locals {
   roles = ["USER", "AUTHOR", "REG_APPROVER", "SECURITY_REVIEWER", "PLATFORM_OPERATOR"]
@@ -48,11 +46,6 @@ resource "aws_cognito_user_pool" "this" {
 }
 
 # ---------- Pre Token Generation V2: access token 에 dept claim ----------
-data "archive_file" "auth" {
-  type        = "zip"
-  source_dir  = abspath("${path.root}/${var.lambda_dist}")
-  output_path = "${path.root}/.build/auth-triggers.zip"
-}
 
 resource "aws_iam_role" "pre_token" {
   name = "${var.n.prefix}-role-pretoken${var.n.suffix}"
@@ -74,15 +67,15 @@ resource "aws_cloudwatch_log_group" "pre_token" {
 }
 
 resource "aws_lambda_function" "pre_token" {
-  function_name    = "${var.n.prefix}-lambda-pretoken${var.n.suffix}"
-  role             = aws_iam_role.pre_token.arn
-  runtime          = "nodejs24.x"
-  architectures    = ["arm64"]
-  handler          = "pre-token.handler"
-  filename         = data.archive_file.auth.output_path
-  source_code_hash = data.archive_file.auth.output_base64sha256
-  timeout          = 5
-  depends_on       = [aws_cloudwatch_log_group.pre_token]
+  function_name = "${var.n.prefix}-lambda-pretoken${var.n.suffix}"
+  role          = aws_iam_role.pre_token.arn
+  runtime       = "nodejs24.x"
+  architectures = ["arm64"]
+  handler       = "pre-token.handler"
+  s3_bucket     = var.lambda_s3.bucket
+  s3_key        = var.lambda_s3.key
+  timeout       = 5
+  depends_on    = [aws_cloudwatch_log_group.pre_token]
 }
 
 resource "aws_lambda_permission" "cognito" {

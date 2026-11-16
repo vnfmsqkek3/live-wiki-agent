@@ -4,15 +4,16 @@
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
-variable "artifact_bucket" { type = object({ name = string, arn = string }) }
 # ml.g5.xlarge 는 us-east-1 InsufficientInstanceCapacity 로 실패 (트러블슈팅 11/16). T4 16GB 로 PP-OCRv5 mobile 충분
 variable "instance_type" {
   type    = string
   default = "ml.g4dn.xlarge"
 }
-variable "src_dir" {
+# 빌드할 커밋 (공개 저장소 services/ocr). 이미지 태그 = 커밋. 로컬 소스 업로드 없이 CodeBuild 가 clone (배포 원칙 11/16)
+variable "source_ref" { type = string }
+variable "repo_url" {
   type    = string
-  default = "../../../services/ocr"
+  default = "https://github.com/vnfmsqkek3/live-wiki-agent.git"
 }
 
 
@@ -42,20 +43,7 @@ resource "aws_ecr_lifecycle_policy" "ocr" {
   }] })
 }
 
-data "archive_file" "src" {
-  type        = "zip"
-  source_dir  = abspath("${path.root}/${var.src_dir}")
-  output_path = "${path.root}/.build/ocr-src.zip"
-  excludes    = ["__pycache__", "test_convert.py"]
-}
-
-locals { tag = substr(data.archive_file.src.output_sha256, 0, 12) }
-
-resource "aws_s3_object" "src" {
-  bucket = var.artifact_bucket.name
-  key    = "build/ocr/${local.tag}.zip"
-  source = data.archive_file.src.output_path
-}
+locals { tag = var.source_ref }
 
 resource "aws_iam_role" "build" {
   name = "${var.n.prefix}-role-cb-ocr${var.n.suffix}"
@@ -71,7 +59,6 @@ resource "aws_iam_role_policy" "build" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents"], Resource = "*" },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${var.artifact_bucket.arn}/build/ocr/*" },
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
       # 베이스 이미지: AWS DLC (SageMaker GPU, 계정 763104351884)
       { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer", "ecr:BatchCheckLayerAvailability"], Resource = "arn:aws:ecr:us-east-1:763104351884:repository/pytorch-inference" },
@@ -102,10 +89,13 @@ resource "aws_codebuild_project" "ocr" {
       name  = "TAG"
       value = local.tag
     }
+    environment_variable {
+      name  = "REPO_URL"
+      value = var.repo_url
+    }
   }
   source {
-    type     = "S3"
-    location = "${var.artifact_bucket.name}/${aws_s3_object.src.key}"
+    type = "NO_SOURCE"
     buildspec = yamlencode({
       version = "0.2"
       phases = {
@@ -115,7 +105,8 @@ resource "aws_codebuild_project" "ocr" {
         ] }
         build = { commands = [
           "if aws ecr describe-images --repository-name $${REPO#*/} --image-ids imageTag=$TAG >/dev/null 2>&1; then echo exists; exit 0; fi",
-          "docker build -t $REPO:$TAG .",
+          "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $TAG",
+          "cd $CODEBUILD_SRC_DIR/src/services/ocr && docker build -t $REPO:$TAG .",
           "docker push $REPO:$TAG",
         ] }
       }

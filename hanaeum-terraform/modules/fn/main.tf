@@ -1,7 +1,7 @@
-# Lambda 1개 + 전용 Role(최소 권한) + 로그 그룹. 다른 Owner 코드(zip)를 공유 이름으로 배포할 때 쓴다.
+# Lambda 1개 + 전용 Role(최소 권한) + 로그 그룹. 다른 Owner 코드(CodeBuild 빌드 zip, S3)를 공유 이름으로 배포할 때 쓴다.
 variable "n" { type = object({ prefix = string, suffix = string }) }
-variable "name" { type = string } # 함수 용도 (예: trust-gate)
-variable "zip" { type = string }
+variable "name" { type = string }                                  # 함수 용도 (예: trust-gate)
+variable "s3" { type = object({ bucket = string, key = string }) } # lambda_build 산출물
 variable "handler" { type = string }
 variable "env" {
   type    = map(string)
@@ -64,8 +64,8 @@ resource "aws_lambda_function" "fn" {
   runtime                        = "nodejs24.x"
   architectures                  = ["arm64"]
   handler                        = var.handler
-  filename                       = var.zip
-  source_code_hash               = filebase64sha256(var.zip)
+  s3_bucket                      = var.s3.bucket
+  s3_key                         = var.s3.key
   memory_size                    = var.memory
   timeout                        = var.timeout
   reserved_concurrent_executions = var.reserved_concurrency

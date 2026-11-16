@@ -14,6 +14,8 @@ module "stack" {
   env         = "prod"
   name_suffix = ""
   owner       = "team"
+  # prod 배포 직전 main 의 검증된 커밋으로 고정
+  lambda_refs = { yoyo0704 = "PENDING", dhxorb96 = "PENDING", let522mj = "PENDING" }
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search",

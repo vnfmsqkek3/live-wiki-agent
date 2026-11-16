@@ -13,6 +13,8 @@ variable "chunker_lambda_arn" {
   default = null
 }
 # KB 를 직접 Retrieve 하는 Role (search MCP Tool Lambda 등). AOSS 데이터 접근 정책에 추가.
+# workflows.zip (ops/aoss-index 핸들러 포함, lambda_build 산출물)
+variable "index_lambda_s3" { type = object({ bucket = string, key = string }) }
 variable "reader_role_arns" {
   type    = list(string)
   default = []
@@ -67,15 +69,49 @@ resource "aws_opensearchserverless_access_policy" "data" {
       { ResourceType = "collection", Resource = ["collection/${local.coll}"], Permission = ["aoss:DescribeCollectionItems", "aoss:CreateCollectionItems", "aoss:UpdateCollectionItems"] },
       { ResourceType = "index", Resource = ["index/${local.coll}/*"], Permission = ["aoss:CreateIndex", "aoss:DeleteIndex", "aoss:DescribeIndex", "aoss:ReadDocument", "aoss:WriteDocument", "aoss:UpdateIndex"] },
     ]
-    Principal = distinct(concat([aws_iam_role.kb.arn, data.aws_iam_session_context.me.issuer_arn], var.reader_role_arns))
+    Principal = distinct(concat([aws_iam_role.kb.arn, aws_iam_role.index.arn, data.aws_iam_session_context.me.issuer_arn], var.reader_role_arns))
   }])
 }
 
-resource "terraform_data" "index" {
-  triggers_replace = [aws_opensearchserverless_collection.kb.id, local.index]
-  provisioner "local-exec" {
-    command = "node ${path.module}/../../scripts/aoss-index.mjs ${aws_opensearchserverless_collection.kb.collection_endpoint} ${local.index} ${path.module}/index-mapping.json"
-  }
+# 인덱스 생성은 AWS 안의 Lambda 로 (배포 원칙 11/16). apply 중 aws_lambda_invocation 이 호출, 이미 있으면 그대로
+resource "aws_iam_role" "index" {
+  name = "${var.n.prefix}-role-aoss-index${var.n.suffix}"
+  assume_role_policy = jsonencode({
+    Version   = "2012-10-17"
+    Statement = [{ Effect = "Allow", Principal = { Service = "lambda.amazonaws.com" }, Action = "sts:AssumeRole" }]
+  })
+}
+
+resource "aws_iam_role_policy_attachment" "index_logs" {
+  role       = aws_iam_role.index.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy" "index" {
+  role   = aws_iam_role.index.id
+  policy = jsonencode({ Version = "2012-10-17", Statement = [{ Effect = "Allow", Action = ["aoss:APIAccessAll"], Resource = aws_opensearchserverless_collection.kb.arn }] })
+}
+
+resource "aws_lambda_function" "index" {
+  function_name = "${var.n.prefix}-lambda-aoss-index${var.n.suffix}"
+  role          = aws_iam_role.index.arn
+  runtime       = "nodejs24.x"
+  architectures = ["arm64"]
+  handler       = "ops/aoss-index.handler"
+  s3_bucket     = var.index_lambda_s3.bucket
+  s3_key        = var.index_lambda_s3.key
+  timeout       = 900
+  depends_on    = [aws_iam_role_policy.index, aws_iam_role_policy_attachment.index_logs]
+}
+
+resource "aws_lambda_invocation" "index" {
+  function_name = aws_lambda_function.index.function_name
+  input = jsonencode({
+    endpoint = aws_opensearchserverless_collection.kb.collection_endpoint
+    index    = local.index
+    mapping  = file("${path.module}/index-mapping.json")
+  })
+  triggers   = { collection = aws_opensearchserverless_collection.kb.id, index = local.index }
   depends_on = [aws_opensearchserverless_access_policy.data]
 }
 
@@ -146,7 +182,7 @@ resource "aws_bedrockagent_knowledge_base" "kb" {
       }
     }
   }
-  depends_on = [terraform_data.index, aws_iam_role_policy.kb]
+  depends_on = [aws_lambda_invocation.index, aws_iam_role_policy.kb]
 }
 
 resource "aws_bedrockagent_data_source" "ds" {

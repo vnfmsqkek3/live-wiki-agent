@@ -27,16 +27,32 @@ module "ddb" {
   deletion_protection = var.env == "prod"
 }
 
+# Lambda 패키지는 CodeBuild 가 구성 요소별 커밋으로 빌드해 S3 에 올린다 (로컬 빌드 금지, 11/16)
+module "lambda_build" {
+  source          = "../modules/lambda_build"
+  n               = local.n
+  kms_key_arn     = module.kms.key_arn
+  artifact_bucket = module.s3.buckets["artifact"]
+  refs            = var.lambda_refs
+}
+
+locals {
+  lb      = module.lambda_build
+  yoyo_s3 = { bucket = local.lb.bucket, prefix = local.lb.prefix["yoyo0704"] }
+}
+
 module "cognito" {
   source      = "../modules/cognito"
   n           = local.n
   kms_key_arn = module.kms.key_arn
+  lambda_s3   = { bucket = local.yoyo_s3.bucket, key = "${local.yoyo_s3.prefix}/auth-triggers.zip" }
 }
 
 module "sfn" {
   source            = "../modules/sfn"
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
+  lambda_s3         = { bucket = local.yoyo_s3.bucket, key = "${local.yoyo_s3.prefix}/workflows.zip" }
   table_workflows   = module.ddb.tables["workflows"]
   table_documents   = module.ddb.tables["documents"]
   ocr_endpoint_name = module.ocr.endpoint_name
@@ -48,6 +64,7 @@ module "kb" {
   source             = "../modules/kb"
   n                  = local.n
   kms_key_arn        = module.kms.key_arn
+  index_lambda_s3    = { bucket = local.yoyo_s3.bucket, key = "${local.yoyo_s3.prefix}/workflows.zip" }
   published_bucket   = module.s3.buckets["published"]
   artifact_bucket    = module.s3.buckets["artifact"]
   embed_model_id     = var.models["MODEL_EMBED"]
@@ -59,10 +76,10 @@ module "kb" {
 
 module "ocr" {
   source            = "../modules/ocr"
+  source_ref        = var.lambda_refs["yoyo0704"] # services/ocr 도 yoyo0704 커밋으로 빌드
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
   quarantine_bucket = module.s3.buckets["quarantine"]
-  artifact_bucket   = module.s3.buckets["artifact"]
 }
 
 # 문서 처리 오케스트레이션: AgentCore Gateway(단계 Tool) + Runtime(오케스트레이터). 전환 완료 후 sfn 모듈 폐기

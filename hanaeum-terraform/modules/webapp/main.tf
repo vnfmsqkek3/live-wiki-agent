@@ -80,7 +80,7 @@ resource "aws_codebuild_project" "app" {
   environment {
     type            = "ARM_CONTAINER" # Fargate ARM64
     compute_type    = "BUILD_GENERAL1_LARGE"
-    image           = "aws/codebuild/amazonlinux-aarch64-standard:3.0"
+    image           = "public.ecr.aws/docker/library/fedora:42" # AL2023 저장소에 podman 없음 → Fedora(ECR Public 미러)
     privileged_mode = true
     environment_variable {
       name  = "REGISTRY"
@@ -102,12 +102,12 @@ resource "aws_codebuild_project" "app" {
       phases = {
         # podman 사용 (사용자 지시 11/16: docker 라이선스 회피). CodeBuild 컨테이너 안이라 vfs 저장소·cgroupfs
         pre_build = { commands = [
-          "dnf install -y -q podman",
+          "dnf install -y -q podman git awscli2",
           "aws ecr get-login-password | podman login --username AWS --password-stdin $REGISTRY",
-          "git clone --quiet $REPO_URL src && cd src && git checkout --quiet $REF",
+          "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $REF",
         ] }
         build = { commands = [
-          "cd src && podman --storage-driver=vfs --cgroup-manager=cgroupfs build --platform linux/arm64 -f apps/$APP/Dockerfile --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
+          "cd $CODEBUILD_SRC_DIR/src && podman --storage-driver=vfs --cgroup-manager=cgroupfs build --platform linux/arm64 -f apps/$APP/Dockerfile --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
           "podman --storage-driver=vfs push $REGISTRY/$ECR_REPO:$REF",
         ] }
       }

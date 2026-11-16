@@ -1,5 +1,5 @@
 # 다른 Owner 의 Lambda 를 공유 이름으로 배포 (요청기록 11/16 dhxorb96_to_yoyo0704, let522mj_to_yoyo0704_lambda배포).
-# zip 은 scripts/build-team-lambdas.sh 가 .artifacts/ 에 만든다. 코드 출처는 .artifacts/SOURCES.txt.
+# zip 은 lambda_build(CodeBuild)가 lambda_refs 커밋으로 빌드해 s3://artifact/lambda/{구성요소}/{ref}/ 에 둔다.
 # 권한은 각 요청서의 "필요 권한" 그대로. graph 계열은 Neptune(11/20) 이후.
 # 공유 이름으로 배포할 팀 Lambda 키 목록 (local.team 의 키 + "kb-chunker").
 # dev: Owner 개인 Lambda 를 step_functions 로 연결하고 여기엔 type-detection 만 (SQS 권한). prod: 전부.
@@ -9,7 +9,9 @@ variable "team_lambdas" {
 }
 
 locals {
-  art    = "${path.root}/../../.artifacts"
+  # 구성 요소별 S3 접두사 (해당 ref 가 없으면 그 구성 요소 Lambda 는 team_lambdas 에 넣지 않는다)
+  dz     = "${try(local.lb.prefix["dhxorb96"], "missing")}/dhxorb96-handlers.zip"
+  lz     = try(local.lb.prefix["let522mj"], "missing")
   t      = module.ddb.tables
   b      = module.s3.buckets
   kb_arn = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
@@ -38,28 +40,28 @@ locals {
   team = {
     # ---- dhxorb96 (apps/api handlers.mjs) ----
     type-detection = {
-      zip = "dhxorb96-handlers.zip", handler = "handlers.typeDetection", env = local.d_env, memory = 256, timeout = 60, model_caller = false
+      zip = local.dz, handler = "handlers.typeDetection", env = local.d_env, memory = 256, timeout = 60, model_caller = false
       statements = concat(local.d_statements, [
         # AgentCore 오케스트레이터 시작 (Step Functions 폐기 11/16)
         { Effect = "Allow", Action = ["bedrock-agentcore:InvokeAgentRuntime"], Resource = [module.pipeline.runtime_arn_pattern, "${module.pipeline.runtime_arn_pattern}/*"] },
         { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = module.sfn.trigger_queue_arn },
       ])
     }
-    file-structure-check = { zip = "dhxorb96-handlers.zip", handler = "handlers.fileStructureCheck", env = local.d_env, memory = 512, timeout = 60, model_caller = false, statements = local.d_statements }
+    file-structure-check = { zip = local.dz, handler = "handlers.fileStructureCheck", env = local.d_env, memory = 512, timeout = 60, model_caller = false, statements = local.d_statements }
     pii-scan = {
-      zip = "dhxorb96-handlers.zip", handler = "handlers.piiScan", env = local.d_env, memory = 512, timeout = 120, model_caller = false
+      zip = local.dz, handler = "handlers.piiScan", env = local.d_env, memory = 512, timeout = 120, model_caller = false
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
       ])
     }
     injection-scan = {
-      zip        = "dhxorb96-handlers.zip", handler = "handlers.injectionScan", env = local.d_env, memory = 256, timeout = 60, model_caller = false
+      zip        = local.dz, handler = "handlers.injectionScan", env = local.d_env, memory = 256, timeout = 60, model_caller = false
       statements = concat(local.d_statements, [{ Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn }])
     }
     # 모델 호출 Role (masked/ 만 읽음, 원본 등급 키는 버킷 정책이 거부)
     classify = {
-      zip = "dhxorb96-handlers.zip", handler = "handlers.classify", memory = 512, timeout = 120, model_caller = true
+      zip = local.dz, handler = "handlers.classify", memory = 512, timeout = 120, model_caller = true
       env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"] })
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
@@ -68,7 +70,7 @@ locals {
     }
     # 노하우 검증(Sonnet 판정) → 모델 호출 Role (dhxorb96 11/16). quarantine 은 masked/ 만 읽음 (원본 등급은 버킷 정책이 거부)
     trust-gate = {
-      zip = "dhxorb96-handlers.zip", handler = "handlers.trustGate", memory = 512, timeout = 300, model_caller = true
+      zip = local.dz, handler = "handlers.trustGate", memory = 512, timeout = 300, model_caller = true
       env = merge(local.d_env, {
         TABLE_REGULATIONS = local.t["regulations"].name, KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"]
         MODEL_SONNET      = var.models["MODEL_SONNET"], MODEL_HAIKU = var.models["MODEL_HAIKU"]
@@ -83,14 +85,14 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ]
     }
-    wait-for-approval = { zip = "dhxorb96-handlers.zip", handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
-    finalize          = { zip = "dhxorb96-handlers.zip", handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+    wait-for-approval = { zip = local.dz, handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+    finalize          = { zip = local.dz, handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
 
     # ---- let522mj (dist/lambda/{name}.zip, index.handler) ----
-    text-layer-extract = { zip = "text_layer_extract.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
-    segment-build      = { zip = "segment_build.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
+    text-layer-extract = { zip = "${local.lz}/text_layer_extract.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
+    segment-build      = { zip = "${local.lz}/segment_build.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
     promote = {
-      zip = "promote.zip", handler = "index.handler", memory = 1024, timeout = 300, model_caller = false
+      zip = "${local.lz}/promote.zip", handler = "index.handler", memory = 1024, timeout = 300, model_caller = false
       env = { BUCKET_PUBLISHED = local.b["published"].name, TABLE_DOCUMENTS = local.t["documents"].name, TABLE_APPROVALS = local.t["approvals"].name }
       statements = concat(local.q_rw, [
         { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["published"].arn}/*" },
@@ -99,7 +101,7 @@ locals {
       ])
     }
     kb-ingest = {
-      zip = "kb_ingest.zip", handler = "index.handler", memory = 256, timeout = 60, model_caller = false
+      zip = "${local.lz}/kb_ingest.zip", handler = "index.handler", memory = 256, timeout = 60, model_caller = false
       env = {
         KB_ID           = module.kb.kb_id, KB_DS_LEGAL_ID = module.kb.data_source_ids["legal"], KB_DS_KNOWLEDGE_ID = module.kb.data_source_ids["knowledge"]
         BUCKET_ARTIFACT = local.b["artifact"].name, TABLE_DOCUMENTS = local.t["documents"].name, TABLE_APPROVALS = local.t["approvals"].name
@@ -113,7 +115,7 @@ locals {
     }
     mcp-regulation = {
       # fetch_official_law: AWS 관리형 Browser 로 law.go.kr 조회 (let522mj PR #6, 요청 2117). 실측 22초 → 90초
-      zip = "mcp_regulation.zip", handler = "index.handler", memory = 512, timeout = 90, model_caller = false
+      zip = "${local.lz}/mcp_regulation.zip", handler = "index.handler", memory = 512, timeout = 90, model_caller = false
       env = { TABLE_REGULATIONS = local.t["regulations"].name }
       statements = [
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
@@ -125,7 +127,7 @@ locals {
       ]
     }
     mcp-search = {
-      zip = "mcp_search.zip", handler = "index.handler", memory = 512, timeout = 30, model_caller = true
+      zip = "${local.lz}/mcp_search.zip", handler = "index.handler", memory = 512, timeout = 30, model_caller = true
       env = { KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], TABLE_DOCUMENTS = local.t["documents"].name, TABLE_REGULATIONS = local.t["regulations"].name }
       statements = [
         { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
@@ -145,7 +147,7 @@ module "team" {
   for_each     = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
   n            = local.n
   name         = each.key
-  zip          = "${local.art}/${each.value.zip}"
+  s3           = { bucket = local.lb.bucket, key = each.value.zip }
   handler      = each.value.handler
   env          = each.value.env
   statements   = each.value.statements
@@ -161,7 +163,7 @@ module "kb_chunker" {
   count       = contains(var.team_lambdas, "kb-chunker") ? 1 : 0
   n           = local.n
   name        = "kb-chunker"
-  zip         = "${local.art}/kb_chunker.zip"
+  s3          = { bucket = local.lb.bucket, key = "${local.lz}/kb_chunker.zip" }
   handler     = "index.handler"
   memory      = 1024
   timeout     = 900

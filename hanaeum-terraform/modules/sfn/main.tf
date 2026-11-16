@@ -8,13 +8,10 @@ variable "table_documents" { type = object({ name = string, arn = string }) }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "step_functions" { type = map(string) }
 variable "ocr_endpoint_name" { type = string }
-variable "lambda_dist" {
-  type    = string
-  default = "../../../workflows/.lambda" # npm run package -w workflows
-}
+# workflows.zip (lambda_build 모듈이 CodeBuild 로 빌드해 S3 에 올림)
+variable "lambda_s3" { type = object({ bucket = string, key = string }) }
 
 locals {
-  name = "${var.n.prefix}-sfn-ingest${var.n.suffix}"
   steps = [
     "malware_check", "file_structure_check", "text_layer_extract", "page_render", "ocr_if_needed",
     "segment_build", "pii_scan", "injection_scan", "classify", "trust_gate", "wait_for_approval",
@@ -38,11 +35,6 @@ data "aws_region" "this" {}
 data "aws_caller_identity" "me" {}
 
 # ---------- Lambda (stub-step) ----------
-data "archive_file" "workflows" {
-  type        = "zip"
-  source_dir  = abspath("${path.root}/${var.lambda_dist}")
-  output_path = "${path.root}/.build/workflows.zip"
-}
 
 data "aws_iam_policy_document" "lambda_assume" {
   statement {
@@ -83,16 +75,16 @@ resource "aws_cloudwatch_log_group" "fn" {
 }
 
 resource "aws_lambda_function" "fn" {
-  for_each         = toset(["stub-step"])
-  function_name    = "${var.n.prefix}-lambda-${each.key}${var.n.suffix}"
-  role             = aws_iam_role.lambda.arn
-  runtime          = "nodejs24.x"
-  architectures    = ["arm64"]
-  handler          = "${each.key}.handler"
-  filename         = data.archive_file.workflows.output_path
-  source_code_hash = data.archive_file.workflows.output_base64sha256
-  timeout          = 30
-  memory_size      = 256
+  for_each      = toset(["stub-step"])
+  function_name = "${var.n.prefix}-lambda-${each.key}${var.n.suffix}"
+  role          = aws_iam_role.lambda.arn
+  runtime       = "nodejs24.x"
+  architectures = ["arm64"]
+  handler       = "${each.key}.handler"
+  s3_bucket     = var.lambda_s3.bucket
+  s3_key        = var.lambda_s3.key
+  timeout       = 30
+  memory_size   = 256
   environment {
     variables = { TABLE_WORKFLOWS = var.table_workflows.name }
   }
@@ -134,16 +126,16 @@ resource "aws_cloudwatch_log_group" "step" {
 }
 
 resource "aws_lambda_function" "step" {
-  for_each         = local.own_steps
-  function_name    = "${var.n.prefix}-lambda-${replace(each.key, "_", "-")}${var.n.suffix}"
-  role             = aws_iam_role.step.arn
-  runtime          = "nodejs24.x"
-  architectures    = ["arm64"]
-  handler          = each.value.handler
-  filename         = data.archive_file.workflows.output_path
-  source_code_hash = data.archive_file.workflows.output_base64sha256
-  timeout          = each.value.timeout
-  memory_size      = each.value.memory
+  for_each      = local.own_steps
+  function_name = "${var.n.prefix}-lambda-${replace(each.key, "_", "-")}${var.n.suffix}"
+  role          = aws_iam_role.step.arn
+  runtime       = "nodejs24.x"
+  architectures = ["arm64"]
+  handler       = each.value.handler
+  s3_bucket     = var.lambda_s3.bucket
+  s3_key        = var.lambda_s3.key
+  timeout       = each.value.timeout
+  memory_size   = each.value.memory
   environment {
     variables = {
       TABLE_DOCUMENTS   = var.table_documents.name

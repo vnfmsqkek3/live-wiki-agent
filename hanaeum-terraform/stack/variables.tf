@@ -59,3 +59,6 @@ variable "webapp_source_ref" {
   type    = string
   default = null
 }
+
+# Lambda 빌드 커밋 (공개 저장소). yoyo0704 는 필수 (workflows·auth-triggers), dhxorb96·let522mj 는 공유 이름 Lambda 를 배포할 때
+variable "lambda_refs" { type = map(string) }

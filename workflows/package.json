@@ -15,6 +15,9 @@
     "@aws-sdk/lib-dynamodb": "3.1169.0"
   },
   "dependencies": {
+    "@aws-sdk/credential-provider-node": "3.972.97",
+    "@smithy/hash-node": "4.5.2",
+    "@smithy/signature-v4": "5.7.5",
     "pdfjs-dist": "6.5.438"
   }
 }
