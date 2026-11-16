@@ -172,3 +172,7 @@ mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2p
 .live-steps li.now { color: var(--ink); font-weight: 600; }
 .live-steps li.now::before { content: "◐"; color: var(--ledger); }
 @media (prefers-reduced-motion: no-preference) { .live-steps li.now::before { display: inline-block; animation: spin 1.2s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } }
+
+/* 로그인 상태 */
+.session-bar { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin: 0 0 8px; font-size: .85rem; color: var(--ink-2); }
+.session-bar button { background: none; border: 0; padding: 8px 0; min-height: 44px; color: var(--ledger); font: inherit; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }

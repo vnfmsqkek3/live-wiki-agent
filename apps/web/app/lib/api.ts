@@ -16,6 +16,12 @@ const KEY = 'hanaeum.session';
 export function getSession(): Session | undefined {
   try { const s = sessionStorage.getItem(KEY); return s ? (JSON.parse(s) as Session) : undefined; } catch { return undefined; }
 }
+/** 토큰 만료·무효: 세션을 지우고 로그인 화면으로 (돌아올 주소 포함) */
+function expired() {
+  logout();
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login')
+    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+}
 export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 시 무시 */ } }
 
 export async function login(username: string, password: string): Promise<Session> {
@@ -53,6 +59,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
+  if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
   return j as T;
 }
@@ -227,6 +234,7 @@ export async function streamGuide(question: string, onProgress: (text: string) =
     headers: { 'content-type': 'application/json', accept: 'text/event-stream', ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
     body: JSON.stringify({ question }),
   });
+  if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
   if (!r.headers.get('content-type')?.includes('text/event-stream') || !r.body) return (await r.json()) as Guide;
   const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
