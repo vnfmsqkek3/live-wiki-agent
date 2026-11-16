@@ -151,3 +151,6 @@ export async function workflowSteps(workflow_id: string) {
   return (r.Items ?? []).filter((i) => i.sk?.S?.startsWith('STEP#'))
     .map((i) => ({ step: i.sk!.S!.slice(5), status: i.status?.S ?? '', ended_at: i.ended_at?.S ?? '', error: i.error?.S }));
 }
+export async function putBytes(key: string, body: Uint8Array, contentType: string) {
+  await s3().send(new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, Body: body, ContentType: contentType }));
+}

@@ -160,6 +160,7 @@ mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2p
 .prog-steps li.done::before { content: "●"; color: var(--verified); }
 .prog-steps li.running { color: var(--ink); font-weight: 700; }
 .prog-steps li.running::before { content: "◐"; color: var(--ledger); }
+.prog-steps li.skipped { text-decoration: line-through; opacity: .6; }
 .prog-steps li.failed, .prog-steps li.blocked { color: var(--danger); font-weight: 700; }
 .prog-steps li.failed::before, .prog-steps li.blocked::before { content: "×"; }
 @media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }

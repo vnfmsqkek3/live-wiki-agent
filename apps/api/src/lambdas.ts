@@ -9,6 +9,7 @@ import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
+import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
@@ -34,6 +35,9 @@ export interface SegmentDeps {
   guardrail?: GuardrailCheck;
   classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
+  /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
+  getBytes?(key: string): Promise<Uint8Array>;
+  putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
 type Seg = { page_index: number; text: string };
 const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
@@ -54,9 +58,35 @@ export function makePiiScan(deps: SegmentDeps) {
     const r = await piiScan(segs, deps.guardrail);
     for (const m of r.masked)
       await deps.putJson(`${i.doc_id}/masked/segments/${String(m.page).padStart(4, '0')}.json`, { doc_id: i.doc_id, page_index: m.page, text: m.text });
-    await deps.store.putDoc(addFindings(d, r.findings));
-    return { status: r.status, output_key: `${i.doc_id}/masked/segments/`, findings: r.findings };
+    const img = await maskPageImages(deps, i.doc_id);
+    const findings = [...(r.findings ?? []), ...img];
+    await deps.store.putDoc(addFindings(d, findings));
+    const status = r.status === 'OK' && img.length ? 'REVIEW_REQUIRED' : r.status;
+    return { status, output_key: `${i.doc_id}/masked/segments/`, findings };
   };
+}
+
+/** 그림이 있는 페이지: OCR 블록 중 개인정보 bbox를 검게 칠한 masked/pages/{nnnn}.png (ImageDescribe의 유일한 입력).
+ *  얼굴·서명 같은 이미지 개인정보는 글자로 판정할 수 없어 페이지 단위 PII_IMAGE_REVIEW(사람 확인). OCR이 없는 페이지는 이미지를 만들지 않는다 */
+async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Finding[]> {
+  if (!deps.getBytes || !deps.putBytes) return [];
+  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
+  const pages = (targets?.pages ?? []).filter((p) => p.has_images || p.reason === 'image');
+  if (!pages.length) return [];
+  const ocr = await deps.getJson<{ pages: OcrPage[] }>(`${doc_id}/work/ocr/result.json`).catch(() => undefined);
+  const out: Finding[] = [];
+  for (const p of pages) {
+    const n = String(p.page_index).padStart(4, '0');
+    const o = ocr?.pages.find((x) => x.page_index === p.page_index);
+    if (!o) {
+      out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
+      continue;
+    }
+    const boxes = piiBoxes(o);
+    await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o), 'image/png');
+    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
+  }
+  return out;
 }
 
 /** 단계 7 InjectionScan: masked 텍스트만 */

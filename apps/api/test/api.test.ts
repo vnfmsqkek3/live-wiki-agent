@@ -243,3 +243,12 @@ test('가이드 스트리밍: Accept text/event-stream이면 Runtime SSE를 그�
   const j = await t.call('user', 'POST', '/v1/guides', { question: '담보 승인' });
   assert.equal(j.headers.get('content-type')?.startsWith('application/json'), true);
 });
+
+test('업로드 진행: 건너뛴 단계(그림 분석 꺼짐)는 진행 중으로 남지 않음', async () => {
+  const { progress } = await import('../src/progress.ts');
+  const p = progress('QUARANTINED', ['MalwareCheck', 'FileStructureCheck', 'TextLayerExtract', 'PageRender', 'OcrIfNeeded', 'SegmentBuild', 'PiiScan', 'InjectionScan'].map((step) => ({ step, status: 'OK' })));
+  assert.equal(p.steps.find((s) => s.key === 'ImageDescribe')?.state, 'skipped');
+  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'Classify');
+  assert.equal(p.total, 11);
+  assert.equal(progress('IN_REVIEW', []).done, progress('IN_REVIEW', []).total);
+});

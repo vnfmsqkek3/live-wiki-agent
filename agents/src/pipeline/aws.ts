@@ -44,4 +44,4 @@ export async function record(workflow_id: string, doc_id: string, step: string, 
   }));
 }
 
-export const awsDeps: PipelineDeps = { callTool, record, sleep: (ms) => new Promise((r) => setTimeout(r, ms)) };
+export const awsDeps: PipelineDeps = { callTool, record, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), imageDescribe: process.env.IMAGE_DESCRIBE === 'on' };

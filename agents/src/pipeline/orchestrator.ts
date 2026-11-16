@@ -14,12 +14,14 @@ export interface PipelineDeps {
   sleep(ms: number): Promise<void>;
   pollMs?: number;
   maxPolls?: number;
+  /** 그림 분석 단계(13항, yoyo0704 Lambda). Gateway Target 등록 전에는 끈다 (env IMAGE_DESCRIBE=on) */
+  imageDescribe?: boolean;
 }
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
 export const STEP_NAMES: Record<string, string> = {
   malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
-  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', injection_scan: 'InjectionScan', classify: 'Classify',
+  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', classify: 'Classify',
   trust_gate: 'TrustGate', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize',
 };
 
@@ -69,13 +71,14 @@ export function ingestGraph(deps: PipelineDeps, input: StepInput) {
   return new Graph({
     nodes: [
       n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),
-      n('pii_scan'), n('injection_scan'), n('classify'), n('trust_gate'), tail,
+      n('pii_scan'), ...(deps.imageDescribe ? [n('image_describe')] : []), n('injection_scan'), n('classify'), n('trust_gate'), tail,
     ],
     edges: [
       ['malware_check', 'file_structure_check'],
       ['file_structure_check', 'text_layer_extract'], ['file_structure_check', 'page_render'], // 병렬
       ['text_layer_extract', 'ocr_if_needed'], ['page_render', 'ocr_if_needed'], // 합류 (둘 다 끝나야 실행)
-      ...chain(['ocr_if_needed', 'segment_build', 'pii_scan', 'injection_scan', 'classify', 'trust_gate', 'review_or_block']),
+      // 그림 묘사 텍스트도 지시문 검사를 받도록 InjectionScan 앞 (yoyo0704 합의)
+      ...chain(['ocr_if_needed', 'segment_build', 'pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', 'classify', 'trust_gate', 'review_or_block']),
     ],
     sources: ['malware_check'],
     maxSteps: 30,
