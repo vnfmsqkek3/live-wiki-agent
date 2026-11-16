@@ -95,16 +95,37 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   assert.ok(!(await s.list(P, "")).some((k) => k.includes("original") || k.includes("work")), "원문·중간 산출물 게시 금지");
 });
 
-test("12: COMPLETE + 실패 0건일 때만 성공", async () => {
-  const env = { KB_ID: "kb", KB_DS_LEGAL_ID: "ds-legal", KB_DS_KNOWLEDGE_ID: "ds-know" };
+test("12: 폴링 계약 — 첫 호출 시작·PENDING, 재호출 상태 조회, COMPLETE + 실패 0건만 OK", async () => {
+  const env = { KB_ID: "kb", KB_DS_LEGAL_ID: "ds-legal", KB_DS_KNOWLEDGE_ID: "ds-know", BUCKET_ARTIFACT: "art" };
+  const s = new MemoryObjectStore();
+  const r = new MemoryRecords();
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
+  let starts = 0;
   let state = { status: "IN_PROGRESS", failed: 0, failureReasons: [] as string[] };
-  const api: IngestionApi = { start: async () => "job-1", get: async () => state };
-  const started = await kbIngestStep({ ...input, action: "start", document_type: "KNOWHOW" }, api, env);
-  assert.deepEqual(started.ingestion, { job_id: "job-1", data_source_id: "ds-know", state: "STARTED" });
-  const chk = { ...input, action: "check" as const, document_type: "KNOWHOW" as const, ingestion: started.ingestion };
-  assert.equal((await kbIngestStep(chk, api, env)).ingestion.state, "IN_PROGRESS");
+  const api: IngestionApi = { start: async (_k, ds) => { starts++; assert.equal(ds, "ds-know"); return "job-1"; }, get: async () => state };
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
+  assert.equal(starts, 1, "재호출 시 Job을 다시 시작하지 않음 (멱등)");
   state = { status: "COMPLETE", failed: 1, failureReasons: [] };
-  await assert.rejects(kbIngestStep(chk, api, env), /실패 문서 1건/u);
+  await assert.rejects(kbIngestStep(input, api, r, s, env), /실패 문서 1건/u);
   state = { status: "COMPLETE", failed: 0, failureReasons: [] };
-  assert.equal((await kbIngestStep(chk, api, env)).ingestion.state, "COMPLETE");
+  assert.equal((await kbIngestStep(input, api, r, s, env)).status, "OK");
+  state = { status: "FAILED", failed: 0, failureReasons: ["x"] };
+  await assert.rejects(kbIngestStep(input, api, r, s, env), /FAILED/u);
+});
+
+test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA256(base64) 형식 해시도 일치 판정", async () => {
+  const { createHash } = await import("node:crypto");
+  const s = new MemoryObjectStore();
+  const r = new MemoryRecords();
+  const original = Buffer.from("SYNTHETIC 노하우 본문");
+  await s.put(Q, `${DOC}/original.md`, original);
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 1 }));
+  await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: "SYNTHETIC 노하우 본문" }));
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
+  r.approvals.set("apr_9", { approval_id: "apr_9", doc_id: DOC, version: 1, content_hash: createHash("sha256").update(original).digest("base64"), status: "APPROVED" });
+  const out = await promoteStep({ ...input, published_bucket: P }, s, r);
+  assert.equal(out.status, "OK");
+  assert.equal(r.approvals.get("apr_9")!.status, "USED");
+  assert.equal(r.documents.get(DOC)!.published_content_hash, out.content_hash);
 });

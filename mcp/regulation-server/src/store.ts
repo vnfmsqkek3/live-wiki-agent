@@ -1,7 +1,9 @@
 // 조문 구조화 저장소 (Structured Store, docs/01 7.1·8.4: 원본 구조·버전의 기준. KB는 파생 인덱스)
 // DynamoDB 키 제안 (yoyo0704 합의 대상, 요청기록 참조): Regulations 테이블
-//   PK = LAW#{law_id}  SK = REV#{revision_id}                → RevisionRecord
-//   PK = LAW#{law_id}  SK = REV#{revision_id}#P#{rel_path}   → Provision
+//   pk = LAW#{law_id}  sk = REV#{revision_id}                → RevisionRecord
+//   pk = LAW#{law_id}  sk = REV#{revision_id}#P#{rel_path}   → Provision
+//   pk = LAWNAMES      sk = LAW#{law_id}                     → 법령명 목록
+// 테이블 키 스키마 pk/sk(S)는 yoyo0704 배포본 (interfaces.md 4장). 키 값은 Owner인 let522mj가 정함
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { AuthorityStatus, ParsedLaw, Provision } from "@hanaeum/schemas";
@@ -59,7 +61,7 @@ export class DynamoClauseStore implements ClauseStore {
     let start: Record<string, unknown> | undefined;
     do {
       const r = await this.db.send(new QueryCommand({
-        TableName: this.table, KeyConditionExpression: "PK = :pk AND begins_with(SK, :p)",
+        TableName: this.table, KeyConditionExpression: "pk = :pk AND begins_with(sk, :p)",
         ExpressionAttributeValues: { ":pk": pk, ":p": prefix }, ExclusiveStartKey: start,
       }));
       items.push(...(r.Items ?? []));
@@ -74,7 +76,7 @@ export class DynamoClauseStore implements ClauseStore {
     return matchLawName(n, laws);
   }
   async revisions(lawId: string) {
-    return (await this.query(`LAW#${lawId}`, "REV#")).filter((i) => !String(i["SK"]).includes("#P#")) as unknown as RevisionRecord[];
+    return (await this.query(`LAW#${lawId}`, "REV#")).filter((i) => !String(i["sk"]).includes("#P#")) as unknown as RevisionRecord[];
   }
   async provisions(lawId: string, rev: string) {
     const items = await this.query(`LAW#${lawId}`, `REV#${rev}#P#`);
@@ -84,8 +86,8 @@ export class DynamoClauseStore implements ClauseStore {
   async closeRevision(lawId: string, rev: string, effectiveTo: number) {
     try {
       await this.db.send(new UpdateCommand({
-        TableName: this.table, Key: { PK: `LAW#${lawId}`, SK: `REV#${rev}` },
-        UpdateExpression: "SET effective_to = :t", ConditionExpression: "attribute_exists(PK) AND effective_to > :t",
+        TableName: this.table, Key: { pk: `LAW#${lawId}`, sk: `REV#${rev}` },
+        UpdateExpression: "SET effective_to = :t", ConditionExpression: "attribute_exists(pk) AND effective_to > :t",
         ExpressionAttributeValues: { ":t": effectiveTo },
       }));
     } catch (e) { if ((e as Error).name !== "ConditionalCheckFailedException") throw e; }
@@ -93,9 +95,9 @@ export class DynamoClauseStore implements ClauseStore {
   /** 승인된 법령 버전 적재 (Promote 이후 호출). 25건 배치 */
   async putLaw(rec: RevisionRecord, law: ParsedLaw) {
     const items = [
-      { PK: "LAWNAMES", SK: `LAW#${rec.law_id}`, law_id: rec.law_id, law_name: rec.law_name },
-      { PK: `LAW#${rec.law_id}`, SK: `REV#${rec.revision_id}`, ...rec },
-      ...law.provisions.map((p) => ({ PK: `LAW#${rec.law_id}`, SK: `REV#${rec.revision_id}#P#${relPath(p.provision_id)}`, ...p })),
+      { pk: "LAWNAMES", sk: `LAW#${rec.law_id}`, law_id: rec.law_id, law_name: rec.law_name },
+      { pk: `LAW#${rec.law_id}`, sk: `REV#${rec.revision_id}`, ...rec },
+      ...law.provisions.map((p) => ({ pk: `LAW#${rec.law_id}`, sk: `REV#${rec.revision_id}#P#${relPath(p.provision_id)}`, ...p })),
     ];
     for (let i = 0; i < items.length; i += 25) {
       let req: Record<string, { PutRequest: { Item: Record<string, unknown> } }[]> | undefined = {

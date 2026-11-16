@@ -15,10 +15,11 @@ export class DynamoDocStates implements DocStates {
   async get(ids: string[]) {
     const out = new Map<string, DocState>();
     for (let i = 0; i < ids.length; i += 100) {
-      let keys: Record<string, unknown>[] | undefined = ids.slice(i, i + 100).map((doc_id) => ({ doc_id }));
+      // Documents 키는 legal-etl KEYS와 같은 규칙 (pk=DOC#{doc_id}, sk=META)
+      let keys: Record<string, unknown>[] | undefined = ids.slice(i, i + 100).map((doc_id) => ({ pk: `DOC#${doc_id}`, sk: "META" }));
       for (let attempt = 0; keys?.length; attempt++) {
         if (attempt > 5) throw new Error("BatchGet 미처리 키 재시도 초과");
-        const r: import("@aws-sdk/lib-dynamodb").BatchGetCommandOutput = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: keys, ProjectionExpression: "doc_id, lifecycle, authority_status, conditional, freshness, acl_groups, content_hash, effective_from, effective_to" } } }));
+        const r: import("@aws-sdk/lib-dynamodb").BatchGetCommandOutput = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: keys, ProjectionExpression: "doc_id, lifecycle, authority_status, conditional, freshness, acl_groups, published_content_hash, effective_from, effective_to" } } }));
         for (const it of r.Responses?.[this.table] ?? []) out.set(String(it["doc_id"]), it as DocState);
         keys = r.UnprocessedKeys?.[this.table]?.Keys;
         if (keys?.length) await new Promise((res) => setTimeout(res, 100 * 2 ** attempt));

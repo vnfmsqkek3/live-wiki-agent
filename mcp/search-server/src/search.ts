@@ -44,7 +44,12 @@ export class BedrockRetriever implements Retriever {
   private readonly c: BedrockAgentRuntimeClient;
   private readonly kbId: string;
   private readonly rerankArn: string | undefined;
-  constructor(kbId: string, rerankModelArn?: string, c = new BedrockAgentRuntimeClient({})) { this.kbId = kbId; this.rerankArn = rerankModelArn; this.c = c; }
+  /** rerankModel: SSM MODEL_RERANK 값(모델 ID, 예 cohere.rerank-v3-5:0) 또는 ARN. 실 KB에서 이 설정 형식 동작 확인함 (11/16) */
+  constructor(kbId: string, rerankModel?: string, c = new BedrockAgentRuntimeClient({})) {
+    this.kbId = kbId;
+    this.rerankArn = rerankModel && !rerankModel.startsWith("arn:") ? `arn:aws:bedrock:${process.env["AWS_REGION"] ?? "us-east-1"}::foundation-model/${rerankModel}` : rerankModel;
+    this.c = c;
+  }
   async retrieve(text: string, filter: RetrievalFilter): Promise<Hit[]> {
     const r = await this.c.send(new RetrieveCommand({
       knowledgeBaseId: this.kbId,
@@ -52,7 +57,6 @@ export class BedrockRetriever implements Retriever {
       retrievalConfiguration: {
         vectorSearchConfiguration: {
           numberOfResults: CANDIDATES, overrideSearchType: "HYBRID", filter,
-          // [확인 필요] us-east-1 Cohere Rerank 3.5 지원·설정 형식 (docs/04 4.3)
           ...(this.rerankArn ? { rerankingConfiguration: { type: "BEDROCK_RERANKING_MODEL", bedrockRerankingConfiguration: { numberOfRerankedResults: RERANKED, modelConfiguration: { modelArn: this.rerankArn } } } } : {}),
         },
       },
@@ -63,7 +67,8 @@ export class BedrockRetriever implements Retriever {
 
 // ── 현재 상태 재검증 ───────────────────────────────────
 export interface DocState {
-  doc_id: string; lifecycle: Lifecycle; authority_status: AuthorityStatus; conditional?: boolean; freshness: Freshness; acl_groups: string[]; content_hash: string;
+  doc_id: string; lifecycle: Lifecycle; authority_status: AuthorityStatus; conditional?: boolean; freshness: Freshness; acl_groups: string[];
+  published_content_hash: string; // Promote가 기록한 게시본 해시 (Documents.content_hash는 원본 해시라 다름)
   effective_from?: number; effective_to?: number; // 현재 유효기간 (새 버전 시행 시 갱신). KB 메타데이터보다 우선
 }
 export interface DocStates { get(docIds: string[]): Promise<Map<string, DocState>> }
@@ -93,7 +98,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       && st.lifecycle === "PUBLISHED"
       && st.authority_status !== "REJECTED"
       && st.acl_groups.some((g) => keys.includes(g))
-      && st.content_hash === m["content_hash"] // KB 동기화 지연으로 남은 옛 버전 청크 차단
+      && st.published_content_hash === m["content_hash"] // KB 동기화 지연으로 남은 옛 버전 청크 차단
       && (o.includeHistory || (current(st, m, o.asOf) && m["provision_status"] !== "DELETED"));
     if (!ok) continue;
     const hist = m["provision_status"] === "DELETED" || !current(st, m, o.asOf);

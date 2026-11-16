@@ -1,6 +1,11 @@
 // Graph MCP 서버 + 단계 13 GraphUpsert
 import { makeHandler } from "@hanaeum/mcp-kit";
-import { S3ObjectStore } from "@hanaeum/legal-etl";
+import { S3ObjectStore, DynamoRecords, publishedPrefix } from "@hanaeum/legal-etl";
+import type { DocumentRecord, ObjectStore, Records } from "@hanaeum/legal-etl";
+import { StepInput } from "@hanaeum/schemas";
+import type { ClauseStore } from "@hanaeum/regulation-server";
+import { extractCitations } from "./citations.ts";
+import type { Citation } from "./model.ts";
 import { DynamoClauseStore } from "@hanaeum/regulation-server";
 import { NeptuneGraphStore } from "./store.ts";
 import { graphTools } from "./tools.ts";
@@ -17,9 +22,25 @@ export * from "./upsert-step.ts";
 const e = process.env;
 const deps = () => ({ graph: new NeptuneGraphStore(e["NEPTUNE_ENDPOINT"]!), clauses: new DynamoClauseStore(e["TABLE_REGULATIONS"]!) });
 export const handler = makeHandler(e["NEPTUNE_ENDPOINT"] && e["TABLE_REGULATIONS"] ? graphTools(deps()) : {});
-// 본문은 SFN 페이로드(256KB 제한)로 넘기지 않고 Promote 출력 키로 published 버킷에서 읽는다
-export const graphUpsertHandler = async (input: Omit<GraphUpsertInput, "content"> & { published_key: string }) => {
-  const content = (await new S3ObjectStore().get(e["BUCKET_PUBLISHED"]!, input.published_key)).toString("utf8");
+
+/** 단계 13 Lambda: ASL은 공통 입력 6필드만 넘긴다 → Documents 레코드·게시본을 직접 읽어 GraphUpsertInput을 만든다 */
+export async function buildUpsertInput(input: StepInput, records: Records, store: ObjectStore, clauses: ClauseStore, publishedBucket: string): Promise<GraphUpsertInput> {
+  const doc = await records.getDocument(input.doc_id) as (DocumentRecord & { citations?: Citation[]; parse_reviewed?: boolean; previous_revision_id?: string; registry_doc_no?: string; published_content_hash?: string }) | undefined;
+  if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
+  const content = (await store.get(publishedBucket, `${publishedPrefix(doc)}content.txt`)).toString("utf8");
+  const from = doc.effective_from ?? (doc.revision_id ? Number(doc.revision_id.replaceAll("-", "")) : 0);
+  // 인용: 승인 시 확정된 doc.citations 우선. 없으면 본문에서 추출한 후보 중 실제 조문으로 확인된 것(confidence 0.9)만
+  const citations = doc.citations ?? (doc.document_type === "REGULATION" ? [] : (await extractCitations(content, clauses, from || 99991231)).filter((c) => c.confidence >= 0.9));
+  return {
+    ...input, document_type: doc.document_type, title: doc.title, effective_from: from, effective_to: doc.effective_to ?? 99991231,
+    content, content_hash: doc.published_content_hash ?? "", acl_groups: doc.acl_groups, authority_status: doc.authority_status, parse_reviewed: doc.parse_reviewed,
+    ...(doc.law_id && doc.revision_id ? { law: { law_id: doc.law_id, law_name: doc.law_name ?? doc.title, revision_id: doc.revision_id, previous_revision_id: doc.previous_revision_id, registry_doc_no: doc.registry_doc_no } } : {}),
+    citations,
+  };
+}
+
+export const graphUpsertHandler = async (event: unknown) => {
   const d = deps();
-  return graphUpsertStep({ ...input, content }, d.graph, d.clauses);
+  const input = await buildUpsertInput(StepInput.parse(event), new DynamoRecords({ documents: e["TABLE_DOCUMENTS"]!, approvals: e["TABLE_APPROVALS"]! }), new S3ObjectStore(), d.clauses, e["BUCKET_PUBLISHED"]!);
+  return graphUpsertStep(input, d.graph, d.clauses);
 };

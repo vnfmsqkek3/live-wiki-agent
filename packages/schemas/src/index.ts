@@ -113,7 +113,7 @@ export const StepInput = z.object({
 export type StepInput = z.infer<typeof StepInput>;
 
 export const StepOutput = z.object({
-  status: z.enum(["OK", "REVIEW_REQUIRED", "BLOCKED"]),
+  status: z.enum(["OK", "REVIEW_REQUIRED", "BLOCKED", "PENDING"]), // PENDING: 폴링 단계만 (MalwareCheck·OcrIfNeeded·KbIngest)
   output_key: z.string().optional(),
   content_hash: z.string().optional(), // Promote: 게시본 해시 (Finalize가 Documents에 기록)
   findings: z.array(Finding).optional(),

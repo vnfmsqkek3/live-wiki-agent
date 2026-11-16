@@ -6,6 +6,13 @@ import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
 
 export const sha256 = (b: Buffer | string) => "sha256:" + createHash("sha256").update(b).digest("hex");
 
+/** 승인 레코드 해시와 원본 해시 비교. 승인 API가 S3 ChecksumSHA256(base64)을 저장해도, `sha256:{hex}`나 hex를 저장해도 같은 바이트면 일치 */
+export function hashMatches(approvalHash: string, bytes: Buffer): boolean {
+  const d = createHash("sha256").update(bytes).digest();
+  const v = approvalHash.trim();
+  return v === "sha256:" + d.toString("hex") || v.toLowerCase() === d.toString("hex") || v === d.toString("base64");
+}
+
 const INDEX_GROUP: Record<DocumentRecord["document_type"], IndexGroup> = {
   REGULATION: "legal-clauses", KNOWHOW: "wiki-knowledge", MANUAL: "official-manuals",
 };
@@ -35,7 +42,8 @@ export function buildMetadata(doc: DocumentRecord, approval_id: string, content_
   };
 }
 
-export interface PromoteInput extends StepInput { approval_id: string; published_bucket: string }
+// approval_id: ASL이 넘기면 사용, 없으면 문서 버전으로 승인 레코드를 찾는다
+export interface PromoteInput extends StepInput { approval_id?: string; published_bucket: string }
 
 export async function promoteStep(input: PromoteInput, store: ObjectStore, records: Records): Promise<StepOutput> {
   const doc = await records.getDocument(input.doc_id);
@@ -45,8 +53,14 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   // 승인은 원본 객체 해시에 묶인다 (interfaces.md 7.1). 승인 이후 원본이 바뀌었으면 여기서 막힌다.
   const originals = await store.list(input.bucket, `${input.doc_id}/original.`);
   if (originals.length !== 1) throw new Error("original 객체가 1개가 아님");
-  const originalHash = sha256(await store.get(input.bucket, originals[0]!));
-  await records.consumeApproval({ approval_id: input.approval_id, doc_id: input.doc_id, version: input.version, content_hash: originalHash, workflow_id: input.workflow_id });
+  const original = await store.get(input.bucket, originals[0]!);
+  const apr = input.approval_id ? await records.getApproval(input.approval_id) : await records.findApproval(input.doc_id, input.version, input.workflow_id);
+  if (!apr || !hashMatches(apr.content_hash, original)) {
+    throw Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${apr?.approval_id ?? "승인 레코드 없음"}`), { name: "ApprovalBindingError" });
+  }
+  // 조건부 전환은 레코드에 저장된 해시 값 그대로로 (형식 차이와 무관하게 위에서 바이트 일치를 확인함)
+  await records.consumeApproval({ approval_id: apr.approval_id, doc_id: input.doc_id, version: input.version, content_hash: apr.content_hash, workflow_id: input.workflow_id });
+  const approvalId = apr.approval_id;
 
   // 마스킹본만 게시 (원문·work/ 는 절대 published로 가지 않음). 페이지 수가 이번 추출 결과와 정확히 같아야 함 (이전 실행의 잔여 페이지 혼입 차단)
   const { page_count } = JSON.parse((await store.get(input.bucket, `${input.doc_id}/work/text_layer.json`)).toString()) as { page_count: number };
@@ -59,10 +73,11 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   if (!content.trim()) throw new Error("게시할 본문이 비어 있음");
 
   const contentHash = sha256(content);
-  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, input.approval_id, contentHash) });
+  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, approvalId, contentHash) });
   const key = `${publishedPrefix(doc)}content.txt`;
   await store.put(input.published_bucket, key, content, "text/plain; charset=utf-8");
   await store.put(input.published_bucket, `${key}.metadata.json`, JSON.stringify(meta));
-  // content_hash: Finalize가 Documents.content_hash에 기록해야 검색 재검증이 통과함
+  // ASL은 status만 넘기므로 게시본 해시는 Documents.published_content_hash에 직접 기록 (검색 재검증 기준)
+  await records.setPublishedHash(input.doc_id, contentHash);
   return { status: "OK", output_key: key, content_hash: contentHash };
 }

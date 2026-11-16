@@ -23,7 +23,7 @@ function setup() {
   const states = new MemoryDocStates();
   for (const [file, meta] of docs) {
     for (const c of chunkDocument(readFileSync(new URL(file, FIX), "utf8"), meta)) retriever.add(c.augmented_search_text, c.metadata);
-    states.docs.set(meta.doc_id, { doc_id: meta.doc_id, lifecycle: "PUBLISHED", authority_status: "VERIFIED", freshness: "CURRENT", acl_groups: meta.acl_groups, content_hash: meta.content_hash });
+    states.docs.set(meta.doc_id, { doc_id: meta.doc_id, lifecycle: "PUBLISHED", authority_status: "VERIFIED", freshness: "CURRENT", acl_groups: meta.acl_groups, published_content_hash: meta.content_hash });
   }
   const tools = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
   return { retriever, states, tools };
@@ -59,7 +59,7 @@ test("ACL: 다른 부서 전용 문서는 노출 0건, 해당 부서는 조회 �
 test("재검증: KB에 남은 청크라도 현재 상태가 PUBLISHED 아님·해시 불일치면 제외", async () => {
   const { tools, states } = setup();
   states.docs.get("K-001")!.lifecycle = "BLOCKED";
-  states.docs.get("F-002")!.content_hash = H("9"); // 새 버전 게시 후 KB 동기화 전 상황
+  states.docs.get("F-002")!.published_content_hash = H("9"); // 새 버전 게시 후 KB 동기화 전 상황
   const r = await tools.search_wiki({ query: "현장 실사 감정평가서 LTV", as_of: "2026-12-15" }, user);
   assert.ok(!r.results.some((x) => x.doc_id === "K-001" || x.doc_id === "F-002"));
   assert.ok(r.dropped_after_revalidation > 0);

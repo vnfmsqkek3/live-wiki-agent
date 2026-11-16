@@ -68,7 +68,7 @@ function buildEnv() {
     };
     if (d.document_type === "REGULATION" && !d.law_name) meta.law_name = rev?.law_name;
     for (const c of chunkDocument(text, meta)) retriever.add(c.augmented_search_text, c.metadata);
-    states.docs.set(d.document_id, { doc_id: d.document_id, lifecycle: "PUBLISHED", authority_status: "VERIFIED", freshness: "CURRENT", acl_groups: d.acl_groups, content_hash: hash });
+    states.docs.set(d.document_id, { doc_id: d.document_id, lifecycle: "PUBLISHED", authority_status: "VERIFIED", freshness: "CURRENT", acl_groups: d.acl_groups, published_content_hash: hash });
   }
   const regulation = regulationTools(clauses, { today: () => EVAL_TODAY });
   return { clauses, retriever, search: searchTools({ retriever, states, regulation }) };

@@ -118,3 +118,14 @@ test("새 버전 적재 시 겹치는 이전 버전 종료일을 닫아 현행�
   assert.equal(bad.status, "REVIEW_REQUIRED");
   assert.equal((await clauses.revisions("SYN-VLOAN-001")).length, 0, "검토 전 미적재");
 });
+
+test("단계 13 입력 구성: 공통 입력만으로 Documents·게시본을 읽고, 인용이 없으면 본문에서 확인된 조문만 추출", async () => {
+  const { MemoryObjectStore, MemoryRecords } = await import("@hanaeum/legal-etl");
+  const { buildUpsertInput } = await import("./index.ts");
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  r.documents.set("K-001", { doc_id: "K-001", version: 1, title: "부동산 담보평가 실무 노하우", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"], effective_from: 20261115 });
+  await s.put("pub", "knowledge/K-001/content.txt", read("documents/K-001.md"));
+  const inp = await buildUpsertInput({ workflow_id: "wf_x", doc_id: "K-001", version: 1, bucket: "q", prefix: "", actor: { sub: "s", groups: [] } }, r, s, fixtureClauseStore(), "pub");
+  assert.deepEqual(inp.citations!.map((c) => c.provision_id).sort(), frontCites("documents/K-001.md").sort());
+  assert.equal(inp.document_type, "KNOWHOW");
+});
