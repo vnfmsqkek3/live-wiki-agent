@@ -6,7 +6,7 @@ export type VerifyToken = (token: string) => Promise<Actor>;
 
 /** 사용자 식별은 검증된 JWT claims에서만 한다 (헤더·바디의 user id는 무시). */
 export function cognitoVerifier(userPoolId: string, clientId: string): VerifyToken {
-  const v = CognitoJwtVerifier.create({ userPoolId, clientId, tokenUse: 'id' });
+  const v = CognitoJwtVerifier.create({ userPoolId, clientId, tokenUse: 'access' }); // Runtime·Gateway가 access token만 통과 (interfaces 9장)
   return async (token) => {
     let p: Record<string, unknown>;
     try {
@@ -22,7 +22,8 @@ export function claimsToActor(p: Record<string, unknown>): Actor {
   const raw = Array.isArray(p['cognito:groups']) ? (p['cognito:groups'] as unknown[]) : [];
   const groups = raw.filter((g): g is Role => (ROLES as readonly string[]).includes(g as string));
   if (typeof p.sub !== 'string') throw new ApiError('UNAUTHORIZED', 'missing sub');
-  const dept = typeof p['custom:dept'] === 'string' ? (p['custom:dept'] as string) : undefined;
+  const d = p['dept'] ?? p['custom:dept']; // access token의 dept는 Pre Token Generation V2 트리거가 추가
+  const dept = typeof d === 'string' ? d : undefined;
   return { sub: p.sub, groups: groups.length ? groups : ['USER'], dept };
 }
 

@@ -1,0 +1,13 @@
+{
+  "name": "@hanaeum/agents",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "node src/runtime.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@strands-agents/sdk": "1.25.0",
+    "zod": "4.6.7"
+  }
+}

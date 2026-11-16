@@ -101,9 +101,9 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | Node.js LTS | | yoyo0704 |
 | Terraform / AWS provider | | yoyo0704 |
 | PaddleOCR 이미지·모델 | | yoyo0704 |
-| Strands Agents TS SDK | | dhxorb96 |
-| Backend 프레임워크 | | dhxorb96 |
-| Next.js | | dhxorb96 |
+| Strands Agents TS SDK | `@strands-agents/sdk` 1.25.0 (Node 24 컨테이너, MCP·structured output 지원 확인) | dhxorb96 |
+| Backend 프레임워크 | Hono 4.13.18 + `@hono/node-server` 2.1.8, `aws-jwt-verify` 5.2.1, AWS SDK v3 3.1169.0, TypeScript 7.0.2, 테스트 `node:test` | dhxorb96 |
+| Next.js | 16.4.6 (React 19.3.1) | dhxorb96 |
 | zod | | let522mj |
 | Bedrock 모델 inference profile ID (Haiku/Sonnet/Opus 5.5, Titan V2, Cohere Rerank 3.5) | | yoyo0704 |
 
@@ -111,13 +111,24 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 
 | 구간 | 방식 (v0) |
 |---|---|
-| Web → API | Cognito JWT (Authorization 헤더). API가 서명·audience·issuer 검증 |
-| API → AgentCore Runtime | 검증된 claims(`sub`, `groups`, `dept`)를 세션 컨텍스트로 전달 |
-| Runtime → Gateway | Gateway inbound 인증(Cognito JWT) [확인 필요: 사용자 토큰 전달 방식] |
-| Gateway → Lambda Target | Lambda는 이벤트의 사용자 컨텍스트를 신뢰 경계로 보고 DynamoDB 권한을 재검증. 클라이언트가 보낸 user id 인자는 무시 |
+| Web → API | Cognito JWT (Authorization 헤더). API가 서명·client·issuer 검증 (`aws-jwt-verify`) |
+| API → AgentCore Runtime | 사용자 **access token**을 그대로 `Authorization: Bearer`로 Runtime HTTPS 엔드포인트 호출. Runtime `customJWTAuthorizer`(Cognito discovery, allowedClients) 검증 + `requestHeaderAllowlist: ["Authorization"]`로 컨테이너에 전달 |
+| Runtime → Gateway | Agent가 받은 같은 access token을 `McpClient({ url, headers: { authorization } })`로 전달. Gateway `CUSTOM_JWT` 검증 |
+| Gateway → Lambda Target | **Gateway는 Tool Lambda에 사용자 신원을 넘기지 않는다** (이벤트=Tool 인자만, clientContext=gateway·target·tool 메타). REQUEST interceptor(`mcp/gateway-interceptor`)가 JWT를 재검증하고 `arguments.__actor = { sub, groups }`를 주입(클라이언트·모델이 보낸 `__actor`는 덮어씀). Tool Lambda는 `__actor`만 신뢰하고 DynamoDB 권한을 재검증 |
+
+M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. 무토큰 Runtime·Gateway 호출 401, 위조 `__actor` 덮어씀 확인.
+
+| 확인 사항 | 결과 |
+|---|---|
+| 토큰 종류 | Runtime·Gateway의 `allowedClients`는 **access token**(`client_id` claim)만 통과. ID token은 Gateway에서 `insufficient_scope` |
+| 스키마 외 인자 | Gateway는 inputSchema에 없는 인자도 Lambda에 그대로 전달 → Tool은 `__actor` 외 신원 인자를 무시해야 함 |
+| `dept` | access token에는 `custom:dept`가 없다. 부서 ACL이 필요하면 Cognito Pre Token Generation(V2) 트리거로 access token에 `dept` 추가 [요청: yoyo0704] 또는 Tool이 DynamoDB 사용자 레코드 조회 |
+| Tool 이름 | Agent에 노출되는 이름은 `{target}___{tool}` (예: `search___search_wiki`) |
+| interceptor 장애 | interceptor Lambda 오류 시 Tool은 호출되지 않고 오류 텍스트가 result로 반환됨 |
 
 ## 변경 이력
 
 | 날짜 | 작성자 | 섹션 | 변경 |
 |---|---|---|---|
 | 2026-11-16 | 초기 설정 | 전체 | v0 기본값 |
+| 2026-11-16 | dhxorb96 | 8·9 | dhxorb96 행 버전 기입, 신원 전달 M0 실험 결과로 확정 (access token, Gateway interceptor `__actor` 주입) |
