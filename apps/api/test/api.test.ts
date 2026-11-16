@@ -25,6 +25,7 @@ function setup() {
     startWorkflow: async () => {},
     sendDecision: async (token, decision) => { tasks.push({ token, decision }); },
     search: async () => [],
+    guide: async (q, tok) => ({ q, tok }),
   };
   const app = createApp(deps);
   const call = (who: string | undefined, method: string, path: string, body?: unknown) =>
@@ -133,4 +134,26 @@ test('QUARANTINED 문서는 게시 요청 불가', async () => {
   const d = (await t.store.getDoc(doc_id))!;
   await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'QUARANTINED', s3_version_id: 'v', content_hash: 'h' });
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`)).status, 409);
+});
+
+test('가이드: 사용자 토큰을 Agent에 그대로 전달, 질문 길이 검증, 감사에 질의 원문 미기록', async () => {
+  const t = setup();
+  const r = await t.call('user', 'POST', '/v1/guides', { question: '담보 승인 기준 010-1111-2222' });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { q: '담보 승인 기준 010-1111-2222', tok: 'user' });
+  assert.ok(t.store.audits.every((a) => !JSON.stringify(a).includes('010-1111')));
+  assert.equal((await t.call('user', 'POST', '/v1/guides', { question: ' ' })).status, 422);
+});
+
+test('분류 수정: 작성자 본인·IN_REVIEW만, 사람 수정 이력 저장', async () => {
+  const t = setup();
+  const { doc_id } = await submitted(t); // PENDING_APPROVAL 상태
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/classification`, { document_type: 'KNOWHOW', reason: 'x' })).status, 409);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', classification: { document_type: 'MANUAL', business_path: ['여신'], tags: [], confidence: 0.6, rationale: 'r', source: 'MODEL' } });
+  assert.equal((await t.call('author2', 'POST', `/v1/documents/${doc_id}/classification`, { document_type: 'KNOWHOW', reason: 'x' })).status, 404);
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/classification`, { document_type: 'KNOWHOW', reason: '실무 노하우 문서' })).status, 200);
+  const e = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([e.classification?.document_type, e.classification?.source, e.classification?.business_path], ['KNOWHOW', 'HUMAN', ['여신']]);
+  assert.deepEqual(e.classification_history?.map((h) => [h.from, h.to, h.by]), [['MANUAL', 'KNOWHOW', 'u-author']]);
 });

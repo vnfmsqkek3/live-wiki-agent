@@ -2,7 +2,7 @@
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { cognitoVerifier } from './auth.ts';
-import { env, headObject, presignPut, sendDecision, startWorkflow, storeFromEnv } from './aws.ts';
+import { env, headObject, invokeAgent, presignPut, sendDecision, startWorkflow, storeFromEnv } from './aws.ts';
 
 const app = createApp({
   verify: cognitoVerifier(env('COGNITO_USER_POOL_ID'), env('COGNITO_CLIENT_ID')),
@@ -11,6 +11,7 @@ const app = createApp({
   headObject,
   startWorkflow,
   sendDecision,
+  guide: invokeAgent,
   search: async () => [], // ponytail: let522mj search Tool 연동 전 빈 결과 (11/18)
 });
 

@@ -3,7 +3,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import {
-  ALLOWED_EXT, DecisionBody, FeedbackBody, UploadUrlBody, newId,
+  ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
@@ -22,9 +22,11 @@ export interface Deps {
   sendDecision(taskToken: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
+  /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
+  guide(question: string, accessToken: string): Promise<unknown>;
 }
 
-type Env = { Variables: { actor: Actor; trace_id: string } };
+type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
@@ -50,6 +52,7 @@ export function createApp(deps: Deps) {
     const m = /^Bearer\s+(\S+)$/.exec(h);
     if (!m) throw new ApiError('UNAUTHORIZED', 'missing bearer token');
     c.set('actor', await deps.verify(m[1]!));
+    c.set('token', m[1]!);
     await next();
   });
 
@@ -134,6 +137,24 @@ export function createApp(deps: Deps) {
     return c.json({ approval_id: apr.approval_id }, 201);
   });
 
+  app.post('/v1/documents/:id/classification', async (c) => {
+    const a = need(c, ['AUTHOR']);
+    const b = await body(c, ClassificationBody);
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    if (d.lifecycle !== 'IN_REVIEW') throw new ApiError('CONFLICT', `cannot edit in ${d.lifecycle}`);
+    const at = new Date().toISOString();
+    const prev = d.classification;
+    await store.putDoc({
+      ...d,
+      classification: { business_path: [], tags: [], rationale: '', ...prev, document_type: b.document_type, confidence: 1, source: 'HUMAN' },
+      classification_history: [...(d.classification_history ?? []), { at, by: a.sub, from: prev?.document_type, to: b.document_type, reason: b.reason }],
+      updated_at: at,
+    });
+    await audit(c, 'CLASSIFY_EDIT', d.doc_id);
+    return c.json({ document_type: b.document_type });
+  });
+
   // ---- 승인 (사람만) ----
   app.get('/v1/approvals', async (c) => {
     need(c, APPROVERS);
@@ -174,6 +195,13 @@ export function createApp(deps: Deps) {
     const as_of = c.req.query('as_of');
     if (as_of && !/^\d{4}-\d{2}-\d{2}$/.test(as_of)) throw new ApiError('VALIDATION', 'as_of: YYYY-MM-DD');
     return c.json({ items: await deps.search(q, a, { tags, as_of }) });
+  });
+
+  app.post('/v1/guides', async (c) => {
+    const b = await body(c, GuideBody);
+    const r = await deps.guide(b.question, c.get('token'));
+    await audit(c, 'GUIDE', 'agent'); // 질의 원문은 감사 기록에 남기지 않는다
+    return c.json(r);
   });
 
   app.post('/v1/feedback', async (c) => {

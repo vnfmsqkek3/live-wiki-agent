@@ -63,3 +63,23 @@ export async function startWorkflow(d: DocumentRecord) {
 export async function sendDecision(taskToken: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
   await sfn().send(new SendTaskSuccessCommand({ taskToken, output: JSON.stringify({ decision }) }));
 }
+
+/** 가이드 Agent 호출. AGENT_RUNTIME_ARN이면 AgentCore Runtime(JWT authorizer), AGENT_URL이면 로컬 컨테이너 */
+export async function invokeAgent(question: string, accessToken: string) {
+  const arn = process.env.AGENT_RUNTIME_ARN;
+  const url = arn
+    ? `https://bedrock-agentcore.${region()}.amazonaws.com/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`
+    : env('AGENT_URL');
+  const r = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      authorization: `Bearer ${accessToken}`,
+      'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': `guide-${crypto.randomUUID()}`, // 요청마다 독립 세션 (Memory 미사용)
+    },
+    body: JSON.stringify({ prompt: question }),
+    signal: AbortSignal.timeout(60_000),
+  });
+  if (!r.ok) throw new Error(`agent ${r.status}`);
+  return r.json();
+}

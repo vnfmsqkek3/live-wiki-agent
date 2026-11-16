@@ -58,7 +58,9 @@ export interface DocumentRecord {
   conditional?: boolean;
   freshness: Freshness;
   trust_gate_result?: TrustGateResult;
-  classification?: { document_type: DocumentType; business_path: string[]; tags: string[]; confidence: number; rationale: string };
+  classification?: { document_type: DocumentType; business_path: string[]; tags: string[]; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
+  /** 사람 분류 수정 이력 (docs/04 3장: 결과·confidence·rationale·사람 수정 이력 저장) */
+  classification_history?: { at: string; by: string; from?: DocumentType; to: DocumentType; reason: string }[];
   s3_version_id?: string;
   content_hash?: string;
   workflow_id?: string;
@@ -113,3 +115,10 @@ export const FeedbackBody = z.object({
   stars: z.number().int().min(1).max(5),
   useful: z.boolean(),
 });
+
+export const ClassificationBody = z.object({
+  document_type: z.enum(['REGULATION', 'KNOWHOW', 'MANUAL']),
+  reason: z.string().min(1).max(500),
+});
+
+export const GuideBody = z.object({ question: z.string().trim().min(1).max(1000) });

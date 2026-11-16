@@ -4,7 +4,8 @@
   "type": "module",
   "scripts": {
     "start": "node src/runtime.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "test": "node --test test/*.test.ts"
   },
   "dependencies": {
     "@strands-agents/sdk": "1.25.0",
