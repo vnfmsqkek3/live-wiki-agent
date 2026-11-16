@@ -15,7 +15,9 @@
       "fixture": "golden/G-REG-01.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "1천만원"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-01.pdf",
+      "pdf_content_hash": "sha256:baab840e5cb3e2857d7a1dfbde30ff26cd9105d54ce1373af05843e6fbf4ac0c"
     },
     {
       "registry_doc_no": "HB-REG-FX-001",
@@ -31,7 +33,9 @@
       "fixture": "golden/G-REG-02.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "미화 5천달러"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-02.pdf",
+      "pdf_content_hash": "sha256:36ee92d4ab032229c75c5163d1eaac5c02b2ba5853a4b993713eaf13e3003511"
     },
     {
       "registry_doc_no": "HB-REG-CARD-001",
@@ -47,7 +51,9 @@
       "fixture": "golden/G-REG-03.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "19세"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-03.pdf",
+      "pdf_content_hash": "sha256:b5318fce1034ae2072c3f02ab93b90e5b5ac5aefd287a11c69f1848dae4f045e"
     },
     {
       "registry_doc_no": "HB-REG-RISK-001",
@@ -63,7 +69,9 @@
       "fixture": "golden/G-REG-04.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "20%"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-04.pdf",
+      "pdf_content_hash": "sha256:3cab2745b731ce9483624f3cad3ba453793649302ef5b882b3eca49aaf6c75c6"
     },
     {
       "registry_doc_no": "HB-REG-IC-001",
@@ -79,7 +87,9 @@
       "fixture": "golden/G-REG-05.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "분기"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-05.pdf",
+      "pdf_content_hash": "sha256:b1f2f2447432b53d321ae02b3b3a1bb54397c5c8cfa83b3cbff78c33e8a9294b"
     },
     {
       "registry_doc_no": "HB-REG-PRIV-001",
@@ -95,7 +105,9 @@
       "fixture": "golden/G-REG-06.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "5년"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-06.pdf",
+      "pdf_content_hash": "sha256:8152236c0071d20b3b9889e9ebcfdaf6f56b715791a3533d0b3301df6ba59a2b"
     },
     {
       "registry_doc_no": "HB-REG-ITSEC-001",
@@ -111,7 +123,9 @@
       "fixture": "golden/G-REG-07.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "90일"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-07.pdf",
+      "pdf_content_hash": "sha256:337d2e21022dbd144d60004e89eec4ea74237ffe9cd109b2f9b42d6e34e985e6"
     },
     {
       "registry_doc_no": "HB-REG-TRUST-001",
@@ -127,7 +141,9 @@
       "fixture": "golden/G-REG-08.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "10%"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-08.pdf",
+      "pdf_content_hash": "sha256:a7c8c9ca7d2f46e7d18b7722e2b38d50c5b5fb3edfc0807441073d5184af7e03"
     },
     {
       "registry_doc_no": "HB-REG-FUND-001",
@@ -143,7 +159,9 @@
       "fixture": "golden/G-REG-09.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "2영업일"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-09.pdf",
+      "pdf_content_hash": "sha256:88b85486eea58ec9f1e014ac805b739d098ce9e6530ed611e427035af2c9112e"
     },
     {
       "registry_doc_no": "HB-REG-AML-001",
@@ -159,7 +177,9 @@
       "fixture": "golden/G-REG-10.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "1천만원"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-10.pdf",
+      "pdf_content_hash": "sha256:684cb180adb5c2cfc9591599a4af773c80c219bf3f3222604392529fb5d436a7"
     },
     {
       "registry_doc_no": "HB-REG-CS-001",
@@ -175,7 +195,9 @@
       "fixture": "golden/G-REG-11.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "14일"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-11.pdf",
+      "pdf_content_hash": "sha256:24d7762cc59d840f12927f5bc3433ec6a9bbaae81a904d93f0a64899d827061d"
     },
     {
       "registry_doc_no": "HB-REG-HR-001",
@@ -191,7 +213,9 @@
       "fixture": "golden/G-REG-12.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "30일"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REG-12.pdf",
+      "pdf_content_hash": "sha256:14bf34f7951c2efedf14988aa93e6422b2aa4a739fb2b0e15dcc1630207070ac"
     },
     {
       "registry_doc_no": "HB-REG-DEP-001",
@@ -207,7 +231,9 @@
       "fixture": "golden/G-REV-01.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "5백만원"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REV-01.pdf",
+      "pdf_content_hash": "sha256:c93cde6d5b9a82166f6bce8d61025da09fb3bde33b8548adebdf812848874a77"
     },
     {
       "registry_doc_no": "HB-REG-FX-001",
@@ -223,7 +249,9 @@
       "fixture": "golden/G-REV-02.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "미화 3천달러"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REV-02.pdf",
+      "pdf_content_hash": "sha256:aba8d81bb4afa25c9f3c9d5c8804fc23c3314b79cc8c519571680fcc38b9cb04"
     },
     {
       "registry_doc_no": "HB-REG-CARD-001",
@@ -239,7 +267,9 @@
       "fixture": "golden/G-REV-03.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "20세"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REV-03.pdf",
+      "pdf_content_hash": "sha256:a4a3c18886b5e40e91c72ddd4bebc66d72aa04d76e84cbc11ac1c3cbcea07406"
     },
     {
       "registry_doc_no": "HB-REG-RISK-001",
@@ -255,7 +285,9 @@
       "fixture": "golden/G-REV-04.txt",
       "key_values": {
         "ARTICLE:5/PARAGRAPH:1": "15%"
-      }
+      },
+      "pdf_fixture": "golden/pdf/G-REV-04.pdf",
+      "pdf_content_hash": "sha256:59c28c9341c6210fe9f4eb1d870b868b58de04bfe38746091e35d460b4b7e81b"
     }
   ]
 }
