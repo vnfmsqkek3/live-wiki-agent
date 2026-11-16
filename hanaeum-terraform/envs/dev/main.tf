@@ -23,20 +23,19 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "0adacd4"                                  # workflows·auth-triggers·services/ocr
-    dhxorb96 = "e40e9c6"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    dhxorb96 = "ac6869c"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "812a58933071d59bad6f7f0f30e948c2780b5114" # PR #9 병합 (하나은행 전환·DOCX·HWPX·OCR 보정)
   }
 
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
-  # 지정하면 이 태그 고정(빌드 안 함). null 이면 webapp_source_ref 커밋으로 CodeBuild 빌드.
-  # d0eeeae 유지: 32e5f81~e40e9c6 의 Dockerfile.pipeline 이 @hanaeum/pii 를 레지스트리에서 설치하려다 404 (dhxorb96 수정 대기)
-  pipeline_runtime_image_tag = "d0eeeae"
+  # null: webapp_source_ref 커밋으로 오케스트레이터 이미지를 CodeBuild 빌드. 지정하면 그 태그 고정(빌드 안 함)
+  pipeline_runtime_image_tag = null
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "32e5f81"
+  webapp_source_ref = "ac6869c"
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
