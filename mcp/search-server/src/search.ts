@@ -44,10 +44,13 @@ export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): 
 // ponytail: 후보 50 → Rerank 15 → 최종 5 고정 기본값 (docs/01 8.5). 실험 후 조정
 export const CANDIDATES = 50;
 export const RERANKED = 15;
-/** Rerank 관련도 하한. 실측(11/16, 공유 dev KB): 관련 질문 20건 top1 최저 0.396, 무관 질문 8건 top1 최고 0.147 → 그 사이 0.25.
- *  하한 미만은 근거가 아님 → 결과가 비면 UNVERIFIED (무관한 결과를 FOUND로 내지 않음, docs/02 4장).
- *  ponytail: 고정값. 문서가 늘면 같은 방식(measure-kb 보정 스크립트)으로 다시 잰다. Rerank 장애로 HYBRID 대체 중이면 점수 체계가 달라 적용하지 않음 */
-export const RERANK_MIN_SCORE = 0.25;
+/** Rerank 관련도 판정 (절대 하한 하나는 데이터가 바뀌면 흔들림 → 1위 점수 게이트 + 1위 대비 비율, dhxorb96 QA 11/17).
+ *  ① 1위가 RERANK_TOP1_MIN 미만이면 근거 없음 → UNVERIFIED. ② 아니면 1위의 RERANK_RATIO 이상만 함께 반환.
+ *  보정(공유 dev, Rerank 3.5): 11/16 한빛 KB 관련 top1 최저 0.396·무관 최고 0.147 / 11/17 하나은행 KB 관련 23건 최저 0.361·무관 10건 최고 0.248 → 게이트 0.30.
+ *  비율 0.4: "개인정보 수집"(규정에 수집 조문 없음)에서 1위 0.536일 때 정의 조문 0.233은 남기고 0.12대 잡음은 뺀다.
+ *  ponytail: 고정값. 문서가 늘면 같은 보정(무관·관련 질문 top1 분포)으로 다시 잰다. HYBRID 대체 중에는 점수 체계가 달라 미적용 */
+export const RERANK_TOP1_MIN = 0.30;
+export const RERANK_RATIO = 0.4;
 
 export class BedrockRetriever implements Retriever {
   private readonly c: BedrockAgentRuntimeClient;
@@ -82,7 +85,9 @@ export class BedrockRetriever implements Retriever {
       },
     }));
     const hits = (r.retrievalResults ?? []).map((x) => ({ text: x.content?.text ?? "", score: x.score ?? 0, metadata: (x.metadata ?? {}) as Record<string, unknown> }));
-    return rerankArn ? hits.filter((h) => h.score >= RERANK_MIN_SCORE) : hits;
+    if (!rerankArn) return hits;
+    const top = Math.max(0, ...hits.map((h) => h.score));
+    return top < RERANK_TOP1_MIN ? [] : hits.filter((h) => h.score >= top * RERANK_RATIO);
   }
 }
 
