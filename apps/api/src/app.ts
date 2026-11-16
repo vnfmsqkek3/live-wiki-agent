@@ -28,6 +28,8 @@ export interface Deps {
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
   guide(question: string, accessToken: string): Promise<unknown>;
+  /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
+  workflowFailure?(workflow_id: string): Promise<{ step: string; error: string } | undefined>;
 }
 
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
@@ -118,14 +120,16 @@ export function createApp(deps: Deps) {
 
   app.get('/v1/documents/:id', async (c) => {
     const d = await loadDoc(c, c.req.param('id'));
-    return c.json({ ...d, task_token: undefined, findings: undefined }); // JSON에서 빠짐
+    const failure = d.workflow_id && d.lifecycle === 'QUARANTINED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
+    return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // undefined는 JSON에서 빠짐
   });
 
   app.get('/v1/documents/:id/review', async (c) => {
     const a = need(c, ['AUTHOR', ...APPROVERS]);
     const d = await loadDoc(c, c.req.param('id'));
     if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
-    return c.json({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
+    const workflow_failure = d.workflow_id && d.lifecycle === 'QUARANTINED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
+    return c.json({ workflow_failure, doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {
@@ -147,6 +151,7 @@ export function createApp(deps: Deps) {
     await store.putDoc({
       ...d,
       classification: { business_path: [], tags: [], rationale: '', ...prev, document_type: b.document_type, confidence: 1, source: 'HUMAN' },
+      document_type: b.document_type, // Promote가 읽는 최상위 필드도 함께
       classification_history: [...(d.classification_history ?? []), { at, by: a.sub, from: prev?.document_type, to: b.document_type, reason: b.reason }],
       updated_at: at,
     });

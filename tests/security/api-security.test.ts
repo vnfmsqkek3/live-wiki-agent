@@ -1,12 +1,12 @@
 // 보안 테스트 (Owner dhxorb96, docs/02 4장 · TODO 11/21). 실행 중인 API에 데모 계정으로 직접 요청하는 블랙박스 테스트.
 // 실행: set -a; . ./.env.local; set +a; eval "$(apps/api/scripts/ssm-env.sh dev)"; API=http://localhost:8080 node --test tests/security/*.test.ts
-// 의존성 없음: AWS 호출은 aws CLI로 한다. 단계 Lambda가 SFN에 연결되기 전에는 직접 호출로 문서를 IN_REVIEW까지 만든다.
+// 의존성 없음: AWS 호출은 aws CLI로 한다. 문서는 공유 dev 실제 파이프라인으로 IN_REVIEW까지 만든다.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 
 const API = process.env.API ?? 'http://localhost:8080';
-const NICK = process.env.NICK ?? 'dhxorb96';
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`missing env ${k} (ssm-env.sh 먼저)`); return v; };
 const aws = (...args: string[]) => execFileSync('aws', [...args, '--output', 'json'], { encoding: 'utf8' });
 
@@ -28,39 +28,26 @@ async function call(who: Who | null, method: string, path: string, body?: unknow
   return { status: r.status, json: (await r.json().catch(() => ({}))) as Record<string, unknown> };
 }
 
-function invoke(fn: string, payload: unknown) {
-  const out = execFileSync('aws', ['lambda', 'invoke', '--function-name', `hanaeum-mvp-lambda-${fn}-${NICK}`, '--cli-binary-format', 'raw-in-base64-out',
-    '--payload', JSON.stringify(payload), '/dev/null', '--query', 'FunctionError', '--output', 'text'], { encoding: 'utf8' }).trim();
-  if (out !== 'None') throw new Error(`${fn}: ${out}`);
-}
+/** 업로드 → (S3 이벤트 → type-detection → SFN: Malware·FileStructure·TextLayer·Segment·…·TrustGate·WaitForApproval) → IN_REVIEW.
+ *  공유 dev 실제 파이프라인을 그대로 탄다 (yoyo0704 단계 Lambda 연결 11/16 20:10). presigned URL도 돌려줘 "검사 후 변경"에 쓴다 */
+// 텍스트 레이어가 있는 합성 PDF (let522mj fixture). 가짜 PDF는 TextLayerExtract가 InvalidPDFException으로 정상 차단한다
+const SAMPLE_PDF = new URL('../fixtures/documents/pdf/K-001.pdf', import.meta.url);
 
-/** SFN이 아직 stub WaitForApproval을 실행하므로 stub이 저장한 실제 task token을 읽는다 (단계 Lambda 연결 후 제거) */
-async function realTaskToken(wf: string) {
-  for (let i = 0; i < 30; i++) {
-    const t = aws('dynamodb', 'get-item', '--table-name', env('TABLE_WORKFLOWS'), '--key', JSON.stringify({ pk: { S: `WF#${wf}` }, sk: { S: 'APPROVAL_TOKEN' } }), '--query', 'Item.task_token.S');
-    const v = JSON.parse(t) as string | null;
-    if (v) return v;
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-  throw new Error('task token not found');
-}
-
-/** 업로드 → 단계 2·9·10 → IN_REVIEW 문서. presigned URL도 돌려줘 "검사 후 변경" 시나리오에 쓴다 */
-async function reviewedDoc(content = '%PDF-1.7\n% SYNTHETIC 보안 테스트 문서\n') {
-  const body = new TextEncoder().encode(content);
-  const r = await call('demo-author', 'POST', '/v1/documents/upload-url', { filename: 'sec.pdf', size: body.length, title: '[SYNTHETIC] 보안 테스트', dept: 'loan', acl_groups: ['ALL'] });
+async function reviewedDoc() {
+  const body = new Uint8Array(readFileSync(SAMPLE_PDF));
+  const r = await call('demo-author', 'POST', '/v1/documents/upload-url', { filename: 'sec.pdf', size: body.length, title: '[SYNTHETIC] 보안 테스트', dept: '여신', acl_groups: ['ALL'] });
   assert.equal(r.status, 201, JSON.stringify(r.json));
   const { doc_id, url } = r.json as { doc_id: string; url: string };
   const put = await fetch(url, { method: 'PUT', body });
   assert.equal(put.status, 200);
-  const d = await call('demo-author', 'GET', `/v1/documents/${doc_id}`);
-  const wf = d.json.workflow_id as string;
-  const input = { workflow_id: wf, doc_id, version: 1, bucket: 'x', prefix: `${doc_id}/`, actor: { sub: 'x', groups: ['AUTHOR'] } };
-  assert.equal((await call('demo-author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
-  invoke('file-structure-check', input);
-  invoke('trust-gate', input);
-  invoke('wait-for-approval', { ...input, task_token: await realTaskToken(wf) });
-  return { doc_id, url, body };
+  for (let i = 0; i < 80; i++) { // GuardDuty 스캔 포함 최대 약 4분
+    const d = await call('demo-author', 'GET', `/v1/documents/${doc_id}`);
+    if (d.json.lifecycle === 'IN_REVIEW' && d.json.trust_gate_result) return { doc_id, url, body };
+    if (d.json.lifecycle === 'BLOCKED') throw new Error(`pipeline BLOCKED ${doc_id}`);
+    if (d.json.workflow_failure) throw new Error(`pipeline FAILED ${doc_id} ${JSON.stringify(d.json.workflow_failure)}`);
+    await new Promise((res) => setTimeout(res, 3000));
+  }
+  throw new Error(`IN_REVIEW 도달 실패 ${doc_id}`);
 }
 
 async function submitted() {
@@ -121,7 +108,7 @@ test('검사 후 변경: 남은 presigned URL로 파일을 바꾸면 승인 거�
   const d = await submitted();
   // presigned URL은 Content-Length에 서명되므로 공격자는 같은 바이트 길이로 내용만 바꾼다
   const tampered = d.body.slice();
-  tampered[5] = 0x36; // '%PDF-1.7' → '%PDF-1.6'
+  tampered[tampered.length - 2] ^= 0x01; // 끝부분 1바이트만 변경 (길이 동일)
   const put = await fetch(d.url, { method: 'PUT', body: tampered });
   assert.equal(put.status, 200, '같은 URL 재업로드 (URL 유효시간 300초 내)');
   assert.equal((await call('demo-approver', 'POST', `/v1/approvals/${d.approval_id}/decision`, { decision: 'APPROVE', reason: 'x' })).status, 409);

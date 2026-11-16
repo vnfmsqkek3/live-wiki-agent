@@ -6,6 +6,9 @@ import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
 import { trustGate } from './steps/trust-gate.ts';
 import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
+import { piiScan, type GuardrailCheck } from './steps/pii.ts';
+import { injectionScan } from './steps/injection.ts';
+import { classifyPrompt, type ClassifyOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
 
@@ -16,6 +19,71 @@ export interface LambdaDeps {
   startWorkflow(d: DocumentRecord): Promise<void>;
   /** 노하우 검증 의존성 (regulation·search Tool). 없으면 KNOWHOW 문서는 검증 대기로 사람 검토 */
   knowhow?: KnowhowDeps & { maskedText(d: DocumentRecord): Promise<string> };
+}
+
+/** 단계 6·7·8 의존성. 6은 work/(원본 등급)을 읽고, 7·8은 masked/만 읽는다 (8은 모델 호출 Role, 원본 읽기 거부) */
+export interface SegmentDeps {
+  store: Store;
+  listKeys(prefix: string): Promise<string[]>;
+  getJson<T>(key: string): Promise<T>;
+  putJson(key: string, v: unknown): Promise<void>;
+  guardrail?: GuardrailCheck;
+  classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
+}
+type Seg = { page_index: number; text: string };
+const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
+
+async function maskedSegments(deps: SegmentDeps, doc_id: string) {
+  const keys = (await deps.listKeys(`${doc_id}/masked/segments/`)).filter((k) => k.endsWith('.json'));
+  if (!keys.length) throw new Error('masked segments 없음'); // 빈 결과로 성공 처리 금지
+  return Promise.all(keys.map((k) => deps.getJson<Seg>(k)));
+}
+
+/** 단계 6 PiiScan: work/segments → 정규식·체크섬 → Guardrails → masked/segments (Promote가 게시본으로 사용) */
+export function makePiiScan(deps: SegmentDeps) {
+  return async (i: StepInput): Promise<StepOutput> => {
+    const d = await mustDoc(deps.store, i.doc_id);
+    const keys = (await deps.listKeys(`${i.doc_id}/work/segments/`)).filter((k) => k.endsWith('.json'));
+    if (!keys.length) throw new Error('segments 없음');
+    const segs = await Promise.all(keys.map(async (k) => ({ page: pageOf(k), text: (await deps.getJson<Seg>(k)).text })));
+    const r = await piiScan(segs, deps.guardrail);
+    for (const m of r.masked)
+      await deps.putJson(`${i.doc_id}/masked/segments/${String(m.page).padStart(4, '0')}.json`, { doc_id: i.doc_id, page_index: m.page, text: m.text });
+    await deps.store.putDoc(addFindings(d, r.findings));
+    return { status: r.status, output_key: `${i.doc_id}/masked/segments/`, findings: r.findings };
+  };
+}
+
+/** 단계 7 InjectionScan: masked 텍스트만 */
+export function makeInjectionScan(deps: SegmentDeps) {
+  return async (i: StepInput): Promise<StepOutput> => {
+    const d = await mustDoc(deps.store, i.doc_id);
+    const r = injectionScan((await maskedSegments(deps, i.doc_id)).map((s) => ({ page: s.page_index, text: s.text })));
+    await deps.store.putDoc(addFindings(d, r.findings));
+    return r;
+  };
+}
+
+/** 단계 8 Classify: masked 텍스트 앞 6,000자 + 제목 → Haiku(저신뢰 시 Sonnet), temperature 0, 구조화 출력 (docs/04 3장) */
+export function makeClassify(deps: SegmentDeps) {
+  return async (i: StepInput): Promise<StepOutput> => {
+    if (!deps.classify) throw new Error('classify model not configured');
+    const d = await mustDoc(deps.store, i.doc_id);
+    const text = (await maskedSegments(deps, i.doc_id)).sort((a, b) => a.page_index - b.page_index).map((s) => s.text).join('\n').slice(0, 6000);
+    const prompt = classifyPrompt(d.title, text);
+    let r = await deps.classify('HAIKU', prompt);
+    if (r.value.confidence < 0.7) r = await deps.classify('SONNET', prompt); // 에스컬레이션 (docs/01 9장)
+    const v = r.value;
+    const findings: Finding[] = v.confidence < 0.7
+      ? [{ finding_id: newId.fnd(), step: 'CLASSIFY', severity: 'MEDIUM', code: 'CLASSIFY_LOW_CONFIDENCE', message: `분류 신뢰도 ${v.confidence.toFixed(2)} → 작성자 확인 필요`, evidence_ref: r.model }]
+      : [];
+    await deps.store.putDoc({
+      ...addFindings(d, findings),
+      document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
+      classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
+    });
+    return { status: findings.length ? 'REVIEW_REQUIRED' : 'OK', findings };
+  };
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;

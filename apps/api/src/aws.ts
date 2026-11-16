@@ -83,3 +83,45 @@ export async function invokeAgent(question: string, accessToken: string) {
   if (!r.ok) throw new Error(`agent ${r.status}`);
   return r.json();
 }
+
+/** WORKFLOWS 테이블에서 실패한 단계 (오류 이름만, 원문 없음) */
+export async function workflowFailure(workflow_id: string) {
+  const { DynamoDBClient, QueryCommand } = await import('@aws-sdk/client-dynamodb');
+  const r = await new DynamoDBClient({ region: region() }).send(new QueryCommand({
+    TableName: env('TABLE_WORKFLOWS'), KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': { S: `WF#${workflow_id}` } },
+  }));
+  const failed = (r.Items ?? []).find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
+  return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown' } : undefined;
+}
+
+// ---- quarantine 버킷 JSON 입출력 (단계 6·7·8) ----
+export async function listKeys(prefix: string) {
+  const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');
+  const out: string[] = [];
+  let ContinuationToken: string | undefined;
+  do {
+    const r = await s3().send(new ListObjectsV2Command({ Bucket: env('BUCKET_QUARANTINE'), Prefix: prefix, ContinuationToken }));
+    for (const o of r.Contents ?? []) if (o.Key) out.push(o.Key);
+    ContinuationToken = r.NextContinuationToken;
+  } while (ContinuationToken);
+  return out.sort();
+}
+export async function getJson<T>(key: string): Promise<T> {
+  const r = await s3().send(new GetObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key }));
+  return JSON.parse(await r.Body!.transformToString()) as T;
+}
+export async function putJson(key: string, v: unknown) {
+  await s3().send(new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, Body: JSON.stringify(v), ContentType: 'application/json' }));
+}
+
+/** Guardrails ApplyGuardrail (모델 추론 아님). GUARDRAIL_ID 없으면 undefined → 정규식 단계만 */
+export async function applyGuardrail(text: string) {
+  const id = process.env.GUARDRAIL_ID;
+  if (!id) return undefined;
+  const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
+  const r = await new BedrockRuntimeClient({ region: region() }).send(new ApplyGuardrailCommand({
+    guardrailIdentifier: id, guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'INPUT', content: [{ text: { text } }],
+  }));
+  const detected = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
+  return { text: r.outputs?.[0]?.text ?? text, detected };
+}

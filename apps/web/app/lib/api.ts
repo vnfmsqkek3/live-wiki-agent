@@ -107,6 +107,7 @@ export interface Review {
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
   findings: Finding[]; masked_preview?: string;
   knowhow_validation?: KnowhowValidation;
+  workflow_failure?: { step: string; error: string };
 }
 export interface KnowhowValidation {
   verdict: 'SUPPORTED' | 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT';

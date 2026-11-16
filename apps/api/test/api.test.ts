@@ -27,6 +27,7 @@ function setup() {
     search: async () => [],
     guide: async (q, tok) => ({ q, tok }),
     webOrigins: ['http://localhost:3000'],
+    workflowFailure: async (wf) => (wf === 'wf_FAILED' ? { step: 'ParallelPreprocess', error: 'InvalidPDFException' } : undefined),
   };
   const app = createApp(deps);
   const call = (who: string | undefined, method: string, path: string, body?: unknown) =>
@@ -207,4 +208,14 @@ test('출처 불일치(F-003류): 게시 요청 차단, 검토 큐에 노출, �
   assert.deepEqual(t.tasks.at(-1), { token: 'tok-f3', decision: 'REJECT' });
   assert.equal((await t.call('approver', 'POST', `/v1/documents/${doc_id}/source-review`, { decision: 'REJECT', reason: 'again' })).status, 409);
   assert.equal(((await (await t.call('approver', 'GET', '/v1/review-queue')).json()) as { items: unknown[] }).items.length, 0);
+});
+
+test('파이프라인 실패: QUARANTINED 문서 조회 시 실패 단계·오류 이름 노출', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, workflow_id: 'wf_FAILED' });
+  const g = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}`)).json()) as Record<string, unknown>;
+  assert.deepEqual(g.workflow_failure, { step: 'ParallelPreprocess', error: 'InvalidPDFException' });
 });
