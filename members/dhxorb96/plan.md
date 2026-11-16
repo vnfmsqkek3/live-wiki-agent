@@ -22,9 +22,19 @@
 - 11/18: Classify 실모델, 승인 task token(SendTaskSuccess), 화면 05·01·02, E2E 1건
 - 11/19: 검색·가이드 Agent, `mcp/privacy-server`·`mcp/approval-server`, 화면 TrustGate·03
 
-## 남은 작업 (11/17 시작 시)
+## 11/17 (앞당겨 진행)
 
-- 공유 dev(yoyo0704) 배포 후: DynamoDB Store 구현, S3 presign 실버킷, SFN 연결, web `NEXT_PUBLIC_API_URL`
-- 단계 Lambda 핸들러 래퍼 (S3 읽기·Documents 갱신·task token 저장) — 규칙 엔진은 완료
+| No | 작업 | 완료 조건 | 의존 / mock | 상태 |
+|---|---|---|---|---|
+| 10 | DynamoDB Store | 메모리·공유 dev 계약 테스트 통과, 동시 승인 1건만 성공 | — | [x] |
+| 11 | 단계 Lambda type-detection·2·9·10·14 | 단위 테스트 + 개인 dev 배포 | SFN 연결은 yoyo0704 | [m] 직접 호출로 검증 |
+| 12 | 승인 E2E (공유 dev) | `tests/e2e/approval-flow-dev.sh` ALL PASS | 단계 6·7·8 미연결 | [x] |
+
+## 남은 작업
+
+- yoyo0704가 단계 Lambda를 SFN에 연결하면 E2E에서 직접 호출 부분 제거
+- PR #1 CI 수정 후 머지, PR #2 정리
+- 단계 6·7·8 Lambda (let522mj SegmentBuild 산출물 `work/segments/` 확정 후), Classify 실모델
+- web `NEXT_PUBLIC_API_URL` 연결 (API 배포 위치 결정 후: ECS Fargate는 yoyo0704)
 - Classify(단계 8) 실모델 호출 + structured output
 - 개인 dev 실험 리소스 정리: `hanaeum-mvp-*-dhxorb96` (Cognito exp, Lambda gwstub·gwicpt, Gateway gw-exp, ECR agent, Runtime rt_exp, IAM role gwstub·gw·runtime)
