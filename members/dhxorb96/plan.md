@@ -37,6 +37,7 @@
 | 13 | 검색·가이드 Agent | 질의 PII 검사, 출처 검증, 불확실성 표시, 테스트 | search Tool(let522mj) mock | [m] 실모델 확인 |
 | 14 | 화면 05·03 | 빌드·스크린샷 확인 | API mock | [m] |
 | 15 | 분류 수정 API + 이력 | 테스트 | — | [x] |
+| 16 | `mcp/privacy-server`, `mcp/approval-server` | 테스트 + Gateway 경유 호출, 승인·게시 Tool 미노출 | 공유 Gateway 등록은 yoyo0704 | [x] 개인 dev |
 
 ## 남은 작업
 
