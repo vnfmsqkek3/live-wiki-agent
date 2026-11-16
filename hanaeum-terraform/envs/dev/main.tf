@@ -18,6 +18,9 @@ module "stack" {
   # dev: 각 Owner 의 개인 Lambda 연결 (요청기록 11/16 dhxorb96_to_yoyo0704 1809, let522mj_to_yoyo0704_lambda배포)
   step_functions = {
     file_structure_check = "hanaeum-mvp-lambda-file-structure-check-dhxorb96"
+    pii_scan             = "hanaeum-mvp-lambda-pii-scan-dhxorb96"
+    injection_scan       = "hanaeum-mvp-lambda-injection-scan-dhxorb96"
+    classify             = "hanaeum-mvp-lambda-classify-dhxorb96"
     trust_gate           = "hanaeum-mvp-lambda-trust-gate-dhxorb96"
     wait_for_approval    = "hanaeum-mvp-lambda-wait-for-approval-dhxorb96"
     finalize             = "hanaeum-mvp-lambda-finalize-dhxorb96"

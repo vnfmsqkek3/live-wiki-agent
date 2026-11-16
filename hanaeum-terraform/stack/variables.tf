@@ -41,3 +41,9 @@ variable "web_origins" {
   type    = list(string)
   default = ["http://localhost:3000"]
 }
+
+# 문서 처리 오케스트레이터 이미지 (dhxorb96 agents/, linux/arm64). ECR: SSM PIPELINE_ECR_REPO. null 이면 Runtime 미생성
+variable "pipeline_runtime_image" {
+  type    = string
+  default = null
+}

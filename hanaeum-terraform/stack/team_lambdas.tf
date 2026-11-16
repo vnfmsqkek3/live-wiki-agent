@@ -22,6 +22,8 @@ locals {
     TABLE_FEEDBACK     = local.t["feedback"].name
     BUCKET_QUARANTINE  = local.b["quarantine"].name
     SFN_INGEST_ARN     = local.sfn_arn
+    # Runtime 이 아직 없으면 빈 값 (type-detection 은 SFN 경로 유지)
+    PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
   }
   d_statements = [
     {
@@ -41,13 +43,35 @@ locals {
       zip = "dhxorb96-handlers.zip", handler = "handlers.typeDetection", env = local.d_env, memory = 256, timeout = 60, model_caller = false
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["states:StartExecution"], Resource = local.sfn_arn },
+        # AgentCore 오케스트레이터 시작 (긴급 요청 11/16). 전환 후 StartExecution 제거
+        { Effect = "Allow", Action = ["bedrock-agentcore:InvokeAgentRuntime"], Resource = [module.pipeline.runtime_arn_pattern, "${module.pipeline.runtime_arn_pattern}/*"] },
         { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = module.sfn.trigger_queue_arn },
       ])
     }
     file-structure-check = { zip = "dhxorb96-handlers.zip", handler = "handlers.fileStructureCheck", env = local.d_env, memory = 512, timeout = 60, model_caller = false, statements = local.d_statements }
-    trust-gate           = { zip = "dhxorb96-handlers.zip", handler = "handlers.trustGate", env = local.d_env, memory = 256, timeout = 60, model_caller = false, statements = local.d_statements }
-    wait-for-approval    = { zip = "dhxorb96-handlers.zip", handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
-    finalize             = { zip = "dhxorb96-handlers.zip", handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+    pii-scan = {
+      zip = "dhxorb96-handlers.zip", handler = "handlers.piiScan", env = local.d_env, memory = 512, timeout = 120, model_caller = false
+      statements = concat(local.d_statements, [
+        { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
+      ])
+    }
+    injection-scan = {
+      zip        = "dhxorb96-handlers.zip", handler = "handlers.injectionScan", env = local.d_env, memory = 256, timeout = 60, model_caller = false
+      statements = concat(local.d_statements, [{ Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn }])
+    }
+    # 모델 호출 Role (masked/ 만 읽음, 원본 등급 키는 버킷 정책이 거부)
+    classify = {
+      zip = "dhxorb96-handlers.zip", handler = "handlers.classify", memory = 512, timeout = 120, model_caller = true
+      env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"] })
+      statements = concat(local.d_statements, [
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ])
+    }
+    trust-gate        = { zip = "dhxorb96-handlers.zip", handler = "handlers.trustGate", env = local.d_env, memory = 256, timeout = 60, model_caller = false, statements = local.d_statements }
+    wait-for-approval = { zip = "dhxorb96-handlers.zip", handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+    finalize          = { zip = "dhxorb96-handlers.zip", handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
 
     # ---- let522mj (dist/lambda/{name}.zip, index.handler) ----
     text-layer-extract = { zip = "text_layer_extract.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
@@ -138,7 +162,7 @@ resource "aws_lambda_event_source_mapping" "upload" {
 locals {
   # Step Functions 단계 키(workflows/src/asl.ts) → 팀 Lambda 키. graph_upsert 는 Neptune 전까지 stub.
   step_fn = {
-    file_structure_check = "file-structure-check", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
+    file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
     text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }

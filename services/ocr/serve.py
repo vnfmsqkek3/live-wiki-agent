@@ -69,6 +69,8 @@ class H(BaseHTTPRequestHandler):
         try:
             self._send(200, run(req))
         except Exception as e:  # noqa: BLE001  실패는 SageMaker 가 failure 경로에 기록
+            # 예외 종류와 앞부분만 (S3 키·라이브러리 메시지. OCR 텍스트는 예외 메시지에 들어가지 않음)
+            print("invocation failed", type(e).__name__, str(e)[:200], flush=True)
             self._send(500, {"error": type(e).__name__})
 
     def log_message(self, *_):  # 요청 로그 생략 (경로·본문 비노출)

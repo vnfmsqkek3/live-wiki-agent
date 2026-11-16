@@ -40,11 +40,21 @@
 | 18 | 팀 Lambda 연결 (dev: Owner 개인 Lambda, type-detection 공유+SQS), chunker, CORS | 실제 업로드 → WaitForApproval 도달 | dhxorb96·let522mj Lambda | [x] `smoke-pipeline.sh` PASS. 승인 이후는 승인 API 필요 (직접 APPROVE 시 Promote ApprovalBindingError = 정상) |
 | 17 | ECS Fargate(API), CloudFront + WAF | | dhxorb96 `apps/api`·`apps/web` (PR #2) | [ ] PR #2 머지 후 |
 
+## 긴급 (11/16 20:07, dhxorb96_to_team): SFN → AgentCore 오케스트레이션
+
+| No | yoyo0704 몫 | 상태 |
+|---|---|---|
+| ① | 파이프라인 Gateway(AWS_IAM) + 단계 Lambda 14개 Target | [x] READY, tools/list·tools/call 검증 |
+| ② | 오케스트레이터 Runtime 리소스·Role·ECR | [~] Role·ECR 완료. Runtime 은 dhxorb96 이미지 push 후 `pipeline_runtime_image` 지정 |
+| ③ | type-detection `InvokeAgentRuntime` 권한 | [x] (env `PIPELINE_RUNTIME_ARN` 채우면 전환) |
+| ④ | 전환 확인 후 SFN·`workflows/asl` 폐기, `interfaces.md` 6장 개정 | [ ] 6.1 추가함. 폐기는 전환 E2E 후 |
+| ⑤ | 파이프라인 Gateway 는 오케스트레이터 Role 만 | [x] IAM(InvokeGateway). AgentCore Policy 엔진은 P1 |
+
 ## 다음 (세션 이어받기용, 11/16 20:15 기준)
 
 | 순서 | 작업 | 상태·메모 |
 |---|---|---|
-| 1 | OCR 엔드포인트 `ml.g4dn.xlarge` apply 완료 확인 | 진행 중. 실패 시 `aws sagemaker describe-endpoint --endpoint-name hanaeum-mvp-sm-ocr-dev`의 FailureReason 확인 → Failed 엔드포인트는 state 밖에 남으므로 delete 후 재apply |
+| 1 | OCR GPU 미인식 해결 (드라이버 550 AMI 후에도 CPU 전환. 다음: 컨테이너 시작 시 nvidia-smi·paddle.device.cuda.device_count 로그 → paddle 3.4.0 cu129 검토) | 진행 중. 실패 시 `aws sagemaker describe-endpoint --endpoint-name hanaeum-mvp-sm-ocr-dev`의 FailureReason 확인 → Failed 엔드포인트는 state 밖에 남으므로 delete 후 재apply |
 | 2 | `workflows/scripts/smoke-ocr.sh dev` (paddle 3.3.1 기준선) | 한국어 PNG → result.json 텍스트·confidence·bbox |
 | 3 | paddle 업그레이드: `paddlepaddle-gpu==3.4.0` (cu129 인덱스) + `paddlex==3.7.2` 고정 → 재빌드 → smoke-ocr 재검증 → `interfaces.md` 8장 갱신 | 사용자 승인됨(A안). cu130은 드라이버 580+ 필요라 제외 |
 | 4 | 브랜치 → main PR (smoke-pipeline.sh, OCR g4dn, 3.4.0) | PR #1 squash 머지됨. 리뷰는 요청기록으로 dhxorb96 에게 |

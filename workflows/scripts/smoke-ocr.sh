@@ -8,7 +8,8 @@ ENV=${1:-dev}
 p() { aws ssm get-parameter --name "/hanaeum-mvp/$ENV/$1" --query Parameter.Value --output text; }
 [ "$(aws sts get-caller-identity --query Account --output text)" = "$HANAEUM_ACCOUNT_ID" ] || { echo "계정 불일치" >&2; exit 1; }
 SFN=$(p SFN_INGEST_ARN); TABLE=$(p TABLE_WORKFLOWS); DOCS=$(p TABLE_DOCUMENTS); BUCKET=$(p BUCKET_QUARANTINE)
-TS=$(date +%s); DOC="doc_SMOKEOCR$TS"; WF="wf_SMOKEOCR$TS"; TMP=$(mktemp -d)
+ulid() { node -e 'const B="0123456789ABCDEFGHJKMNPQRSTVWXYZ";let t="",n=Date.now();for(let i=0;i<10;i++,n=Math.floor(n/32))t=B[n%32]+t;let r="";for(let i=0;i<16;i++)r+=B[Math.floor(Math.random()*32)];console.log(t+r)'; }
+DOC="doc_$(ulid)"; WF="wf_$(ulid)"; TMP=$(mktemp -d); NOW=$(date -u +%FT%TZ)
 fail() { echo "FAIL $1" >&2; exit 1; }
 cleanup() {
   aws s3 rm "s3://$BUCKET/$DOC/" --recursive >/dev/null 2>&1 || true
@@ -27,11 +28,21 @@ g.fillStyle = "#fff"; g.fillRect(0, 0, 1600, 400); g.fillStyle = "#000"; g.font 
 require("fs").writeFileSync(process.argv[1], c.toBuffer("image/png"));
 ' "$TMP/page.png"
 
-aws dynamodb put-item --table-name "$DOCS" --item "{\"pk\":{\"S\":\"DOC#$DOC\"},\"sk\":{\"S\":\"META\"},\"doc_id\":{\"S\":\"$DOC\"},\"findings\":{\"L\":[]},\"updated_at\":{\"S\":\"$(date -u +%FT%TZ)\"}}"
+# API(upload-url·analyze)가 만드는 형식의 Documents 레코드. 업로드하면 type-detection 이 워크플로를 시작한다
+aws dynamodb put-item --table-name "$DOCS" --item "$(cat <<JSON
+{"pk":{"S":"DOC#$DOC"},"sk":{"S":"META"},"doc_id":{"S":"$DOC"},"version":{"N":"1"},"owner":{"S":"smoke-author"},
+ "title":{"S":"SYNTHETIC smoke OCR"},"dept":{"S":"여신"},"acl_groups":{"L":[{"S":"ALL"}]},"ext":{"S":"png"},"workflow_id":{"S":"$WF"},
+ "lifecycle":{"S":"QUARANTINED"},"authority_status":{"S":"UNVERIFIED"},"freshness":{"S":"CURRENT"},"findings":{"L":[]},
+ "created_at":{"S":"$NOW"},"updated_at":{"S":"$NOW"}}
+JSON
+)"
 aws s3 cp "$TMP/page.png" "s3://$BUCKET/$DOC/original.png" --sse aws:kms >/dev/null
-EXEC=$(aws stepfunctions start-execution --state-machine-arn "$SFN" --name "$WF" \
-  --input "{\"workflow_id\":\"$WF\",\"doc_id\":\"$DOC\",\"version\":1,\"bucket\":\"$BUCKET\",\"prefix\":\"$DOC/\",\"actor\":{\"sub\":\"smoke\",\"groups\":[\"AUTHOR\"]}}" \
-  --query executionArn --output text)
+EXEC=None
+for _ in $(seq 1 30); do
+  EXEC=$(aws stepfunctions list-executions --state-machine-arn "$SFN" --max-results 20 --query "executions[?name=='$WF'].executionArn | [0]" --output text)
+  [ "$EXEC" != None ] && break; sleep 3
+done
+[ "$EXEC" != None ] || fail "type-detection did not start workflow"
 echo "started $WF (OCR 엔드포인트가 0대면 최대 30분)"
 
 ST=None
@@ -58,6 +69,5 @@ print(f"blocks={len(blocks)} avg_conf={sum(b['confidence'] for b in blocks)/len(
 PY
 echo "PASS OCR result.json (Korean text, confidence, bbox) step=$ST"
 
-TOKEN=$(aws dynamodb get-item --table-name "$TABLE" --key "{\"pk\":{\"S\":\"WF#$WF\"},\"sk\":{\"S\":\"APPROVAL_TOKEN\"}}" --query Item.task_token.S --output text)
-if [ "$TOKEN" != None ]; then aws stepfunctions send-task-success --task-token "$TOKEN" --task-output '{"decision":"REJECT"}'; else aws stepfunctions stop-execution --execution-arn "$EXEC" >/dev/null; fi
+aws stepfunctions stop-execution --execution-arn "$EXEC" --error Smoke.Done >/dev/null 2>&1 || true # OCR 이후 단계는 이 smoke 범위 밖
 echo "ALL PASS ($ENV)"
