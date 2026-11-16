@@ -116,3 +116,16 @@ test("응답 계약: dhxorb96 가이드 Agent Evidence 필드 (items, snippet, p
   const know = r.items.find((x) => x.document_type === "KNOWHOW");
   if (know) assert.equal(know.provision, undefined);
 });
+
+test("노하우 본문 → 관련 현행 조문 상위 5 (dhxorb96 1924-2, 조문 번호 없는 노하우): G-KC-02 보유 기간", async () => {
+  const { tools, retriever, states } = setup();
+  const { readFileSync: rf } = await import("node:fs");
+  // 개인정보 보호규정(G-REG-06) 색인
+  const law = { ...base, doc_id: "G-REG-06", title: "한빛은행 개인정보 보호규정", law_name: "한빛은행 개인정보 보호규정", document_type: "REGULATION" as const, law_id: "SYN-PRIV-001", revision_id: "2026-11-01", effective_from: 20261101, effective_to: 99991231, content_hash: H("6") };
+  for (const c of chunkDocument(rf(new URL("golden/G-REG-06.txt", FIX), "utf8"), law)) retriever.add(c.augmented_search_text, c.metadata);
+  states.docs.set("G-REG-06", { doc_id: "G-REG-06", lifecycle: "PUBLISHED", authority_status: "VERIFIED", freshness: "CURRENT", acl_groups: ["ALL"], published_content_hash: H("6") });
+  const body = rf(new URL("golden/G-KC-02.md", FIX), "utf8").replace(/^---\n[\s\S]*?\n---\n/u, "");
+  const r = await tools.search_wiki({ query: body, index_groups: ["legal-clauses"], top_k: 5, as_of: "2026-12-15" }, user);
+  assert.ok(r.items.some((x) => x.provision_id === "SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"), r.items.map((x) => x.provision_id).join(", "));
+  assert.ok(r.items.every((x) => x.document_type === "REGULATION"));
+});

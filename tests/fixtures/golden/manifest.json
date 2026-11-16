@@ -26,6 +26,7 @@
       "related_clause": null,
       "expected_kb_visibility": true,
       "test_scenario": "공식 기반 데이터 검증 (데모 02·04)",
+      "upload_file": "documents/pdf/F-001.pdf",
       "category": "기반 규정"
     },
     {
@@ -56,6 +57,7 @@
         "K-001",
         "K-003"
       ],
+      "upload_file": "documents/pdf/F-002.pdf",
       "category": "개정·삭제"
     },
     {
@@ -69,17 +71,19 @@
       "acl_groups": [
         "ALL"
       ],
-      "expected_trust_gate": "QUARANTINED",
-      "expected_status": "REJECTED",
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
       "expected_conflict": true,
       "related_regulation": "SYN-LOAN-001",
       "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1",
       "expected_kb_visibility": false,
-      "test_scenario": "Registry 해시·조항 수치 불일치 → 게시 차단 (데모 02)",
+      "test_scenario": "Registry 해시·조항 수치 불일치 → REVIEW_REQUIRED(docs/01 4.4 '공식 원본 불일치', 위조 확정 아님) + 게시 차단·KB 비노출 (데모 02)",
       "expected_findings": [
         "REGISTRY_HASH_MISMATCH",
         "KEY_VALUE_MISMATCH"
       ],
+      "upload_file": "documents/pdf/F-003.pdf",
+      "expected_publish_blocked": true,
       "category": "악성·위조"
     },
     {
@@ -98,6 +102,7 @@
       "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1",
       "expected_kb_visibility": true,
       "test_scenario": "근거 부합 → 승인 가능 (데모 03·04)",
+      "upload_file": "documents/pdf/K-001.pdf",
       "category": "정상 노하우"
     },
     {
@@ -116,6 +121,7 @@
       "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1",
       "expected_kb_visibility": false,
       "test_scenario": "현장 실사 생략 → 규정 충돌 / 검토 필요 (데모 03)",
+      "upload_file": "documents/pdf/K-002.pdf",
       "category": "충돌 노하우"
     },
     {
@@ -135,6 +141,7 @@
       "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1",
       "expected_kb_visibility": false,
       "test_scenario": "7억 기준(과거) 인용 → 최신성 검증 실패 (데모 04)",
+      "upload_file": "documents/pdf/K-003.pdf",
       "category": "개정·삭제"
     },
     {
@@ -154,6 +161,7 @@
       "related_clause": null,
       "expected_kb_visibility": "after_human_approval",
       "test_scenario": "조건부 검증 / 사람 검토",
+      "upload_file": "documents/pdf/K-004.pdf",
       "category": "정상 노하우"
     },
     {
@@ -175,6 +183,7 @@
       "expected_findings": [
         "PROMPT_INJECTION"
       ],
+      "upload_file": "documents/pdf/A-001.pdf",
       "category": "악성·위조"
     },
     {
@@ -197,6 +206,7 @@
         "PNG_TEXT_CHUNK_INJECTION",
         "TRAILING_DATA_AFTER_IEND"
       ],
+      "upload_file": "documents/A-002.png",
       "category": "악성·위조"
     },
     {
@@ -217,6 +227,8 @@
       "related_clause": null,
       "expected_kb_visibility": true,
       "test_scenario": "구조 파싱 검증 (데모 05). 정답 legal/expected/L-001.json",
+      "upload_file": null,
+      "upload_note": "파서 검증 전용 (데모 05는 실 DynamoDB 조회)",
       "category": "기반 규정"
     },
     {
@@ -2238,8 +2250,9 @@
       "acl_groups": [
         "ALL"
       ],
-      "expected_trust_gate": "QUARANTINED",
-      "expected_status": "REJECTED",
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_publish_blocked": true,
       "expected_conflict": true,
       "related_regulation": "SYN-IC-001",
       "related_clause": "SYN-IC-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
@@ -2248,7 +2261,7 @@
         "REGISTRY_HASH_MISMATCH",
         "KEY_VALUE_MISMATCH"
       ],
-      "test_scenario": "Registry 불일치 → 게시 차단"
+      "test_scenario": "Registry 불일치 → REVIEW_REQUIRED + 게시 차단"
     },
     {
       "document_id": "G-FORGE-02",
@@ -2261,8 +2274,9 @@
       "acl_groups": [
         "ALL"
       ],
-      "expected_trust_gate": "QUARANTINED",
-      "expected_status": "REJECTED",
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_publish_blocked": true,
       "expected_conflict": true,
       "related_regulation": "SYN-PRIV-001",
       "related_clause": "SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
@@ -2271,7 +2285,7 @@
         "REGISTRY_HASH_MISMATCH",
         "KEY_VALUE_MISMATCH"
       ],
-      "test_scenario": "Registry 불일치 → 게시 차단"
+      "test_scenario": "Registry 불일치 → REVIEW_REQUIRED + 게시 차단"
     },
     {
       "document_id": "G-FORGE-03",
@@ -2284,8 +2298,9 @@
       "acl_groups": [
         "ALL"
       ],
-      "expected_trust_gate": "QUARANTINED",
-      "expected_status": "REJECTED",
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_publish_blocked": true,
       "expected_conflict": true,
       "related_regulation": "SYN-ITSEC-001",
       "related_clause": "SYN-ITSEC-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
@@ -2294,7 +2309,7 @@
         "REGISTRY_HASH_MISMATCH",
         "KEY_VALUE_MISMATCH"
       ],
-      "test_scenario": "Registry 불일치 → 게시 차단"
+      "test_scenario": "Registry 불일치 → REVIEW_REQUIRED + 게시 차단"
     },
     {
       "document_id": "G-FORGE-04",
@@ -2307,8 +2322,9 @@
       "acl_groups": [
         "ALL"
       ],
-      "expected_trust_gate": "QUARANTINED",
-      "expected_status": "REJECTED",
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_publish_blocked": true,
       "expected_conflict": true,
       "related_regulation": "SYN-TRUST-001",
       "related_clause": "SYN-TRUST-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
@@ -2317,7 +2333,7 @@
         "REGISTRY_HASH_MISMATCH",
         "KEY_VALUE_MISMATCH"
       ],
-      "test_scenario": "Registry 불일치 → 게시 차단"
+      "test_scenario": "Registry 불일치 → REVIEW_REQUIRED + 게시 차단"
     },
     {
       "document_id": "G-INJ-01",

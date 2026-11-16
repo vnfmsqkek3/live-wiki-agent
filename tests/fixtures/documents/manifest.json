@@ -62,18 +62,19 @@
       "acl_groups": [
         "ALL"
       ],
-      "expected_trust_gate": "QUARANTINED",
-      "expected_status": "REJECTED",
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
       "expected_conflict": true,
       "related_regulation": "SYN-LOAN-001",
       "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1",
       "expected_kb_visibility": false,
-      "test_scenario": "Registry 해시·조항 수치 불일치 → 게시 차단 (데모 02)",
+      "test_scenario": "Registry 해시·조항 수치 불일치 → REVIEW_REQUIRED(docs/01 4.4 '공식 원본 불일치', 위조 확정 아님) + 게시 차단·KB 비노출 (데모 02)",
       "expected_findings": [
         "REGISTRY_HASH_MISMATCH",
         "KEY_VALUE_MISMATCH"
       ],
-      "upload_file": "documents/pdf/F-003.pdf"
+      "upload_file": "documents/pdf/F-003.pdf",
+      "expected_publish_blocked": true
     },
     {
       "document_id": "K-001",

@@ -189,8 +189,9 @@ for (let i = 0; i < 4; i++) {
   const id = `G-FORGE-${String(i + 1).padStart(2, "0")}`;
   const file = write(`${id}.txt`, forged);
   entries.push({ document_id: id, category: "악성·위조", file, document_type: "REGULATION", law_id: lawId(d), revision_id: "2026-11-01", dept: d.dept, acl_groups: ["ALL"],
-    expected_trust_gate: "QUARANTINED", expected_status: "REJECTED", expected_conflict: true, related_regulation: lawId(d), related_clause: pid(d, 1, "ARTICLE:5/PARAGRAPH:1"),
-    expected_kb_visibility: false, expected_findings: ["REGISTRY_HASH_MISMATCH", "KEY_VALUE_MISMATCH"], test_scenario: "Registry 불일치 → 게시 차단" });
+    // docs/01 4.4: 공식 원본 불일치 = REVIEW_REQUIRED (위조 확정 아님). DoD는 "게시 차단" (docs/02 4장)
+    expected_trust_gate: "REVIEW_REQUIRED", expected_status: "UNVERIFIED", expected_publish_blocked: true, expected_conflict: true, related_regulation: lawId(d), related_clause: pid(d, 1, "ARTICLE:5/PARAGRAPH:1"),
+    expected_kb_visibility: false, expected_findings: ["REGISTRY_HASH_MISMATCH", "KEY_VALUE_MISMATCH"], test_scenario: "Registry 불일치 → REVIEW_REQUIRED + 게시 차단" });
 }
 
 // Injection 3 (+ A-001, A-002 = 5)

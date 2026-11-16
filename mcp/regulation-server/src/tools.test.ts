@@ -92,3 +92,23 @@ test("tools.json(Gateway 등록 스키마)과 구현 Tool 이름 일치 — regu
   assert.deepEqual(names("../../search-server/tools.json"), Object.keys(searchTools({} as never)).sort());
   assert.deepEqual(names("../../graph-server/tools.json"), Object.keys(graphTools({} as never)).sort());
 });
+
+test("버전 박힌 조문 ID 조회 (dhxorb96 1924-1): K-003의 2025 인용 → HISTORICAL + 같은 위치 현행 조문", async () => {
+  const r = await t.get_clause({ clause: "SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1", as_of: "2026-12-15" }, user);
+  assert.equal(r.search_status, "HISTORICAL");
+  assert.match(r.original_text!, /7억원/u);
+  assert.equal(r.current!.revision_id, "2026-12-01");
+  assert.equal(r.current!.status, "ACTIVE");
+  assert.match(r.current!.original_text, /3억원/u);
+  // 현행 버전을 인용하면 FOUND, current 없음
+  const now = await t.get_clause({ clause: "SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1", as_of: "2026-12-15" }, user);
+  assert.equal(now.search_status, "FOUND");
+  assert.equal(now.current, undefined);
+  // 개정으로 삭제된 위치: 현행 쪽 상태가 DELETED
+  const del = await t.get_clause({ clause: "SYN-LOAN-001@2026-11-01/ARTICLE:15/PARAGRAPH:2", as_of: "2026-12-15" }, user);
+  assert.equal(del.current!.status, "DELETED");
+  // 현행에서 사라진 조문 (v0 제16조)
+  const gone = await t.get_clause({ clause: "SYN-LOAN-001@2025-01-01/ARTICLE:16", as_of: "2026-12-15" }, user);
+  assert.equal(gone.current!.status, "NOT_FOUND");
+  assert.equal((await t.get_clause({ clause: "SYN-LOAN-001@2030-01-01/ARTICLE:1" }, user)).search_status, "UNVERIFIED");
+});

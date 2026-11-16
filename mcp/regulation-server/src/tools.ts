@@ -50,6 +50,8 @@ export interface ClauseResult {
   law_id?: string; revision_id?: string; effective_from?: number; effective_to?: number;
   provision_id?: string; path_label?: string; title?: string;
   original_text?: string; deletion_date?: string; children?: { provision_id: string; path_label: string; status: string; original_text: string }[];
+  /** 인용한 버전이 기준일 현행이 아닐 때, 같은 위치의 현행 조문 (dhxorb96 노하우 최신성 판정용, 요청 1924) */
+  current?: { revision_id: string; effective_from: number; provision_id: string | null; status: "ACTIVE" | "DELETED" | "NOT_FOUND"; original_text: string };
 }
 
 async function resolveLaw(store: ClauseStore, args: Record<string, unknown>): Promise<string | undefined> {
@@ -59,9 +61,43 @@ async function resolveLaw(store: ClauseStore, args: Record<string, unknown>): Pr
 
 export function regulationTools(store: ClauseStore, opts: { today?: () => number } = {}) {
   const todayYmd = opts.today ?? systemToday;
+  /** 버전이 박힌 조문 ID 조회: 그 버전 원문 + (현행이 아니면) 같은 위치 현행 조문 */
+  async function getCitedClause(pid: string, asOf: number, actor: Actor): Promise<ClauseResult> {
+    const [lawRev] = pid.split("/");
+    const [lawId, revId] = lawRev!.split("@") as [string, string];
+    const revs = await store.revisions(lawId);
+    const rec = revs.find((r) => r.revision_id === revId);
+    if (!rec) return { search_status: "UNVERIFIED", reason: `등록되지 않은 버전: ${lawId}@${revId}`, law_id: lawId };
+    if (!visible(rec, actor)) return { search_status: "ACCESS_DENIED", reason: "열람 권한 없음", law_id: lawId };
+    const path = relPath(pid);
+    const provs = await store.provisions(lawId, revId);
+    if (!provs) return { search_status: "UNVERIFIED", reason: "조문 구조 데이터 없음", law_id: lawId, revision_id: revId };
+    const p = findPath(provs, path);
+    const cur = effectiveAt(revs.filter((r) => visible(r, actor)), asOf);
+    let current: ClauseResult["current"];
+    if (cur && cur.revision_id !== revId) {
+      const cp = (await store.provisions(lawId, cur.revision_id)) ?? [];
+      const hit = findPath(cp, path);
+      current = { revision_id: cur.revision_id, effective_from: cur.effective_from, provision_id: hit?.provision_id ?? null,
+        status: !hit ? "NOT_FOUND" : hit.status === "DELETED" ? "DELETED" : "ACTIVE", original_text: hit ? (hit.status === "DELETED" ? hit.original_text : hit.normalized_text) : "" };
+    }
+    const base = { law_id: lawId, revision_id: revId, effective_from: rec.effective_from, effective_to: rec.effective_to, ...(current ? { current } : {}) };
+    if (!p) return { search_status: rec.parse_ok ? "NOT_FOUND_VERIFIED" : "UNVERIFIED", reason: `${lawId}@${revId}에 ${path} 없음`, ...base };
+    const isCurrent = cur?.revision_id === revId && rec.effective_to >= todayYmd();
+    return {
+      search_status: p.status === "DELETED" ? "DELETED" : isCurrent ? "FOUND" : "HISTORICAL",
+      reason: p.status === "DELETED" ? `삭제된 조문 (${p.deletion_date})` : isCurrent ? "인용 버전이 현행" : `인용 버전은 현행 아님${current ? ` (현행 ${current.revision_id})` : ""}`,
+      ...base, provision_id: p.provision_id, path_label: p.path_label, title: p.title, deletion_date: p.deletion_date,
+      original_text: p.status === "DELETED" ? p.original_text : p.normalized_text,
+    };
+  }
+
   async function getClause(args: Record<string, unknown>, actor: Actor): Promise<ClauseResult> {
     const asOf = asOfYmd(args);
-    const path = clausePath(str(args, "clause"));
+    const clauseArg = str(args, "clause");
+    // 버전이 박힌 조문 ID(노하우 인용 등)는 그 버전 그대로 조회 — law 인자 불필요
+    if (/^[A-Z][A-Z0-9-]*@\d{4}-\d{2}-\d{2}\//u.test(clauseArg)) return getCitedClause(clauseArg, asOf, actor);
+    const path = clausePath(clauseArg);
     const lawId = await resolveLaw(store, args);
     if (!lawId) return { search_status: "UNVERIFIED", reason: "등록되지 않은 법령: 부재를 확정할 수 없음" };
     const revs = await store.revisions(lawId);
