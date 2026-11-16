@@ -5,7 +5,7 @@ title: 신용리스크 실무 메모 4
 author: 리스크 담당자 (가상)
 cites: [SYN-RISK-001@2026-11-01/ARTICLE:7]
 ---
-SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 개정 영향 없음(대조군)
+SYNTHETIC — 하나은행 가상 데이터 · 노하우 문서. 개정 영향 없음(대조군). 실제 하나은행 자료가 아님.
 
 # 신용리스크 실무 메모 4
 

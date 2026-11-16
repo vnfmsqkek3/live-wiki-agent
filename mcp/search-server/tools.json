@@ -51,7 +51,8 @@
       "required": [
         "query"
       ]
-    }
+    },
+    "progress": "관련 규정과 노하우를 검색하는 중입니다"
   },
   {
     "name": "retrieve_evidence",
@@ -90,7 +91,8 @@
         "query",
         "doc_ids"
       ]
-    }
+    },
+    "progress": "선택한 문서에서 근거를 찾는 중입니다"
   },
   {
     "name": "search_legal_clause",
@@ -104,7 +106,7 @@
         },
         "law": {
           "type": "string",
-          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+          "description": "법령·규정 이름 또는 law_id (예: 하나은행 기업여신 심사규정, SYN-LOAN-001)"
         },
         "as_of": {
           "type": "string",
@@ -125,6 +127,7 @@
       "required": [
         "query"
       ]
-    }
+    },
+    "progress": "해당 조문을 찾는 중입니다"
   }
 ]

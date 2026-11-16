@@ -38,7 +38,8 @@ test("3a: PDF 페이지별 글자 수로 OCR 대상 판정, 미지원 형식은 
   assert.equal(layer.page_count, 2);
   assert.equal(layer.pages[0]!.needs_ocr, false);
   assert.equal(layer.pages[1]!.needs_ocr, true);
-  await assert.rejects(extractTextLayer(Buffer.from("x"), "docx", DOC), /지원하지 않는 형식/u);
+  await assert.rejects(extractTextLayer(Buffer.from("x"), "docx", DOC)); // 깨진 DOCX(ZIP 아님)는 실패
+  await assert.rejects(extractTextLayer(Buffer.from("x"), "xlsx", DOC), /지원하지 않는 형식/u);
 });
 
 test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED", async () => {
@@ -47,15 +48,15 @@ test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED"
   await textLayerStep(input, s);
   await assert.rejects(segmentStep(input, s), /NoSuchKey/u);
   const ocr: OcrResult = { doc_id: DOC, model: "paddleocr", model_version: "test", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 2828, source: "ocr", blocks: [
-    { block_id: "p0-b1", label: "paragraph", text: "제12조(승인 기준)", confidence: 0.97, bbox: [0, 0, 1, 1], reading_order: 1, table_id: null },
-    { block_id: "p0-b0", label: "title", text: "SYNTHETIC", confidence: 0.6, bbox: [0, 0, 1, 1], reading_order: 0, table_id: null },
+    { block_id: "p0-b1", label: "paragraph", text: "제12조(승인 기준)", confidence: 0.97, bbox: [40, 140, 600, 190], reading_order: 1, table_id: null },
+    { block_id: "p0-b0", label: "title", text: "SYNTHETIC", confidence: 0.6, bbox: [40, 40, 500, 90], reading_order: 0, table_id: null },
   ] }] };
   await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify(ocr));
   const out = await segmentStep(input, s);
   assert.equal(out.status, "REVIEW_REQUIRED");
   assert.equal(out.findings![0]!.code, "LOW_OCR_CONFIDENCE");
   const seg = JSON.parse((await s.get(Q, `${DOC}/work/segments/0000.json`)).toString());
-  assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // reading_order 정렬
+  assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // 위→아래 줄 순서
 });
 
 test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 계약 준수", async () => {
@@ -136,6 +137,10 @@ test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA25
   assert.equal(out.status, "OK");
   assert.equal(r.approvals.get("apr_9")!.status, "USED");
   assert.equal(r.documents.get(DOC)!.published_content_hash, out.content_hash);
+  const first = r.documents.get(DOC)!.published_at;
+  assert.match(first ?? "", /^\d{4}-\d{2}-\d{2}T/u, "게시 시각 기록");
+  await promoteStep({ ...input, published_bucket: P }, s, r);
+  assert.equal(r.documents.get(DOC)!.published_at, first, "같은 workflow 재시도는 게시 시각을 바꾸지 않음");
 });
 
 test("승인 API 형식의 Documents 항목 정규화: classification 유형·문자열 시행일, 유형 없으면 게시 거부", async () => {
@@ -181,4 +186,17 @@ test("KbIngest: 다른 문서 색인 중(ConflictException)이면 PENDING → �
   assert.equal((await kbIngestStep(input, api, r, s, env)).status, "OK");
   const boom: IngestionApi = { ...api, start: async () => { throw Object.assign(new Error("denied"), { name: "AccessDeniedException" }); } };
   await assert.rejects(kbIngestStep({ ...input, version: 2 }, boom, r, s, env), /denied/u);
+});
+
+test("Promote: 마스킹 세그먼트의 figures를 본문 끝에 페이지 표시와 함께 싣는다 (묘사 없는 그림은 제외)", async () => {
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  const original = Buffer.from("SYNTHETIC 노하우");
+  await s.put(Q, `${DOC}/original.md`, original);
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 2 }));
+  await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: "1쪽 본문" }));
+  await s.put(Q, `${DOC}/masked/segments/0001.json`, JSON.stringify({ text: "2쪽 본문", figures: [{ kind: "사진", description: "현장 실사 사진", intent: "실사 예시" }, { kind: "아이콘", description: " " }] }));
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
+  r.approvals.set("apr_f", { approval_id: "apr_f", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
+  const out = await promoteStep({ ...input, published_bucket: P }, s, r);
+  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시");
 });

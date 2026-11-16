@@ -3,6 +3,7 @@
 // 노하우·매뉴얼: Markdown 제목(##) 단위, 없으면 문서 전체.
 // 임베딩 입력(contentBody) = augmented_search_text = 문맥 헤더 + 실제 본문. original_text는 인용용으로 메타데이터에 분리.
 import { parseLaw } from "@hanaeum/legal-parser";
+import { FIGURE_RE } from "@hanaeum/schemas";
 import type { DocumentMetadata, Provision, ProvisionStatus } from "@hanaeum/schemas";
 
 export interface Chunk {
@@ -10,6 +11,7 @@ export interface Chunk {
   metadata: DocumentMetadata & {
     provision_id: string; provision_path: string; provision_status: ProvisionStatus;
     parent_id: string; source_page: number; original_text: string;
+    has_figure?: boolean; // 그림 묘사 청크 (인용 불가)
   };
 }
 
@@ -108,5 +110,14 @@ export function chunkKnowledge(text: string, meta: DocumentMetadata): Chunk[] {
   });
 }
 
-export const chunkDocument = (text: string, meta: DocumentMetadata): Chunk[] =>
-  meta.document_type === "REGULATION" ? chunkLegal(text, meta) : chunkKnowledge(text, meta);
+/** 본문 끝의 그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. original_text는 비워 인용 금지 (그림 묘사는 원문이 아님) */
+export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
+  const body: string[] = []; const figs: { page: number; text: string }[] = [];
+  for (const line of text.split("\n")) { const m = FIGURE_RE.exec(line); if (m) figs.push({ page: Number(m[1]), text: m[2]! }); else body.push(line); }
+  const main = meta.document_type === "REGULATION" ? chunkLegal(body.join("\n"), meta) : chunkKnowledge(body.join("\n"), meta);
+  return [...main, ...figs.map((f, i) => ({
+    augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,
+    metadata: { ...meta, provision_id: `${meta.doc_id}#fig${i}`, provision_path: `그림 (${f.page + 1}쪽)`, provision_status: "ACTIVE" as const,
+      parent_id: meta.doc_id, source_page: f.page, original_text: "", has_figure: true },
+  }))];
+}
