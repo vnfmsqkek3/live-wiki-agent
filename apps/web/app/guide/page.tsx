@@ -4,6 +4,13 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type Guide } from '../lib/api';
 
+/** 화면 대화 ID: 탭 단위로 유지 → 후속 질문 맥락(AgentCore Memory). '새 대화'로 초기화 */
+const CONV_KEY = 'hanaeum.guide.conversation';
+function conversationId() {
+  try { let v = sessionStorage.getItem(CONV_KEY); if (!v) { v = crypto.randomUUID(); sessionStorage.setItem(CONV_KEY, v); } return v; } catch { return undefined; }
+}
+function newConversation() { try { sessionStorage.removeItem(CONV_KEY); } catch { /* 저장소 차단 시 무시 */ } }
+
 function GuideView() {
   const router = useRouter();
   const q = useSearchParams().get('q') ?? '';
@@ -16,7 +23,7 @@ function GuideView() {
   useEffect(() => {
     if (!q) return;
     setBusy(true); setErr(''); setG(null); setThanks(false);
-    api<Guide>('POST', '/v1/guides', { question: q })
+    api<Guide>('POST', '/v1/guides', { question: q, conversation_id: conversationId() })
       .then(setG)
       .catch((e: ApiError) => setErr(e.status === 401 ? '로그인한 뒤 다시 시도하세요.' : '가이드를 만들지 못했습니다. 잠시 뒤 다시 시도하세요.'))
       .finally(() => setBusy(false));
@@ -62,6 +69,7 @@ function GuideView() {
           <div className="actions">
             <button className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}`)}>근거 문서 보기</button>
             <button className="btn" onClick={useful} disabled={thanks || docs.length === 0}>{thanks ? '의견을 남겼습니다' : '도움이 됐어요'}</button>
+            <button className="btn" onClick={() => { newConversation(); setInput(''); router.push('/guide'); }}>새 대화</button>
           </div>
           <p className="meta" style={{ marginTop: 16 }}>작성 모델: {g.model}</p>
         </>

@@ -27,7 +27,9 @@ export interface Deps {
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
-  guide(question: string, accessToken: string): Promise<unknown>;
+  guide(question: string, accessToken: string, conversationId?: string): Promise<unknown>;
+  /** 사용자 AgentCore Memory 삭제 (본인만). 삭제 건수 */
+  deleteMemory?(actorId: string): Promise<number>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string } | undefined>;
 }
@@ -231,9 +233,16 @@ export function createApp(deps: Deps) {
 
   app.post('/v1/guides', async (c) => {
     const b = await body(c, GuideBody);
-    const r = await deps.guide(b.question, c.get('token'));
+    const r = await deps.guide(b.question, c.get('token'), b.conversation_id);
     await audit(c, 'GUIDE', 'agent'); // 질의 원문은 감사 기록에 남기지 않는다
     return c.json(r);
+  });
+
+  app.delete('/v1/me/memory', async (c) => {
+    if (!deps.deleteMemory) throw new ApiError('NOT_FOUND', 'memory not configured');
+    const deleted = await deps.deleteMemory(c.get('actor').sub); // 본인 기억만 (토큰의 sub)
+    await audit(c, 'MEMORY_DELETE', 'self');
+    return c.json({ deleted });
   });
 
   app.post('/v1/feedback', async (c) => {

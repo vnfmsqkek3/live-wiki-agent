@@ -60,3 +60,49 @@ test('삭제 조항은 근거에서 제외, 과거 조문은 불확실로 표시
   assert.deepEqual(r.steps[0]!.sources.map((e) => e.doc_id), ['doc_K001']);
   assert.match(r.uncertainty, /과거 조문 1건/);
 });
+
+// ---- AgentCore Memory ----
+import type { ConversationMemory, Turn } from '../src/memory.ts';
+
+function fakeMemory(initial: Turn[] = []) {
+  const saved: Turn[][] = [];
+  const m: ConversationMemory = {
+    history: async () => initial,
+    summaries: async () => ['이전에 담보 승인 기준을 물어봄'],
+    save: async (_a, _s, t) => { saved.push(t); },
+    deleteActor: async () => 0,
+  };
+  return { m, saved };
+}
+
+test('Memory: 후속 질문은 직전 질문과 합쳐 검색, 기록은 맥락으로만 모델에 전달, 문답 저장', async () => {
+  const seen: string[] = [];
+  const { m, saved } = fakeMemory([{ role: 'USER', text: '담보 승인 기준은?' }, { role: 'ASSISTANT', text: '3억원 이상 본부 승인' }]);
+  const r = await guide('그럼 2항은?', {
+    model: 'm', memory: m,
+    search: async (q) => { seen.push(q); return MOCK_EVIDENCE; },
+    draft: async (p) => { seen.push(p); return { steps: [{ text: '예금담보는 영업점장 승인', sources: ['doc_F001'] }], uncertainty: '' }; },
+  }, { actorId: 'sub-1', sessionId: 'conv-1' });
+  assert.equal(seen[0], '담보 승인 기준은? 그럼 2항은?');
+  assert.match(seen[1]!, /<history>[\s\S]*3억원 이상 본부 승인[\s\S]*<\/history>/);
+  assert.equal(r.memory_used, true);
+  assert.deepEqual(saved[0], [{ role: 'USER', text: '그럼 2항은?' }, { role: 'ASSISTANT', text: '예금담보는 영업점장 승인' }]);
+});
+
+test('Memory: 기억 속 문서를 출처로 내도 이번 검색 결과에 없으면 인용 불가 (재검증 강제), 저장은 마스킹본', async () => {
+  const { m, saved } = fakeMemory([{ role: 'ASSISTANT', text: '근거 doc_OLD (폐지 조문)' }]);
+  const r = await guide('연락처 010-3333-4444 담보 기준', {
+    model: 'm', memory: m,
+    search: async () => [MOCK_EVIDENCE[1]!],
+    draft: async () => ({ steps: [{ text: '폐지 조문 근거', sources: ['doc_OLD'] }, { text: '3영업일 안에 등록', sources: ['doc_K001'] }], uncertainty: '' }),
+  }, { actorId: 'sub-1', sessionId: 'conv-1' });
+  assert.deepEqual(r.steps.map((s) => s.sources[0]!.doc_id), ['doc_K001']);
+  assert.ok(!JSON.stringify(saved).includes('3333-4444'), '원문 PII가 Memory에 저장됨');
+});
+
+test('Memory 없거나 컨텍스트 없으면 기존 동작', async () => {
+  const { m, saved } = fakeMemory();
+  const r = await guide('q', { model: 'm', memory: m, search: async () => [], draft: async () => ({ steps: [], uncertainty: '' }) });
+  assert.equal(r.memory_used, false);
+  assert.equal(saved.length, 0);
+});
