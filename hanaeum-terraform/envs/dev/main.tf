@@ -22,7 +22,7 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "78d8355"                                  # workflows·auth-triggers·services/ocr
+    yoyo0704 = "0adacd4"                                  # workflows·auth-triggers·services/ocr
     dhxorb96 = "e40e9c6"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "812a58933071d59bad6f7f0f30e948c2780b5114" # PR #9 병합 (하나은행 전환·DOCX·HWPX·OCR 보정)
   }
