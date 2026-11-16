@@ -15,33 +15,24 @@ module "stack" {
   name_suffix = "-dev"
   owner       = "team"
 
-  # dev: 각 Owner 의 개인 Lambda 연결 (요청기록 11/16 dhxorb96_to_yoyo0704 1809, let522mj_to_yoyo0704_lambda배포)
-  step_functions = {
-    file_structure_check = "hanaeum-mvp-lambda-file-structure-check-dhxorb96"
-    pii_scan             = "hanaeum-mvp-lambda-pii-scan-dhxorb96"
-    injection_scan       = "hanaeum-mvp-lambda-injection-scan-dhxorb96"
-    classify             = "hanaeum-mvp-lambda-classify-dhxorb96"
-    trust_gate           = "hanaeum-mvp-lambda-trust-gate-dhxorb96"
-    wait_for_approval    = "hanaeum-mvp-lambda-wait-for-approval-dhxorb96"
-    finalize             = "hanaeum-mvp-lambda-finalize-dhxorb96"
-    text_layer_extract   = "hanaeum-mvp-lambda-text-layer-extract-let522mj"
-    segment_build        = "hanaeum-mvp-lambda-segment-build-let522mj"
-    promote              = "hanaeum-mvp-lambda-promote-let522mj"
-    kb_ingest            = "hanaeum-mvp-lambda-kb-ingest-let522mj"
+  # 공유 dev 는 개인 dev 자원을 참조하지 않는다 (사용자 지시 11/16, 요청기록 2242, docs/06).
+  # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
+  team_lambdas = [
+    "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep",
+  ]
+  lambda_refs = {
+    yoyo0704 = "3310656"                                  # workflows·auth-triggers·services/ocr
+    dhxorb96 = "6a3f40a"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    let522mj = "ce47b1512f602c7f248a8ce9c3a4d57fdc362bec" # PR #8 병합 (CI 통과, let522mj)
   }
-  kb_chunker_lambda_arn = "hanaeum-mvp-lambda-kb-chunker-let522mj"
-  kb_reader_role_arns   = ["hanaeum-mvp-role-mcp-let522mj"]
-  # SQS 트리거는 공유 이름 type-detection (dhxorb96 개인 Role 에 SQS 권한 없음). zip: scripts/build-team-lambdas.sh
-  team_lambdas = ["type-detection"]
-  # Lambda 빌드 커밋 (CodeBuild 가 공개 저장소에서 빌드). yoyo0704: workflows·auth-triggers, dhxorb96: type-detection
-  lambda_refs = { yoyo0704 = "3310656", dhxorb96 = "bc6d26e" }
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   pipeline_runtime_image_tag = "d0eeeae"
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "e2fede6"
+  webapp_source_ref = "86da8c6"
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }

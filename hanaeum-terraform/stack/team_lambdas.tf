@@ -86,7 +86,16 @@ locals {
       ]
     }
     wait-for-approval = { zip = local.dz, handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
-    finalize          = { zip = local.dz, handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
+    # 규정 개정판 게시 시 그 규정을 근거로 쓴 게시 노하우를 REVIEW_REQUIRED 로 (Documents Scan, dhxorb96 6a3f40a)
+    finalize = {
+      zip        = local.dz, handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 60, model_caller = false
+      statements = concat(local.d_statements, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
+    }
+    # 일 1회: 시행일이 된 개정판의 근거 노하우를 재검토 대상으로 (EventBridge Scheduler, freshness.tf)
+    freshness-sweep = {
+      zip        = local.dz, handler = "handlers.freshnessSweep", env = local.d_env, memory = 256, timeout = 300, model_caller = false
+      statements = concat(local.d_statements, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
+    }
 
     # ---- let522mj (dist/lambda/{name}.zip, index.handler) ----
     text-layer-extract = { zip = "${local.lz}/text_layer_extract.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
@@ -111,6 +120,29 @@ locals {
         { Effect = "Allow", Action = ["s3:GetObject", "s3:PutObject"], Resource = "${local.b["artifact"].arn}/kb-ingest/*" },
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["artifact"].arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = [local.t["documents"].arn, local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
+      ]
+    }
+    # 그래프 (Neptune, VPC). graph-upsert 는 쓰기 직렬화를 위해 reserved concurrency 1 (docs/04 5장)
+    graph-upsert = {
+      zip = "${local.lz}/graph_upsert.zip", handler = "index.handler", memory = 512, timeout = 300, model_caller = false, vpc = true, reserved = 1
+      env = {
+        NEPTUNE_ENDPOINT = module.neptune.endpoint, TABLE_REGULATIONS = local.t["regulations"].name
+        TABLE_DOCUMENTS  = local.t["documents"].name, TABLE_APPROVALS = local.t["approvals"].name, BUCKET_PUBLISHED = local.b["published"].name
+      }
+      statements = [
+        { Effect = "Allow", Action = ["neptune-db:connect", "neptune-db:ReadDataViaQuery", "neptune-db:WriteDataViaQuery", "neptune-db:DeleteDataViaQuery"], Resource = module.neptune.db_resource_arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"], Resource = local.t["regulations"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = [local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["published"].arn}/*" },
+      ]
+    }
+    mcp-graph = {
+      zip = "${local.lz}/mcp_graph.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = true, vpc = true, reserved = -1
+      env = { NEPTUNE_ENDPOINT = module.neptune.endpoint, TABLE_REGULATIONS = local.t["regulations"].name }
+      statements = [
+        { Effect = "Allow", Action = ["neptune-db:connect", "neptune-db:ReadDataViaQuery"], Resource = module.neptune.db_resource_arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
       ]
     }
     mcp-regulation = {
@@ -144,18 +176,20 @@ locals {
 data "aws_caller_identity" "me" {}
 
 module "team" {
-  source       = "../modules/fn"
-  for_each     = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
-  n            = local.n
-  name         = each.key
-  s3           = { bucket = local.lb.bucket, key = each.value.zip }
-  handler      = each.value.handler
-  env          = each.value.env
-  statements   = each.value.statements
-  memory       = each.value.memory
-  timeout      = each.value.timeout
-  model_caller = each.value.model_caller
-  kms_key_arn  = module.kms.key_arn
+  source               = "../modules/fn"
+  for_each             = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
+  n                    = local.n
+  name                 = each.key
+  s3                   = { bucket = local.lb.bucket, key = each.value.zip }
+  handler              = each.value.handler
+  env                  = each.value.env
+  statements           = each.value.statements
+  memory               = each.value.memory
+  timeout              = each.value.timeout
+  model_caller         = each.value.model_caller
+  kms_key_arn          = module.kms.key_arn
+  reserved_concurrency = try(each.value.reserved, -1)
+  vpc                  = try(each.value.vpc, false) ? { subnet_ids = module.network.subnet_ids["app"], security_group_ids = [module.neptune.client_sg_id] } : null
 }
 
 # KB Custom Transformation (let522mj services/kb-chunker). KB 가 참조하므로 team 묶음과 분리 (순환 참조 방지)
@@ -184,10 +218,10 @@ resource "aws_lambda_event_source_mapping" "upload" {
 }
 
 locals {
-  # Step Functions 단계 키(workflows/src/asl.ts) → 팀 Lambda 키. graph_upsert 는 Neptune 전까지 stub.
+  # 파이프라인 단계 키 → 팀 Lambda 키 (Gateway Tool 로 등록)
   step_fn = {
     file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
-    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
 

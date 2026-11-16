@@ -94,6 +94,11 @@ resource "aws_codebuild_project" "app" {
       name  = "COGNITO_CLIENT_ID"
       value = var.cognito_client_id
     }
+    # 모든 podman 명령(login·build·push)이 같은 저장소 드라이버를 쓰게 (overlay/vfs DB 불일치 방지)
+    environment_variable {
+      name  = "STORAGE_DRIVER"
+      value = "vfs"
+    }
   }
   source {
     type = "NO_SOURCE"
@@ -107,8 +112,8 @@ resource "aws_codebuild_project" "app" {
           "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $REF",
         ] }
         build = { commands = [
-          "cd $CODEBUILD_SRC_DIR/src && podman --storage-driver=vfs --cgroup-manager=cgroupfs build --platform linux/arm64 -f apps/$APP/Dockerfile --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
-          "podman --storage-driver=vfs push $REGISTRY/$ECR_REPO:$REF",
+          "cd $CODEBUILD_SRC_DIR/src && podman --cgroup-manager=cgroupfs build --network=host --isolation=chroot --platform linux/arm64 -f apps/$APP/Dockerfile --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=$COGNITO_CLIENT_ID -t $REGISTRY/$ECR_REPO:$REF .",
+          "podman push $REGISTRY/$ECR_REPO:$REF",
         ] }
       }
     })
@@ -289,6 +294,7 @@ resource "aws_lb" "this" {
   subnets                    = var.public_subnet_ids
   security_groups            = [aws_security_group.alb.id]
   drop_invalid_header_fields = true
+  idle_timeout               = 300 # 스트리밍 응답 (기본 60초)
 }
 
 resource "aws_lb_target_group" "app" {
@@ -439,10 +445,13 @@ resource "aws_cloudfront_distribution" "this" {
     origin_id   = "alb"
     domain_name = aws_lb.this.dns_name
     custom_origin_config {
-      http_port              = 80
-      https_port             = 443
-      origin_protocol_policy = "http-only" # ponytail: ALB 는 CloudFront 대역만 허용. 커스텀 도메인·ACM 생기면 https-only
-      origin_ssl_protocols   = ["TLSv1.2"]
+      http_port  = 80
+      https_port = 443
+      # 스트리밍(SSE·chunked) 응답: 바이트 사이 공백을 60초까지 허용 (기본 30초면 Agent 추론 중 끊김)
+      origin_read_timeout      = 60
+      origin_keepalive_timeout = 60
+      origin_protocol_policy   = "http-only" # ponytail: ALB 는 CloudFront 대역만 허용. 커스텀 도메인·ACM 생기면 https-only
+      origin_ssl_protocols     = ["TLSv1.2"]
     }
   }
   # API: 캐시 끔 + Authorization 등 viewer 헤더 전달
@@ -454,6 +463,7 @@ resource "aws_cloudfront_distribution" "this" {
     cached_methods           = ["GET", "HEAD"]
     cache_policy_id          = data.aws_cloudfront_cache_policy.disabled.id
     origin_request_policy_id = data.aws_cloudfront_origin_request_policy.all_viewer.id
+    compress                 = false # SSE(text/event-stream) 를 압축·버퍼링하지 않게 (13항 11)
   }
   ordered_cache_behavior {
     path_pattern             = "/healthz"

@@ -18,7 +18,7 @@ module "stack" {
   lambda_refs = { yoyo0704 = "PENDING", dhxorb96 = "PENDING", let522mj = "PENDING" }
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
-    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep",
   ]
 }
 

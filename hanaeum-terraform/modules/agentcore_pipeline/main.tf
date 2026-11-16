@@ -101,6 +101,8 @@ resource "aws_bedrockagentcore_gateway_target" "step" {
   credential_provider_configuration {
     gateway_iam_role {}
   }
+  # 새 Lambda 로 바꿀 때 Gateway Role 의 InvokeFunction 권한이 먼저 있어야 한다
+  depends_on = [aws_iam_role_policy.gateway]
   target_configuration {
     mcp {
       lambda {

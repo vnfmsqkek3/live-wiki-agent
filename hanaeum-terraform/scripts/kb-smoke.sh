@@ -37,8 +37,8 @@ retrieve() { # filter-json
     --query 'retrievalResults[].metadata.doc_id' --output text
 }
 
-put_doc doc_SMOKEALL ALL "SYNTHETIC 한빛은행 담보평가 노하우: 담보평가 시 감정평가서와 등기부등본을 확인한다."
-put_doc doc_SMOKERESTRICT AUDIT_ONLY "SYNTHETIC 한빛은행 감사부 전용: 담보평가 시 확인 절차 내부 점검표."
+put_doc doc_SMOKEALL ALL "SYNTHETIC 하나은행(가상 데이터) 담보평가 노하우: 담보평가 시 감정평가서와 등기부등본을 확인한다."
+put_doc doc_SMOKERESTRICT AUDIT_ONLY "SYNTHETIC 하나은행(가상 데이터) 감사부 전용: 담보평가 시 확인 절차 내부 점검표."
 ingest
 sleep 30 # AOSS 반영 지연
 

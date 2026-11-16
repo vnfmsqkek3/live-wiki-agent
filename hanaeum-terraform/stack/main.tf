@@ -115,6 +115,15 @@ module "webapp" {
   }
 }
 
+# 조문·노하우 관계 그래프 (Change Impact)
+module "neptune" {
+  source          = "../modules/neptune"
+  n               = local.n
+  kms_key_arn     = module.kms.key_arn
+  vpc_id          = module.network.vpc_id
+  data_subnet_ids = module.network.subnet_ids["data"]
+}
+
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
 locals {
   params = merge(
@@ -129,6 +138,7 @@ locals {
       KMS_KEY_ARN          = module.kms.key_arn
       VPC_ID               = module.network.vpc_id
       KB_ID                = module.kb.kb_id
+      NEPTUNE_ENDPOINT     = module.neptune.endpoint
       OCR_ENDPOINT_NAME    = module.ocr.endpoint_name
       PIPELINE_GATEWAY_URL = module.pipeline.gateway_url
       PIPELINE_ECR_REPO    = module.pipeline.ecr_repository_url

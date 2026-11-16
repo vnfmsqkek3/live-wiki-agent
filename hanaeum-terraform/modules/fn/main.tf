@@ -21,6 +21,10 @@ variable "reserved_concurrency" {
   type    = number
   default = -1
 }
+variable "vpc" {
+  type    = object({ subnet_ids = list(string), security_group_ids = list(string) })
+  default = null # Neptune 처럼 VPC 안 자원을 부를 때
+}
 variable "model_caller" {
   type    = bool
   default = false # true 면 quarantine 원본 등급 키 읽기 거부 (s3 모듈)
@@ -40,6 +44,12 @@ resource "aws_iam_role" "fn" {
 resource "aws_iam_role_policy_attachment" "logs" {
   role       = aws_iam_role.fn.name
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+}
+
+resource "aws_iam_role_policy_attachment" "vpc" {
+  count      = var.vpc == null ? 0 : 1
+  role       = aws_iam_role.fn.name
+  policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaVPCAccessExecutionRole"
 }
 
 resource "aws_iam_role_policy" "fn" {
@@ -70,8 +80,15 @@ resource "aws_lambda_function" "fn" {
   timeout                        = var.timeout
   reserved_concurrent_executions = var.reserved_concurrency
   environment { variables = var.env }
+  dynamic "vpc_config" {
+    for_each = var.vpc == null ? [] : [var.vpc]
+    content {
+      subnet_ids         = vpc_config.value.subnet_ids
+      security_group_ids = vpc_config.value.security_group_ids
+    }
+  }
   tracing_config { mode = "Active" }
-  depends_on = [aws_cloudwatch_log_group.fn, aws_iam_role_policy.fn]
+  depends_on = [aws_cloudwatch_log_group.fn, aws_iam_role_policy.fn, aws_iam_role_policy_attachment.vpc]
 }
 
 output "arn" { value = aws_lambda_function.fn.arn }
