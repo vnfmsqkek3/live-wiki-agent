@@ -678,6 +678,8 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 
 적용 범위: AgentCore Identity + Policy, AgentCore Evaluations. AgentCore Memory·Optimization·AgentCore Registry는 이번 변경 범위에서 제외한다 (Trusted Regulation Registry와 무관하며 Registry 대조 기능은 유지).
 
+> 팀 결정(11/16, 사용자): 문서 처리 오케스트레이션은 Step Functions 대신 **AgentCore Runtime(Strands Graph) + Gateway**로 한다(`interfaces.md` 6.1). 상태 전이는 오케스트레이터가 Gateway Tool(단계 Lambda)과 인증된 API로만 수행하며, 승인·게시 Tool은 없다. AgentCore Memory는 도입하지 않는다(11/16 사용자 결정 C안: 요구사항에 대화 기능 없음).
+
 ### 11.1 Identity + Policy 책임
 
 목적: 사용자 인증, Agent의 도구 호출 권한, 문서 접근 권한, 게시 승인 권한을 서로 분리한다. LLM 프롬프트는 보조 지침이다. 실제 권한 결정은 API/도구 서버와 Policy에서 강제한다.
