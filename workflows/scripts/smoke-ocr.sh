@@ -23,7 +23,7 @@ node -e '
 const { createCanvas } = require("@napi-rs/canvas");
 const c = createCanvas(1600, 400), g = c.getContext("2d");
 g.fillStyle = "#fff"; g.fillRect(0, 0, 1600, 400); g.fillStyle = "#000"; g.font = "44px sans-serif";
-["SYNTHETIC 하나은행(가상 데이터) 여신규정", "제12조(승인 기준) ① 여신 승인 한도는 3억원으로 한다.", "② 담보평가는 감정평가서를 확인한다."]
+["SYNTHETIC — 하나은행 가상 데이터 · 실제 하나은행 규정 아님", "제12조(승인 기준) ① 여신 승인 한도는 3억원으로 한다.", "② 담보평가는 감정평가서를 확인한다."]
   .forEach((t, i) => g.fillText(t, 40, 100 + i * 100));
 require("fs").writeFileSync(process.argv[1], c.toBuffer("image/png"));
 ' "$TMP/page.png"
@@ -51,9 +51,16 @@ done
 [[ "$ST" == OK || "$ST" == REVIEW_REQUIRED ]] || fail "OcrIfNeeded=$ST"
 
 aws s3 cp "s3://$BUCKET/$DOC/work/ocr/result.json" "$TMP/result.json" >/dev/null
-python3 - "$TMP/result.json" <<'PY'
+# Segment 단계와 같은 보정 (let522mj @hanaeum/legal-parser): 같은 높이 블록 → 한 줄, ①②… 복원
+node --input-type=module -e '
+import { readFileSync } from "node:fs";
+import { ocrRows, restoreCircled } from "@hanaeum/legal-parser";
+const r = JSON.parse(readFileSync(process.argv[1], "utf8"));
+console.log(restoreCircled(r.pages.flatMap((p) => ocrRows(p.blocks)).join("\n")));
+' "$TMP/result.json" > "$TMP/fixed.txt"
+python3 - "$TMP/result.json" "$TMP/fixed.txt" <<'PY'
 import json, sys, unicodedata
-EXPECTED = ["SYNTHETIC 하나은행(가상 데이터) 여신규정", "제12조(승인 기준) ① 여신 승인 한도는 3억원으로 한다.", "② 담보평가는 감정평가서를 확인한다."]
+EXPECTED = ["SYNTHETIC — 하나은행 가상 데이터 · 실제 하나은행 규정 아님", "제12조(승인 기준) ① 여신 승인 한도는 3억원으로 한다.", "② 담보평가는 감정평가서를 확인한다."]
 norm = lambda t: " ".join(unicodedata.normalize("NFC", t).split())
 def lev(a, b):
     prev = list(range(len(b) + 1))
@@ -73,15 +80,20 @@ for b in sorted(blocks, key=lambda b: (b["bbox"][1], b["bbox"][0])):
     if last_y is not None and abs(b["bbox"][1] - last_y) < 20: lines[-1] += " " + b["text"]
     else: lines.append(b["text"])
     last_y = b["bbox"][1]
-got, exp = [norm(l) for l in lines], [norm(l) for l in EXPECTED]
-exact = sum(g == e for g, e in zip(got, exp))
-cer = lev("\n".join(got), "\n".join(exp)) / len("\n".join(exp))
-for g, e in zip(got, exp):
-    print(("  = " if g == e else "  ≠ ") + g + ("" if g == e else f"   (정답: {e})"))
-print(f"lines {len(got)}/{len(exp)} exact {exact}/{len(exp)} CER {cer:.3%} avg_conf {sum(b['confidence'] for b in blocks)/len(blocks):.3f}")
-assert len(got) == len(exp) and exact == len(exp), "OCR 결과가 원문과 정확히 일치하지 않음"
+exp = [norm(l) for l in EXPECTED]
+def judge(label, got):
+    exact = sum(g == e for g, e in zip(got, exp))
+    cer = lev("\n".join(got), "\n".join(exp)) / len("\n".join(exp))
+    print(f"[{label}] lines {len(got)}/{len(exp)} exact {exact}/{len(exp)} CER {cer:.3%}")
+    for g, e in zip(got, exp):
+        print(("  = " if g == e else "  ≠ ") + g + ("" if g == e else f"   (정답: {e})"))
+    return len(got) == len(exp) and exact == len(exp)
+judge("원시 OCR", [norm(l) for l in lines])  # 정보: OCR 엔진 자체 품질 (①→1 등)
+ok = judge("Segment 보정 후", [norm(l) for l in open(sys.argv[2]).read().splitlines() if l.strip()])
+print(f"avg_conf {sum(b['confidence'] for b in blocks)/len(blocks):.3f}")
+assert ok, "보정 후 OCR 결과가 원문과 정확히 일치하지 않음"
 PY
-echo "PASS OCR 원문 줄 단위 정확 일치 (CER 출력), confidence·bbox 보존 step=$ST"
+echo "PASS OCR 보정 후 원문 줄 단위 정확 일치 (원시 CER 출력), confidence·bbox 보존 step=$ST"
 
 # OCR 이후 단계(IN_REVIEW 까지)는 오케스트레이터가 계속 진행한다. 이 smoke 는 OCR 결과만 본다
 echo "ALL PASS ($ENV)"
