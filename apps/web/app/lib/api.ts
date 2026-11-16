@@ -84,7 +84,8 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (path.startsWith('/v1/library')) {
     const u = new URL(path, 'http://x');
     const type = u.searchParams.get('type');
-    return { items: MOCK_LIBRARY.filter((d) => !type || d.document_type === type) };
+    const business = u.searchParams.get('business');
+    return { items: MOCK_LIBRARY.filter((d) => (!type || d.document_type === type) && (!business || d.business_path.includes(business))) };
   }
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
   if (path === '/v1/approvals?status=PENDING')

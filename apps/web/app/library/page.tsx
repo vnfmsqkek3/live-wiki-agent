@@ -18,19 +18,31 @@ function List() {
   const router = useRouter();
   const sp = useSearchParams();
   const type = sp.get('type') ?? '';
+  const business = sp.get('business') ?? '';
   const [items, setItems] = useState<LibraryCard[] | null>(null);
+  const [businesses, setBusinesses] = useState<string[]>([]);
   const [err, setErr] = useState('');
+  const qs = (t: string, b: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(b ? [['business', b]] : [])]).toString();
   useEffect(() => {
     setItems(null); setErr('');
-    api<{ items: LibraryCard[] }>('GET', `/v1/library${type ? `?type=${type}` : ''}`)
-      .then((r) => setItems(r.items))
+    api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, business)}`)
+      .then((r) => { setItems(r.items); if (!business) setBusinesses([...new Set(r.items.map((i) => i.business_path[0]).filter((x): x is string => !!x))].sort()); })
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 열어 주세요.' : e.message); setItems([]); });
-  }, [type]);
+  }, [type, business]);
+  const go = (t: string, b: string) => router.push(`/library${qs(t, b) ? `?${qs(t, b)}` : ''}`);
   return (
     <>
       <div className="filter" role="group" aria-label="문서 종류">
-        {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => router.push(`/library${v ? `?type=${v}` : ''}`)}>{l}</button>)}
+        {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, business)}>{l}</button>)}
       </div>
+      {businesses.length > 1 && (
+        <label className="lbl">업무
+          <select className="field" value={business} onChange={(e) => go(type, e.target.value)}>
+            <option value="">전체 업무</option>
+            {businesses.map((b) => <option key={b} value={b}>{b}</option>)}
+          </select>
+        </label>
+      )}
       {err && <p className="error" role="alert">{err}</p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
