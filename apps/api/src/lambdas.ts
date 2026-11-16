@@ -226,7 +226,8 @@ export function makeFinalize(deps: LambdaDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
-      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED' }
+      // 노하우·매뉴얼은 사람 승인이 곧 검증이다 (규정은 TrustGate Registry 대조로 VERIFIED). 승인·게시가 끝났으면 VERIFIED
+      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED', ...(base.authority_status === 'UNVERIFIED' && (base.document_type ?? base.classification?.document_type) !== 'REGULATION' ? { authority_status: 'VERIFIED' as const } : {}) }
       : i.outcome === 'BLOCKED' ? { ...base, lifecycle: 'BLOCKED', trust_gate_result: 'QUARANTINED' }
       : base; // REJECTED: 승인 API가 이미 BLOCKED(반려) 또는 IN_REVIEW(재검증)로 바꿈
     await deps.store.putDoc(next);

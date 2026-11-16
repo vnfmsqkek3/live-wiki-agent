@@ -55,3 +55,15 @@ test('Finalize(규정 게시)·freshnessSweep가 노하우를 저장하고 감�
   assert.ok(store.audits.some((a) => a.action === 'FRESHNESS_REVIEW_REQUIRED' && a.resource === 'OLD'));
   assert.deepEqual(await makeFreshnessSweep(deps)(), { marked: 0 }); // 멱등
 });
+
+test('Finalize(게시): 사람 승인을 거친 노하우·매뉴얼은 검증 완료, 규정은 Registry 결과 유지', async () => {
+  const store = memoryStore();
+  const deps = { store, headObject: async () => undefined, getObjectBytes: async () => new Uint8Array(), startWorkflow: async () => {} };
+  const inp = (doc_id: string) => ({ workflow_id: 'wf', doc_id, version: 1, bucket: 'b', prefix: 'p', actor: { sub: 'u', groups: [] }, outcome: 'PUBLISHED' as const });
+  await store.putDoc({ ...kh('M', 'SYN-LOAN-001@2026-11-01/ARTICLE:1'), document_type: 'MANUAL', lifecycle: 'PENDING_APPROVAL', authority_status: 'UNVERIFIED' });
+  await store.putDoc({ ...reg('2026-11-01', '2026-11-01'), lifecycle: 'PENDING_APPROVAL', authority_status: 'UNVERIFIED' });
+  await makeFinalize(deps)(inp('M'));
+  await makeFinalize(deps)(inp('REG_2026-11-01'));
+  assert.equal((await store.getDoc('M'))!.authority_status, 'VERIFIED');
+  assert.equal((await store.getDoc('REG_2026-11-01'))!.authority_status, 'UNVERIFIED');
+});
