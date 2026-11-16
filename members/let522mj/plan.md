@@ -25,7 +25,7 @@ cd $W && git add -A && git commit -m "[let522mj] 기록: …" && git push origin
 ```
 
 그다음 읽기: `공통기록/` 최신 10건 → `요청기록/` 중 `*_to_let522mj.md` OPEN 건 → 이 파일 '남은 작업' → `트러블슈팅.md`.
-마지막 상태 (11/16 18:45): 검색 응답을 dhxorb96 Evidence 계약(items)으로 변경, Approvals 키 dhxorb96 확정본 채택, 기록 main 반영. 이전 — ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
+마지막 상태 (11/16 18:55): 개인 dev Lambda 7개 배포·실행 확인, yoyo0704에 ARN 연결 요청. 요구사항 대비 상태는 `requirements.md`. 이전 (18:45): 검색 응답을 dhxorb96 Evidence 계약(items)으로 변경, Approvals 키 dhxorb96 확정본 채택, 기록 main 반영. 이전 — ASL 계약 적응 완료, 실 DynamoDB 조문 조회 20/20, Lambda zip 9개 빌드. **yoyo0704 Lambda 배포·KB chunker 연결 대기**. 다음 작업: 요청기록 회신 확인 → 배포됐으면 '남은 작업 (실연동)' 첫 행(KB 1건 색인)부터.
 
 기준: `TODO.md`, DoD `docs/02` 4장. AWS 리소스(KB·DynamoDB·Neptune)는 yoyo0704 배포 전이라 **AWS 호출부는 얇은 어댑터 + 인메모리 mock**으로 두고, 로직은 오프라인 테스트로 검증한다.
 
