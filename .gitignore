@@ -1,0 +1,16 @@
+공통문서/
+.env*
+!.env.example
+.omc/
+.claude/scheduled_tasks.lock
+node_modules/
+*.tfstate
+*.tfstate.*
+.terraform/
+*.tfvars
+.DS_Store
+# 자료: 색인(README)만 공유, 원본 파일은 각자 출처에서 다시 받음
+자료/**/*
+!자료/**/
+!자료/README.md
+!자료/**/.gitkeep
