@@ -1,7 +1,7 @@
 // Lambda 진입점 (esbuild로 단일 파일 번들). 함수별 handler 이름: handlers.<name>
 import { applyGuardrail, getJson, getObjectBytes, headObject, listKeys, putJson, startWorkflow, storeFromEnv } from './aws.ts';
 import {
-  makeClassify, makeFileStructureCheck, makeFinalize, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
+  makeClassify, makeFileStructureCheck, makeFinalize, makeFreshnessSweep, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
   type LambdaDeps, type SegmentDeps,
 } from './lambdas.ts';
 import { structured } from './model.ts';
@@ -68,3 +68,4 @@ export const trustGate = makeTrustGate(deps);
 export const waitForApproval = makeWaitForApproval(deps);
 export const awaitReview = waitForApproval; // AgentCore 오케스트레이터 Tool 이름
 export const finalize = makeFinalize(deps);
+export const freshnessSweep = makeFreshnessSweep(deps); // EventBridge 일 1회 (시행일 도래 개정판)

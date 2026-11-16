@@ -8,6 +8,7 @@ import { trustGate, type RegistryEntry } from './steps/trust-gate.ts';
 import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
+import { staleKnowhow } from './steps/freshness.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
@@ -197,6 +198,22 @@ export function makeFinalize(deps: LambdaDeps) {
       : base; // REJECTED: 승인 API가 이미 BLOCKED(반려) 또는 IN_REVIEW(재검증)로 바꿈
     await deps.store.putDoc(next);
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
+    // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
+    if (i.outcome === 'PUBLISHED' && next.document_type === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
     return { status: 'OK' };
   };
+}
+
+async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {
+  const stale = staleKnowhow(await store.listDocs(), undefined, lawIds);
+  for (const d of stale) {
+    await store.putDoc(d);
+    await store.audit({ at: now(), actor: 'system:freshness', action: 'FRESHNESS_REVIEW_REQUIRED', resource: d.doc_id, result: 'OK', trace_id });
+  }
+  return stale.length;
+}
+
+/** 일 1회 (EventBridge 스케줄): 시행일이 된 개정판을 근거로 한 게시 노하우 재검토 표시 */
+export function makeFreshnessSweep(deps: Pick<LambdaDeps, 'store'>) {
+  return async () => ({ marked: await markStale(deps.store, undefined, `sweep-${now()}`) });
 }

@@ -76,6 +76,8 @@ export interface DocumentRecord {
   page_summaries?: { page: number; summary: string }[];
   /** 노하우 검증 결과 (TrustGate가 KNOWHOW 문서에 기록) */
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
+  /** 근거 규정 개정·시행으로 재검토가 필요해진 이유 (freshness=REVIEW_REQUIRED). 자동 수정 없음 */
+  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string };
   /** 출처 불일치 처리 결과 */
   source_review?: { decision: 'REJECT'; by: string; reason: string; at: string };
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */

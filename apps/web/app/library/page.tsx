@@ -130,6 +130,13 @@ function Detail({ id }: { id: string }) {
       <h2 className="doc-title lg">{d.title}</h2>
       <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
       <FreshnessFlag freshness={d.freshness} />
+      {d.freshness_reason && (
+        <p className="notice" role="status">
+          근거 규정 「{d.freshness_reason.law_name}」이 {d.freshness_reason.effective_from} 시행 개정판으로 바뀌었습니다.
+          이 문서는 {d.freshness_reason.cited_revision} 판을 근거로 승인되어, 현행 조문과 맞는지 다시 검토해야 합니다.
+          게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
+        </p>
+      )}
       {d.summary && <p className="lead">{d.summary}</p>}
       <dl className="meta-grid">
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
