@@ -199,7 +199,7 @@ export function makeFinalize(deps: LambdaDeps) {
     await deps.store.putDoc(next);
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
     // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
-    if (i.outcome === 'PUBLISHED' && next.document_type === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
+    if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
     return { status: 'OK' };
   };
 }

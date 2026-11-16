@@ -27,6 +27,11 @@ test('개정판이 시행 중이면 옛 판 인용 노하우만 재검토 (현�
   assert.deepEqual([out[0]!.freshness_reason?.cited_revision, out[0]!.freshness_reason?.current_revision], ['2026-11-01', '2026-12-01']);
 });
 
+test('최상위 document_type 없이 분류 결과만 있는 규정도 현행 판으로 인정', () => {
+  const r = { ...reg('2026-11-01', '2026-11-01'), document_type: undefined, classification: { document_type: 'REGULATION' as const, business_path: [], tags: [], confidence: 1, rationale: '' } };
+  assert.equal(staleKnowhow([r, kh('OLD', 'SYN-LOAN-001@2025-01-01/ARTICLE:12')], '2026-11-16').length, 1);
+});
+
 test('개정판이 시행 전이면 아직 표시하지 않음, 시행일이 되면 표시 (일 1회 점검)', () => {
   const docs = [reg('2026-11-01', '2026-11-01', '2026-11-30'), reg('2026-12-01', '2026-12-01'), kh('OLD', 'SYN-LOAN-001@2026-11-01/ARTICLE:12')];
   assert.equal(staleKnowhow(docs, '2026-11-16').length, 0);

@@ -4,13 +4,14 @@
 import type { DocumentRecord } from '../contracts.ts';
 
 const ymd = (d: Date) => d.toISOString().slice(0, 10);
+const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type; // 초기 게시본은 최상위 값 없음
 const lawRev = (pid: string) => { const [lr] = pid.split('/'); const [law, rev] = lr!.split('@'); return { law: law!, rev: rev ?? '' }; };
 
 /** 오늘 시행 중인 게시 규정 개정판 (law_id → revision_id) */
 export function currentRevisions(docs: DocumentRecord[], today = ymd(new Date())) {
   const cur = new Map<string, DocumentRecord>();
   for (const d of docs) {
-    if (d.lifecycle !== 'PUBLISHED' || d.document_type !== 'REGULATION' || !d.law_id || !d.revision_id) continue;
+    if (d.lifecycle !== 'PUBLISHED' || typeOf(d) !== 'REGULATION' || !d.law_id || !d.revision_id) continue;
     if ((d.effective_from ?? '0000') > today || (d.effective_to ?? '9999-12-31') < today) continue;
     const prev = cur.get(d.law_id);
     if (!prev || (prev.effective_from ?? '') < (d.effective_from ?? '')) cur.set(d.law_id, d);
@@ -24,7 +25,7 @@ export function staleKnowhow(docs: DocumentRecord[], today = ymd(new Date()), la
   const at = new Date().toISOString();
   const out: DocumentRecord[] = [];
   for (const d of docs) {
-    if (d.lifecycle !== 'PUBLISHED' || d.document_type === 'REGULATION' || d.freshness !== 'CURRENT') continue;
+    if (d.lifecycle !== 'PUBLISHED' || typeOf(d) === 'REGULATION' || d.freshness !== 'CURRENT') continue;
     const cited = [
       ...(d.knowhow_validation?.items ?? []).filter((j) => j.verified_quote && (j.relation === 'SUPPORTS' || j.relation === 'CONFLICTS')).map((j) => j.provision_id),
       ...(d.citations ?? []).map((c) => c.provision_id),
