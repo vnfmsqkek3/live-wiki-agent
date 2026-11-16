@@ -1,0 +1,68 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { makeHandler } from "@hanaeum/mcp-kit";
+import { regulationTools, clausePath } from "./tools.ts";
+import { fixtureClauseStore } from "./fixtures.ts";
+
+const user = { sub: "u1", groups: ["USER"] };
+const t = regulationTools(fixtureClauseStore(), { today: () => 20261216 });
+const LAW = "한빛은행 기업여신 심사규정";
+
+test("조문 표현 해석", () => {
+  assert.equal(clausePath("제12조제2항제3호가목"), "ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA");
+  assert.equal(clausePath("제12조의2"), "ARTICLE:12-2");
+  assert.equal(clausePath("제 12 조 제 1 항"), "ARTICLE:12/PARAGRAPH:1");
+  assert.equal(clausePath("SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1"), "ARTICLE:12/PARAGRAPH:1");
+  assert.throws(() => clausePath("승인 기준"));
+});
+
+test("FOUND: 기준일에 시행 중인 버전의 현행 조문", async () => {
+  const r = await t.get_clause({ law: LAW, clause: "제12조제1항", as_of: "2026-12-15" }, user);
+  assert.equal(r.search_status, "FOUND");
+  assert.equal(r.revision_id, "2026-12-01");
+  assert.match(r.original_text!, /3억원/u);
+});
+
+test("HISTORICAL: 과거 기준일 질의는 당시 버전 + 과거 표시", async () => {
+  const r = await t.get_clause({ law: LAW, clause: "제12조제1항", as_of: "2025-06-01" }, user);
+  assert.equal(r.search_status, "HISTORICAL");
+  assert.match(r.original_text!, /7억원/u);
+  const gone = await t.get_clause({ law: LAW, clause: "제16조", as_of: "2026-12-15" }, user);
+  assert.equal(gone.search_status, "HISTORICAL"); // 현행에 없고 v0에만 존재
+  assert.equal(gone.revision_id, "2025-01-01");
+});
+
+test("DELETED: 삭제 조문은 현행으로 인용하지 않음", async () => {
+  const r = await t.get_clause({ law: LAW, clause: "제15조제2항", as_of: "2026-12-15" }, user);
+  assert.equal(r.search_status, "DELETED");
+  assert.equal(r.deletion_date, "2026-12-01");
+});
+
+test("NOT_FOUND_VERIFIED vs UNVERIFIED 구분", async () => {
+  assert.equal((await t.get_clause({ law: LAW, clause: "제99조", as_of: "2026-12-15" }, user)).search_status, "NOT_FOUND_VERIFIED");
+  assert.equal((await t.get_clause({ law: "가상 미등록법", clause: "제1조" }, user)).search_status, "UNVERIFIED");
+  // 파싱 이슈가 있는 법령(L-001)은 부재를 확정하지 않는다
+  assert.equal((await t.get_clause({ law: "가상여신거래법", clause: "제99조", as_of: "2026-12-15" }, user)).search_status, "UNVERIFIED");
+});
+
+test("verify_version·get_official_policy·compare_versions·resolve_reference", async () => {
+  const v = await t.verify_version({ law: "SYN-LOAN-001", revision_id: "2026-11-01", as_of: "2026-12-15" }, user);
+  assert.deepEqual([v.registered, v.official, v.current_as_of, v.superseded_by], [true, true, false, "2026-12-01"]);
+  assert.equal((await t.verify_version({ law: "SYN-LOAN-001", revision_id: "2027-01-01" }, user)).registered, false);
+  const pol = await t.get_official_policy({ law: "HB-REG-LOAN-001", as_of: "2026-11-15" }, user);
+  assert.equal(pol.current?.revision_id, "2026-11-01");
+  const cmp = await t.compare_versions({ law: LAW, old_revision: "2026-11-01", new_revision: "2026-12-01" }, user);
+  assert.ok(cmp.changes.some((c) => c.path === "ARTICLE:12/PARAGRAPH:1" && c.kind === "MODIFIED"));
+  const ref = await t.resolve_reference({ provision_id: "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2" }, user);
+  assert.equal(ref.references[0]!.target_id, "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1");
+  assert.equal(ref.references[0]!.exception_candidate, true);
+});
+
+test("Gateway 핸들러: 신원은 컨텍스트에서만, 인자 속 신원 무시", async () => {
+  const h = makeHandler(t as never);
+  const ctx = (actor?: unknown) => ({ clientContext: { custom: { bedrockAgentCoreToolName: "regulation___get_clause", ...(actor ? { hanaeumActor: actor } : {}) } } });
+  const denied = await h({ law: LAW, clause: "제12조", actor: user }, ctx());
+  assert.equal((denied as { error: { code: string } }).error.code, "ACCESS_DENIED");
+  const ok = await h({ law: LAW, clause: "제12조", as_of: "2026-12-15" }, ctx(JSON.stringify(user)));
+  assert.equal((ok as { search_status: string }).search_status, "FOUND");
+});
