@@ -116,5 +116,25 @@
         "new_revision"
       ]
     }
+  },
+  {
+    "name": "fetch_official_law",
+    "description": "최신 공식 법령 원문 참조 (AgentCore Browser로 국가법령정보센터 현행 법령 조회). 시행일·공포번호·요청 조문 원문과, 저장된 같은 법령이 있으면 개정 여부·변경 조문 수를 반환. 결과는 참고용(UNVERIFIED)이며 게시·검증 근거로 쓰지 않는다",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "law_name": {
+          "type": "string",
+          "description": "법령명 (예: 은행법, 금융소비자 보호에 관한 법률). URL 불가"
+        },
+        "clause": {
+          "type": "string",
+          "description": "선택. 조문 (예: 제2조, 제30조의3제1항)"
+        }
+      },
+      "required": [
+        "law_name"
+      ]
+    }
   }
 ]

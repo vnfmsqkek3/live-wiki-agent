@@ -1,5 +1,7 @@
 # plan · let522mj · 데이터·검색
 
+- 기록 업로드: main push가 거절되면 **push 성공 전 worktree 삭제 금지** (커밋 유실). fetch → merge → 재push
+
 ## ▶ 다음 세션 시작 절차 (이 순서대로 자동 실행)
 
 `let522mj`는 이미 원격에 push된 브랜치다. **rebase 후 force push는 금지**이므로 동기화는 merge로 한다.

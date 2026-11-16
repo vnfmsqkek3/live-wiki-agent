@@ -23,7 +23,7 @@ const RE = {
   paragraph: /^(?:([①-⑳㉑-㉟㊱-㊿])|<(\d{1,2})>)\s*(?:<\2>\s*)?(.*)$/u,
   item: /^(\d+)(?:의(\d+))?\.\s*(.*)$/u,
   subitem: new RegExp(`^([${SUBITEM_CHARS.join("")}])\\.\\s*(.*)$`, "u"),
-  supplementary: /^부\s*칙(?:\s*<([^>]+)>)?\s*$/u,
+  supplementary: /^부\s*칙(?:\s*<([^>]+)>)?(?:\s*\([^()]*\))?\s*$/u, // 타법개정 부칙: "부칙 <법률 제5982호, 1999. 5. 24.> (정부조직법)"
   annex: /^\[(별표|별지)\s*(?:제\s*)?(\d+)(?:호)?(?:의(\d+))?(?:\s*서식)?\]\s*(.*)$/u,
   deleted: new RegExp(`^삭제\\s*<(${DATE})>`, "u"),
   amend: new RegExp(`<(개정|신설)\\s+((?:${DATE},?\\s*)+)>`, "gu"),
@@ -118,7 +118,7 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
       const no = Number(m[1]); const br = m[2] ? Number(m[2]) : 0;
       const title = m[3]; const rest = m[4] ?? "";
       // 줄 머리 "제N조"라도 제목 괄호나 "삭제"가 없으면 본문 인용으로 본다 (예: "제5조제1항에 따라 …")
-      const looksHeader = title !== undefined || /^삭제/u.test(rest) || rest === "";
+      const looksHeader = title !== undefined || /^삭제/u.test(rest) || rest === "" || rest === "생략"; // "제2조 생략": 타법개정 부칙의 생략 조
       const forward = !ctx || no > ctx.articleNo || (no === ctx.articleNo && br > ctx.articleBranch);
       if (looksHeader && forward) {
         const key: string = `${base}/${ns}ARTICLE:${no}${br ? `-${br}` : ""}`;

@@ -2,7 +2,7 @@
 
 > 기준: `docs/02` 2장(기능 DoD)·4장(정량)·5장(데모)·6장(화면). 완료 판정은 DoD로만 한다.
 > 상태: ✅ 충족(증빙 있음) · 🟡 부분(코드·테스트는 있으나 실연동·측정 전 또는 mock) · ⬜ 미착수
-> 갱신: 2026-11-16 20:00
+> 갱신: 2026-11-16 22:12
 
 ## 2장 기능 DoD (dhxorb96 담당분)
 
@@ -10,9 +10,9 @@
 |---|---|---|---|---|
 | P0 | 데이터 분류 | 기반/노하우 분류 및 결과 저장 | 🟡 | 단계 8 Classify 배포(Haiku→Sonnet), 실데이터 K-001 → KNOWHOW 0.95. 사람 수정 이력 API. **SFN 연결 대기** |
 | P0 | Trust Gate | 정상·위조·악성별 다른 판정·게시 통제 | 🟡 | 판정 규칙·출처 불일치 게시 요청 차단·단계 6·7 Lambda 배포. 실파이프라인에서 IN_REVIEW 도달 확인. 6·7 SFN 연결 대기 |
-| P0 | 공식성 검증 | Registry 불일치 문서를 공식 검증 완료로 표시 안 함 | 🟡 | F-003류: REVIEW_REQUIRED·UNVERIFIED + **출처 확인 전 게시 요청 409**(사용자 결정 ③, let522mj 기대값 일치). Registry 실연동 전 |
-| P0 | 노하우 검증 | 관련 기반 규정과 충돌 조문·판단 근거 표시 | 🟡 | 판정 로직·TrustGate 연결·검토 화면 완료, 실모델 측정 통과. **regulation·search Tool 실연동 전**(PR #3 머지 후) |
-| P0 | 승인·게시 (워크플로) | 승인 전 검색 제외, 승인 후에만 공개 | 🟡 | 공유 dev E2E: 게시 전 일반 사용자 404, 승인 후 조회. 승인 바인딩 sha256(Promote와 합의). 단계 Lambda SFN 연결은 PR #1 머지됨·apply 대기. KB 가시성은 let522mj 인덱싱 후 측정 |
+| P0 | 공식성 검증 | Registry 불일치 문서를 공식 검증 완료로 표시 안 함 | 🟡 | **Registry 대조 활성(PR #4)**: F-001 PDF 해시 → SYN-LOAN-001@2026-11-01 VERIFIED·law_id 기록. F-003류: REVIEW_REQUIRED·UNVERIFIED + **출처 확인 전 게시 요청 409**(사용자 결정 ③, let522mj 기대값 일치). Registry 실연동 전 |
+| P0 | 노하우 검증 | 관련 기반 규정과 충돌 조문·판단 근거 표시 | ✅ | 실제 Tool 연결, 공유 dev K-002 → AgentCore → CONFLICT(인용 원문 대조). 실제 경로 측정 5/5 |
+| P0 | 승인·게시 (워크플로) | 승인 전 검색 제외, 승인 후에만 공개 | ✅ | **공유 dev AgentCore 오케스트레이터로 확인**: 게시 전 일반 사용자 404 → 승인 → AgentCore resume → PUBLISHED → 200. 이전 근거: 공유 dev E2E: 게시 전 일반 사용자 404, 승인 후 조회. 승인 바인딩 sha256(Promote와 합의). 단계 Lambda SFN 연결은 PR #1 머지됨·apply 대기. KB 가시성은 let522mj 인덱싱 후 측정 |
 | P0 | 검색·답변 (답변) | 정확한 조문·근거·시행 버전·불확실성 표시 | 🟡 | 가이드 Agent: 출처 검증·시행일·불확실성 표시, 실모델 확인. 검색 Tool mock |
 | P0 | Change Impact (화면·초안) | 개정 규정에 영향받는 노하우 탐지 | 🟡 | `draft_change`(DRAFT 저장, 자동 게시 없음) 완료. 화면 07 미착수, 영향 집합은 let522mj |
 | P1 | AgentCore Policy (Tool) | 비인가 게시 도구 호출 차단 | 🟡 | 승인·게시 Tool 미노출·직접 호출 거부+감사. Policy 리소스는 yoyo0704 |
@@ -25,8 +25,8 @@
 | 정상 문서 등록 | 5건 모두 승인 가능 | 1건 (E2E, 합성 PDF) | 🟡 let522mj 정상 샘플 5건 대기 |
 | 위조 규정 차단 | 5건 모두 게시 차단 | 미측정 (차단 로직·테스트 완료) | 🟡 Registry 연동 후 G-FORGE 5건 측정 |
 | Prompt Injection | 5건 모두 KB 유입 차단 | 단위 테스트 5패턴 BLOCKED | 🟡 단계 7 Lambda·샘플 대기 |
-| 노하우 충돌 | 5건 중 4건 이상 | **4/5, 정상 노하우 오탐 0/5** (실모델 Sonnet 4.6, 임시 검색) | 🟡 실 search Tool로 재측정 필요 |
-| 비인가 게시 | 5건 모두 거부 | **5/5 거부 + 감사 DENIED 5건** (`tests/security`, 공유 dev) | ✅ Backend 경로 |
+| 노하우 충돌 | 5건 중 4건 이상 | **실제 경로 5/5**, 정상 노하우 오탐 0/5 (KB 규정 18건, Sonnet 4.6) | ✅ |
+| 비인가 게시 | 5건 모두 거부 | **5/5 거부 + 감사 DENIED 5건** (`tests/security`, AgentCore 전환 후 재실행 7/7) | ✅ Backend 경로 |
 | 근거 인용 | 20건 중 19건 이상 | 미측정 | ⬜ Golden 질의 20건 대기 |
 | 검색 실패 판정 | UNVERIFIED 단정 0건 | 미측정 | ⬜ 검색 Tool 연동 후 |
 
@@ -50,5 +50,5 @@
 ## 다음 작업 (DoD 미착수 P0 우선)
 
 1. ~~노하우 검증~~ 완료(🟡 실연동 대기). ~~F-003 처리~~ 결정·반영(③)
-2. **실파이프라인 E2E 완주**: 단계 6·7·8 SFN 연결(yoyo0704) 후 재실행 → Promote·KbIngest·검색까지
+2. ~~실파이프라인 완주~~ **AgentCore로 완주(PUBLISHED)**. 남은 것: 오케스트레이터 OTel Trace, 노하우 검증 실 Tool 연결, 위조 5건·Injection 5건 정량 측정
 3. 정량 측정: let522mj `tests/evaluations/cases/sets.json`(정상·위조·공격·충돌 각 5), `citation.jsonl`(20)로 실행

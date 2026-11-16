@@ -54,6 +54,7 @@ MCP_ROLE=$(role mcp "$(cat <<EOF
  {"Effect":"Allow","Action":["dynamodb:BatchGetItem"],"Resource":"$DDB/$TD"},
  {"Effect":"Allow","Action":["bedrock:Retrieve"],"Resource":"$KB_ARN"},
  {"Effect":"Allow","Action":["bedrock:Rerank","bedrock:InvokeModel"],"Resource":["arn:aws:bedrock:$R::foundation-model/cohere.rerank-v3-5:0","arn:aws:bedrock:$R::foundation-model/amazon.titan-embed-text-v2:0"]},
+ {"Effect":"Allow","Action":["bedrock-agentcore:StartBrowserSession","bedrock-agentcore:StopBrowserSession","bedrock-agentcore:GetBrowserSession","bedrock-agentcore:ConnectBrowserAutomationStream"],"Resource":"arn:aws:bedrock-agentcore:$R:aws:browser/aws.browser.v1"},
  {"Effect":"Allow","Action":["kms:Decrypt"],"Resource":"$KMS"}]}
 EOF
 )" "Key=hanaeum-model-caller,Value=true")
@@ -79,7 +80,7 @@ fn segment-build segment_build "$STEPS_ROLE" 512 60 "{}"
 fn promote promote "$STEPS_ROLE" 512 60 "{BUCKET_PUBLISHED=$BP,TABLE_DOCUMENTS=$TD,TABLE_APPROVALS=$TA}"
 fn kb-ingest kb_ingest "$STEPS_ROLE" 256 30 "{KB_ID=$KB_ID,KB_DS_LEGAL_ID=$(ssm KB_DS_LEGAL_ID),KB_DS_KNOWLEDGE_ID=$(ssm KB_DS_KNOWLEDGE_ID),BUCKET_ARTIFACT=$BA,TABLE_DOCUMENTS=$TD,TABLE_APPROVALS=$TA}"
 fn kb-chunker kb_chunker "$CHUNK_ROLE" 1024 300 "{}"
-fn mcp-regulation mcp_regulation "$MCP_ROLE" 512 30 "{TABLE_REGULATIONS=$TR}"
+fn mcp-regulation mcp_regulation "$MCP_ROLE" 512 90 "{TABLE_REGULATIONS=$TR}"
 fn mcp-search mcp_search "$MCP_ROLE" 512 30 "{KB_ID=$KB_ID,MODEL_RERANK=$(ssm MODEL_RERANK),TABLE_DOCUMENTS=$TD,TABLE_REGULATIONS=$TR}"
 echo "roles: steps=$STEPS_ROLE kbchunker=$CHUNK_ROLE mcp=$MCP_ROLE"
 # graph_upsert·mcp_graph는 Neptune(11/20) 배포 후 VPC 설정과 함께 추가

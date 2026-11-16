@@ -10,10 +10,15 @@
     "@aws-sdk/lib-dynamodb": "3.1169.0",
     "@hanaeum/legal-parser": "*",
     "@hanaeum/mcp-kit": "*",
-    "@hanaeum/schemas": "*"
+    "@hanaeum/schemas": "*",
+    "bedrock-agentcore": "0.4.7",
+    "ws": "8.23.0"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
     "test": "node --test \"src/**/*.test.ts\""
+  },
+  "devDependencies": {
+    "@types/ws": "8.18.1"
   }
 }
