@@ -2,7 +2,8 @@
 // 지표: 문자 오류율 CER(공백 제외 편집 거리 / 정답 글자 수), 줄 정확 일치율, 조문 구조(조·항·호 경로) 복원율.
 // 실행 (공유 dev, Chrome 필요): set -a; . ./.env.local; set +a; node tests/evaluations/cases/src/measure-ocr.ts [F-001 G-REG-01 ...]
 // 측정용 객체는 quarantine 버킷 {evalDoc}/work/pages/, _ocr-async/in/{evalDoc}/ 에 올리고 끝나면 지운다.
-import { parseLaw } from "@hanaeum/legal-parser";
+import { parseLaw, ocrRows, restoreCircled } from "@hanaeum/legal-parser";
+import type { OcrBox } from "@hanaeum/legal-parser";
 
 const squash = (s: string) => s.replace(/\s+/gu, "");
 
@@ -20,17 +21,9 @@ export function editDistance(a: string, b: string): number {
 /** 공백을 뺀 문자 오류율 (줄바꿈·띄어쓰기 차이는 오류로 보지 않음) */
 export const cer = (ref: string, hyp: string) => { const r = squash(ref); return r.length ? editDistance(r, squash(hyp)) / [...r].length : 0; };
 
-export interface Block { text: string; bbox: number[] }
-/** OCR 블록을 같은 줄끼리 묶는다 (세로 중심이 줄 높이 절반 안이면 같은 줄), 왼→오른 순 */
-export function rows(blocks: Block[]): string[] {
-  const items = blocks.map((b) => ({ t: b.text, x: b.bbox[0]!, yc: (b.bbox[1]! + b.bbox[3]!) / 2, h: b.bbox[3]! - b.bbox[1]! })).sort((a, b) => a.yc - b.yc);
-  const out: { yc: number; h: number; parts: typeof items }[] = [];
-  for (const it of items) {
-    const last = out.at(-1);
-    if (last && Math.abs(it.yc - last.yc) < Math.max(last.h, it.h) / 2) last.parts.push(it); else out.push({ yc: it.yc, h: it.h, parts: [it] });
-  }
-  return out.map((r) => r.parts.sort((a, b) => a.x - b.x).map((p) => p.t).join(" "));
-}
+export type Block = OcrBox;
+/** OCR 블록 → 줄 (공용 ocrRows, Segment 단계와 같은 규칙) */
+export const rows = (blocks: Block[]) => ocrRows(blocks);
 
 export interface OcrScore { cer: number; lines: number; lineExact: number; provisions: number; provisionsMatched: number }
 /** 정답 줄 vs OCR 줄: CER, 줄 정확 일치(공백 무시), 조문 경로·본문 일치 */
@@ -95,17 +88,26 @@ if (import.meta.main) {
       const t = truth[p.page_index]!; const d = byDoc.get(t.id) ?? { ref: [], hyp: [] };
       d.ref.push(...t.lines); d.hyp.push(...rows(p.blocks)); byDoc.set(t.id, d);
     }
-    console.log(`| 문서 | 쪽 | CER | 줄 정확 일치 | 조문 구조·본문 일치 |`);
-    console.log(`|---|---|---|---|---|`);
+    // 원시 OCR과 Segment 단계 보정(restoreCircled) 후를 함께 보고한다 (파이프라인이 실제로 쓰는 값은 보정 후)
+    console.log(`| 문서 | 쪽 | CER | 줄 정확 일치 | 조문 구조·본문 일치 | 보정 후 줄 일치 | 보정 후 조문 일치 |`);
+    console.log(`|---|---|---|---|---|---|---|`);
     const all = { ref: [] as string[], hyp: [] as string[] };
     for (const [id, d] of byDoc) {
       const s = score(d.ref, d.hyp); all.ref.push(...d.ref); all.hyp.push(...d.hyp);
-      console.log(`| ${id} | ${truth.filter((t) => t.id === id).length} | ${(s.cer * 100).toFixed(2)}% | ${s.lineExact}/${s.lines} | ${s.provisionsMatched}/${s.provisions} |`);
+      const f = score(d.ref, restoreCircled(d.hyp.join("\n")).split("\n"));
+      console.log(`| ${id} | ${truth.filter((t) => t.id === id).length} | ${(s.cer * 100).toFixed(2)}% | ${s.lineExact}/${s.lines} | ${s.provisionsMatched}/${s.provisions} | ${f.lineExact}/${f.lines} | ${f.provisionsMatched}/${f.provisions} |`);
     }
-    const s = score(all.ref, all.hyp);
-    console.log(`| **전체** | ${truth.length} | **${(s.cer * 100).toFixed(2)}%** | ${s.lineExact}/${s.lines} | ${s.provisionsMatched}/${s.provisions} |`);
+    const s = score(all.ref, all.hyp); const f = score(all.ref, restoreCircled(all.hyp.join("\n")).split("\n"));
+    console.log(`| **전체** | ${truth.length} | **${(s.cer * 100).toFixed(2)}%** | ${s.lineExact}/${s.lines} | ${s.provisionsMatched}/${s.provisions} | ${f.lineExact}/${f.lines} | **${f.provisionsMatched}/${f.provisions}** |`);
+    if (process.env["OCR_DUMP"]) writeFileSync(process.env["OCR_DUMP"], JSON.stringify([...byDoc].map(([id, d]) => ({ id, ref: d.ref, hyp: d.hyp })), null, 1)); // 분석용 (scratch 경로 지정)
     console.log(`엔드포인트 ${ENDPOINT}, 모델 ${(out as { model?: string }).model ?? "?"}`);
-    for (const [id, d] of byDoc) for (const l of d.ref) if (!new Set(d.hyp.map(squash)).has(squash(l))) console.log(`  불일치 ${id}: ${l.slice(0, 60)}`);
+    // 불일치 줄: 가장 가까운 OCR 줄과 나란히 (오인식 유형 파악용)
+    for (const [id, d] of byDoc) for (const l of d.ref) {
+      const fixed = restoreCircled(d.hyp.join("\n")).split("\n");
+      if (new Set(fixed.map(squash)).has(squash(l))) continue; // 보정 후에도 남는 불일치만
+      const near = fixed.reduce((b, h) => (editDistance(squash(l), squash(h)) < editDistance(squash(l), squash(b)) ? h : b), fixed[0] ?? "");
+      console.log(`  불일치 ${id}\n    정답: ${l.slice(0, 70)}\n    OCR : ${near.slice(0, 70)}`);
+    }
   } finally {
     rmSync(tmp, { recursive: true, force: true });
     for (const prefix of [`${evalDoc}/`, `_ocr-async/in/${evalDoc}/`]) {

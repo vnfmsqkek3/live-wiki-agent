@@ -48,15 +48,15 @@ test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED"
   await textLayerStep(input, s);
   await assert.rejects(segmentStep(input, s), /NoSuchKey/u);
   const ocr: OcrResult = { doc_id: DOC, model: "paddleocr", model_version: "test", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 2828, source: "ocr", blocks: [
-    { block_id: "p0-b1", label: "paragraph", text: "제12조(승인 기준)", confidence: 0.97, bbox: [0, 0, 1, 1], reading_order: 1, table_id: null },
-    { block_id: "p0-b0", label: "title", text: "SYNTHETIC", confidence: 0.6, bbox: [0, 0, 1, 1], reading_order: 0, table_id: null },
+    { block_id: "p0-b1", label: "paragraph", text: "제12조(승인 기준)", confidence: 0.97, bbox: [40, 140, 600, 190], reading_order: 1, table_id: null },
+    { block_id: "p0-b0", label: "title", text: "SYNTHETIC", confidence: 0.6, bbox: [40, 40, 500, 90], reading_order: 0, table_id: null },
   ] }] };
   await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify(ocr));
   const out = await segmentStep(input, s);
   assert.equal(out.status, "REVIEW_REQUIRED");
   assert.equal(out.findings![0]!.code, "LOW_OCR_CONFIDENCE");
   const seg = JSON.parse((await s.get(Q, `${DOC}/work/segments/0000.json`)).toString());
-  assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // reading_order 정렬
+  assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // 위→아래 줄 순서
 });
 
 test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 계약 준수", async () => {
