@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node src/server.ts",
     "test": "node --test test/*.test.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "build:lambda": "esbuild src/handlers.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/handlers.mjs --external:@aws-sdk/* --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   },
   "dependencies": {
     "@aws-sdk/client-bedrock-runtime": "3.1169.0",
@@ -19,5 +20,8 @@
     "hono": "4.13.18",
     "ulid": "3.0.2",
     "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
   }
 }
