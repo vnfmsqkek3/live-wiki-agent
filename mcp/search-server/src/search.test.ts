@@ -129,3 +129,21 @@ test("노하우 본문 → 관련 현행 조문 상위 5 (dhxorb96 1924-2, 조�
   assert.ok(r.items.some((x) => x.provision_id === "SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"), r.items.map((x) => x.provision_id).join(", "));
   assert.ok(r.items.every((x) => x.document_type === "REGULATION"));
 });
+
+test("rerank 모델 접근 거부면 HYBRID로 대체, 다른 오류는 그대로 던짐", async () => {
+  const { BedrockRetriever } = await import("./index.ts");
+  type Cfg = { input: { retrievalConfiguration: { vectorSearchConfiguration: { rerankingConfiguration?: unknown } } } };
+  const calls: boolean[] = [];
+  const fake = (fail: Error) => ({ send: async (cmd: Cfg) => {
+    const rerank = !!cmd.input.retrievalConfiguration.vectorSearchConfiguration.rerankingConfiguration;
+    calls.push(rerank);
+    if (rerank) throw fail;
+    return { retrievalResults: [{ content: { text: "본문" }, score: 0.5, metadata: {} }] };
+  } }) as unknown as ConstructorParameters<typeof BedrockRetriever>[2];
+  const denied = Object.assign(new Error("Model access is denied due to ... aws-marketplace:Subscribe"), { name: "ValidationException" });
+  const hits = await new BedrockRetriever("KB", "cohere.rerank-v3-5:0", fake(denied)).retrieve("q");
+  assert.deepEqual(calls, [true, false]);
+  assert.equal(hits[0]?.text, "본문");
+  const other = Object.assign(new Error("Throttled"), { name: "ThrottlingException" });
+  await assert.rejects(new BedrockRetriever("KB", "cohere.rerank-v3-5:0", fake(other)).retrieve("q"), /Throttled/u);
+});

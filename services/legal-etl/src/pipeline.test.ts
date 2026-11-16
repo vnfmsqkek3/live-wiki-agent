@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MetadataSidecar } from "@hanaeum/schemas";
+import { MetadataSidecar, StepInput as StepInputSchema } from "@hanaeum/schemas";
 import type { StepInput } from "@hanaeum/schemas";
 import { MemoryObjectStore, MemoryRecords, textLayerStep, segmentStep, promoteStep, kbIngestStep, extractTextLayer, sha256 } from "./index.ts";
 import type { IngestionApi, OcrResult } from "./index.ts";
@@ -87,6 +87,14 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   await s.put(Q, `${DOC}/masked/segments/0007.json`, JSON.stringify({ text: "옛 페이지" }));
   r.approvals.set("apr_2", { approval_id: "apr_2", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
   await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), /세그먼트 불일치/u);
+  assert.equal(r.approvals.get("apr_2")!.status, "APPROVED", "게시 실패 시 승인을 소비하지 않음");
+  // 규정인데 law_id 없음(Registry 대조 전) → 메타데이터 검증 실패, 승인은 그대로
+  s.objects.delete(`${Q}/${DOC}/masked/segments/0007.json`);
+  const full = r.documents.get(DOC)!;
+  r.documents.set(DOC, { ...full, law_id: undefined, revision_id: undefined });
+  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), /law_id/u);
+  assert.equal(r.approvals.get("apr_2")!.status, "APPROVED");
+  r.documents.set(DOC, full);
 
   const meta = MetadataSidecar.parse(JSON.parse((await s.get(P, `legal/${DOC}/content.txt.metadata.json`)).toString())).metadataAttributes;
   assert.equal(meta.index_group, "legal-clauses");
@@ -128,4 +136,28 @@ test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA25
   assert.equal(out.status, "OK");
   assert.equal(r.approvals.get("apr_9")!.status, "USED");
   assert.equal(r.documents.get(DOC)!.published_content_hash, out.content_hash);
+});
+
+test("승인 API 형식의 Documents 항목 정규화: classification 유형·문자열 시행일, 유형 없으면 게시 거부", async () => {
+  const { normalizeDocument } = await import("./store.ts");
+  const base = { doc_id: DOC, version: 1, title: "t", dept: "d", acl_groups: ["ALL"], authority_status: "VERIFIED" };
+  const d = normalizeDocument({ ...base, classification: { document_type: "REGULATION" }, effective_from: "2026-11-01", effective_to: "9999-12-31" });
+  assert.equal(d.document_type, "REGULATION");
+  assert.equal(d.effective_from, 20261101);
+  assert.equal(d.effective_to, 99991231);
+  assert.equal(normalizeDocument({ ...base, document_type: "KNOWHOW", effective_from: 20260101 }).effective_from, 20260101);
+  assert.throws(() => normalizeDocument(base), { name: "UnclassifiedDocument" });
+});
+
+test("KbIngest clientToken은 Bedrock 제약(영숫자·하이픈, 33~256자)을 만족하고 결정적", async () => {
+  const { ingestToken } = await import("./kb-ingest.ts");
+  const t = ingestToken(input);
+  assert.match(t, /^[a-zA-Z0-9](-*[a-zA-Z0-9]){32,255}$/u);
+  assert.equal(t, ingestToken({ ...input }));
+  assert.notEqual(t, ingestToken({ ...input, version: 2 }));
+});
+
+test("AgentCore Gateway Target 호출: __actor·task_token·outcome 등 추가 필드는 무시 (공통 입력 6필드만 사용)", () => {
+  const e = { ...input, __actor: { sub: "x", groups: ["PLATFORM_OPERATOR"] }, task_token: "t", outcome: "PUBLISHED", extra: 1 };
+  assert.deepEqual(StepInputSchema.parse(e), input);
 });

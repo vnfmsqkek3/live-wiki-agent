@@ -2,6 +2,7 @@
 import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } from "@aws-sdk/client-s3";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
+import { ymd } from "@hanaeum/schemas";
 import type { AuthorityStatus, DocumentType } from "@hanaeum/schemas";
 
 export interface ObjectStore {
@@ -80,7 +81,19 @@ export interface Records {
   setPublishedHash(docId: string, hash: string): Promise<void>;
 }
 
-const bindingError = (id: string) => Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${id}`), { name: "ApprovalBindingError" });
+/** 승인 API(dhxorb96)가 쓴 Documents 항목을 Promote 입력으로: 문서 유형은 최상위 또는 classification(Classify·사람 수정),
+ *  시행일은 "YYYY-MM-DD" 문자열 또는 YYYYMMDD 숫자. 유형을 못 정하면 게시하지 않는다 */
+export function normalizeDocument(item: Record<string, unknown>): DocumentRecord {
+  const cls = item["classification"] as { document_type?: DocumentType } | undefined;
+  const document_type = (item["document_type"] ?? cls?.document_type) as DocumentType | undefined;
+  if (!document_type) throw Object.assign(new Error(`document_type 미정: ${String(item["doc_id"])}`), { name: "UnclassifiedDocument" });
+  const day = (v: unknown) => (typeof v === "string" ? ymd(v) : (v as number | undefined));
+  const d = { ...item, document_type } as unknown as DocumentRecord;
+  for (const k of ["effective_from", "effective_to"] as const) { const v = day(item[k]); if (v === undefined) delete d[k]; else d[k] = v; }
+  return d;
+}
+
+const bindingError =(id: string) => Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${id}`), { name: "ApprovalBindingError" });
 
 export class MemoryRecords implements Records {
   readonly documents = new Map<string, DocumentRecord & { published_content_hash?: string }>();
@@ -118,7 +131,7 @@ export class DynamoRecords implements Records {
   }
   async getDocument(doc_id: string) {
     const r = await this.db.send(new GetCommand({ TableName: this.tables.documents, Key: KEYS.document(doc_id) }));
-    return r.Item as DocumentRecord | undefined;
+    return r.Item && normalizeDocument(r.Item);
   }
   async getApproval(id: string) {
     const r = await this.db.send(new GetCommand({ TableName: this.tables.approvals, Key: KEYS.approval(id) }));
