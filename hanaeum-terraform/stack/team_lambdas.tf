@@ -96,9 +96,17 @@ locals {
       ]
     }
     mcp-regulation = {
-      zip        = "mcp_regulation.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = false
-      env        = { TABLE_REGULATIONS = local.t["regulations"].name }
-      statements = [{ Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn }]
+      # fetch_official_law: AWS 관리형 Browser 로 law.go.kr 조회 (let522mj PR #6, 요청 2117). 실측 22초 → 90초
+      zip = "mcp_regulation.zip", handler = "index.handler", memory = 512, timeout = 90, model_caller = false
+      env = { TABLE_REGULATIONS = local.t["regulations"].name }
+      statements = [
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        {
+          Effect   = "Allow"
+          Action   = ["bedrock-agentcore:StartBrowserSession", "bedrock-agentcore:StopBrowserSession", "bedrock-agentcore:GetBrowserSession", "bedrock-agentcore:ConnectBrowserAutomationStream"]
+          Resource = "arn:aws:bedrock-agentcore:${var.region}:aws:browser/aws.browser.v1"
+        },
+      ]
     }
     mcp-search = {
       zip = "mcp_search.zip", handler = "index.handler", memory = 512, timeout = 30, model_caller = true

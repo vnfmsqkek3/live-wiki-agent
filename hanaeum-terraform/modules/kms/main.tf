@@ -25,6 +25,15 @@ resource "aws_kms_key" "data" {
         Resource  = "*"
         Condition = { ArnLike = { "kms:EncryptionContext:aws:logs:arn" = "arn:aws:logs:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:*" } }
       },
+      {
+        # AgentCore Memory·Policy 엔진 암호화 (11/16). 없으면 "Failed to encrypt data" (트러블슈팅)
+        Sid       = "BedrockAgentCore"
+        Effect    = "Allow"
+        Principal = { Service = "bedrock-agentcore.amazonaws.com" }
+        Action    = ["kms:Encrypt", "kms:Decrypt", "kms:ReEncrypt*", "kms:GenerateDataKey*", "kms:DescribeKey", "kms:CreateGrant"]
+        Resource  = "*"
+        Condition = { StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.me.account_id } }
+      },
     ]
   })
 }

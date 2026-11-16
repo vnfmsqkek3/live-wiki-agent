@@ -76,6 +76,13 @@ module "pipeline" {
   enable_transaction_search = var.enable_transaction_search
 }
 
+# 사용자 Agent 대화 메모리 (사용자 결정 11/16). 사용자 Agent Runtime Role 에 agent_policy_arn 을 attach
+module "memory" {
+  source      = "../modules/agentcore_memory"
+  n           = local.n
+  kms_key_arn = module.kms.key_arn
+}
+
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
 locals {
   params = merge(
@@ -93,6 +100,7 @@ locals {
       OCR_ENDPOINT_NAME    = module.ocr.endpoint_name
       PIPELINE_GATEWAY_URL = module.pipeline.gateway_url
       PIPELINE_ECR_REPO    = module.pipeline.ecr_repository_url
+      MEMORY_ID            = module.memory.memory_id
       PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : "pending"
       KB_DS_LEGAL_ID       = module.kb.data_source_ids["legal"]
       KB_DS_KNOWLEDGE_ID   = module.kb.data_source_ids["knowledge"]
