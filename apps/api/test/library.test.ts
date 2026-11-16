@@ -82,3 +82,16 @@ test('상세: 페이지 순서·페이지 요약·밑줄, 권한 밖·타인 미
   assert.equal((await t.get('user', '/v1/library/SECRET')).status, 404);
   assert.equal((await t.get('user', '/v1/library/OTHERS_DRAFT')).status, 404);
 });
+
+test('상세 검증 정보: 문서 표기 일자, 노하우 비교 조문·승인자·시각, 매뉴얼은 사람 승인 방식', async () => {
+  const { docDate, verification } = await import('../src/library.ts');
+  assert.deepEqual(docDate([{ page: 0, text: '문서 관리번호 05\n개정일 / 버전 2026.10.15 / 1.0' }]), { label: '개정일', date: '2026-10-15' });
+  const base = { doc_id: 'X', version: 1, owner: 'o', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED' as const, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  const v = verification({ ...base, document_type: 'KNOWHOW', knowhow_validation: { verdict: 'SUPPORTED', model: 'm', checked_at: 'c', outdated: [], items: [{ statement: 's', provision_id: 'p', label: '기업여신 심사규정 제10조제2항', relation: 'SUPPORTS', reason: 'r', quote: '6개월 이내', verified_quote: true }] } },
+    { approver_sub: 'abcdefgh123', approver_name: 'admin', decided_at: '2026-11-17T01:00:00Z', reason: '확인' });
+  assert.equal(v.approved_by, 'admin');
+  assert.equal(v.basis[0]!.label, '기업여신 심사규정 제10조제2항');
+  assert.equal(v.basis[0]!.result, '규정과 일치');
+  assert.match(verification({ ...base, document_type: 'MANUAL' }).method, /사람 승인/);
+  assert.equal(verification({ ...base, document_type: 'MANUAL' }, { approver_sub: 'abcdefgh123' }).approved_by, '관리자 계정(abcdefgh)');
+});

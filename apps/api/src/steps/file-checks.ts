@@ -157,7 +157,7 @@ export function pdfEmbedded(s: string): { name: string; subtype?: string; size?:
     const nm = /\/(?:UF|F)\s*\(((?:\\.|[^\\)]){1,200})\)/.exec(spec);
     const ef = /\/EF\s*<<[\s\S]*?\/(?:UF|F)\s+(\d+)\s+0\s+R/.exec(spec);
     const dict = ef ? objDict(ef[1]!) : '';
-    const subtype = /\/Subtype\s*\/([^\s/<>\[\]()]+)/.exec(dict)?.[1]?.replace(/#2F/gi, '/');
+    const subtype = /\/Subtype\s*\/([^\s/<>[\]()]+)/.exec(dict)?.[1]?.replace(/#2F/gi, '/');
     const size = Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? /\/Length\s+(\d+)/.exec(dict)?.[1] ?? NaN);
     const name = nm ? pdfString(nm[1]!) : '이름 없는 첨부';
     const c2pa = /c2pa|content credentials/i.test(`${name} ${subtype ?? ''} ${/\/AFRelationship\s*\/(\w+)/.exec(spec)?.[1] ?? ''}`) || /c2pa/i.test(dict);

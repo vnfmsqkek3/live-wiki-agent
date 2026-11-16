@@ -61,6 +61,8 @@ export interface Actor {
   sub: string;
   groups: Role[];
   dept?: string;
+  /** Cognito 로그인 아이디 (access token username). 화면 표시용 */
+  username?: string;
 }
 
 export interface DocumentRecord {
@@ -115,6 +117,8 @@ export interface ApprovalRecord {
   content_hash: string;
   author_sub: string;
   approver_sub?: string;
+  /** 승인자 로그인 아이디 (상세 화면 '검증한 사람') */
+  approver_name?: string;
   status: ApprovalStatus;
   reason?: string;
   decided_at?: string;

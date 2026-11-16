@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
+import { api, ApiError, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
@@ -109,6 +109,33 @@ function Fix({ m, n, on }: { m: Mark; n?: number; on?: boolean }) {
   );
 }
 
+/** 본문이 인용한 외부 법령의 최신 공식본 (AgentCore Browser, 참고용·미검증). 첫 조회는 20초 남짓이라 따로 불러온다 */
+function ExternalLaws({ id }: { id: string }) {
+  const [items, setItems] = useState<ExternalLaw[] | null>(null);
+  useEffect(() => { api<{ items: ExternalLaw[] }>('GET', `/v1/library/${encodeURIComponent(id)}/external-laws`).then((r) => setItems(r.items)).catch(() => setItems([])); }, [id]);
+  if (items === null) return <p className="note" aria-live="polite">본문이 인용한 법령을 국가법령정보센터에서 확인하는 중입니다…</p>;
+  if (!items.length) return null;
+  return (
+    <section aria-labelledby="ext-h">
+      <h3 className="section" id="ext-h">외부 법령 최신본 참고 <span className="note">(미검증)</span></h3>
+      <ul className="fixes">
+        {items.map((x) => (
+          <li key={x.law_name + (x.clause ?? '')} className="fix">
+            <p className="fix-head">「{x.law_name}」{x.clause ? ` ${x.clause}` : ''}{x.result?.effective_from && ` · ${x.result.effective_from} 시행본`}</p>
+            {x.error || !x.result ? <p className="note">공식 사이트에서 가져오지 못했습니다. 잠시 뒤 다시 열어 보세요.</p> : (
+              <>
+                {x.result.clause?.text ? <blockquote className="basis"><p>{x.result.clause.text}</p></blockquote> : <p className="note">요청한 조문을 찾지 못했습니다.</p>}
+                <p className="meta">출처 {x.result.source} · 조회 {new Date(x.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{x.result.from_cache ? ' (1일 보관본)' : ''} · <a href={x.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
+              </>
+            )}
+          </li>
+        ))}
+      </ul>
+      <p className="meta">공식 사이트 원문을 참고로 보여 줍니다. 공식 규정 등록·승인 전에는 검증 근거로 쓰지 않습니다.</p>
+    </section>
+  );
+}
+
 function Detail({ id }: { id: string }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
   const [err, setErr] = useState('');
@@ -141,6 +168,7 @@ function Detail({ id }: { id: string }) {
       <dl className="meta-grid">
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
+        {d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
         <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd>{day(d.updated_at)}</dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
@@ -148,6 +176,33 @@ function Detail({ id }: { id: string }) {
           <span key={r.doc_id} className="rel"><Link href={`/library?id=${encodeURIComponent(r.doc_id)}`}>{r.title}</Link> · {REL[r.relation]} ({r.reason})</span>
         ))}</dd></>}
       </dl>
+
+      {d.verification && (
+        <section aria-labelledby="verify-h">
+          <h3 className="section" id="verify-h">검증 정보</h3>
+          <dl className="meta-grid">
+            <dt>검증한 사람</dt><dd>{d.verification.approved_by ?? '아직 승인 전'}</dd>
+            <dt>검증 시각</dt><dd>{d.verification.approved_at ? new Date(d.verification.approved_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-'}</dd>
+            {d.verification.approval_reason && <><dt>승인 의견</dt><dd>{d.verification.approval_reason}</dd></>}
+            <dt>검증 방법</dt><dd>{d.verification.method}</dd>
+          </dl>
+          {d.verification.basis.length > 0 && (
+            <>
+              <p className="note" style={{ margin: '10px 0 4px' }}>비교한 대상</p>
+              <ul className="fixes">
+                {d.verification.basis.map((b, i) => (
+                  <li key={i} className="fix">
+                    <p className="fix-head">{b.what} · {b.label}{b.effective_from && ` · ${b.effective_from} 시행`}</p>
+                    <p>{b.result}</p>
+                    {b.quote && <blockquote className="basis"><p>{b.quote}</p></blockquote>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </section>
+      )}
+      <ExternalLaws id={d.doc_id} />
 
       {d.doc_marks.length > 0 && (
         <section aria-labelledby="doc-marks">

@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
-import { card, matches, type Mark, type Page } from './library.ts';
+import { card, docDate, matches, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
@@ -42,6 +42,10 @@ export interface Deps {
   explanation?(doc_id: string): Promise<unknown>;
   /** 마스킹된 쪽 이미지가 있는 page_index 목록 */
   pageImageList?(doc_id: string): Promise<number[]>;
+  /** 본문이 인용한 외부 법령(「…법」, 내부 규정 저장소에 없는 것). let522mj externalLaws */
+  externalLaws?(text: string): Promise<{ law_name: string; clause?: string }[]>;
+  /** 외부 법령 최신 공식본 (사용자 Gateway regulation___fetch_official_law, AgentCore Browser). 사용자 토큰으로 호출 */
+  officialLaw?(a: { law_name: string; clause?: string }, accessToken: string): Promise<unknown>;
   /** 문서보관함: 마스킹본 페이지 (`{doc_id}/masked/segments/`). 원본은 읽지 않는다 */
   pages?(doc_id: string): Promise<Page[]>;
   /** let522mj buildMarks: 판정·Finding → 밑줄 (page = pages 배열 인덱스, 못 찾으면 null) */
@@ -257,7 +261,7 @@ export function createApp(deps: Deps) {
     // 반려·재검증은 변경된 객체에도 가능해야 하므로 바인딩 검증은 APPROVE에만 적용
     // 버전 ID는 불변 → 현재 객체 버전이 게시 요청 때와 같아야 승인. 해시는 Promote가 바이트로 재검증한다
     const bind = { s3_version_id: status === 'APPROVED' ? head.s3_version_id : apr.s3_version_id, content_hash: apr.content_hash };
-    const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, reason: b.reason, ...bind });
+    const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, ...(a.username ? { approver_name: a.username } : {}), reason: b.reason, ...bind });
     const now = new Date().toISOString();
     if (b.decision === 'REVALIDATE') await store.putDoc({ ...d, lifecycle: 'IN_REVIEW', freshness: 'REVIEW_REQUIRED', updated_at: now });
     else if (status === 'REJECTED') await store.putDoc({ ...d, lifecycle: 'BLOCKED', authority_status: 'REJECTED', updated_at: now });
@@ -280,6 +284,20 @@ export function createApp(deps: Deps) {
     const items = vis.filter((d) => d.lifecycle !== 'BLOCKED' && matches(d, f)).sort((x, y) => y.updated_at.localeCompare(x.updated_at)).map((d) => card(d, vis));
     return c.json({ items });
   });
+  // 외부 법령 최신본 참고 (미검증). 첫 조회는 Browser라 수십 초 → 상세 본문과 따로 부른다
+  app.get('/v1/library/:id/external-laws', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const d = vis.find((x) => x.doc_id === c.req.param('id'));
+    if (!d) throw new ApiError('NOT_FOUND', 'document not found');
+    if (!deps.pages || !deps.externalLaws) return c.json({ items: [], note: '외부 법령 조회가 설정되지 않았습니다' });
+    const laws = await deps.externalLaws((await deps.pages(d.doc_id)).map((p) => p.text).join('\n'));
+    const items = await Promise.all(laws.map(async (l) => {
+      try { return { ...l, result: deps.officialLaw ? await deps.officialLaw(l, c.get('token')) : null }; }
+      catch (e) { return { ...l, error: (e as Error).name }; }
+    }));
+    return c.json({ items });
+  });
+
   app.get('/v1/library/:id', async (c) => {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
@@ -288,8 +306,11 @@ export function createApp(deps: Deps) {
     const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
     const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
+    const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     return c.json({
       ...card(d, vis),
+      doc_date: docDate(pages),
+      verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
       pages: pages.map((p, i) => ({ page: p.page, text: p.text, summary: sum.get(p.page) ?? null, marks: marks.filter((m) => m.page === i) })),
     });

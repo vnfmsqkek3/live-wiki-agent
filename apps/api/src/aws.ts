@@ -172,3 +172,19 @@ export async function pageImageList(doc_id: string) {
 export async function explanation(doc_id: string) {
   return getJson<unknown>(`${doc_id}/masked/explanation.json`);
 }
+
+/** 사용자 Gateway Tool 호출 (사용자 access token 그대로 → interceptor가 신원 주입, Policy·감사 일원화). 결과 JSON */
+export async function userTool(name: string, args: Record<string, unknown>, accessToken: string): Promise<unknown> {
+  const r = await fetch(env('USER_GATEWAY_URL'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } }),
+    signal: AbortSignal.timeout(90_000), // Browser 첫 조회 ~22초 (let522mj)
+  });
+  const text = await r.text();
+  if (!r.ok) throw Object.assign(new Error(`gateway ${r.status}`), { name: 'GatewayError' });
+  const json = JSON.parse(text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').find((l) => l.startsWith('data:'))!.slice(5) : text) as
+    { error?: { message: string }; result?: { isError?: boolean; content?: { type: string; text?: string }[] } };
+  if (json.error || json.result?.isError) throw Object.assign(new Error('tool error'), { name: 'ToolError' });
+  return JSON.parse(json.result?.content?.find((c) => c.type === 'text')?.text ?? 'null');
+}

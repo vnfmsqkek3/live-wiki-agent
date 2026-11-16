@@ -5,7 +5,7 @@ import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
 import { searchVia, type SearchWiki } from './search.ts';
-import { env, explanation, headObject, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
+import { env, explanation, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
 
 // 문서보관함 밑줄: let522mj buildMarks (PR #8). 패키지에 없으면 밑줄 없이 동작
 type BuildMarks = (pages: string[], src: Record<string, unknown>, store: unknown) => Promise<Mark[]>;
@@ -28,6 +28,17 @@ async function searchWiki() {
   return t.search_wiki as unknown as SearchWiki;
 }
 
+// 외부 법령: 본문 「…법」 중 내부 규정 저장소에 없는 것 (let522mj externalLaws) + 바로 뒤 조문 표기
+async function externalLaws(text: string) {
+  if (!process.env.TABLE_REGULATIONS) return [];
+  const reg = (await import('@hanaeum/regulation-server')) as unknown as { externalLaws: (t: string, s: unknown) => Promise<string[]>; DynamoClauseStore: new (t: string) => unknown };
+  const names = await reg.externalLaws(text, new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS));
+  return names.map((law_name) => {
+    const m = new RegExp(`「${law_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」\\s*(제\\d+조(?:의\\d+)?(?:제\\d+항)?)`).exec(text);
+    return { law_name, ...(m ? { clause: m[1] } : {}) };
+  });
+}
+
 const app = createApp({
   verify: cognitoVerifier(env('COGNITO_USER_POOL_ID'), env('COGNITO_CLIENT_ID')),
   store: storeFromEnv(),
@@ -45,6 +56,8 @@ const app = createApp({
   pageImage,
   pageImageList,
   explanation,
+  externalLaws,
+  ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),
 });
 

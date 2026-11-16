@@ -84,6 +84,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
     const tag = u.searchParams.get('tags');
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
+  if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
   if (path.startsWith('/v1/library/')) {
     const d = MOCK_LIBRARY.find((x) => x.doc_id === decodeURIComponent(path.slice('/v1/library/'.length)));
     if (!d) throw new ApiError(404, 'document not found');
@@ -198,7 +199,14 @@ export interface LibraryCard {
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string } | null;
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string }[];
 }
-export interface LibraryDoc extends LibraryCard { doc_marks: Mark[]; pages: { page: number; text: string; summary: string | null; marks: Mark[] }[] }
+export interface Verification {
+  method: string; basis: { what: string; label: string; result: string; quote?: string; effective_from?: string }[];
+  checks: { trust_gate: string | null; verdict: string | null; checked_at: string | null };
+  approved_by: string | null; approved_at: string | null; approval_reason: string | null;
+}
+export interface ExternalLaw { law_name: string; clause?: string; error?: string;
+  result?: { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null } | null }
+export interface LibraryDoc extends LibraryCard { doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: { page: number; text: string; summary: string | null; marks: Mark[] }[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [
