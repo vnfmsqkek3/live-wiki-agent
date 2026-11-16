@@ -23,7 +23,7 @@ function setup() {
     presignPut: async (key) => `https://hanaeum-mvp-s3-quarantine.s3.us-east-1.amazonaws.com/${key}?X-Amz-Algorithm=AWS4-HMAC-SHA256`,
     headObject: async (key) => objects.get(key),
     startWorkflow: async () => {},
-    resume: async (d, decision) => { tasks.push({ token: d.task_token!, decision }); return true; },
+    resume: async (d, decision) => { tasks.push({ token: d.doc_id, decision }); return true; },
     search: async () => [],
     guide: async (q, tok) => ({ q, tok }),
     webOrigins: ['http://localhost:3000'],
@@ -44,7 +44,7 @@ async function submitted(t: ReturnType<typeof setup>) {
   t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   const d = (await t.store.getDoc(doc_id))!;
-  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', task_token: 'tok-1', content_hash: 'sha256:h1' });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1' });
   const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 201);
   const { approval_id } = (await s.json()) as { approval_id: string };
@@ -72,12 +72,12 @@ test('업로드 URL: AUTHOR만, 허용 확장자만, SigV4 리전 엔드포인�
   assert.match(j.url, /s3\.us-east-1\.amazonaws\.com.*AWS4-HMAC-SHA256/);
 });
 
-test('정상 승인: 다른 사람이 승인하면 APPROVED, task token 성공 전송', async () => {
+test('정상 승인: 다른 사람이 승인하면 APPROVED, AgentCore resume 호출', async () => {
   const t = setup();
-  const { approval_id } = await submitted(t);
+  const { doc_id, approval_id } = await submitted(t);
   const r = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: '근거 확인' });
   assert.equal(r.status, 200);
-  assert.deepEqual(t.tasks, [{ token: 'tok-1', decision: 'APPROVE' }]);
+  assert.deepEqual(t.tasks, [{ token: doc_id, decision: 'APPROVE' }]);
 });
 
 test('보안: 일반 사용자 승인 시도 403 + 감사 기록 (데모 06 Backend 경로)', async () => {
@@ -107,7 +107,7 @@ test('보안: 검사 후 파일 변경 시 승인 거부 (409)', async () => {
   // 반려는 가능
   const r2 = await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: '변경됨' });
   assert.equal(r2.status, 200);
-  assert.deepEqual(t.tasks, [{ token: 'tok-1', decision: 'REJECT' }]); // 반려도 SendTaskSuccess로 재개
+  assert.deepEqual(t.tasks, [{ token: doc_id, decision: 'REJECT' }]); // 반려도 AgentCore resume
 });
 
 test('보안: 승인 재사용·중복 결정 거부, USED 전환 1회만', async () => {
@@ -190,7 +190,7 @@ test('출처 불일치(F-003류): 게시 요청 차단, 검토 큐에 노출, �
   const { doc_id } = (await r.json()) as { doc_id: string };
   const d = (await t.store.getDoc(doc_id))!;
   const mismatch = { finding_id: 'fnd_x', step: 'TRUST_GATE', severity: 'HIGH' as const, code: 'REGISTRY_MISMATCH', message: '공식 원본과 내용 불일치 · 위조 확정 아님', evidence_ref: 'SYN-LOAN-001@2026-11-01' };
-  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', s3_version_id: 'v1', content_hash: 'sha256:x', task_token: 'tok-f3', findings: [mismatch] });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', s3_version_id: 'v1', content_hash: 'sha256:x', findings: [mismatch] });
 
   const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 409);
@@ -205,7 +205,7 @@ test('출처 불일치(F-003류): 게시 요청 차단, 검토 큐에 노출, �
   assert.equal(rv.status, 200);
   const e = (await t.store.getDoc(doc_id))!;
   assert.deepEqual([e.lifecycle, e.authority_status], ['BLOCKED', 'REJECTED']);
-  assert.deepEqual(t.tasks.at(-1), { token: 'tok-f3', decision: 'REJECT' });
+  assert.deepEqual(t.tasks.at(-1), { token: doc_id, decision: 'REJECT' });
   assert.equal((await t.call('approver', 'POST', `/v1/documents/${doc_id}/source-review`, { decision: 'REJECT', reason: 'again' })).status, 409);
   assert.equal(((await (await t.call('approver', 'GET', '/v1/review-queue')).json()) as { items: unknown[] }).items.length, 0);
 });

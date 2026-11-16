@@ -22,7 +22,7 @@ export interface Deps {
   headObject(key: string): Promise<{ s3_version_id: string } | undefined>;
   /** 실행 이름=workflow_id, 입력은 문서로만 결정 → 업로드 이벤트(type-detection)와 analyze가 같은 실행으로 수렴 (멱등) */
   startWorkflow(doc: DocumentRecord): Promise<void>;
-  /** 사람 결정 후 워크플로 재개. AgentCore 오케스트레이터(resume) 또는 이전 SFN(task token). 재개했으면 true. APPROVE만 게시 단계로 진행 */
+  /** 사람 결정 후 워크플로 재개 (AgentCore 오케스트레이터 resume). 재개했으면 true. APPROVE만 게시 단계로 진행 */
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
@@ -121,7 +121,7 @@ export function createApp(deps: Deps) {
   app.get('/v1/documents/:id', async (c) => {
     const d = await loadDoc(c, c.req.param('id'));
     const failure = d.workflow_id && d.lifecycle === 'QUARANTINED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
-    return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // undefined는 JSON에서 빠짐
+    return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // 이전 SFN 문서에 남은 task_token은 숨김
   });
 
   app.get('/v1/documents/:id/review', async (c) => {
@@ -185,7 +185,7 @@ export function createApp(deps: Deps) {
   app.get('/v1/approvals', async (c) => {
     need(c, APPROVERS);
     const status = (c.req.query('status') ?? 'PENDING') as ApprovalRecord['status'];
-    const items = (await store.listApprovals(status)).map((r) => ({ ...r, task_token: undefined }));
+    const items = (await store.listApprovals(status)).map((r) => ({ ...r, task_token: undefined })); // 이전 레코드에 남은 값 숨김
     return c.json({ items });
   });
 
@@ -210,7 +210,7 @@ export function createApp(deps: Deps) {
     await audit(c, `DECISION_${b.decision}`, apr.approval_id);
     // 결정은 위 조건부 쓰기로 이미 확정. 워크플로 재개 실패가 결정을 되돌리지 않도록 분리해 알린다
     let workflow_resumed = false;
-    try { workflow_resumed = await deps.resume({ ...d, task_token: apr.task_token ?? d.task_token }, b.decision); }
+    try { workflow_resumed = await deps.resume(d, b.decision); }
     catch (e) {
       console.error(JSON.stringify({ trace_id: c.get('trace_id'), err: String((e as Error)?.name) }));
       await audit(c, 'WORKFLOW_RESUME_FAILED', apr.approval_id); // ponytail: 재시도 API 없음, 운영자가 재호출

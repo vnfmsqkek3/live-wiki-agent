@@ -170,15 +170,14 @@ export function makeTrustGate(deps: LambdaDeps) {
   };
 }
 
-/** 단계 10 (.waitForTaskToken). 토큰을 문서에 저장하고 작성자 검토 단계로 둔다. 재개는 승인 API의 SendTaskSuccess */
-/** 검토 대기 (AgentCore 오케스트레이터의 await_review Tool, 이전 SFN WaitForApproval 겸용). 문서를 IN_REVIEW로 둔다 */
+/** 검토 대기 (AgentCore 오케스트레이터의 await_review Tool). 문서를 IN_REVIEW로 둔다 */
 export function makeWaitForApproval(deps: LambdaDeps) {
-  return async (i: StepInput & { task_token?: string }) => {
+  return async (i: StepInput) => {
     const d = await mustDoc(deps.store, i.doc_id);
     // 게시·승인 대기·차단된 문서를 다시 검토 대기로 되돌리지 않는다 (재실행 안전장치)
     if (d.lifecycle !== 'QUARANTINED' && d.lifecycle !== 'IN_REVIEW') throw new Error(`invalid lifecycle for review: ${d.lifecycle}`);
-    await deps.store.putDoc({ ...d, ...(i.task_token ? { task_token: i.task_token } : {}), lifecycle: 'IN_REVIEW', updated_at: now() });
-    return { status: i.task_token ? 'PENDING' : 'OK' };
+    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', updated_at: now() });
+    return { status: 'OK' };
   };
 }
 
@@ -186,7 +185,7 @@ export function makeWaitForApproval(deps: LambdaDeps) {
 export function makeFinalize(deps: LambdaDeps) {
   return async (i: StepInput & { outcome: 'PUBLISHED' | 'BLOCKED' | 'REJECTED' }): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
-    const base = { ...d, task_token: undefined, updated_at: now() };
+    const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
       i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED' }
       : i.outcome === 'BLOCKED' ? { ...base, lifecycle: 'BLOCKED', trust_gate_result: 'QUARANTINED' }

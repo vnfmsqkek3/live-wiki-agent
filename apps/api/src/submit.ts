@@ -16,7 +16,7 @@ export async function submitForApproval(store: Store, d: DocumentRecord, actorSu
   const now = new Date().toISOString();
   const apr: ApprovalRecord = {
     approval_id: newId.apr(), doc_id: d.doc_id, version: d.version, s3_version_id: d.s3_version_id, content_hash: d.content_hash,
-    author_sub: d.owner, status: 'PENDING', task_token: d.task_token, created_at: now,
+    author_sub: d.owner, status: 'PENDING', created_at: now,
   };
   await store.createApproval(apr);
   await store.putDoc({ ...d, lifecycle: 'PENDING_APPROVAL', updated_at: now });

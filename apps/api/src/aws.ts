@@ -1,7 +1,6 @@
 // API 서버와 단계 Lambda가 함께 쓰는 AWS 어댑터. 값은 환경변수(SSM에서 주입)로만 받는다.
 import { GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
-import { ExecutionAlreadyExists, SFNClient, SendTaskSuccessCommand, StartExecutionCommand } from '@aws-sdk/client-sfn';
 import type { DocumentRecord } from './contracts.ts';
 import { memoryStore, type Store } from './store.ts';
 import { dynamoStore } from './store-dynamo.ts';
@@ -15,9 +14,7 @@ export const env = (k: string) => {
 const region = () => env('AWS_REGION');
 // 운영 교훈 #1: 리전 명시 + SigV4 + virtual-hosted → 307 리다이렉트(CORS 오류처럼 보임) 방지
 let s3c: S3Client | undefined;
-let sfnc: SFNClient | undefined;
 const s3 = () => (s3c ??= new S3Client({ region: region(), forcePathStyle: false }));
-const sfn = () => (sfnc ??= new SFNClient({ region: region() }));
 
 export const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
 
@@ -47,21 +44,7 @@ export async function getObjectBytes(key: string, versionId?: string, range?: nu
   return new Uint8Array(await r.Body!.transformToByteArray());
 }
 
-/** 실행 입력은 문서에서만 만든다. 같은 이름·같은 입력의 재시작은 멱등으로 처리 */
-export async function startWorkflow(d: DocumentRecord) {
-  if (process.env.PIPELINE_RUNTIME_ARN) return invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
-  const input = {
-    workflow_id: d.workflow_id, doc_id: d.doc_id, version: d.version, bucket: env('BUCKET_QUARANTINE'), prefix: `${d.doc_id}/`,
-    actor: { sub: d.owner, groups: ['AUTHOR'] },
-  };
-  try {
-    await sfn().send(new StartExecutionCommand({ stateMachineArn: env('SFN_INGEST_ARN'), name: d.workflow_id, input: JSON.stringify(input) }));
-  } catch (e) {
-    if (!(e instanceof ExecutionAlreadyExists)) throw e; // 다른 입력으로 같은 이름이면 여기로 온다 → 이미 진행 중
-  }
-}
-
-// ---- AgentCore 오케스트레이터 (사용자 결정 11/16: SFN 대체). PIPELINE_RUNTIME_ARN이 없으면 이전 SFN 경로 ----
+// ---- AgentCore 오케스트레이터 (사용자 결정 11/16: Step Functions 폐기) ----
 const stepInput = (d: DocumentRecord) => ({
   workflow_id: d.workflow_id, doc_id: d.doc_id, version: d.version, bucket: env('BUCKET_QUARANTINE'), prefix: `${d.doc_id}/`, actor: { sub: d.owner, groups: ['AUTHOR'] },
 });
@@ -75,12 +58,14 @@ export async function invokePipeline(payload: Record<string, unknown>, workflow_
   if ((r.statusCode ?? 200) >= 300) throw new Error(`pipeline runtime ${r.statusCode}`);
 }
 
+/** 문서 처리 시작: AgentCore 오케스트레이터 start (실행 세션마다 새 ID, 상태는 DynamoDB) */
+export async function startWorkflow(d: DocumentRecord) {
+  await invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
+}
+
+/** 사람 결정 후 재개: AgentCore 오케스트레이터 resume. 이전 SFN task token은 무시한다 */
 export async function resume(d: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
-  if (d.task_token) { // 이전 SFN 경로 (전환 완료 후 제거)
-    await sfn().send(new SendTaskSuccessCommand({ taskToken: d.task_token, output: JSON.stringify({ decision }) }));
-    return true;
-  }
-  if (!process.env.PIPELINE_RUNTIME_ARN || !d.workflow_id) return false;
+  if (!d.workflow_id) return false;
   await invokePipeline({ action: 'resume', decision, input: stepInput(d) }, d.workflow_id);
   return true;
 }

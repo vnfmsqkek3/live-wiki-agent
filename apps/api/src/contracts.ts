@@ -78,7 +78,6 @@ export interface DocumentRecord {
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
   parse_reviewed?: boolean;
   workflow_id?: string;
-  task_token?: string;
   findings: Finding[];
   created_at: string;
   updated_at: string;
@@ -93,7 +92,6 @@ export interface ApprovalRecord {
   author_sub: string;
   approver_sub?: string;
   status: ApprovalStatus;
-  task_token?: string;
   reason?: string;
   decided_at?: string;
   created_at: string;

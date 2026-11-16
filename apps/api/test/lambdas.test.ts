@@ -51,12 +51,12 @@ test('단계 체인: FileStructure OK → TrustGate(분류 없음) REVIEW_REQUIR
   assert.equal((await makeFileStructureCheck(t.deps)(t.input)).status, 'OK');
   assert.match((await t.store.getDoc(t.doc.doc_id))!.content_hash!, /^sha256:[0-9a-f]{64}$/);
   assert.equal((await makeTrustGate(t.deps)(t.input)).status, 'REVIEW_REQUIRED');
-  await makeWaitForApproval(t.deps)({ ...t.input, task_token: 'tok' });
+  await makeWaitForApproval(t.deps)(t.input);
   let d = (await t.store.getDoc(t.doc.doc_id))!;
-  assert.deepEqual([d.lifecycle, d.task_token, d.trust_gate_result], ['IN_REVIEW', 'tok', 'REVIEW_REQUIRED']);
+  assert.deepEqual([d.lifecycle, d.trust_gate_result], ['IN_REVIEW', 'REVIEW_REQUIRED']);
   await makeFinalize(t.deps)({ ...t.input, outcome: 'PUBLISHED' });
   d = (await t.store.getDoc(t.doc.doc_id))!;
-  assert.deepEqual([d.lifecycle, d.task_token], ['PUBLISHED', undefined]);
+  assert.equal(d.lifecycle, 'PUBLISHED');
   assert.equal(t.store.audits.at(-1)!.action, 'FINALIZE_PUBLISHED');
 });
 
