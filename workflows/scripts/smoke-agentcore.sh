@@ -52,7 +52,6 @@ done
 aws dynamodb query --table-name "$WFT" --key-condition-expression 'pk = :p' \
   --expression-attribute-values "{\":p\":{\"S\":\"WF#$WF\"}}" --query 'Items[].[ended_at.S,sk.S,status.S,error.S]' --output text | sort | awk '{print "  " $2, $3, $4}'
 echo "lifecycle=$LC document_type=$(aws dynamodb get-item --table-name "$DOCS" --key "$K" --query Item.document_type.S --output text)"
-[ "$(aws stepfunctions list-executions --state-machine-arn "$(p SFN_INGEST_ARN)" --max-results 20 --query "executions[?name=='$WF'] | length(@)" --output text)" = 0 ] || { echo "FAIL SFN 실행이 생김 (AgentCore 경로 아님)"; exit 1; }
 [ "$LC" = IN_REVIEW ] || { echo "FAIL lifecycle=$LC"; exit 1; }
-echo "PASS upload -> type-detection -> AgentCore Runtime -> Gateway Tools -> IN_REVIEW (SFN 미사용)"
+echo "PASS upload -> type-detection -> AgentCore Runtime -> Gateway Tools -> IN_REVIEW"
 echo "doc_id=$DOC workflow_id=$WF"

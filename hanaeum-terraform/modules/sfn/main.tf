@@ -1,6 +1,6 @@
-# 문서 처리 워크플로 배선 (docs/04 1.1·1.2, Owner yoyo0704).
-# S3(quarantine) ObjectCreated → EventBridge → SQS trigger(+DLQ) → [type-detection Lambda, dhxorb96] → Step Functions
-# 실패 이중화: ASL Catch → HandleError_* (DynamoDB) + EventBridge SFN 상태 이벤트 → failure-catcher Lambda
+# 문서 처리 단계 배선 (Owner yoyo0704). 모듈 이름은 이력상 sfn 이지만 Step Functions 는 폐기됨 (11/16, AgentCore 전환).
+# S3(quarantine) ObjectCreated → EventBridge → SQS trigger(+DLQ) → type-detection(dhxorb96) → AgentCore Runtime(agentcore_pipeline)
+# 이 모듈: 업로드 트리거 큐, yoyo0704 단계 Lambda(MalwareCheck·PageRender·OcrIfNeeded), stub(미배포 단계용), 단계 ARN 맵
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "table_workflows" { type = object({ name = string, arn = string }) }
@@ -37,7 +37,7 @@ locals {
 data "aws_region" "this" {}
 data "aws_caller_identity" "me" {}
 
-# ---------- Lambda (failure-catcher, stub-step) ----------
+# ---------- Lambda (stub-step) ----------
 data "archive_file" "workflows" {
   type        = "zip"
   source_dir  = abspath("${path.root}/${var.lambda_dist}")
@@ -76,14 +76,14 @@ resource "aws_iam_role_policy" "lambda" {
 }
 
 resource "aws_cloudwatch_log_group" "fn" {
-  for_each          = toset(["failure-catcher", "stub-step"])
+  for_each          = toset(["stub-step"])
   name              = "/aws/lambda/${var.n.prefix}-lambda-${each.key}${var.n.suffix}"
   retention_in_days = 30
   kms_key_id        = var.kms_key_arn
 }
 
 resource "aws_lambda_function" "fn" {
-  for_each         = toset(["failure-catcher", "stub-step"])
+  for_each         = toset(["stub-step"])
   function_name    = "${var.n.prefix}-lambda-${each.key}${var.n.suffix}"
   role             = aws_iam_role.lambda.arn
   runtime          = "nodejs24.x"
@@ -154,99 +154,9 @@ resource "aws_lambda_function" "step" {
   depends_on = [aws_cloudwatch_log_group.step]
 }
 
-# ---------- Step Functions ----------
-data "aws_iam_policy_document" "sfn_assume" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["states.amazonaws.com"]
-    }
-    condition {
-      test     = "StringEquals"
-      variable = "aws:SourceAccount"
-      values   = [data.aws_caller_identity.me.account_id]
-    }
-  }
-}
-
-resource "aws_iam_role" "sfn" {
-  name               = "${var.n.prefix}-role-sfn-ingest${var.n.suffix}"
-  assume_role_policy = data.aws_iam_policy_document.sfn_assume.json
-}
-
-resource "aws_iam_role_policy" "sfn" {
-  role = aws_iam_role.sfn.id
-  policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = distinct(concat(values(local.step_arns), [for a in values(local.step_arns) : "${a}:*"])) },
-      { Effect = "Allow", Action = ["dynamodb:PutItem"], Resource = var.table_workflows.arn },
-      { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
-      { Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets"], Resource = "*" },
-      {
-        Effect = "Allow"
-        Action = ["logs:CreateLogDelivery", "logs:GetLogDelivery", "logs:UpdateLogDelivery", "logs:DeleteLogDelivery", "logs:ListLogDeliveries",
-        "logs:PutResourcePolicy", "logs:DescribeResourcePolicies", "logs:DescribeLogGroups"]
-        Resource = "*"
-      },
-    ]
-  })
-}
-
-resource "aws_cloudwatch_log_group" "sfn" {
-  name              = "/aws/vendedlogs/states/${local.name}"
-  retention_in_days = 30
-  kms_key_id        = var.kms_key_arn
-}
-
-resource "aws_sfn_state_machine" "ingest" {
-  name     = local.name
-  role_arn = aws_iam_role.sfn.arn
-  type     = "STANDARD"
-  definition = templatefile("${path.module}/../../../workflows/asl/ingest.asl.json", merge(
-    { for s, a in local.step_arns : "fn_${s}" => a },
-    { table_workflows = var.table_workflows.name },
-  ))
-  logging_configuration {
-    log_destination        = "${aws_cloudwatch_log_group.sfn.arn}:*"
-    include_execution_data = false # 문서 내용·task token 이 로그에 남지 않게
-    level                  = "ERROR"
-  }
-  tracing_configuration { enabled = true }
-}
-
-# ---------- 실패 이벤트 → failure-catcher ----------
-resource "aws_cloudwatch_event_rule" "sfn_failed" {
-  name = "${var.n.prefix}-evr-sfn-failed${var.n.suffix}"
-  event_pattern = jsonencode({
-    source      = ["aws.states"]
-    detail-type = ["Step Functions Execution Status Change"]
-    detail      = { status = ["FAILED", "TIMED_OUT", "ABORTED"], stateMachineArn = [aws_sfn_state_machine.ingest.arn] }
-  })
-}
-
-resource "aws_cloudwatch_event_target" "sfn_failed" {
-  rule = aws_cloudwatch_event_rule.sfn_failed.name
-  arn  = aws_lambda_function.fn["failure-catcher"].arn
-  retry_policy {
-    maximum_retry_attempts       = 10
-    maximum_event_age_in_seconds = 3600
-  }
-  dead_letter_config { arn = aws_sqs_queue.q["failure-dlq"].arn }
-}
-
-resource "aws_lambda_permission" "events" {
-  statement_id  = "AllowEventBridge"
-  action        = "lambda:InvokeFunction"
-  function_name = aws_lambda_function.fn["failure-catcher"].function_name
-  principal     = "events.amazonaws.com"
-  source_arn    = aws_cloudwatch_event_rule.sfn_failed.arn
-}
-
 # ---------- 업로드 트리거 큐 (모든 SQS 에 DLQ) ----------
 resource "aws_sqs_queue" "q" {
-  for_each                  = toset(["ingest-trigger-dlq", "failure-dlq"])
+  for_each                  = toset(["ingest-trigger-dlq"])
   name                      = "${var.n.prefix}-sqs-${each.key}${var.n.suffix}"
   message_retention_seconds = 1209600
   sqs_managed_sse_enabled   = true
@@ -280,7 +190,7 @@ resource "aws_cloudwatch_event_target" "upload" {
 }
 
 resource "aws_sqs_queue_policy" "events" {
-  for_each  = { trigger = aws_sqs_queue.trigger, failure-dlq = aws_sqs_queue.q["failure-dlq"] }
+  for_each  = { trigger = aws_sqs_queue.trigger }
   queue_url = each.value.url
   policy = jsonencode({
     Version = "2012-10-17"
@@ -289,12 +199,11 @@ resource "aws_sqs_queue_policy" "events" {
       Principal = { Service = "events.amazonaws.com" }
       Action    = "sqs:SendMessage"
       Resource  = each.value.arn
-      Condition = { ArnEquals = { "aws:SourceArn" = [aws_cloudwatch_event_rule.upload.arn, aws_cloudwatch_event_rule.sfn_failed.arn] } }
+      Condition = { ArnEquals = { "aws:SourceArn" = [aws_cloudwatch_event_rule.upload.arn] } }
     }]
   })
 }
 
-output "state_machine_arn" { value = aws_sfn_state_machine.ingest.arn }
 output "trigger_queue_url" { value = aws_sqs_queue.trigger.url }
 output "trigger_queue_arn" { value = aws_sqs_queue.trigger.arn }
 output "step_arns" { value = local.step_arns }

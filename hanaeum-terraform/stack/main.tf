@@ -84,7 +84,6 @@ locals {
       BUCKET_QUARANTINE    = module.s3.buckets["quarantine"].name
       BUCKET_PUBLISHED     = module.s3.buckets["published"].name
       BUCKET_ARTIFACT      = module.s3.buckets["artifact"].name
-      SFN_INGEST_ARN       = module.sfn.state_machine_arn
       SQS_INGEST_TRIGGER   = module.sfn.trigger_queue_url
       COGNITO_USER_POOL_ID = module.cognito.user_pool_id
       COGNITO_CLIENT_ID    = module.cognito.client_id

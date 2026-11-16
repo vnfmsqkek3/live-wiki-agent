@@ -3,7 +3,6 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "gen:asl": "node src/asl.ts",
     "package": "scripts/package-lambda.sh",
     "build": "tsc -p tsconfig.build.json && echo {\\\"type\\\":\\\"module\\\"} > dist/package.json",
     "typecheck": "tsc --noEmit",

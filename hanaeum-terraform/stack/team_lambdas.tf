@@ -9,11 +9,10 @@ variable "team_lambdas" {
 }
 
 locals {
-  art     = "${path.root}/../../.artifacts"
-  t       = module.ddb.tables
-  b       = module.s3.buckets
-  sfn_arn = "arn:aws:states:${var.region}:${data.aws_caller_identity.me.account_id}:stateMachine:hanaeum-mvp-sfn-ingest${var.name_suffix}"
-  kb_arn  = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
+  art    = "${path.root}/../../.artifacts"
+  t      = module.ddb.tables
+  b      = module.s3.buckets
+  kb_arn = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
 
   d_env = {
     TABLE_DOCUMENTS    = local.t["documents"].name
@@ -21,7 +20,6 @@ locals {
     TABLE_AUDIT_EVENTS = local.t["audit_events"].name
     TABLE_FEEDBACK     = local.t["feedback"].name
     BUCKET_QUARANTINE  = local.b["quarantine"].name
-    SFN_INGEST_ARN     = local.sfn_arn
     # Runtime 이 아직 없으면 빈 값 (type-detection 은 SFN 경로 유지)
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
   }
@@ -42,8 +40,7 @@ locals {
     type-detection = {
       zip = "dhxorb96-handlers.zip", handler = "handlers.typeDetection", env = local.d_env, memory = 256, timeout = 60, model_caller = false
       statements = concat(local.d_statements, [
-        { Effect = "Allow", Action = ["states:StartExecution"], Resource = local.sfn_arn },
-        # AgentCore 오케스트레이터 시작 (긴급 요청 11/16). 전환 후 StartExecution 제거
+        # AgentCore 오케스트레이터 시작 (Step Functions 폐기 11/16)
         { Effect = "Allow", Action = ["bedrock-agentcore:InvokeAgentRuntime"], Resource = [module.pipeline.runtime_arn_pattern, "${module.pipeline.runtime_arn_pattern}/*"] },
         { Effect = "Allow", Action = ["sqs:ReceiveMessage", "sqs:DeleteMessage", "sqs:GetQueueAttributes"], Resource = module.sfn.trigger_queue_arn },
       ])
