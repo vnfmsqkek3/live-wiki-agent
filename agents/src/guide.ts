@@ -3,7 +3,7 @@
 //   → 출처 검증(검색 결과에 없는 출처는 버림) → 답변 PII 재검사
 // 검색은 코드가 결정적으로 1회 호출한다. 모델은 근거 묶음만 받고 도구를 쓰지 않는다.
 import { z } from 'zod';
-import { detectPii, mask } from '../../apps/api/src/steps/pii-detect.ts';
+import { detectPii, mask } from '@hanaeum/pii';
 
 export interface Evidence {
   doc_id: string;
