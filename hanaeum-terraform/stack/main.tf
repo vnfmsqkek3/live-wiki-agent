@@ -128,8 +128,9 @@ locals {
 }
 
 resource "terraform_data" "agent_image" {
-  for_each = local.agent_images
-  input    = local.agents_ref # output = 이미지 태그 → Runtime 이 빌드 뒤에 갱신
+  for_each         = local.agent_images
+  input            = local.agents_ref                          # output = 이미지 태그 → Runtime 이 빌드 뒤에 갱신
+  triggers_replace = [local.agents_ref, each.value.dockerfile] # input 변경만으로는 provisioner(빌드)가 다시 돌지 않는다
   provisioner "local-exec" {
     command = "${path.module}/../scripts/codebuild-wait.sh ${module.webapp[0].codebuild_project} APP=${each.key} REF=${local.agents_ref} ECR_REPO=${each.value.repo} DOCKERFILE=${each.value.dockerfile}"
   }
