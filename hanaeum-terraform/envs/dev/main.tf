@@ -22,7 +22,7 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe",
   ]
   lambda_refs = {
-    yoyo0704 = "3310656"                                  # workflows·auth-triggers·services/ocr
+    yoyo0704 = "78d8355"                               # workflows·auth-triggers·services/ocr
     dhxorb96 = "32e5f81"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "ce47b1512f602c7f248a8ce9c3a4d57fdc362bec" # PR #8 병합 (CI 통과, let522mj)
   }
