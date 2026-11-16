@@ -332,3 +332,17 @@ test('검색 종류 필터: type이면 해당 색인만 찾고 결과도 그 종
   assert.deepEqual((seen as { index_groups: string[] }).index_groups, ['wiki-knowledge', 'official-manuals']);
   assert.equal((await app.request('/v1/search?q=x&type=BAD', { headers: { authorization: 'Bearer user' } })).status, 422); // VALIDATION
 });
+
+test('검색: 의미 검색에 없는 게시 문서도 제목·요약에 검색어가 있으면 뒤에 더한다 (미게시·권한 밖 제외)', async () => {
+  const t = setup();
+  t.deps.search = async () => [{ doc_id: 'doc_R', document_type: 'REGULATION', title: '개인정보 보호규정' }];
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '개인정보 보호규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_M', title: '테스트문서', summary: '개인정보 수집·이용 업무 가이드', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'MANUAL' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_D', title: '개인정보 초안', acl_groups: ['ALL'], lifecycle: 'IN_REVIEW' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_S', title: '개인정보 인사 비공개', acl_groups: ['DEPT#hr'], lifecycle: 'PUBLISHED' });
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const r = (await (await app.request('/v1/search?q=' + encodeURIComponent('개인정보'), { headers: { authorization: 'Bearer user' } })).json()) as { items: { doc_id: string; reason?: string }[] };
+  assert.deepEqual(r.items.map((i) => i.doc_id), ['doc_R', 'doc_M']);
+  assert.match(r.items[1]!.reason!, /제목·요약/);
+});

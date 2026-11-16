@@ -24,7 +24,7 @@ function Results() {
     if (!q) {
       setItems([]); setRecent(null);
       api<{ items: LibraryCard[] }>('GET', `/v1/library${type ? `?type=${type}` : ''}`)
-        .then((r) => setRecent(r.items.filter((i) => i.lifecycle === 'PUBLISHED').slice(0, 10)))
+        .then((r) => setRecent(r.items.filter((i) => i.lifecycle === 'PUBLISHED')))
         .catch((e: ApiError) => { setErr(e.message); setRecent([]); });
       return;
     }
@@ -37,7 +37,8 @@ function Results() {
   return (
     <>
       <form role="search" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), type); }}>
-        <input className="field lg" type="search" aria-label="검색어" placeholder="찾을 기준이나 업무" value={input} onChange={(e) => setInput(e.target.value)} />
+        <input className="field lg" type="search" aria-label="검색어" placeholder="찾을 기준이나 업무 (비우면 전체 문서)" value={input}
+          onChange={(e) => { setInput(e.target.value); if (!e.target.value.trim() && q) router.replace(`/search${type ? `?type=${type}` : ''}`); }} />
       </form>
       <div className="filter" role="group" aria-label="문서 종류">
         {FILTERS.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => nav(q, v)}>{l}</button>)}
@@ -46,7 +47,7 @@ function Results() {
       {!q ? (
         recent === null ? <p className="note">불러오는 중입니다.</p> : recent.length === 0 ? <p className="note">볼 수 있는 게시 문서가 아직 없습니다.</p> : (
           <>
-            <p className="note">검색어를 입력하세요. 아래는 최근 게시된 문서입니다.</p>
+            <p className="note">전체 게시 문서 {recent.length}건 (최근 변경 순). 검색어를 넣으면 관련도 순으로 좁혀집니다.</p>
             <ul className="ledger">
               {recent.map((i) => (
                 <li className="entry" key={i.doc_id}>

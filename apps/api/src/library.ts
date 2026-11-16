@@ -121,3 +121,13 @@ export function similar(d: DocumentRecord, hits: { doc_id: string; title: string
   }
   return out;
 }
+
+/** 제목·요약 일치로 찾은 게시 문서를 검색 결과 항목 형태로 */
+export function keywordItem(d: DocumentRecord) {
+  return {
+    doc_id: d.doc_id, title: d.title, snippet: d.summary ?? '', document_type: d.document_type ?? d.classification?.document_type,
+    authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from,
+    basis: undefined, tags: d.classification?.tags ?? [], business_path: d.classification?.business_path ?? [],
+    search_status: 'FOUND', reason: '제목·요약에 검색어가 들어 있습니다',
+  };
+}

@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
-import { card, docDate, matches, similar, verification, type Mark, type Page } from './library.ts';
+import { card, docDate, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
@@ -345,8 +345,16 @@ export function createApp(deps: Deps) {
     const type = c.req.query('type');
     if (type && !['REGULATION', 'KNOWHOW', 'MANUAL'].includes(type)) throw new ApiError('VALIDATION', 'type: REGULATION|KNOWHOW|MANUAL');
     const groups = type === 'REGULATION' ? ['legal-clauses'] : type ? ['wiki-knowledge', 'official-manuals'] : undefined;
-    const items = await deps.search(q, a, { tags, as_of, business, ...(groups ? { index_groups: groups } : {}) }) as { document_type?: string }[];
-    return c.json({ items: type ? items.filter((i) => i.document_type === type) : items });
+    const sem = await deps.search(q, a, { tags, as_of, business, ...(groups ? { index_groups: groups } : {}) }) as { doc_id: string; document_type?: string }[];
+    // 의미 검색은 조문 조각 상위 몇 개만 남는다 → 제목·요약·업무·태그에 검색어가 있는 게시 문서를 뒤에 더한다 (짧은 단어 검색 보완)
+    const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+    const seen = new Set(sem.map((i) => i.doc_id));
+    const kw = (await visibleDocs(a)).filter((d) => d.lifecycle === 'PUBLISHED' && !seen.has(d.doc_id)
+      && (!type || (d.document_type ?? d.classification?.document_type) === type)
+      && words.length > 0 && words.every((w) => `${d.title} ${d.summary ?? ''} ${(d.classification?.business_path ?? []).join(' ')} ${(d.classification?.tags ?? []).join(' ')} ${d.law_name ?? ''}`.toLowerCase().includes(w)))
+      .slice(0, 20).map((d) => keywordItem(d));
+    const items = [...(type ? sem.filter((i) => i.document_type === type) : sem), ...kw];
+    return c.json({ items });
   });
 
   app.post('/v1/guides', async (c) => {
