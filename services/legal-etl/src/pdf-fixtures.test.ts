@@ -6,17 +6,21 @@ import { parseLaw } from "@hanaeum/legal-parser";
 import { extractTextLayer } from "./text-layer.ts";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
+const dir = (id: string) => (id.startsWith("G-") ? "golden" : "documents");
 const pdfText = async (id: string) => {
-  const layer = await extractTextLayer(readFileSync(new URL(`documents/pdf/${id}.pdf`, FIX)), "pdf", id);
+  const layer = await extractTextLayer(readFileSync(new URL(`${dir(id)}/pdf/${id}.pdf`, FIX)), "pdf", id);
   assert.ok(layer.pages.every((p) => !p.needs_ocr), `${id}: 텍스트 레이어 부족 → OCR로 빠지면 안 됨`);
   return layer.pages.map((p) => p.text).join("\n");
 };
 const REG: Record<string, string> = { "F-000": "2025-01-01", "F-001": "2026-11-01", "F-002": "2026-12-01", "F-003": "2026-11-01" };
+// Golden 규정 기준본 16건 (공유 dev 게시용 PDF, registry.golden.json pdf_content_hash)
+for (let i = 1; i <= 12; i++) REG[`G-REG-${String(i).padStart(2, "0")}`] = "2026-11-01";
+for (let i = 1; i <= 4; i++) REG[`G-REV-${String(i).padStart(2, "0")}`] = "2026-12-01";
 
 for (const [id, rev] of Object.entries(REG)) {
   test(`${id}.pdf → 파싱 결과가 ${id}.txt와 같음 (조·항·호 경로·상태·본문)`, async () => {
-    const meta = { law_id: "SYN-LOAN-001", law_name: "한빛은행 기업여신 심사규정", revision_id: rev };
-    const fromTxt = parseLaw(readFileSync(new URL(`documents/${id}.txt`, FIX), "utf8"), meta);
+    const meta = { law_id: "SYN-X", law_name: "x", revision_id: rev };
+    const fromTxt = parseLaw(readFileSync(new URL(`${dir(id)}/${id}.txt`, FIX), "utf8"), meta);
     const fromPdf = parseLaw(await pdfText(id), meta);
     const view = (l: typeof fromTxt) => l.provisions.map((p) => [p.provision_id, p.status, p.normalized_text.replace(/\s/gu, "")]);
     assert.deepEqual(view(fromPdf), view(fromTxt));
