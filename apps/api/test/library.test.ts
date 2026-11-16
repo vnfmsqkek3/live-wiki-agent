@@ -95,3 +95,16 @@ test('상세 검증 정보: 문서 표기 일자, 노하우 비교 조문·승�
   assert.match(verification({ ...base, document_type: 'MANUAL' }).method, /사람 승인/);
   assert.equal(verification({ ...base, document_type: 'MANUAL' }, { approver_sub: 'abcdefgh123' }).approved_by, '관리자 계정(abcdefgh)');
 });
+
+test('상호 보완: 매뉴얼 인용(citations)으로 규정과 연결, 규정 쪽에서 매뉴얼이 CITED_BY, 비슷한 다른 유형 문서', async () => {
+  const { related, similar } = await import('../src/library.ts');
+  const b = { version: 1, owner: 'o', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED' as const, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  const reg = { ...b, doc_id: 'R', title: '개인정보 보호규정', document_type: 'REGULATION' as const, law_id: 'SYN-PRIV-001', revision_id: '2026-11-01' };
+  const man = { ...b, doc_id: 'M', title: '개인정보 수집 매뉴얼', document_type: 'MANUAL' as const, citations: [{ provision_id: 'SYN-PRIV-001@2026-11-01/ARTICLE:5', evidence_span: '개인정보 보호규정 제5조', confidence: 0.95 }] };
+  const kh = { ...b, doc_id: 'K', title: '고객정보 처리 팁', document_type: 'KNOWHOW' as const };
+  const vis = [reg, man, kh];
+  assert.deepEqual(related(man, vis).map((r) => [r.doc_id, r.relation, r.document_type]), [['R', 'CITES', 'REGULATION']]);
+  assert.deepEqual(related(reg, vis).map((r) => [r.doc_id, r.relation, r.document_type]), [['M', 'CITED_BY', 'MANUAL']]);
+  const s = similar(man, [{ doc_id: 'M', title: 'x' }, { doc_id: 'R', title: 'x' }, { doc_id: 'K', title: 'x' }], vis, related(man, vis));
+  assert.deepEqual(s.map((r) => [r.doc_id, r.relation, r.reason]), [['K', 'SIMILAR', '내용이 비슷한 노하우']]);
+});

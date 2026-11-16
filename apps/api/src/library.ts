@@ -3,7 +3,7 @@
 import type { DocumentRecord } from './contracts.ts';
 
 export type Relation = 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR';
-export interface Related { doc_id: string; title: string; relation: Relation; reason: string }
+export interface Related { doc_id: string; title: string; relation: Relation; reason: string; document_type?: string }
 export interface Mark {
   /** pages 배열 인덱스. 위치를 못 찾으면 null → 문서 단위 표시 */
   page: number | null; start: number | null; end: number | null; severity: 'HIGH' | 'MEDIUM' | 'LOW';
@@ -26,7 +26,8 @@ export function markCount(d: DocumentRecord) {
 /** 연관 문서: 노하우 판정 근거 규정(CITES·CONFLICTS), 규정을 근거로 쓴 노하우(CITED_BY). 열람 가능한 문서(visible)만 */
 export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[] {
   const out = new Map<string, Related>();
-  const add = (r: Related) => { if (r.doc_id !== d.doc_id && (!out.has(r.doc_id) || r.relation === 'CONFLICTS')) out.set(r.doc_id, r); };
+  const typeOf = (id: string) => { const x = visible.find((v) => v.doc_id === id); return x?.document_type ?? x?.classification?.document_type; };
+  const add = (r: Related) => { if (r.doc_id !== d.doc_id && (!out.has(r.doc_id) || r.relation === 'CONFLICTS')) out.set(r.doc_id, { ...r, ...(typeOf(r.doc_id) ? { document_type: typeOf(r.doc_id) } : {}) }); };
   for (const j of d.knowhow_validation?.items ?? []) {
     if (!j.verified_quote || (j.relation !== 'SUPPORTS' && j.relation !== 'CONFLICTS')) continue;
     // 인용한 개정판과 같은 문서 우선 (같은 규정의 시행 전 개정판으로 잘못 연결 방지)
@@ -34,9 +35,19 @@ export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[]
     const reg = regs.find((x) => x.revision_id === revOf(j.provision_id)) ?? regs[0];
     if (reg) add({ doc_id: reg.doc_id, title: reg.title, relation: j.relation === 'CONFLICTS' ? 'CONFLICTS' : 'CITES', reason: j.label });
   }
+  // 매뉴얼·노하우 본문이 직접 인용한 규정 (citations)
+  for (const c of d.citations ?? []) {
+    const regs = visible.filter((x) => x.law_id === lawOf(c.provision_id) && x.lifecycle === 'PUBLISHED');
+    const reg = regs.find((x) => x.revision_id === revOf(c.provision_id)) ?? regs[0];
+    if (reg) add({ doc_id: reg.doc_id, title: reg.title, relation: 'CITES', reason: c.evidence_span });
+  }
   if (d.law_id) for (const k of visible) {
     const hit = k.knowhow_validation?.items.find((j) => j.verified_quote && lawOf(j.provision_id) === d.law_id && (j.relation === 'SUPPORTS' || j.relation === 'CONFLICTS'));
     if (hit) add({ doc_id: k.doc_id, title: k.title, relation: hit.relation === 'CONFLICTS' ? 'CONFLICTS' : 'CITED_BY', reason: hit.label });
+    else {
+      const c = (k.citations ?? []).find((x) => lawOf(x.provision_id) === d.law_id);
+      if (c) add({ doc_id: k.doc_id, title: k.title, relation: 'CITED_BY', reason: c.evidence_span });
+    }
   }
   return [...out.values()];
 }
@@ -93,4 +104,20 @@ export function verification(d: DocumentRecord, approval?: { approver_sub?: stri
     approved_by: approval ? (approval.approver_name || `관리자 계정(${(approval.approver_sub ?? '').slice(0, 8)})`) : null,
     approved_at: approval?.decided_at ?? null, approval_reason: approval?.reason ?? null,
   };
+}
+
+/** 내용이 비슷한 다른 문서 (검색으로 찾음). 유형마다 최대 2건, 이미 연결된 문서·자기 자신 제외 → 매뉴얼·규정·노하우 상호 보완 */
+export function similar(d: DocumentRecord, hits: { doc_id: string; title: string; document_type?: string }[], visible: DocumentRecord[], already: Related[]): Related[] {
+  const seen = new Set([d.doc_id, ...already.map((r) => r.doc_id)]);
+  const per: Record<string, number> = {};
+  const NAME: Record<string, string> = { REGULATION: '규정', KNOWHOW: '노하우', MANUAL: '매뉴얼' };
+  const out: Related[] = [];
+  for (const h of hits) {
+    const v = visible.find((x) => x.doc_id === h.doc_id && x.lifecycle === 'PUBLISHED');
+    const t = v?.document_type ?? v?.classification?.document_type ?? h.document_type ?? 'KNOWHOW';
+    if (!v || seen.has(h.doc_id) || (per[t] ?? 0) >= 2) continue;
+    seen.add(h.doc_id); per[t] = (per[t] ?? 0) + 1;
+    out.push({ doc_id: h.doc_id, title: v.title, relation: 'SIMILAR', reason: `내용이 비슷한 ${NAME[t] ?? t}`, document_type: t });
+  }
+  return out;
 }

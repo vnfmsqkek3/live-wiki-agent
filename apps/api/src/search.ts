@@ -19,8 +19,8 @@ export const toItem = (h: SearchHit) => ({
 });
 
 export function searchVia(searchWiki: SearchWiki) {
-  return async (q: string, a: Actor, o: { tags: string[]; as_of?: string; business?: string }) => {
-    const r = await searchWiki({ query: q, top_k: 10, ...(o.tags.length ? { tags: o.tags } : {}), ...(o.business ? { business: o.business } : {}), ...(o.as_of ? { as_of: o.as_of } : {}) },
+  return async (q: string, a: Actor, o: { tags: string[]; as_of?: string; business?: string; index_groups?: string[] }) => {
+    const r = await searchWiki({ query: q, top_k: 10, ...(o.tags.length ? { tags: o.tags } : {}), ...(o.business ? { business: o.business } : {}), ...(o.as_of ? { as_of: o.as_of } : {}), ...(o.index_groups ? { index_groups: o.index_groups } : {}) },
       { sub: a.sub, groups: a.groups, ...(a.dept ? { dept: a.dept } : {}) });
     return (r.items ?? []).map(toItem);
   };

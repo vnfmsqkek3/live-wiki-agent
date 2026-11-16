@@ -99,6 +99,8 @@ export interface DocumentRecord {
   /** 근거 규정 개정·시행으로 재검토가 필요해진 이유 (freshness=REVIEW_REQUIRED). 자동 수정 없음 */
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string };
   deleted_reason?: string;
+  /** 검증 실패·반려 문서의 파일 삭제 기록 (원본·work 즉시, masked는 보관 기간 뒤) */
+  purge?: { original_at?: string; masked_at?: string; objects: number };
   /** 출처 불일치 처리 결과 */
   source_review?: { decision: 'REJECT'; by: string; reason: string; at: string };
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */

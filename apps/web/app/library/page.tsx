@@ -10,7 +10,8 @@ import { FreshnessFlag, Seal } from '../seal';
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 /** ISO 시각 → 'YYYY-MM-DD' (한국 시간) */
 const day = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
-const REL: Record<LibraryCard['related'][number]['relation'], string> = { CITES: '근거 규정', CITED_BY: '이 규정을 근거로 쓴 문서', CONFLICTS: '충돌', SIMILAR: '비슷한 문서' };
+const REL: Record<LibraryCard['related'][number]['relation'], string> = { CITES: '근거로 인용한 규정', CITED_BY: '이 규정을 근거로 쓴 문서', CONFLICTS: '충돌', SIMILAR: '내용이 비슷함' };
+const TYPE_NAME = { REGULATION: '규정', KNOWHOW: '실무 노하우', MANUAL: '매뉴얼' } as const;
 const KIND: Record<Mark['kind'], string> = {
   CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨',
   REGISTRY_MISMATCH: '공식 원본과 다름', PII_UNCERTAIN: '개인정보 확인 필요', INJECTION: '의심스러운 지시문',
@@ -172,9 +173,7 @@ function Detail({ id }: { id: string }) {
         <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd>{day(d.updated_at)}</dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
-        {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => (
-          <span key={r.doc_id} className="rel"><Link href={`/library?id=${encodeURIComponent(r.doc_id)}`}>{r.title}</Link> · {REL[r.relation]} ({r.reason})</span>
-        ))}</dd></>}
+
       </dl>
 
       {d.verification && (
@@ -200,6 +199,26 @@ function Detail({ id }: { id: string }) {
               </ul>
             </>
           )}
+        </section>
+      )}
+      {d.related.length > 0 && (
+        <section aria-labelledby="rel-h">
+          <h3 className="section" id="rel-h">함께 보면 좋은 문서</h3>
+          {(['REGULATION', 'KNOWHOW', 'MANUAL'] as const).map((t) => {
+            const rs = d.related.filter((r) => (r.document_type ?? 'KNOWHOW') === t);
+            if (!rs.length) return null;
+            return (
+              <div key={t} style={{ marginBottom: 10 }}>
+                <p className="note" style={{ margin: '6px 0 2px' }}>{TYPE_NAME[t]}</p>
+                <ul className="fixes">{rs.map((r) => (
+                  <li key={r.doc_id} className={`fix${r.relation === 'CONFLICTS' ? ' sev-HIGH' : ''}`}>
+                    <p style={{ margin: 0 }}><Link href={`/library?id=${encodeURIComponent(r.doc_id)}`}>{r.title}</Link></p>
+                    <p className="meta" style={{ margin: 0 }}>{REL[r.relation]} · {r.reason}</p>
+                  </li>
+                ))}</ul>
+              </div>
+            );
+          })}
         </section>
       )}
       <ExternalLaws id={d.doc_id} />

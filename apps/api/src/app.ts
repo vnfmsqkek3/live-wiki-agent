@@ -3,7 +3,7 @@ import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
-import { card, docDate, matches, verification, type Mark, type Page } from './library.ts';
+import { card, docDate, matches, similar, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
@@ -27,7 +27,7 @@ export interface Deps {
   /** 사람 결정 후 워크플로 재개 (AgentCore 오케스트레이터 resume). 재개했으면 true. APPROVE만 게시 단계로 진행 */
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
-  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; business?: string }): Promise<unknown[]>;
+  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; business?: string; index_groups?: string[] }): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
   guide(question: string, accessToken: string): Promise<unknown>;
   /** 가이드 SSE (progress·result·error 이벤트). 없으면 JSON 응답만 */
@@ -307,8 +307,18 @@ export function createApp(deps: Deps) {
     const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
+    const base = card(d, vis);
+    // 다른 유형의 비슷한 문서 (검색 Tool, ACL·현재 상태 재검증 포함). 실패해도 상세는 보여 준다
+    // 규정은 결과가 규정 조문으로만 채워지지 않게 노하우·매뉴얼 색인을 따로 찾는다
+    const q = (d.summary ?? d.title).slice(0, 300);
+    const isReg = (d.document_type ?? d.classification?.document_type) === 'REGULATION';
+    const hits = (await Promise.all([
+      deps.search(q, c.get('actor'), { tags: [] }),
+      ...(isReg ? [deps.search(q, c.get('actor'), { tags: [], index_groups: ['wiki-knowledge', 'official-manuals'] })] : []),
+    ].map((p) => p.catch(() => [])))).flat().reverse() as { doc_id: string; title: string; document_type?: string }[];
     return c.json({
-      ...card(d, vis),
+      ...base,
+      related: [...base.related, ...similar(d, hits, vis, base.related)],
       doc_date: docDate(pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시

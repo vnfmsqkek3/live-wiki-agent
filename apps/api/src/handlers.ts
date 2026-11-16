@@ -1,5 +1,5 @@
 // Lambda 진입점 (esbuild로 단일 파일 번들). 함수별 handler 이름: handlers.<name>
-import { applyGuardrail, getJson, getObjectBytes, headObject, listKeys, putBytes, putJson, startWorkflow, storeFromEnv } from './aws.ts';
+import { applyGuardrail, getJson, getObjectBytes, headObject, listKeys, purgePrefix, putBytes, putJson, startWorkflow, storeFromEnv } from './aws.ts';
 import {
   makeClassify, makeFileStructureCheck, makeFinalize, makeFreshnessSweep, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
   type LambdaDeps, type SegmentDeps,
@@ -53,7 +53,7 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
   })()
   : undefined;
 
-const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow };
+const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow, purge: purgePrefix };
 const seg: SegmentDeps = {
   store, listKeys, getJson, putJson, guardrail: applyGuardrail,
   getBytes: (k) => getObjectBytes(k), putBytes, // PiiScan 페이지 이미지 마스킹 (steps Role). 모델 Role은 masked/만 읽음

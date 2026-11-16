@@ -188,3 +188,19 @@ export async function userTool(name: string, args: Record<string, unknown>, acce
   if (json.error || json.result?.isError) throw Object.assign(new Error('tool error'), { name: 'ToolError' });
   return JSON.parse(json.result?.content?.find((c) => c.type === 'text')?.text ?? 'null');
 }
+
+/** prefix 아래 모든 객체의 모든 버전·삭제 표시를 지운다 (버전 관리 버킷에서 실제 삭제). 지운 수 */
+export async function purgePrefix(prefix: string): Promise<number> {
+  const { ListObjectVersionsCommand, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+  let n = 0, KeyMarker: string | undefined, VersionIdMarker: string | undefined;
+  do {
+    const r = await s3().send(new ListObjectVersionsCommand({ Bucket: env('BUCKET_QUARANTINE'), Prefix: prefix, KeyMarker, VersionIdMarker }));
+    const objs = [...(r.Versions ?? []), ...(r.DeleteMarkers ?? [])].filter((v) => v.Key).map((v) => ({ Key: v.Key!, VersionId: v.VersionId }));
+    for (let i = 0; i < objs.length; i += 1000) {
+      await s3().send(new DeleteObjectsCommand({ Bucket: env('BUCKET_QUARANTINE'), Delete: { Objects: objs.slice(i, i + 1000), Quiet: true } }));
+    }
+    n += objs.length;
+    KeyMarker = r.IsTruncated ? r.NextKeyMarker : undefined; VersionIdMarker = r.IsTruncated ? r.NextVersionIdMarker : undefined;
+  } while (KeyMarker);
+  return n;
+}

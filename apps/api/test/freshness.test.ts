@@ -53,7 +53,7 @@ test('Finalize(규정 게시)·freshnessSweep가 노하우를 저장하고 감�
   await makeFinalize(deps)({ workflow_id: 'wf', doc_id: 'REG_2026-11-01', version: 1, bucket: 'b', prefix: 'p', actor: { sub: 'u', groups: [] }, outcome: 'PUBLISHED' });
   assert.equal((await store.getDoc('OLD'))!.freshness, 'REVIEW_REQUIRED');
   assert.ok(store.audits.some((a) => a.action === 'FRESHNESS_REVIEW_REQUIRED' && a.resource === 'OLD'));
-  assert.deepEqual(await makeFreshnessSweep(deps)(), { marked: 0 }); // 멱등
+  assert.deepEqual(await makeFreshnessSweep(deps)(), { marked: 0, purged: 0 }); // 멱등
 });
 
 test('Finalize(게시): 사람 승인을 거친 노하우·매뉴얼은 검증 완료, 규정은 Registry 결과 유지', async () => {
@@ -66,4 +66,24 @@ test('Finalize(게시): 사람 승인을 거친 노하우·매뉴얼은 검증 �
   await makeFinalize(deps)(inp('REG_2026-11-01'));
   assert.equal((await store.getDoc('M'))!.authority_status, 'VERIFIED');
   assert.equal((await store.getDoc('REG_2026-11-01'))!.authority_status, 'UNVERIFIED');
+});
+
+test('차단·반려: 원본·work는 바로 삭제, masked는 7일 뒤 sweep이 삭제, 게시 문서는 건드리지 않음', async () => {
+  const { purgeExpiredMasked } = await import('../src/lambdas.ts');
+  const store = memoryStore();
+  const purged: string[] = [];
+  const deps = { store, headObject: async () => undefined, getObjectBytes: async () => new Uint8Array(), startWorkflow: async () => {}, purge: async (p: string) => { purged.push(p); return 2; } };
+  const inp = (doc_id: string, outcome: 'BLOCKED' | 'REJECTED' | 'PUBLISHED') => ({ workflow_id: 'wf', doc_id, version: 1, bucket: 'b', prefix: 'p', actor: { sub: 'u', groups: [] }, outcome });
+  await store.putDoc({ ...kh('B', 'x@1/A'), lifecycle: 'QUARANTINED' });
+  await store.putDoc({ ...kh('P', 'x@1/A'), lifecycle: 'PENDING_APPROVAL' });
+  await makeFinalize(deps)(inp('B', 'BLOCKED'));
+  await makeFinalize(deps)(inp('P', 'PUBLISHED'));
+  assert.deepEqual(purged, ['B/original.', 'B/work/']);
+  const b = (await store.getDoc('B'))!;
+  assert.ok(b.purge?.original_at && b.purge.objects === 4);
+  assert.ok(store.audits.some((a) => a.action === 'PURGE_ORIGINAL' && a.resource === 'B'));
+  assert.equal(await purgeExpiredMasked(deps), 0); // 7일 전
+  assert.equal(await purgeExpiredMasked(deps, new Date(Date.now() + 8 * 86_400_000)), 1);
+  assert.equal(purged.at(-1), 'B/');
+  assert.equal(await purgeExpiredMasked(deps, new Date(Date.now() + 9 * 86_400_000)), 0); // 멱등
 });
