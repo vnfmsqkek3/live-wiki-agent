@@ -118,7 +118,8 @@ locals {
       zip = "${local.lz}/mcp_regulation.zip", handler = "index.handler", memory = 512, timeout = 90, model_caller = false
       env = { TABLE_REGULATIONS = local.t["regulations"].name }
       statements = [
-        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        # PutItem: fetch_official_law Browser 결과 1일 캐시 (pk WEBLAW#, let522mj 요청 11/16)
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
         {
           Effect   = "Allow"
           Action   = ["bedrock-agentcore:StartBrowserSession", "bedrock-agentcore:StopBrowserSession", "bedrock-agentcore:GetBrowserSession", "bedrock-agentcore:ConnectBrowserAutomationStream"]

@@ -188,6 +188,14 @@ resource "aws_iam_role_policy" "api" {
       },
       { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
+      # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
+      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/segments/*" },
+      {
+        Effect    = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn
+        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*"] } }
+      },
+      # 근거 조문 밑줄(buildMarks)
+      { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = var.tables["regulations"].arn },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
       { Effect = "Allow", Action = ["bedrock-agentcore:InvokeAgentRuntime"], Resource = flatten([for p in var.runtime_arn_patterns : [p, "${p}/*"]]) },
       { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = "arn:aws:bedrock:${local.region}:${local.acct}:guardrail/*" },
@@ -222,6 +230,7 @@ resource "aws_ecs_task_definition" "app" {
       TABLE_FEEDBACK       = var.tables["feedback"].name
       TABLE_AUDIT_EVENTS   = var.tables["audit_events"].name
       TABLE_WORKFLOWS      = var.tables["workflows"].name
+      TABLE_REGULATIONS    = var.tables["regulations"].name
       BUCKET_QUARANTINE    = var.quarantine_bucket.name
       WEB_ORIGINS          = "https://${aws_cloudfront_distribution.this.domain_name}"
     }) : { PORT = "3000" }) : { name = k, value = v }]

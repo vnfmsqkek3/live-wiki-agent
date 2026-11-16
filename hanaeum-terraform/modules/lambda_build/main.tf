@@ -42,7 +42,7 @@ resource "aws_codebuild_project" "lambda" {
   environment {
     type         = "ARM_CONTAINER" # Lambda arm64 와 같은 아키텍처 (pdfjs canvas 네이티브 바이너리)
     compute_type = "BUILD_GENERAL1_LARGE"
-    image        = "aws/codebuild/amazonlinux-aarch64-standard:3.0"
+    image        = "public.ecr.aws/docker/library/node:24-bookworm" # Node 24 (type stripping) + git. AL 이미지는 runtime-versions 없이 node 없음
     environment_variable {
       name  = "REPO_URL"
       value = var.repo_url
@@ -57,7 +57,7 @@ resource "aws_codebuild_project" "lambda" {
     buildspec = yamlencode({
       version = "0.2"
       phases = {
-        install = { commands = ["npm install -g n --silent", "n 24 >/dev/null", "hash -r", "node --version", "dnf install -y -q zip"] }
+        install = { commands = ["node --version", "apt-get update -qq && apt-get install -y -qq zip awscli >/dev/null"] }
         pre_build = { commands = [
           "git clone --quiet $REPO_URL $CODEBUILD_SRC_DIR/src && cd $CODEBUILD_SRC_DIR/src && git checkout --quiet $REF",
           "cd $CODEBUILD_SRC_DIR/src && npm ci --no-audit --no-fund",

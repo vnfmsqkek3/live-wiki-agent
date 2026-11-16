@@ -41,7 +41,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "0f30ebf"
+  webapp_source_ref = "e2fede6"
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
