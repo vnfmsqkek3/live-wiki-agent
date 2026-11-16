@@ -15,6 +15,7 @@ const TYPE_NAME = { REGULATION: '규정', KNOWHOW: '실무 노하우', MANUAL: '
 const KIND: Record<Mark['kind'], string> = {
   CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨',
   REGISTRY_MISMATCH: '공식 원본과 다름', PII_UNCERTAIN: '개인정보 확인 필요', INJECTION: '의심스러운 지시문',
+  CONFIRMED: '근거 확인됨', SUPPLEMENT: '실무 보완(참고)',
 };
 
 function List() {
@@ -97,7 +98,7 @@ function Marked({ text, marks, active, onPick }: { text: string; marks: { m: Mar
 function Fix({ m, n, on }: { m: Mark; n?: number; on?: boolean }) {
   return (
     <li className={`fix${on ? ' on' : ''}`} id={n ? `mark-${n}` : undefined}>
-      <p className="fix-head">{n && <b className="fix-n">{n}</b>}{KIND[m.kind]}{m.severity === 'HIGH' && <span className="danger-text"> · 수정 필요</span>}</p>
+      <p className="fix-head">{n && <b className="fix-n">{n}</b>}{m.label ?? KIND[m.kind]}{m.severity === 'HIGH' && <span className="danger-text"> · 수정 필요</span>}</p>
       <p>{m.reason}</p>
       {m.basis && (
         <blockquote className="basis">
@@ -156,7 +157,9 @@ function Detail({ id }: { id: string }) {
   if (err) return <><p className="error" role="alert">{err}</p><Link href="/library">보관함으로 돌아가기</Link></>;
   if (!d) return <p className="note">불러오는 중입니다.</p>;
   const page = d.pages[p];
-  const numbered = (page?.marks ?? []).map((m, i) => ({ m, n: i + 1 }));
+  // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
+  const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
+  const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
   return (
     <>
@@ -251,6 +254,12 @@ function Detail({ id }: { id: string }) {
           <h3 className="section">고칠 곳 {numbered.length > 0 && <span className="danger-text">{numbered.length}곳</span>}</h3>
           {numbered.length === 0 ? <p className="note">이 쪽에서 찾은 문제가 없습니다.</p> : (
             <ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>
+          )}
+          {notes.length > 0 && (
+            <>
+              <h3 className="section">참고: 확인된 근거·실무 보완 <span className="note">{notes.length}건</span></h3>
+              <ul className="fixes">{notes.map((m, i) => <Fix key={`n${i}`} m={m} />)}</ul>
+            </>
           )}
         </section>
       )}

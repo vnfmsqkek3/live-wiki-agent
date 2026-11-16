@@ -68,3 +68,16 @@ test('개정 전 인용 + 현행과 충돌: 판정은 OUTDATED, 충돌 Finding�
   assert.equal(r.validation.verdict, 'OUTDATED');
   assert.deepEqual(r.findings.map((f) => f.code).sort(), ['KNOWHOW_CONFLICT', 'KNOWHOW_OUTDATED_CITATION']);
 });
+
+test('실무 보완(SUPPLEMENTS): 근거 있음으로 보고 게시 보류 사유가 아님 (사용자 지적 11/17)', async () => {
+  const { validateKnowhow } = await import('../src/steps/knowhow.ts');
+  const clause = { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:2', label: '기업여신 심사규정 제14조제2항', text: '현장 실사 결과는 실사 보고서로 작성하여 보관한다.', status: 'ACTIVE' as const, effective_from: '2026-11-01' };
+  const r = await validateKnowhow('실사 사진은 실사 보고서에 첨부한다', {
+    extractCitations: async () => [{ provision_id: clause.provision_id, evidence_span: '제14조제2항', confidence: 0.95 }],
+    getClause: async () => clause, searchClauses: async () => [],
+    judge: async () => ({ model: 'm', items: [{ statement: '실사 사진은 실사 보고서에 첨부한다', provision_id: clause.provision_id, relation: 'SUPPLEMENTS', reason: '제14조제2항은 보고서 작성만 정합니다. 사진 첨부는 실무 보완입니다.', quote: '현장 실사 결과는 실사 보고서로 작성하여 보관한다.' }] }),
+  });
+  assert.equal(r.validation.verdict, 'SUPPORTED');
+  assert.equal(r.gate, 'PASS');
+  assert.equal(r.findings.length, 0);
+});

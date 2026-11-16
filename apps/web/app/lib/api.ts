@@ -153,7 +153,7 @@ export interface Review {
 }
 export interface KnowhowValidation {
   verdict: 'SUPPORTED' | 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT';
-  items: { statement: string; provision_id: string; label: string; relation: 'SUPPORTS' | 'CONFLICTS' | 'UNRELATED' | 'INSUFFICIENT'; reason: string; quote: string; verified_quote: boolean }[];
+  items: { statement: string; provision_id: string; label: string; relation: 'SUPPORTS' | 'SUPPLEMENTS' | 'CONFLICTS' | 'UNRELATED' | 'INSUFFICIENT'; reason: string; quote: string; verified_quote: boolean }[];
   outdated: { cited: string; current: string; label: string }[];
   model?: string;
 }
@@ -190,7 +190,9 @@ const MOCK_GUIDE: Guide = {
 // ---------- 문서보관함 (let522mj 요청 2220) ----------
 export interface Mark {
   page: number | null; start: number | null; end: number | null; severity: 'HIGH' | 'MEDIUM' | 'LOW';
-  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
+  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION' | 'CONFIRMED' | 'SUPPLEMENT';
+  /** let522mj buildMarks 표시 이름 (있으면 그대로 쓴다) */
+  label?: string;
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from?: string }; fix?: string;
 }
 export interface LibraryCard {

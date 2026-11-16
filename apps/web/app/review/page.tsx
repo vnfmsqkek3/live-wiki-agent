@@ -12,7 +12,7 @@ const VERDICT: Record<string, [string, string]> = {
   OUTDATED: ['개정 전 규정을 근거로 하고 있습니다', 'var(--ochre)'],
   INSUFFICIENT: ['근거 규정을 확인하지 못했습니다', 'var(--ink-2)'],
 };
-const REL: Record<string, string> = { SUPPORTS: '근거와 일치', CONFLICTS: '충돌', UNRELATED: '관련 조문 없음', INSUFFICIENT: '판단 근거 부족' };
+const REL: Record<string, string> = { SUPPORTS: '근거 확인됨', SUPPLEMENTS: '실무 보완(규정 범위 안)', CONFLICTS: '규정과 어긋남', UNRELATED: '관련 없음', INSUFFICIENT: '관련 조문 확인 필요' };
 const TYPES = [['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 const GROUPS: [string, string, (f: Finding) => boolean][] = [
   ['개인정보', '마스킹한 구간입니다. 불확실한 구간은 원문과 대조해 확인하세요.', (f) => f.step === 'PII_SCAN'],

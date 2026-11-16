@@ -29,7 +29,7 @@ export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[]
   const typeOf = (id: string) => { const x = visible.find((v) => v.doc_id === id); return x?.document_type ?? x?.classification?.document_type; };
   const add = (r: Related) => { if (r.doc_id !== d.doc_id && (!out.has(r.doc_id) || r.relation === 'CONFLICTS')) out.set(r.doc_id, { ...r, ...(typeOf(r.doc_id) ? { document_type: typeOf(r.doc_id) } : {}) }); };
   for (const j of d.knowhow_validation?.items ?? []) {
-    if (!j.verified_quote || (j.relation !== 'SUPPORTS' && j.relation !== 'CONFLICTS')) continue;
+    if (!j.verified_quote || (j.relation !== 'SUPPORTS' && j.relation !== 'SUPPLEMENTS' && j.relation !== 'CONFLICTS')) continue;
     // 인용한 개정판과 같은 문서 우선 (같은 규정의 시행 전 개정판으로 잘못 연결 방지)
     const regs = visible.filter((x) => x.law_id === lawOf(j.provision_id) && x.lifecycle === 'PUBLISHED');
     const reg = regs.find((x) => x.revision_id === revOf(j.provision_id)) ?? regs[0];
@@ -42,7 +42,7 @@ export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[]
     if (reg) add({ doc_id: reg.doc_id, title: reg.title, relation: 'CITES', reason: c.evidence_span });
   }
   if (d.law_id) for (const k of visible) {
-    const hit = k.knowhow_validation?.items.find((j) => j.verified_quote && lawOf(j.provision_id) === d.law_id && (j.relation === 'SUPPORTS' || j.relation === 'CONFLICTS'));
+    const hit = k.knowhow_validation?.items.find((j) => j.verified_quote && lawOf(j.provision_id) === d.law_id && (j.relation === 'SUPPORTS' || j.relation === 'SUPPLEMENTS' || j.relation === 'CONFLICTS'));
     if (hit) add({ doc_id: k.doc_id, title: k.title, relation: hit.relation === 'CONFLICTS' ? 'CONFLICTS' : 'CITED_BY', reason: hit.label });
     else {
       const c = (k.citations ?? []).find((x) => lawOf(x.provision_id) === d.law_id);
@@ -92,7 +92,7 @@ export function verification(d: DocumentRecord, approval?: { approver_sub?: stri
       result: d.authority_status === 'VERIFIED' ? '공식 원본과 일치' : mismatch ? '공식 원본과 다름' : '공식 원본 목록에 없음', ...(d.effective_from ? { effective_from: d.effective_from } : {}) });
   } else if (type === 'KNOWHOW') {
     method = kv ? '노하우 문장을 근거 규정 조문과 비교(AI 판정 + 인용 원문 대조) 후 사람 승인' : '근거 규정 비교 없이 사람 승인';
-    const REL: Record<string, string> = { SUPPORTS: '규정과 일치', CONFLICTS: '규정과 충돌', UNRELATED: '관련 없음', INSUFFICIENT: '판단 근거 부족' };
+    const REL: Record<string, string> = { SUPPORTS: '근거 확인됨(규정과 일치)', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', UNRELATED: '관련 없음', INSUFFICIENT: '관련 조문 확인 필요' };
     for (const j of kv?.items ?? []) if (j.relation !== 'UNRELATED') basis.push({ what: '근거 조문', label: j.label, result: `${REL[j.relation] ?? j.relation}${j.verified_quote ? '' : ' (인용 원문 확인 안 됨)'}`, ...(j.quote ? { quote: j.quote } : {}) });
     for (const o of kv?.outdated ?? []) basis.push({ what: '개정 전 인용', label: o.label, result: '현행 조문으로 재검토 필요' });
   } else {

@@ -91,7 +91,7 @@ test('상세 검증 정보: 문서 표기 일자, 노하우 비교 조문·승�
     { approver_sub: 'abcdefgh123', approver_name: 'admin', decided_at: '2026-11-17T01:00:00Z', reason: '확인' });
   assert.equal(v.approved_by, 'admin');
   assert.equal(v.basis[0]!.label, '기업여신 심사규정 제10조제2항');
-  assert.equal(v.basis[0]!.result, '규정과 일치');
+  assert.equal(v.basis[0]!.result, '근거 확인됨(규정과 일치)');
   assert.match(verification({ ...base, document_type: 'MANUAL' }).method, /사람 승인/);
   assert.equal(verification({ ...base, document_type: 'MANUAL' }, { approver_sub: 'abcdefgh123' }).approved_by, '관리자 계정(abcdefgh)');
 });
