@@ -1,5 +1,23 @@
 # plan · let522mj · 데이터·검색
 
+## ▶ 다음 세션 시작 절차 (이 순서대로 자동 실행)
+
+`let522mj`는 이미 원격에 push된 브랜치다. **rebase 후 force push는 금지**이므로 동기화는 merge로 한다.
+
+```bash
+cd live-wiki-agent
+set -a; . ./.env.local; set +a          # 없으면 scripts/setup-env.sh let522mj czy1023-naver
+git status --short                      # 깨끗해야 함. 변경 있으면 사용자에게 묻기
+git fetch origin --prune
+git switch let522mj && git pull --ff-only origin let522mj
+git merge --no-edit origin/main         # 충돌 시 아래 'PR #1 병합 후 할 일' 참고
+npm install && npx tsc -p tsconfig.json && npm test   # 55개 통과가 기준
+gh pr list --state all                  # PR #1·#2 병합 여부 확인
+```
+
+그다음 읽기: `공통기록/` 최신 10건 → `요청기록/` 중 `*_to_let522mj.md` OPEN 건 → 이 파일 '남은 작업' → `트러블슈팅.md`.
+마지막 상태 (11/16 18:30): 로직·오프라인 테스트 완료, AWS 실연동 대기. 다음 작업은 아래 '남은 작업 (실연동)' 첫 행부터.
+
 기준: `TODO.md`, DoD `docs/02` 4장. AWS 리소스(KB·DynamoDB·Neptune)는 yoyo0704 배포 전이라 **AWS 호출부는 얇은 어댑터 + 인메모리 mock**으로 두고, 로직은 오프라인 테스트로 검증한다.
 
 공통 도구: npm workspaces, TypeScript, Node 내장 test runner(`node --test`, type stripping). 추가 테스트 프레임워크 없음.

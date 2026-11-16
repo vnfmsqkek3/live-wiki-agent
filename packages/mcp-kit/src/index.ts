@@ -1,6 +1,7 @@
 // AgentCore Gateway Lambda Target 공통: Tool 이름 해석, 신원(actor) 추출, 오류 형식.
-// [확인 필요] Gateway는 Tool 인자를 event로, Tool 이름을 context.clientContext.custom.bedrockAgentCoreToolName("{target}___{tool}")으로 전달.
-// 신원 전달 방식은 interfaces.md 9장(dhxorb96, M0 실험)으로 확정 예정. 클라이언트(모델)가 보낸 인자 속 사용자 정보는 절대 쓰지 않는다.
+// Gateway는 Tool 인자를 event로, Tool 이름을 context.clientContext.custom.bedrockAgentCoreToolName("{target}___{tool}")으로 전달.
+// 신원: Gateway REQUEST interceptor가 JWT를 재검증한 뒤 event.__actor = { sub, groups, dept? }를 주입한다 (interfaces.md 9장, dhxorb96 M0 확정).
+// interceptor가 모델이 보낸 __actor를 덮어쓰므로 __actor만 신뢰하고, 그 밖의 신원 인자(user_id·actor·groups 등)는 무시한다.
 import { Role } from "@hanaeum/schemas";
 
 export interface Actor { sub: string; groups: string[]; dept?: string }
@@ -12,11 +13,11 @@ export class ToolError extends Error {
   constructor(code: "ACCESS_DENIED" | "INVALID_ARGUMENT" | "NOT_FOUND" | "UNKNOWN_TOOL", message: string) { super(message); this.code = code; this.name = "ToolError"; }
 }
 
-/** 신원은 Gateway가 넣은 컨텍스트에서만 읽는다 (event 인자 무시) */
-export function actorFrom(ctx: LambdaContext): Actor {
-  const c = ctx.clientContext?.custom ?? {};
-  const raw = (c["hanaeumActor"] ?? c["actor"]) as Partial<Actor> | string | undefined;
-  const a = typeof raw === "string" ? (JSON.parse(raw) as Partial<Actor>) : raw;
+/** 신원은 interceptor가 주입한 event.__actor에서만 읽는다 */
+export function actorFrom(event: Record<string, unknown>): Actor {
+  const raw = event["__actor"] as Partial<Actor> | string | undefined;
+  let a: Partial<Actor> | undefined;
+  try { a = typeof raw === "string" ? (JSON.parse(raw) as Partial<Actor>) : raw; } catch { a = undefined; }
   if (!a?.sub || !Array.isArray(a.groups)) throw new ToolError("ACCESS_DENIED", "검증된 사용자 컨텍스트 없음");
   return { sub: a.sub, groups: a.groups.filter((g) => Role.safeParse(g).success || g.startsWith("DEPT#")), dept: a.dept };
 }
@@ -48,7 +49,8 @@ export function makeHandler(tools: Record<string, ToolHandler>) {
       const name = toolName(ctx);
       const fn = tools[name];
       if (!fn) throw new ToolError("UNKNOWN_TOOL", name);
-      return await fn(event ?? {}, actorFrom(ctx));
+      const { __actor: _a, ...args } = event ?? {}; // Tool 로직에는 신원 인자를 넘기지 않음
+      return await fn(args, actorFrom(event ?? {}));
     } catch (e) {
       if (e instanceof ToolError) return { error: { code: e.code, message: e.message } };
       throw e;

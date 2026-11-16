@@ -60,10 +60,11 @@ test("verify_version·get_official_policy·compare_versions·resolve_reference",
 
 test("Gateway 핸들러: 신원은 컨텍스트에서만, 인자 속 신원 무시", async () => {
   const h = makeHandler(t as never);
-  const ctx = (actor?: unknown) => ({ clientContext: { custom: { bedrockAgentCoreToolName: "regulation___get_clause", ...(actor ? { hanaeumActor: actor } : {}) } } });
-  const denied = await h({ law: LAW, clause: "제12조", actor: user }, ctx());
+  const ctx = { clientContext: { custom: { bedrockAgentCoreToolName: "regulation___get_clause" } } };
+  // __actor 없이 다른 이름의 신원 인자만 있으면 거부
+  const denied = await h({ law: LAW, clause: "제12조", actor: user, user_id: "u1", groups: ["REG_APPROVER"] }, ctx);
   assert.equal((denied as { error: { code: string } }).error.code, "ACCESS_DENIED");
-  const ok = await h({ law: LAW, clause: "제12조", as_of: "2026-12-15" }, ctx(JSON.stringify(user)));
+  const ok = await h({ law: LAW, clause: "제12조", as_of: "2026-12-15", __actor: user }, ctx);
   assert.equal((ok as { search_status: string }).search_status, "FOUND");
 });
 
