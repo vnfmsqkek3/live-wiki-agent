@@ -25,8 +25,10 @@ data "aws_caller_identity" "me" {}
 data "aws_iam_session_context" "me" { arn = data.aws_caller_identity.me.arn }
 
 locals {
-  coll  = "${var.n.prefix}-aoss-kb${var.n.suffix}"
-  index = "hanaeum-kb-wiki"
+  coll = "${var.n.prefix}-aoss-kb${var.n.suffix}"
+  # 매핑(분석기 등)이 바뀌면 인덱스 이름이 바뀐다 → 새 인덱스·KB 로 전체 재색인.
+  # 같은 이름 인덱스를 지웠다 다시 만들면 KB 증분 동기화가 "변경 없음"으로 보고 문서를 다시 넣지 않는다
+  index = "hanaeum-kb-wiki-${substr(sha1(file("${path.module}/index-mapping.json")), 0, 8)}"
 }
 
 # ---------- OpenSearch Serverless ----------
@@ -190,6 +192,8 @@ resource "aws_bedrockagent_data_source" "ds" {
   name                 = "${var.n.prefix}-kbds-${each.key}${var.n.suffix}"
   knowledge_base_id    = aws_bedrockagent_knowledge_base.kb.id
   data_deletion_policy = "DELETE"
+  # KB 가 교체되면(인덱스·분석기 변경) 데이터 소스도 새로 → 전체 재색인
+  lifecycle { replace_triggered_by = [aws_bedrockagent_knowledge_base.kb.id] }
   data_source_configuration {
     type = "S3"
     s3_configuration {
