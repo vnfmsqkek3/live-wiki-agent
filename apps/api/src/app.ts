@@ -130,7 +130,7 @@ export function createApp(deps: Deps) {
 
   app.get('/v1/documents/:id', async (c) => {
     const d = await loadDoc(c, c.req.param('id'));
-    const failure = d.workflow_id && d.lifecycle === 'QUARANTINED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
+    const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // 이전 SFN 문서에 남은 task_token은 숨김
   });
 
@@ -138,7 +138,7 @@ export function createApp(deps: Deps) {
     const a = need(c, ['AUTHOR', ...APPROVERS]);
     const d = await loadDoc(c, c.req.param('id'));
     if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
-    const workflow_failure = d.workflow_id && d.lifecycle === 'QUARANTINED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
+    const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     return c.json({ workflow_failure, doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
   });
 
@@ -203,7 +203,12 @@ export function createApp(deps: Deps) {
   app.get('/v1/approvals', async (c) => {
     need(c, APPROVERS);
     const status = (c.req.query('status') ?? 'PENDING') as ApprovalRecord['status'];
-    const items = (await store.listApprovals(status)).map((r) => ({ ...r, task_token: undefined })); // 이전 레코드에 남은 값 숨김
+    // 문서 제목과, 승인 뒤 게시가 멈춘 경우 실패 단계·사유를 함께 (승인했는데 안 보이는 문제를 화면에서 알 수 있게)
+    const items = await Promise.all((await store.listApprovals(status)).map(async (r) => {
+      const d = await store.getDoc(r.doc_id);
+      const failure = d?.workflow_id && d.lifecycle !== 'PUBLISHED' && status !== 'PENDING' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
+      return { ...r, task_token: undefined, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure };
+    }));
     return c.json({ items });
   });
 
@@ -214,6 +219,7 @@ export function createApp(deps: Deps) {
     if (!apr) throw new ApiError('NOT_FOUND', 'approval not found');
     const d = await store.getDoc(apr.doc_id);
     if (!d) throw new ApiError('NOT_FOUND', 'document not found');
+    if (b.decision === 'APPROVE' && !(d.document_type ?? d.classification?.document_type)) throw new ApiError('CONFLICT', 'unclassified: 분류되지 않은 문서는 승인할 수 없습니다. 반려 후 다시 분석하세요');
     // 승인 시점의 실제 객체를 다시 읽어 바인딩 검증 (검사 후 변경 차단)
     const head = await deps.headObject(quarantineKey(d));
     if (!head) throw new ApiError('CONFLICT', 'object missing');

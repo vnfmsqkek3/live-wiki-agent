@@ -27,8 +27,8 @@ export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* �
 export async function login(username: string, password: string): Promise<Session> {
   let s: Session;
   if (MOCK || !CLIENT_ID) {
-    const groups: Role[] = username.includes('approver') ? ['REG_APPROVER'] : username.includes('author') ? ['AUTHOR']
-      : username.includes('security') ? ['SECURITY_REVIEWER'] : username.includes('operator') ? ['PLATFORM_OPERATOR'] : ['USER'];
+    // 데모 계정 2종: admin(전 그룹) / user(직원 + 작성자)
+    const groups: Role[] = username.includes('admin') ? ['USER', 'AUTHOR', 'REG_APPROVER', 'SECURITY_REVIEWER', 'PLATFORM_OPERATOR'] : ['USER', 'AUTHOR'];
     s = { token: 'mock', groups, username };
   } else {
     const r = await fetch(`https://cognito-idp.${REGION}.amazonaws.com/`, {
@@ -96,6 +96,8 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: MOCK_LIBRARY.filter((d) => (!type || d.document_type === type) && (!business || d.business_path.includes(business))) };
   }
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
+  if (path === '/v1/approvals?status=APPROVED' || path === '/v1/approvals?status=USED')
+    return { items: path.endsWith('APPROVED') ? [{ approval_id: 'apr_STUCK', doc_id: 'doc_STUCK', title: '보안 테스트 문서', lifecycle: 'PENDING_APPROVAL', workflow_failure: { step: 'Promote', error: 'UnclassifiedDocument' } }] : [] };
   if (path === '/v1/approvals?status=PENDING')
     return { items: [
       { approval_id: 'apr_K001', doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },

@@ -69,7 +69,9 @@ function ReviewView() {
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
-      {r.workflow_failure && <p className="notice" role="alert">자동 분석이 {r.workflow_failure.step} 단계에서 멈췄습니다 (오류: {r.workflow_failure.error}). 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다. 파일을 확인해 다시 등록하세요.</p>}
+      {r.workflow_failure && (['Promote', 'KbIngest', 'GraphUpsert', 'Finalize'].includes(r.workflow_failure.step)
+        ? <p className="notice" role="alert">승인은 끝났지만 게시가 {r.workflow_failure.step} 단계에서 멈췄습니다 (오류: {r.workflow_failure.error}). 검색·보관함에 아직 나타나지 않습니다. 운영 담당자가 확인 중입니다.</p>
+        : <p className="notice" role="alert">자동 분석이 {r.workflow_failure.step} 단계에서 멈췄습니다 (오류: {r.workflow_failure.error}). 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다. 파일을 확인해 다시 등록하세요.</p>)}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 보안 검토자에게 확인을 요청하세요.</p>}
       {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 

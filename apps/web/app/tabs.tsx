@@ -3,7 +3,7 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getSession, logout, type Session } from './lib/api';
-import { can, PAGE_ROLES, ROLE_NAME } from './lib/roles';
+import { accountLabel, can, needLabel } from './lib/roles';
 
 /** 첫 화면부터 로그인 필수. 로그인 전에는 본문을 그리지 않는다(내용이 잠깐 보이는 것 방지). 그룹에 없는 화면은 안내만 */
 export function Gate({ children }: { children: React.ReactNode }) {
@@ -18,11 +18,10 @@ export function Gate({ children }: { children: React.ReactNode }) {
   if (path === '/login') return <>{children}</>;
   if (!s) return null;
   if (!can(s.groups, path)) {
-    const need = Object.entries(PAGE_ROLES).find(([p]) => path.startsWith(p))?.[1] ?? [];
     return (
       <section>
         <h1 className="title">볼 수 없는 화면입니다</h1>
-        <p>이 화면은 {need.map((g) => ROLE_NAME[g]).join(', ')} 권한이 있어야 열 수 있습니다. 지금 계정은 {s.groups.map((g) => ROLE_NAME[g] ?? g).join(', ')}입니다.</p>
+        <p>이 화면은 {needLabel(path)}만 열 수 있습니다. 지금 계정은 {accountLabel(s.groups)}입니다.</p>
         <p className="note">권한이 필요하면 운영 담당자에게 요청하세요.</p>
         <Link className="btn" href="/">홈으로</Link>
       </section>
@@ -41,7 +40,7 @@ export function SessionBar() {
   if (!s) return <p className="session-bar"><Link href="/login">로그인</Link></p>;
   return (
     <p className="session-bar">
-      <span>{s.username} · {s.groups.map((g) => ROLE_NAME[g] ?? g).join(', ')}</span>
+      <span>{s.username} · {accountLabel(s.groups)}</span>
       <button type="button" onClick={() => { logout(); setS(undefined); router.push('/login'); }}>로그아웃</button>
     </p>
   );

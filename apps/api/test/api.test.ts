@@ -45,7 +45,7 @@ async function submitted(t: ReturnType<typeof setup>) {
   t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   const d = (await t.store.getDoc(doc_id))!;
-  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1' });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1', document_type: 'KNOWHOW' });
   const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 201);
   const { approval_id } = (await s.json()) as { approval_id: string };
@@ -266,4 +266,24 @@ test('검색: search_wiki에 사용자 신원·필터를 넘기고 화면 항목
   assert.equal(items[0]!.basis, '기업여신 심사규정 제12조제1항');
   assert.match(items[1]!.reason, /재검토/);
   assert.equal(items[1]!.effective_from, undefined);
+});
+
+test('분류 전 문서는 게시 요청 409, 승인 뒤 게시가 멈추면 결재함에 실패 단계 표시', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
+  await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1' });
+  const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
+  assert.equal(s.status, 409);
+  assert.match(((await s.json()) as { error: { message: string } }).error.message, /unclassified/);
+
+  const ok = await submitted(t);
+  await t.store.putDoc({ ...(await t.store.getDoc(ok.doc_id))!, workflow_id: 'wf_FAILED' });
+  assert.equal((await t.call('approver', 'POST', `/v1/approvals/${ok.approval_id}/decision`, { decision: 'APPROVE', reason: '확인' })).status, 200);
+  const list = (await (await t.call('approver', 'GET', '/v1/approvals?status=APPROVED')).json()) as { items: { title: string; workflow_failure?: { step: string } }[] };
+  assert.equal(list.items[0]!.title, upload.title);
+  assert.equal(list.items[0]!.workflow_failure?.step, 'ParallelPreprocess');
 });

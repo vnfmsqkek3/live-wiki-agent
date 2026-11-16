@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getSession, MOCK, type LibraryCard, type Session } from './lib/api';
-import { APPROVERS, ROLE_NAME } from './lib/roles';
+import { accountLabel, isAdmin } from './lib/roles';
 import { FreshnessFlag, Seal } from './seal';
 
 const TAGS = ['체크리스트', '실무사례', '공식규정', '여신'];
@@ -25,7 +25,7 @@ export default function Home() {
       setItems(r.items.filter((i) => i.lifecycle === 'PUBLISHED').slice(0, 5));
       setMine(r.items.filter((i) => i.lifecycle !== 'PUBLISHED'));
     }).catch(() => setItems([]));
-    if (g.some((x) => APPROVERS.includes(x))) {
+    if (isAdmin(g)) {
       Promise.all([
         api<{ items: unknown[] }>('GET', '/v1/approvals?status=PENDING').then((r) => r.items.length).catch(() => 0),
         api<{ items: unknown[] }>('GET', '/v1/review-queue').then((r) => r.items.length).catch(() => 0),
@@ -33,12 +33,12 @@ export default function Home() {
     }
   }, []);
   const isAuthor = !!s?.groups.includes('AUTHOR');
-  const STATE: Record<string, string> = { QUARANTINED: '분석 중', IN_REVIEW: '검토 대기', BLOCKED: '차단·반려', DELETED: '폐기' };
+  const STATE: Record<string, string> = { QUARANTINED: '분석 중', IN_REVIEW: '내 검토 대기', PENDING_APPROVAL: '승인 대기·게시 중', BLOCKED: '차단·반려', DELETED: '폐기' };
   const go = (query: string, tag?: string) => router.push(`/search?q=${encodeURIComponent(query)}${tag ? `&tags=${encodeURIComponent(tag)}` : ''}`);
   return (
     <>
       {MOCK && <p className="mock">서버에 연결되지 않아 하나은행(가상 데이터) 예시를 보여주고 있습니다.</p>}
-      {s && <p className="note" style={{ margin: 0 }}>{s.groups.map((g) => ROLE_NAME[g] ?? g).join(', ')} 화면</p>}
+      {s && <p className="note" style={{ margin: 0 }}>{accountLabel(s.groups)} 화면</p>}
       <h1 className="title">어떤 기준을 확인하시겠어요?</h1>
       <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
         <input className="field lg" type="search" aria-label="검색어" placeholder="예: 담보 3억원 이상 승인 절차" value={q} onChange={(e) => setQ(e.target.value)} />
@@ -63,7 +63,7 @@ export default function Home() {
             <ul className="ledger">
               {mine.map((i) => (
                 <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
-                  <h3 className="doc-title"><Link className="card-link" href={i.lifecycle === 'IN_REVIEW' ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
+                  <h3 className="doc-title"><Link className="card-link" href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
                   <div className="meta">{STATE[i.lifecycle] ?? i.lifecycle} · 등록 {i.uploaded_at.slice(0, 10)}</div>
                 </li>
               ))}
