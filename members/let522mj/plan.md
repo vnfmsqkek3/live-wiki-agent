@@ -51,7 +51,7 @@ gh pr list --state all                  # PR #1·#2 병합 여부 확인
 | ~~Regulations 실연동~~ 완료 (11/16): 실 테이블 20/20 | — | — |
 | Documents·Approvals 키 확정 → Promote·검색 재검증 실연동 | dhxorb96 회신 | Promote가 실 Approvals USED 전환 |
 | Neptune 실연동 (`NeptuneGraphStore`) | 11/20 Neptune 배포 | trace_impact 5/5 실그래프 |
-| 공개 법령 샘플로 파서 일반화 검증 | 국가법령정보센터 자료 (자료/데이터원천/법령) | 조·항·호·목 95% |
+| ~~공개 법령 파서 검증~~ 완료 (11/16): 10건 12,589/12,589 | — | PDF·OCR 입력 검증은 OCR 배포 후 |
 | DOCX·HWPX 텍스트 추출 | 필요 시 (데모는 PDF/텍스트) | 미구현 상태 명시 실패 → 구현 |
 
 ## PR #1(yoyo0704 repo 골격) 병합 후 할 일

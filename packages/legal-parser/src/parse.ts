@@ -15,10 +15,12 @@ export interface LawMeta {
 
 const DATE = String.raw`\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.?`;
 const RE = {
-  heading: /^제(\d+)(편|장|절)\s+(.+)$/u,
+  heading: /^제(\d+)(편|장|절|관)\s+(.+)$/u, // 관: 민법 등 절 아래 계층
   // 제목 괄호 뒤에는 공백·줄끝이 와야 한다 ("제10조(특례)에 따른 …" 같은 본문 인용 줄을 조로 오인하지 않게)
-  article: /^제(\d+)조(?:의(\d+))?(?:\s*\(([^)]*)\)(?=\s|$))?\s*(.*)$/u,
-  paragraph: /^([①-⑳㉑-㉟㊱-㊿])\s*(.*)$/u, // ①~⑳, ㉑~㉟, ㊱~㊿
+  // 제목 안의 괄호 한 단계 허용: "제50조(분사무소(分事務所) 설치의 등기)"
+  article: /^제(\d+)조(?:의(\d+))?(?:\s*\(((?:[^()]|\([^()]*\))*)\)(?=\s|$))?\s*(.*)$/u,
+  // ①~⑳, ㉑~㉟, ㊱~㊿ 또는 "<16>" 표기 (국가법령정보센터 원문은 16항부터 <16>을 쓰기도 함)
+  paragraph: /^(?:([①-⑳㉑-㉟㊱-㊿])|<(\d{1,2})>)\s*(?:<\2>\s*)?(.*)$/u,
   item: /^(\d+)(?:의(\d+))?\.\s*(.*)$/u,
   subitem: new RegExp(`^([${SUBITEM_CHARS.join("")}])\\.\\s*(.*)$`, "u"),
   supplementary: /^부\s*칙(?:\s*<([^>]+)>)?\s*$/u,
@@ -54,7 +56,7 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
   const base = `${meta.law_id}@${meta.revision_id}`;
   const provisions: Provision[] = [];
   const issues: ParsedLaw["issues"] = [];
-  const headings: { PART?: string; CHAPTER?: string; SECTION?: string } = {};
+  const headings: { PART?: string; CHAPTER?: string; SECTION?: string; SUBSECTION?: string } = {};
   const siblingCount = new Map<string | null, number>();
   let ns = ""; // "" = 본칙, "SUPPLEMENTARY:k/" = 부칙
   let suppCount = 0;
@@ -71,7 +73,7 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
       provision_id: id, level, original_marker: marker, title,
       original_text: body, normalized_text: "", parent_id: parent, sibling_order: order,
       status: "ACTIVE", amendments: [], tail_tags: {}, references: [], path_label: pathLabel,
-      heading_path: [headings.PART, headings.CHAPTER, headings.SECTION].filter((h): h is string => !!h),
+      heading_path: [headings.PART, headings.CHAPTER, headings.SECTION, headings.SUBSECTION].filter((h): h is string => !!h),
       source_line: line,
     };
     provisions.push(p);
@@ -83,6 +85,10 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
   while (queue.length) {
     const { raw, ln } = queue.shift()!;
     const line = raw.normalize("NFC").trim();
+    // 원문 glyph 보존 (docs/01 7.6): 정규식은 NFC 줄로 맞추고, 저장은 원문 줄에서 같은 위치를 잘라 쓴다.
+    // NFC가 길이를 바꾸면(조합형 한글 등) 원문 위치를 알 수 없으므로 NFC 값을 쓴다.
+    const rawLine = raw.trim();
+    const rawOf = (suffix: string) => (rawLine.length === line.length ? rawLine.slice(line.length - suffix.length) : suffix);
     if (!line) continue;
     let m: RegExpMatchArray | null;
 
@@ -94,17 +100,18 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
       continue;
     }
     if ((m = line.match(RE.heading))) {
-      const lvl = ({ 편: "PART", 장: "CHAPTER", 절: "SECTION" } as const)[m[2] as "편" | "장" | "절"];
+      const lvl = ({ 편: "PART", 장: "CHAPTER", 절: "SECTION", 관: "SUBSECTION" } as const)[m[2] as "편" | "장" | "절" | "관"];
       headings[lvl] = line;
-      if (lvl === "PART") { headings.CHAPTER = undefined; headings.SECTION = undefined; }
-      if (lvl === "CHAPTER") headings.SECTION = undefined;
+      if (lvl === "PART") { headings.CHAPTER = undefined; headings.SECTION = undefined; headings.SUBSECTION = undefined; }
+      if (lvl === "CHAPTER") { headings.SECTION = undefined; headings.SUBSECTION = undefined; }
+      if (lvl === "SECTION") headings.SUBSECTION = undefined;
       current = null;
       continue;
     }
     if ((m = line.match(RE.annex))) {
       const id = `${base}/ANNEX:${m[2]}${m[3] ? `-${m[3]}` : ""}`;
       ctx = null;
-      push("ANNEX", id, null, `[${m[1]} ${m[2]}${m[3] ? `의${m[3]}` : ""}]`, m[4] ?? "", ln, `${m[1]} ${m[2]}${m[3] ? `의${m[3]}` : ""}`);
+      push("ANNEX", id, null, `[${m[1]} ${m[2]}${m[3] ? `의${m[3]}` : ""}]`, rawOf(m[4] ?? ""), ln, `${m[1]} ${m[2]}${m[3] ? `의${m[3]}` : ""}`);
       continue;
     }
     if ((m = line.match(RE.article))) {
@@ -119,18 +126,18 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
         ctx = { articleNo: no, articleBranch: br, articleKey: key, articleLabel: label, paraNo: 0, paraKey: null, paraLabel: "", itemNo: 0, itemBranch: 0, itemKey: null, itemLabel: "", subitemIdx: -1 };
         const parent = ns ? `${base}/${ns.slice(0, -1)}` : null;
         const inlineChild = /^[\u2460]|^1\.\s/u.test(rest);
-        push("ARTICLE", key, parent, `제${no}조${br ? `의${br}` : ""}`, inlineChild ? "" : rest, ln, label, title);
-        if (inlineChild) queue.unshift({ raw: rest, ln });
+        push("ARTICLE", key, parent, `제${no}조${br ? `의${br}` : ""}`, inlineChild ? "" : rawOf(rest), ln, label, title);
+        if (inlineChild) queue.unshift({ raw: rawOf(rest), ln });
         continue;
       }
       if (looksHeader && !forward) issues.push({ code: "NUMBER_REGRESSION", line: ln, message: `조 번호 역행: ${line.slice(0, 20)}` });
     }
     if (ctx && (m = line.match(RE.paragraph))) {
-      const no = circledToInt(m[1]!);
+      const no = m[1] ? circledToInt(m[1]) : Number(m[2]);
       if (no === ctx.paraNo + 1) {
         ctx.paraNo = no; ctx.paraKey = `${ctx.articleKey}/PARAGRAPH:${no}`; ctx.paraLabel = `${ctx.articleLabel}제${no}항`;
         ctx.itemNo = 0; ctx.itemBranch = 0; ctx.itemKey = null; ctx.subitemIdx = -1;
-        push("PARAGRAPH", ctx.paraKey, ctx.articleKey, m[1]!, m[2] ?? "", ln, ctx.paraLabel);
+        push("PARAGRAPH", ctx.paraKey, ctx.articleKey, m[1] ?? `<${m[2]}>`, rawOf(m[3] ?? ""), ln, ctx.paraLabel);
         continue;
       }
       issues.push({ code: "NUMBER_REGRESSION", line: ln, message: `항 번호 불연속: ${m[1]} (이전 ${ctx.paraNo})` });
@@ -144,7 +151,7 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
         ctx.itemNo = no; ctx.itemBranch = br; ctx.subitemIdx = -1;
         ctx.itemKey = `${parentKey}/ITEM:${no}${br ? `-${br}` : ""}`;
         ctx.itemLabel = `${parentLabel}제${no}호${br ? `의${br}` : ""}`;
-        push("ITEM", ctx.itemKey, parentKey, `${no}${br ? `의${br}` : ""}.`, m[3] ?? "", ln, ctx.itemLabel);
+        push("ITEM", ctx.itemKey, parentKey, `${no}${br ? `의${br}` : ""}.`, rawOf(m[3] ?? ""), ln, ctx.itemLabel);
         continue;
       }
       if (no <= 30) issues.push({ code: "NUMBER_REGRESSION", line: ln, message: `호 번호 불연속: ${no} (이전 ${ctx.itemNo})` });
@@ -154,14 +161,14 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
       if (idx === ctx.subitemIdx + 1) {
         ctx.subitemIdx = idx;
         const code = SUBITEM_CODES[m[1] as SubitemChar];
-        push("SUBITEM", `${ctx.itemKey}/SUBITEM:${code}`, ctx.itemKey, `${m[1]}.`, m[2] ?? "", ln, `${ctx.itemLabel}${m[1]}목`);
+        push("SUBITEM", `${ctx.itemKey}/SUBITEM:${code}`, ctx.itemKey, `${m[1]}.`, rawOf(m[2] ?? ""), ln, `${ctx.itemLabel}${m[1]}목`);
         continue;
       }
       issues.push({ code: "NUMBER_REGRESSION", line: ln, message: `목 순서 불연속: ${m[1]}` });
     }
     // 이어쓰기
     const cur = current as Provision | null;
-    if (cur) cur.original_text += (cur.original_text ? "\n" : "") + line;
+    if (cur) cur.original_text += (cur.original_text ? "\n" : "") + rawLine;
     else if (provisions.length > 0 || /^제\d+조/u.test(line)) issues.push({ code: "ORPHAN_TEXT", line: ln, message: line.slice(0, 30) });
   }
 

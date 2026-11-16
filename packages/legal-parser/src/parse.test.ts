@@ -82,3 +82,23 @@ test("본문 줄 머리의 \"제N조(제목)에 따른\" 인용은 조로 분할
   assert.ok(ids.includes("ARTICLE:1/PARAGRAPH:2"));
   assert.match(l.provisions.find((p) => p.provision_id.endsWith("PARAGRAPH:1"))!.normalized_text, /제10조\(특례\)에 따른/u);
 });
+
+test("공개 법령에서 발견한 엣지 케이스: 관 계층, 제목 안 괄호, <16> 항 표기, 호환 한자 원문 보존", () => {
+  const txt = [
+    "제3편 채권", "제1장 총칙", "제3절 수인의 채권자 및 채무자", "제2관 불가분채권과 불가분채무",
+    "제50조(분사무소(分事務所) 설치의 등기) 법인이 분사무소를 설치한 경우에는 등기하여야 한다.",
+    "제51조(정의) ⑮ 열다섯째 항.", // 번호 불연속 → 이슈
+    "제52조(항 많음) ① 첫째", ...Array.from({ length: 14 }, (_, i) => `${"②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮"[i]} 항`), "<16> <16> 열여섯째 항.", "1. 첫째 호",
+    "제53조(결격) 파산선고를 받고 복復(復權)되지 아니한 사람",
+  ].join("\n");
+  const l = parseLaw(txt, { law_id: "SYN-K-1", law_name: "가상", revision_id: "2026-01-01" });
+  const by = new Map(l.provisions.map((p) => [p.provision_id.split("/").slice(1).join("/"), p]));
+  assert.equal(by.get("ARTICLE:50")!.title, "분사무소(分事務所) 설치의 등기");
+  assert.match(by.get("ARTICLE:50")!.normalized_text, /^법인이 분사무소를/u);
+  assert.deepEqual(by.get("ARTICLE:50")!.heading_path.at(-1), "제2관 불가분채권과 불가분채무");
+  assert.equal(by.get("ARTICLE:52/PARAGRAPH:16")!.original_marker, "<16>");
+  assert.equal(by.get("ARTICLE:52/PARAGRAPH:16")!.normalized_text, "열여섯째 항.");
+  assert.ok(by.has("ARTICLE:52/PARAGRAPH:16/ITEM:1"));
+  assert.ok(by.get("ARTICLE:53")!.original_text.includes("復"), "원문 glyph(호환 한자) 보존");
+  assert.ok(!by.get("ARTICLE:53")!.normalized_text.includes("復"), "정규화 본문은 NFC");
+});

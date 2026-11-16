@@ -20,3 +20,13 @@
 
 | 파일 | 출처 URL | 받은 날 | 용도 | 라이선스/공개 여부 | 받은 사람 |
 |---|---|---|---|---|---|
+| `데이터원천/법령/20261116_legalize-kr_은행법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/은행법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_금융소비자보호법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/금융소비자보호에관한법률/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_전자금융거래법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/전자금융거래법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_자본시장법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/자본시장과금융투자업에관한법률/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_신용정보법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/신용정보의이용및보호에관한법률/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_개인정보보호법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/개인정보보호법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_특정금융정보법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/특정금융거래정보의보고및이용등에관한법률/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_예금자보호법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/예금자보호법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_금융회사지배구조법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/금융회사의지배구조에관한법률/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
+| `데이터원천/법령/20261116_legalize-kr_민법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/민법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |

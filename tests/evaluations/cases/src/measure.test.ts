@@ -20,3 +20,15 @@ test("법령 구조 파싱 ≥ 95%", () => assert.ok(measureParsing().accuracy >
 test("정확 조문 검색 ≥ 19/20", async () => { const r = await measureClauseSearch(); assert.ok(r.correct >= 19, JSON.stringify(r.rows.filter((x) => !x.ok))); });
 test("삭제 조항 오인용 0건", async () => assert.equal((await measureDeletionSafety()).miscitations, 0));
 test("변경 영향 탐지 5/5, 대조군 오탐 0", async () => { const r = await measureImpact(); assert.deepEqual([r.detected, r.expected, r.false_positives], [5, 5, 0]); });
+
+test("공개 법령 구조 파싱 ≥ 99% (자료/데이터원천/법령에 legalize-kr 파일이 있을 때만)", async (t) => {
+  const { readdirSync, existsSync } = await import("node:fs");
+  const { measurePublicLaw } = await import("./public-laws.ts");
+  const dir = new URL("../../../../자료/데이터원천/법령/", import.meta.url);
+  const files = existsSync(dir) ? readdirSync(dir).filter((f) => f.endsWith(".md")) : [];
+  if (!files.length) return t.skip("공개 법령 파일 없음 (Git 미포함, 자료/README.md 색인 URL로 받기)");
+  for (const f of files) {
+    const r = measurePublicLaw(readFileSync(new URL(f, dir), "utf8"));
+    assert.ok(r.accuracy >= 0.99, `${r.name} ${r.accuracy}`);
+  }
+});
