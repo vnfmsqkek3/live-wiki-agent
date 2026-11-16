@@ -35,8 +35,9 @@
 | 12 | Bedrock KB + AOSS(dev standby off) + 데이터 소스 2개 | 1건 색인 → HYBRID Retrieve + Rerank + ACL 필터 | Chunker Lambda(let522mj) 없음 → NONE 청킹 | [x] `kb-smoke.sh` ALL PASS |
 | 13 | Cognito Pre Token V2 (`dept` claim) | access token에 dept·groups | dhxorb96 요청 3 | [x] |
 | 14 | MalwareCheck (GuardDuty Malware Protection for S3) | 정상 OK, EICAR BLOCKED·승인 건너뜀 | — | [x] `smoke-dev.sh` ALL PASS |
-| 15 | PaddleOCR 컨테이너 + CodeBuild + SageMaker Async(0↔1) | 엔드포인트 InService | — | [~] |
+| 15 | PaddleOCR 컨테이너 + CodeBuild + SageMaker Async(0↔1) | 엔드포인트 InService | — | [~] g5 용량 부족 → g4dn 재시도 중 |
 | 16 | PageRender, OcrIfNeeded Lambda | 한국어 PNG → result.json 텍스트·confidence·bbox | — | [~] 단위 테스트 통과, `smoke-ocr.sh` 대기 |
+| 18 | 팀 Lambda 연결 (dev: Owner 개인 Lambda, type-detection 공유+SQS), chunker, CORS | 실제 업로드 → WaitForApproval 도달 | dhxorb96·let522mj Lambda | [x] `smoke-pipeline.sh` PASS. 승인 이후는 승인 API 필요 (직접 APPROVE 시 Promote ApprovalBindingError = 정상) |
 | 17 | ECS Fargate(API), CloudFront + WAF | | dhxorb96 `apps/api`·`apps/web` (PR #2) | [ ] PR #2 머지 후 |
 
 ## 다음

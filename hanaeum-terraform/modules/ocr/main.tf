@@ -5,9 +5,10 @@ variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "artifact_bucket" { type = object({ name = string, arn = string }) }
+# ml.g5.xlarge 는 us-east-1 InsufficientInstanceCapacity 로 실패 (트러블슈팅 11/16). T4 16GB 로 PP-OCRv5 mobile 충분
 variable "instance_type" {
   type    = string
-  default = "ml.g5.xlarge"
+  default = "ml.g4dn.xlarge"
 }
 variable "src_dir" {
   type    = string
@@ -254,5 +255,5 @@ resource "aws_cloudwatch_metric_alarm" "wake" {
   alarm_actions       = [aws_appautoscaling_policy.wake.arn]
 }
 
-output "endpoint_name" { value = aws_sagemaker_endpoint.ocr.name }
+output "endpoint_name" { value = local.name } # 리소스가 아닌 이름: sfn 이 엔드포인트 생성에 묶이지 않게
 output "async_root" { value = local.async_root }
