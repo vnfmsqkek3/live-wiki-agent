@@ -53,6 +53,7 @@ test('카드: 요약·태그·연관(권한 밖 규정 제외)·밑줄 수(대�
   const { items } = (await (await t.get('user', '/v1/library')).json()) as { items: { doc_id: string; summary: string; tags: string[]; mark_count: number; related: { doc_id: string; relation: string }[] }[] };
   const kh = items.find((i) => i.doc_id === 'KH')!;
   assert.equal(kh.summary, '요약문');
+  assert.equal((kh as unknown as { uploaded_at: string }).uploaded_at, '2026-11-16');
   assert.deepEqual(kh.tags, ['실무사례']);
   assert.deepEqual(kh.related.map((r) => [r.doc_id, r.relation]), [['REG', 'CONFLICTS']]);
   assert.equal(kh.mark_count, 2); // CONFLICTS 2건(대조 통과), INSUFFICIENT는 대조 실패라 제외

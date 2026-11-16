@@ -14,5 +14,6 @@ export function Seal({ i, stamp }: { i: Pick<SearchItem, 'authority_status' | 'd
 }
 
 export function FreshnessFlag({ freshness }: { freshness: SearchItem['freshness'] }) {
+  if (freshness === 'SUPERSEDED') return <span className="flag">개정·폐지되어 현행이 아닌 판</span>;
   return freshness === 'REVIEW_REQUIRED' ? <span className="flag">근거 규정이 바뀌어 재검토 중</span> : null;
 }

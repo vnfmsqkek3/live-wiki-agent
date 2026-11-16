@@ -8,6 +8,8 @@ import { api, ApiError, type LibraryCard, type LibraryDoc, type Mark } from '../
 import { FreshnessFlag, Seal } from '../seal';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
+/** ISO 시각 → 'YYYY-MM-DD' (한국 시간) */
+const day = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 const REL: Record<LibraryCard['related'][number]['relation'], string> = { CITES: '근거 규정', CITED_BY: '이 규정을 근거로 쓴 문서', CONFLICTS: '충돌', SIMILAR: '비슷한 문서' };
 const KIND: Record<Mark['kind'], string> = {
   CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨',
@@ -57,6 +59,8 @@ function List() {
               <dl>
                 {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
+                {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
+                <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
                 {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => `${r.title} (${REL[r.relation]})`).join(', ')}</dd></>}
                 {d.mark_count > 0 && <><dt>고칠 곳</dt><dd className="danger-text">{d.mark_count}곳</dd></>}
                 {d.lifecycle !== 'PUBLISHED' && <><dt>상태</dt><dd>게시 전 (내 문서)</dd></>}
@@ -130,6 +134,8 @@ function Detail({ id }: { id: string }) {
       <dl className="meta-grid">
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
+        <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
+        {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd>{day(d.updated_at)}</dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
         {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => (
           <span key={r.doc_id} className="rel"><Link href={`/library?id=${encodeURIComponent(r.doc_id)}`}>{r.title}</Link> · {REL[r.relation]} ({r.reason})</span>

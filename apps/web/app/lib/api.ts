@@ -60,7 +60,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
 // ---------- 합성 mock (한빛은행 · SYNTHETIC) ----------
 export interface SearchItem {
   doc_id: string; title: string; snippet: string; team: string; updated: string; stars: number;
-  tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED';
+  tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
 }
@@ -166,7 +166,7 @@ export interface Mark {
 export interface LibraryCard {
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
-  freshness: 'CURRENT' | 'REVIEW_REQUIRED'; effective_from: string | null; mark_count: number;
+  freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string }[];
 }
 export interface LibraryDoc extends LibraryCard { doc_marks: Mark[]; pages: { page: number; text: string; summary: string | null; marks: Mark[] }[] }
@@ -176,7 +176,7 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
   {
     doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', document_type: 'KNOWHOW', lifecycle: 'PUBLISHED', business_path: ['여신', '담보'], tags: ['실무사례', '담보'],
     summary: '1억원 이하 부동산 담보대출을 빠르게 처리하는 요령입니다. 현장 실사를 생략하고 감정평가서만으로 처리하며, 실사 보고서는 사후에 작성한다고 안내합니다.',
-    authority_status: 'UNVERIFIED', freshness: 'CURRENT', effective_from: null, mark_count: 2,
+    authority_status: 'UNVERIFIED', freshness: 'CURRENT', effective_from: null, uploaded_at: '2026-11-16T12:30:00Z', updated_at: '2026-11-16T12:31:00Z', mark_count: 2,
     related: [{ doc_id: 'doc_F001', title: '기업여신 심사규정', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
     doc_marks: [],
     pages: [
@@ -189,7 +189,7 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
   {
     doc_id: 'doc_F001', title: '기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED', business_path: ['여신'], tags: ['공식규정'],
     summary: '기업여신 심사 절차와 승인 기준을 정합니다. 5억원 이상은 본부 승인, 부동산 담보는 금액과 관계없이 현장 실사를 해야 합니다.',
-    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', mark_count: 0,
+    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', uploaded_at: '2026-11-16T10:50:00Z', updated_at: '2026-11-16T11:13:00Z', mark_count: 0,
     related: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
     doc_marks: [], pages: [{ page: 0, text: '제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
   },

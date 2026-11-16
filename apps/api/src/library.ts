@@ -46,6 +46,7 @@ export function card(d: DocumentRecord, visible: DocumentRecord[]) {
     doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle,
     business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
+    uploaded_at: d.created_at, updated_at: d.updated_at,
     mark_count: markCount(d), related: related(d, visible),
   };
 }
