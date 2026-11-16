@@ -16,3 +16,21 @@
 | 8 | graph-server + Change Impact | `mcp/graph-server` | F-001→F-002 Diff, 역방향 탐색으로 영향 노하우 5/5, openCypher `UNWIND MERGE` 배치 50 | Neptune mock |
 | 9 | Golden Dataset 60 + 평가 케이스 | `tests/fixtures`, `tests/evaluations/cases` | 3.2 구성 60건, 4장 측정 질의 포함 | 없음 |
 | 10 | 데이터 QA 측정 스크립트 | `tests/evaluations/cases` | 파싱 95%, 조문 검색 19/20, 삭제 오인용 0, 영향 5/5 오프라인 측정 | KB 실측은 배포 후 |
+
+## 진행 상황 (11/16 17:35)
+
+| # | 상태 | 비고 |
+|---|---|---|
+| 1~10 | 로직·오프라인 테스트 완료 | TODO의 [x]는 **로직 기준**. AWS 호출부는 mock (실연동 전) |
+
+## 남은 작업 (실연동)
+
+| 작업 | 선행 조건 | DoD |
+|---|---|---|
+| KB 1건 색인 → HYBRID Retrieve 성공 확인, Custom Transformation 이벤트 형식 검증 | yoyo0704 KB·OpenSearch·Lambda 배포 | 실제 이벤트로 `kb-chunker` 통과 |
+| **E2E 1건**: 승인된 F-001 → 색인 → 검색 | 위 + dhxorb96 승인 API | 검색 결과에 F-001 조문·`original_text` |
+| 승인 전 문서 KB 가시성 0건 | dhxorb96 미승인 문서 생성 | `golden` expected_kb_visibility=false 전부 0건 |
+| Regulations 키 합의 → `DynamoClauseStore` 실연동 | yoyo0704 회신 (요청기록) | `get_clause` 실 테이블에서 FOUND |
+| Neptune 실연동 (`NeptuneGraphStore`) | 11/20 Neptune 배포 | trace_impact 5/5 실그래프 |
+| 공개 법령 샘플로 파서 일반화 검증 | 국가법령정보센터 자료 (자료/데이터원천/법령) | 조·항·호·목 95% |
+| DOCX·HWPX 텍스트 추출 | 필요 시 (데모는 PDF/텍스트) | 미구현 상태 명시 실패 → 구현 |
