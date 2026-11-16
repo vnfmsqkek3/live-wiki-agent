@@ -166,7 +166,8 @@ locals {
       }
       statements = [
         { Effect = "Allow", Action = ["neptune-db:connect", "neptune-db:ReadDataViaQuery", "neptune-db:WriteDataViaQuery", "neptune-db:DeleteDataViaQuery"], Resource = module.neptune.db_resource_arn },
-        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem"], Resource = local.t["regulations"].arn },
+        # 조문 구조 적재 DynamoClauseStore.putLaw = BatchWrite 25건 단위 (let522mj)
+        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:BatchWriteItem"], Resource = local.t["regulations"].arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = [local.t["approvals"].arn, "${local.t["approvals"].arn}/index/*"] },
         { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["published"].arn}/*" },
