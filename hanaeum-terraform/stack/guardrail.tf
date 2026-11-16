@@ -10,7 +10,8 @@ resource "aws_bedrock_guardrail" "pii" {
 
   sensitive_information_policy_config {
     dynamic "pii_entities_config" {
-      for_each = toset(["NAME", "ADDRESS", "EMAIL", "PHONE", "AGE", "USERNAME", "PASSWORD", "CREDIT_DEBIT_CARD_NUMBER", "CREDIT_DEBIT_CARD_CVV", "CREDIT_DEBIT_CARD_EXPIRY", "PIN", "IP_ADDRESS", "LICENSE_PLATE", "AWS_ACCESS_KEY", "AWS_SECRET_KEY"])
+      # 개인을 식별하는 값·비밀값만 (사용자 결정 11/17 "이름·나이는 PII 아님", 요청기록 20261117-0047). NAME·AGE·ADDRESS 제외
+      for_each = toset(["EMAIL", "PHONE", "USERNAME", "PASSWORD", "CREDIT_DEBIT_CARD_NUMBER", "CREDIT_DEBIT_CARD_CVV", "CREDIT_DEBIT_CARD_EXPIRY", "PIN", "IP_ADDRESS", "LICENSE_PLATE", "AWS_ACCESS_KEY", "AWS_SECRET_KEY"])
       content {
         type   = pii_entities_config.value
         action = "ANONYMIZE"
@@ -23,5 +24,9 @@ resource "aws_bedrock_guardrail" "pii" {
 resource "aws_bedrock_guardrail_version" "pii" {
   guardrail_arn = aws_bedrock_guardrail.pii.guardrail_arn
   description   = "PiiScan·질의 검사 고정 버전"
-  lifecycle { replace_triggered_by = [aws_bedrock_guardrail.pii] }
+  # 새 버전 생성 → Lambda env 갱신 → 옛 버전 삭제 (실행 중 단계가 삭제된 버전을 부르지 않게)
+  lifecycle {
+    replace_triggered_by  = [aws_bedrock_guardrail.pii]
+    create_before_destroy = true
+  }
 }
