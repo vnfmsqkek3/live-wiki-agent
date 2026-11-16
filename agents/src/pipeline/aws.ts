@@ -27,12 +27,12 @@ export async function callTool(step: string, args: Record<string, unknown>): Pro
   if (json.error) throw Object.assign(new Error(json.error.message.slice(0, 200)), { name: 'ToolError' });
   const out = json.result?.content?.find((c) => c.type === 'text')?.text ?? '{}';
   const parsed = JSON.parse(out) as StepOutput & { errorType?: string; errorMessage?: string };
-  if (json.result?.isError || parsed.errorType) throw Object.assign(new Error((parsed.errorMessage ?? 'step failed').slice(0, 200)), { name: parsed.errorType ?? 'StepError' });
+  if (json.result?.isError || parsed.errorType) throw Object.assign(new Error((parsed.errorMessage ?? 'step failed').slice(0, 300)), { name: parsed.errorType ?? 'StepError' });
   return parsed;
 }
 
 let ddb: DynamoDBClient | undefined;
-export async function record(workflow_id: string, doc_id: string, step: string, status: string, error?: string) {
+export async function record(workflow_id: string, doc_id: string, step: string, status: string, error?: string, message?: string) {
   ddb ??= new DynamoDBClient({ region: region() });
   await ddb.send(new PutItemCommand({
     TableName: env('TABLE_WORKFLOWS'),
@@ -40,6 +40,7 @@ export async function record(workflow_id: string, doc_id: string, step: string, 
       pk: { S: `WF#${workflow_id}` }, sk: { S: step === 'EXECUTION' ? 'EXECUTION' : `STEP#${step}` },
       doc_id: { S: doc_id }, status: { S: status }, ended_at: { S: new Date().toISOString() },
       ...(error ? { error: { S: error } } : {}), // 원문·Cause는 기록하지 않는다
+      ...(message ? { message: { S: message } } : {}), // Tool 오류 문장(let522mj: '사유 (조치: …)'). 화면 표시 여부는 API가 정한다
     },
   }));
 }

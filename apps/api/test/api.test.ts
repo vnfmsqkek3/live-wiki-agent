@@ -294,3 +294,28 @@ test('차단 사유: 코드별 사용자 문장, 원문 없음', async () => {
     ['첨부 파일이 포함된 PDF는 보안상 등록할 수 없습니다. 첨부를 뺀 PDF로 다시 올려 주세요.']);
   assert.match(blockedReasons([{ severity: 'HIGH', code: 'OVERRIDE_KO', step: 'INJECTION_SCAN' }])[0]!, /지시하는 문구/);
 });
+
+test('사유 목록: 단계 Finding(쪽·안내) + 게시 실패 문장(사유/조치 분리), 작성자·관리자만, 쪽 이미지', async () => {
+  const t = setup();
+  t.deps.pageImage = async (_d, n) => (n === 1 ? new Uint8Array([137, 80, 78, 71]) : undefined);
+  t.deps.pageImageList = async () => [1];
+  t.deps.workflowFailure = async () => ({ step: 'Promote', error: 'RegistryNotFound', message: '공식 원본 목록에서 이 규정을 찾지 못해 게시할 수 없습니다 (조치: 분류를 노하우로 바꿔 다시 요청해 주세요.)' });
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const call = (who: string, path: string) => app.request(path, { headers: { authorization: `Bearer ${who}` } });
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PENDING_APPROVAL', findings: [{ finding_id: 'f1', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', message: 'm', evidence_ref: 'page:1', location: { page: 2, excerpt: '참조 [계좌번호]' }, user_message: '2쪽에서 계좌번호 1건', fix_hint: '확인' }] });
+  const j = (await (await call('author', `/v1/documents/${doc_id}/issues`)).json()) as { items: { step_label: string; user_message: string; fix_hint?: string; location?: { page: number } }[]; page_images: number[] };
+  assert.equal(j.items[0]!.step_label, '게시');
+  assert.match(j.items[0]!.user_message, /찾지 못해 게시할 수 없습니다$/);
+  assert.match(j.items[0]!.fix_hint!, /^분류를 노하우로/);
+  assert.equal(j.items[1]!.location?.page, 2);
+  assert.deepEqual(j.page_images, [2]);
+  assert.equal((await call('author2', `/v1/documents/${doc_id}/issues`)).status, 404);
+  assert.equal((await call('approver', `/v1/documents/${doc_id}/issues`)).status, 200);
+  const img = await call('author', `/v1/documents/${doc_id}/pages/2/image`);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal((await call('author', `/v1/documents/${doc_id}/pages/1/image`)).status, 404);
+  assert.equal((await call('author2', `/v1/documents/${doc_id}/pages/2/image`)).status, 404);
+});

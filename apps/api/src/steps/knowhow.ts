@@ -57,7 +57,10 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
 
   if (clauses.length === 0) {
     const validation: KnowhowValidation = { verdict: 'INSUFFICIENT', items: [], outdated, checked_at };
-    return { validation, gate: 'REVIEW_REQUIRED', findings: [fnd('MEDIUM', 'KNOWHOW_NO_BASIS', '근거 규정을 찾지 못함 → 조건부 검증, 사람 검토 필요', 'citations:0')] };
+    return { validation, gate: 'REVIEW_REQUIRED', findings: [fnd('MEDIUM', 'KNOWHOW_NO_BASIS', '근거 규정을 찾지 못함 → 조건부 검증, 사람 검토 필요', 'citations:0', {
+      user_message: '이 노하우의 근거가 되는 규정 조문을 찾지 못했습니다. 승인자가 직접 확인합니다.',
+      fix_hint: '근거 규정 이름과 조문(예: 기업여신 심사규정 제14조제1항)을 본문에 적으면 자동 검증이 됩니다.',
+    })] };
   }
 
   const { items, model } = await deps.judge(maskedText, clauses);
@@ -72,15 +75,26 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
 
   const conflicts = checked.filter((j) => j.relation === 'CONFLICTS');
   const findings: Finding[] = [];
+  // statement는 마스킹본에서 나온 문장이므로 excerpt로 써도 된다. 쪽 번호는 TrustGate가 마스킹 페이지에서 찾아 붙인다
   for (const j of conflicts)
-    findings.push(fnd('HIGH', 'KNOWHOW_CONFLICT', `${j.label}와 충돌: ${j.reason}`.slice(0, 300), j.provision_id));
+    findings.push(fnd('HIGH', 'KNOWHOW_CONFLICT', `${j.label}와 충돌: ${j.reason}`.slice(0, 300), j.provision_id, {
+      location: { excerpt: j.statement.slice(0, 120) },
+      user_message: `"${j.statement.slice(0, 60)}" 문장이 ${j.label}과 맞지 않습니다: ${j.reason}`.slice(0, 300),
+      fix_hint: `근거 조문에 맞게 고쳐 주세요. 조문: "${j.quote}"`.slice(0, 300),
+    }));
   for (const o of outdated)
-    findings.push(fnd('MEDIUM', 'KNOWHOW_OUTDATED_CITATION', `개정 전 조문 인용 → 현행 ${o.label} 기준으로 재검토 필요`, o.cited));
+    findings.push(fnd('MEDIUM', 'KNOWHOW_OUTDATED_CITATION', `개정 전 조문 인용 → 현행 ${o.label} 기준으로 재검토 필요`, o.cited, {
+      user_message: `개정 전 조문(${o.label}, 이전 시행본)을 근거로 쓰고 있습니다.`,
+      fix_hint: '현행 조문 기준으로 내용을 고친 뒤 다시 올려 주세요. 문서보관함의 밑줄에 현행 조문 원문이 있습니다.',
+    }));
   const supported = checked.some((j) => j.relation === 'SUPPORTS');
 
   // 개정 전 조문을 인용했다면 현행과의 차이는 '최신성 실패'가 본질 (K-003, docs/02 3.1). 충돌 Finding은 그대로 남긴다
   const verdict: Verdict = outdated.length ? 'OUTDATED' : conflicts.length ? 'CONFLICT' : supported ? 'SUPPORTED' : 'INSUFFICIENT';
-  if (verdict === 'INSUFFICIENT') findings.push(fnd('MEDIUM', 'KNOWHOW_NO_BASIS', '근거로 확인된 조문 없음 → 사람 검토 필요', 'judge'));
+  if (verdict === 'INSUFFICIENT') findings.push(fnd('MEDIUM', 'KNOWHOW_NO_BASIS', '근거로 확인된 조문 없음 → 사람 검토 필요', 'judge', {
+    user_message: '이 노하우의 근거가 되는 규정 조문을 찾지 못했습니다. 승인자가 직접 확인합니다.',
+    fix_hint: '근거 규정 이름과 조문(예: 기업여신 심사규정 제14조제1항)을 본문에 적으면 자동 검증이 됩니다.',
+  }));
   return {
     validation: { verdict, items: checked, outdated, model, checked_at },
     findings,
@@ -89,8 +103,8 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
   };
 }
 
-function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string): Finding {
-  return { finding_id: newId.fnd(), step: 'KNOWHOW_VALIDATION', severity, code, message, evidence_ref };
+function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {
+  return { finding_id: newId.fnd(), step: 'KNOWHOW_VALIDATION', severity, code, message, evidence_ref, ...extra };
 }
 
 // ---- 모델 판정 프롬프트·스키마 (model.ts structured()로 호출) ----

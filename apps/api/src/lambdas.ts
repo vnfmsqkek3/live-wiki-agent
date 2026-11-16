@@ -24,6 +24,8 @@ export interface LambdaDeps {
   /** Trusted Registry 대조 (let522mj registryMatch). text 없이 부르면 해시만 대조 */
   registry?(content_hash: string, text?: string): Promise<{ registry?: RegistryEntry & { law_name?: string; effective_to?: string; registry_doc_no?: string }; claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> } }>;
   maskedText?(d: DocumentRecord): Promise<string>;
+  /** 마스킹 페이지 (Finding 쪽 번호 찾기) */
+  maskedPages?(d: DocumentRecord): Promise<{ page: number; text: string }[]>;
 }
 
 /** 단계 6·7·8 의존성. 6은 work/(원본 등급)을 읽고, 7·8은 masked/만 읽는다 (8은 모델 호출 Role, 원본 읽기 거부) */
@@ -201,6 +203,7 @@ export function makeTrustGate(deps: LambdaDeps) {
       law_id: reg.law_id, revision_id: reg.revision_id, effective_from: reg.effective_from,
       ...(reg.law_name ? { law_name: reg.law_name } : {}), ...(reg.effective_to ? { effective_to: reg.effective_to } : {}), ...(reg.registry_doc_no ? { registry_doc_no: reg.registry_doc_no } : {}),
     } : {};
+    if (deps.maskedPages && findings.some((f) => f.location?.excerpt && !f.location.page)) findings = withPages(findings, await deps.maskedPages(d));
     await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
     return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };
@@ -232,6 +235,19 @@ export function makeFinalize(deps: LambdaDeps) {
     if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
     return { status: 'OK' };
   };
+}
+
+/** excerpt(마스킹 문장)가 있는 쪽을 찾아 location.page(1부터)를 붙인다. 공백 차이는 무시 */
+export function withPages(findings: Finding[], pages: { page: number; text: string }[]): Finding[] {
+  const sq = (t: string) => t.replace(/\s+/g, '');
+  const norm = pages.map((p) => ({ page: p.page, t: sq(p.text) }));
+  return findings.map((f) => {
+    const ex = f.location?.excerpt;
+    if (!ex || f.location?.page) return f;
+    const probe = sq(ex.replace(/^…|…$/g, '')).slice(0, 30);
+    const hit = probe.length >= 6 ? norm.find((p) => p.t.includes(probe)) : undefined;
+    return hit ? { ...f, location: { ...f.location, page: hit.page + 1 } } : f;
+  });
 }
 
 async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {

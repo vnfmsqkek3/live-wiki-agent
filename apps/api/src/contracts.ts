@@ -25,6 +25,9 @@ export const newId = {
 };
 
 /** message에 원문 PII를 넣지 않는다. */
+/** 올린 사람에게 "몇 쪽 어디가" 보여 주기 위한 위치 (사용자 지시 11/17, 요청기록 0106). page는 1부터, excerpt는 마스킹본 120자 이하 */
+export interface FindingLocation { page?: number; bbox?: number[][]; excerpt?: string }
+
 export interface Finding {
   finding_id: string;
   step: string;
@@ -32,6 +35,18 @@ export interface Finding {
   code: string;
   message: string;
   evidence_ref: string;
+  location?: FindingLocation;
+  /** 올린 사람용 한 문장: 몇 쪽·무엇이·왜 */
+  user_message?: string;
+  /** 어떻게 고쳐 다시 올리는지 */
+  fix_hint?: string;
+}
+
+/** 마스킹본에서 [start,end) 주변 문장 일부 (120자 이하, 줄바꿈 정리) */
+export function excerptAround(text: string, start: number, end: number, max = 120): string {
+  const pad = Math.max(0, Math.floor((max - (end - start)) / 2));
+  const a = Math.max(0, start - pad), b = Math.min(text.length, end + pad);
+  return `${a > 0 ? '…' : ''}${text.slice(a, b).replace(/\s+/g, ' ').trim()}${b < text.length ? '…' : ''}`.slice(0, max + 2);
 }
 
 export interface StepOutput {

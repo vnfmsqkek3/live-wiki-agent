@@ -10,7 +10,8 @@ export interface PipelineDeps {
   /** Gateway Tool 호출 (단계 키 = Tool 이름). 단계 예외는 throw */
   callTool(step: string, args: Record<string, unknown>): Promise<StepOutput>;
   /** WORKFLOWS `WF#{id}/STEP#{name}` 기록 (기존 SFN 스키마 유지) */
-  record(workflow_id: string, doc_id: string, step: string, status: string, error?: string): Promise<void>;
+  /** message: Tool이 준 사용자 안내 문장 (한국어 문장만 화면 표시, API가 거른다) */
+  record(workflow_id: string, doc_id: string, step: string, status: string, error?: string, message?: string): Promise<void>;
   sleep(ms: number): Promise<void>;
   pollMs?: number;
   maxPolls?: number;
@@ -51,7 +52,8 @@ class StepNode extends Node {
         await this.deps.sleep(this.deps.pollMs ?? 15_000);
       }
     } catch (e) {
-      await this.deps.record(this.input.workflow_id, this.input.doc_id, name, 'FAILED', (e as Error).name === 'Error' ? 'StepFailed' : (e as Error).name);
+      const err = e as Error;
+      await this.deps.record(this.input.workflow_id, this.input.doc_id, name, 'FAILED', err.name === 'Error' ? 'StepFailed' : err.name, err.message?.slice(0, 300));
       throw e; // Graph 실패 → 실행 FAILED 기록은 호출자
     }
     await this.deps.record(this.input.workflow_id, this.input.doc_id, name, out!.status);

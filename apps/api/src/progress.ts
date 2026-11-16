@@ -48,3 +48,30 @@ export function blockedReasons(findings: { severity: string; code: string; step:
     : f.step === 'TYPE_DETECTION' ? '파일 형식이 확장자와 다르거나 지원하지 않는 형식입니다.' : f.step === 'MALWARE' ? '악성코드 검사에서 위험이 발견되었습니다.' : '보안 검사에서 위험 요소가 발견되었습니다.'));
   return [...new Set(out)];
 }
+
+const STEP_LABEL: Record<string, string> = Object.fromEntries([...INGEST_STEPS, ['Promote', '게시'], ['KbIngest', '검색 색인'], ['GraphUpsert', '관계 그래프'], ['Finalize', '마무리'],
+  ['TYPE_DETECTION', '형식 확인'], ['MALWARE', '악성코드 검사'], ['FILE_STRUCTURE', '파일 구조 검사'], ['OCR', '문자 인식'], ['PII_SCAN', '개인정보 가림'], ['INJECTION_SCAN', '지시문 검사'],
+  ['CLASSIFY', '분류·요약'], ['TRUST_GATE', '출처·근거 검증'], ['KNOWHOW_VALIDATION', '노하우 검증'], ['IMAGE_DESCRIBE', '그림 분석'], ['TEXT_LAYER', '텍스트 추출'], ['SEGMENT', '본문 정리']]);
+
+export interface Issue { step: string; step_label: string; severity: string; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
+
+/** 올린 사람용 사유 목록: 단계 Finding(위치·안내) + 실행 실패(게시 실패 포함). 심각도·쪽 순 */
+export function issues(findings: { step: string; severity: string; code: string; message: string; user_message?: string; fix_hint?: string; location?: Issue['location'] }[],
+  failure?: { step: string; error: string; message?: string }): Issue[] {
+  const out: Issue[] = findings.map((f) => ({
+    step: f.step, step_label: STEP_LABEL[f.step] ?? f.step, severity: f.severity, code: f.code,
+    user_message: f.user_message ?? REASON[f.code] ?? f.message, ...(f.fix_hint ? { fix_hint: f.fix_hint } : {}), ...(f.location ? { location: f.location } : {}),
+  }));
+  if (failure) {
+    const publish = ['Promote', 'KbIngest', 'GraphUpsert', 'Finalize'].includes(failure.step);
+    // let522mj 예외 문장은 '사유 (조치: …)' 형식 → 사유·조치로 나눈다
+    const m = failure.message ? /^(.*?)\s*\(조치:\s*(.*)\)\s*$/.exec(failure.message) : null;
+    out.unshift({
+      step: failure.step, step_label: STEP_LABEL[failure.step] ?? failure.step, severity: 'HIGH', code: failure.error,
+      user_message: m?.[1] ?? failure.message ?? `${STEP_LABEL[failure.step] ?? failure.step} 단계에서 처리가 멈췄습니다 (${failure.error}).`,
+      fix_hint: m?.[2] ?? (publish ? '승인은 유지됩니다. 운영 담당자가 원인을 확인한 뒤 다시 게시합니다.' : '파일을 확인해 다시 올려 주세요. 계속 실패하면 운영 담당자에게 문의하세요.'),
+    });
+  }
+  const rank: Record<string, number> = { HIGH: 0, MEDIUM: 1, LOW: 2 };
+  return out.sort((a, b) => (rank[a.severity] ?? 3) - (rank[b.severity] ?? 3) || (a.location?.page ?? 1e9) - (b.location?.page ?? 1e9));
+}

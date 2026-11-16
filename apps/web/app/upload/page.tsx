@@ -2,6 +2,7 @@
 // 04 문서 등록: 서식 기입란 형태. 업로드 → 격리 저장 → 분석 시작
 import { useEffect, useState } from 'react';
 import { api, ApiError, uploadFile, type Progress } from '../lib/api';
+import { IssueList } from '../issues';
 
 const ACCEPT = '.pdf,.docx,.hwpx,.png,.jpg,.jpeg';
 const MAX = 50 * 1024 * 1024;
@@ -90,7 +91,8 @@ export default function Upload() {
             )}
           </section>
         )}
-        {state.doc_id && (prog?.finished || prog?.halted) && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
+        {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
+        {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </form>
     </>
   );

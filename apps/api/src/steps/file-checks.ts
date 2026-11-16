@@ -53,21 +53,43 @@ export function fileStructureCheck(kind: FileKind, body: Uint8Array): StepOutput
   }
   if (kind === 'pdf') {
     const s = ascii(body);
-    for (const [re, code] of [
-      [/\/JavaScript\b|\/JS\s*[(<]/, 'PDF_JAVASCRIPT'],
-      [/\/Launch\b/, 'PDF_LAUNCH'],
-      [/\/EmbeddedFile\b/, 'PDF_EMBEDDED_FILE'],
-      [/\/OpenAction\b|\/AA\b/, 'PDF_AUTO_ACTION'],
-    ] as const)
-      if (re.test(s)) add(code === 'PDF_AUTO_ACTION' ? 'MEDIUM' : 'HIGH', code, `PDF ${code}`, 'catalog');
+    if (/\/EmbeddedFile\b/.test(s)) {
+      const names = pdfAttachments(s);
+      const list = names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}개` : '');
+      findings.push(f('FILE_STRUCTURE', 'HIGH', 'PDF_EMBEDDED_FILE', `PDF 첨부 파일 ${names.length}개`, 'catalog', {
+        user_message: `PDF 안에 첨부 파일 ${names.length}개(${list})가 들어 있어 보안상 등록할 수 없습니다.`,
+        fix_hint: `첨부 파일을 지운 뒤 ${FIX_PDF}`,
+      }));
+    }
+    for (const [re, code, sev, what] of [
+      [/\/JavaScript\b|\/JS\s*[(<]/, 'PDF_JAVASCRIPT', 'HIGH', '스크립트(JavaScript)'],
+      [/\/Launch\b/, 'PDF_LAUNCH', 'HIGH', '다른 프로그램 실행 동작(Launch)'],
+      [/\/OpenAction\b|\/AA\b/, 'PDF_AUTO_ACTION', 'MEDIUM', '열 때 자동으로 실행되는 동작(OpenAction)'],
+    ] as const) {
+      if (!re.test(s)) continue;
+      const objs = pdfObjects(s, re);
+      findings.push(f('FILE_STRUCTURE', sev, code, `PDF ${code}`, objs.length ? `obj:${objs.join(',')}` : 'catalog', {
+        user_message: `PDF 안에 ${what}이 들어 있습니다${objs.length ? ` (내부 객체 ${objs.join(', ')}번)` : ''}.${sev === 'HIGH' ? ' 보안상 등록할 수 없습니다.' : ' 관리자가 확인합니다.'}`,
+        fix_hint: FIX_PDF,
+      }));
+    }
   }
   if (kind === 'docx' || kind === 'hwpx') {
     const s = ascii(body);
-    if (/vbaProject\.bin|activeX\//.test(s)) add('HIGH', 'OFFICE_MACRO', '매크로·스크립트 포함', 'zip');
+    const macro = [...new Set([...s.matchAll(/[\w/]*(?:vbaProject\.bin|activeX\/[\w.]+)/g)].map((m) => m[0]))].slice(0, 3);
+    if (macro.length) findings.push(f('FILE_STRUCTURE', 'HIGH', 'OFFICE_MACRO', '매크로·스크립트 포함', 'zip', {
+      user_message: `문서 안에 매크로·ActiveX(${macro.join(', ')})가 들어 있어 보안상 등록할 수 없습니다.`,
+      fix_hint: kind === 'docx' ? "Word에서 '다른 이름으로 저장 → Word 문서(*.docx)'로 매크로 없이 저장해 다시 올려 주세요." : '한글에서 매크로를 지우고 다시 저장해 올려 주세요.',
+    }));
     const z = zipSizes(body);
-    if (!z) add('HIGH', 'ZIP_INVALID', 'ZIP 목록(central directory)을 읽을 수 없음', 'zip');
+    if (!z) findings.push(f('FILE_STRUCTURE', 'HIGH', 'ZIP_INVALID', 'ZIP 목록(central directory)을 읽을 수 없음', 'zip', {
+      user_message: '파일 구조가 손상되어 열 수 없습니다.', fix_hint: '원본 프로그램에서 파일을 다시 저장해 올려 주세요.',
+    }));
     else if (z.total > ZIP_MAX_TOTAL || z.maxRatio > ZIP_MAX_RATIO)
-      add('HIGH', 'ZIP_BOMB', `압축 해제 크기 ${Math.round(z.total / 2 ** 20)}MB, 최대 압축률 ${Math.round(z.maxRatio)}배 (기준 ${ZIP_MAX_TOTAL / 2 ** 20}MB·${ZIP_MAX_RATIO}배)`, 'zip');
+      findings.push(f('FILE_STRUCTURE', 'HIGH', 'ZIP_BOMB', `압축 해제 크기 ${Math.round(z.total / 2 ** 20)}MB, 최대 압축률 ${Math.round(z.maxRatio)}배 (기준 ${ZIP_MAX_TOTAL / 2 ** 20}MB·${ZIP_MAX_RATIO}배)`, 'zip', {
+        user_message: `압축을 풀면 ${Math.round(z.total / 2 ** 20)}MB로 지나치게 커지는 파일이라 등록할 수 없습니다.`,
+        fix_hint: '문서 안의 큰 그림·첨부를 줄이거나 빼고 다시 저장해 올려 주세요.',
+      }));
   }
   const status = findings.some((x) => x.severity === 'HIGH') ? 'BLOCKED' : findings.length ? 'REVIEW_REQUIRED' : 'OK';
   return { status, findings };
@@ -108,6 +130,30 @@ function* pngChunks(b: Uint8Array) {
   }
 }
 
-function f(step: string, severity: Finding['severity'], code: string, message: string, evidence_ref: string): Finding {
-  return { finding_id: newId.fnd(), step, severity, code, message, evidence_ref };
+function f(step: string, severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'user_message' | 'fix_hint' | 'location'> = {}): Finding {
+  return { finding_id: newId.fnd(), step, severity, code, message, evidence_ref, ...extra };
 }
+
+/** PDF 문자열 리터럴 (…) → 표시용. UTF-16BE(BOM)이면 디코드 */
+function pdfString(raw: string) {
+  const s = raw.replace(/\\([()\\])/g, '$1');
+  if (s.startsWith('\u00fe\u00ff')) { let o = ''; for (let i = 2; i + 1 < s.length; i += 2) o += String.fromCharCode((s.charCodeAt(i) << 8) | s.charCodeAt(i + 1)); return o; }
+  return Buffer.from(s, 'latin1').toString('utf8');
+}
+/** PDF 첨부 파일 이름들 (Filespec의 /UF 또는 /F) */
+export function pdfAttachments(s: string): string[] {
+  const names = [...s.matchAll(/\/Type\s*\/Filespec[\s\S]{0,600}?\/(?:UF|F)\s*\(((?:\\.|[^\\)]){1,200})\)/g)].map((m) => pdfString(m[1]!));
+  const fallback = (s.match(/\/Type\s*\/EmbeddedFile\b/g) ?? []).length;
+  return names.length ? [...new Set(names)] : Array.from({ length: fallback }, () => '이름 없는 첨부');
+}
+/** 패턴이 들어 있는 PDF 객체 번호들 */
+export function pdfObjects(s: string, re: RegExp): number[] {
+  const out = new Set<number>();
+  for (const m of s.matchAll(new RegExp(re.source, 'g'))) {
+    const before = s.slice(Math.max(0, m.index! - 20000), m.index!);
+    const objs = [...before.matchAll(/(\d+)\s+\d+\s+obj\b/g)];
+    if (objs.length) out.add(Number(objs.at(-1)![1]));
+  }
+  return [...out].slice(0, 5);
+}
+const FIX_PDF = "Acrobat 등에서 '인쇄 → PDF로 저장'(또는 '다른 이름으로 저장 → 최적화된 PDF')으로 새로 만든 PDF를 올려 주세요.";

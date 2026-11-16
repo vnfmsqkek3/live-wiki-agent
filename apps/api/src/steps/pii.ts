@@ -2,7 +2,7 @@
 // ② Guardrails는 보조: 비밀값(비밀번호·키·PIN·CVV)만 그 부분을 가리고, 나머지 탐지는 원문을 덮어쓰지 않고 사람 확인 Finding.
 //    (Guardrail이 "이 규정은"→"이 {NAME}은"처럼 공식 조문을 훼손한 사례, let522mj 11/17)
 // 불확실 구간이 남으면 REVIEW_REQUIRED. Finding에 탐지 원문을 넣지 않는다.
-import { newId, type Finding, type StepOutput } from '../contracts.ts';
+import { excerptAround, newId, type Finding, type StepOutput } from '../contracts.ts';
 
 import { PII_NAME, detectPii, mask } from './pii-detect.ts';
 export { detectPii, mask, rrnChecksumOk, luhnOk, type PiiSpan, type PiiType } from './pii-detect.ts';
@@ -26,8 +26,13 @@ export async function piiScan(
     for (const t of new Set(spans.map((x) => x.type))) {
       const n = spans.filter((x) => x.type === t);
       const uncertain = n.filter((x) => !x.certain).length;
+      const at = text.indexOf(`[${PII_NAME[t]}]`);
       findings.push(fnd(uncertain ? 'MEDIUM' : 'LOW', uncertain ? `PII_UNCERTAIN_${t}` : `PII_MASKED_${t}`,
-        `${PII_NAME[t]} ${n.length}건 가림${uncertain ? ` (그중 ${uncertain}건은 개인정보인지 확인 필요)` : ''}`, `page:${s.page}`));
+        `${PII_NAME[t]} ${n.length}건 가림${uncertain ? ` (그중 ${uncertain}건은 개인정보인지 확인 필요)` : ''}`, `page:${s.page}`, {
+          location: { page: s.page + 1, ...(at >= 0 ? { excerpt: excerptAround(text, at, at + PII_NAME[t].length + 2) } : {}) },
+          user_message: `${s.page + 1}쪽에서 ${PII_NAME[t]} ${n.length}건을 가렸습니다${uncertain ? `. 그중 ${uncertain}건은 실제 ${PII_NAME[t]}인지 확인이 필요합니다` : ''}.`,
+          ...(uncertain ? { fix_hint: `${PII_NAME[t]}가 아니라면(예: 문서번호·참조번호) 검토 화면에서 확인해 주세요. 실제 ${PII_NAME[t]}라면 지우고 다시 올리는 것을 권장합니다.` } : {}),
+        }));
     }
     const g = guardrail ? await guardrail(text) : undefined;
     if (!g) guardrailSkipped = true;
@@ -36,9 +41,22 @@ export async function piiScan(
       for (const e of ents.filter((x) => SECRET_TYPES.has(x.type))) text = text.split(e.match).join('[비밀값]');
       const secrets = ents.filter((x) => SECRET_TYPES.has(x.type)).length;
       const other = ents.filter((x) => !SECRET_TYPES.has(x.type));
-      if (secrets) findings.push(fnd('MEDIUM', 'SECRET_MASKED', `비밀값(비밀번호·키 등) ${secrets}건 가림`, `page:${s.page}`));
-      if (other.length)
-        findings.push(fnd('MEDIUM', 'PII_GUARDRAIL', `추가 검사에서 개인정보 의심 ${other.length}건(${[...new Set(other.map((x) => x.type))].join(', ')}) — 원문은 그대로 두었습니다. 개인정보면 수정 후 다시 올려 주세요`, `page:${s.page}`));
+      if (secrets) {
+        const at = text.indexOf('[비밀값]');
+        findings.push(fnd('MEDIUM', 'SECRET_MASKED', `비밀값(비밀번호·키 등) ${secrets}건 가림`, `page:${s.page}`, {
+          location: { page: s.page + 1, ...(at >= 0 ? { excerpt: excerptAround(text, at, at + 5) } : {}) },
+          user_message: `${s.page + 1}쪽에 비밀번호·접근 키 같은 비밀값 ${secrets}건이 있어 가렸습니다.`,
+          fix_hint: '문서에서 비밀값을 지우고 다시 올려 주세요. 이미 노출된 비밀번호·키는 바꾸는 것이 안전합니다.',
+        }));
+      }
+      if (other.length) {
+        const kinds = [...new Set(other.map((x) => GUARD_NAME[x.type] ?? x.type))].join(', ');
+        findings.push(fnd('MEDIUM', 'PII_GUARDRAIL', `추가 검사에서 개인정보 의심 ${other.length}건(${kinds}) — 원문 유지, 사람 확인`, `page:${s.page}`, {
+          location: { page: s.page + 1 }, // 탐지 값은 마스킹 전 값일 수 있어 excerpt에 넣지 않는다
+          user_message: `${s.page + 1}쪽에 ${kinds}로 보이는 값이 ${other.length}건 있습니다. 원문은 그대로 두었습니다.`,
+          fix_hint: '개인을 식별하는 값이면 지우고 다시 올려 주세요. 대표번호·공용 주소처럼 개인정보가 아니면 그대로 두면 됩니다.',
+        }));
+      }
     }
     masked.push({ page: s.page, text });
   }
@@ -48,6 +66,8 @@ export async function piiScan(
   return { status, findings, masked };
 }
 
-function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string): Finding {
-  return { finding_id: newId.fnd(), step: 'PII_SCAN', severity, code, message, evidence_ref };
+const GUARD_NAME: Record<string, string> = { PHONE: '전화번호', EMAIL: '이메일', CREDIT_DEBIT_CARD_NUMBER: '카드번호', IP_ADDRESS: 'IP 주소', LICENSE_PLATE: '차량번호', USERNAME: '사용자 ID' };
+
+function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {
+  return { finding_id: newId.fnd(), step: 'PII_SCAN', severity, code, message, evidence_ref, ...extra };
 }

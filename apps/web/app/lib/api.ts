@@ -108,6 +108,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
   if (/\/v1\/documents\/.+\/analyze/.test(path)) { mockTick = 0; return { workflow_id: 'wf_MOCK' }; }
   if (/\/v1\/documents\/.+\/progress/.test(path)) return mockProgress();
+  if (/\/v1\/documents\/.+\/issues/.test(path)) return MOCK_ISSUES;
   if (/\/v1\/documents\/.+\/review/.test(path)) return MOCK_REVIEW;
   if (/\/v1\/documents\/.+\/classification/.test(path)) return { document_type: (body as { document_type: string }).document_type };
   if (/\/v1\/documents\/.+\/submit/.test(path)) return { approval_id: 'apr_MOCK' };
@@ -257,4 +258,22 @@ export async function streamGuide(question: string, onProgress: (text: string) =
     }
   }
   throw new ApiError(502, '응답이 중간에 끊겼습니다');
+}
+
+// ---------- 올린 사람용 사유 목록 (사용자 지시 11/17) ----------
+export interface Issue { step: string; step_label: string; severity: 'HIGH' | 'MEDIUM' | 'LOW'; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
+export interface Issues { doc_id: string; lifecycle: string; items: Issue[]; page_images: number[] }
+export const MOCK_ISSUES: Issues = { doc_id: 'doc_MOCK', lifecycle: 'BLOCKED', page_images: [], items: [
+  { step: 'FILE_STRUCTURE', step_label: '파일 구조 검사', severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', user_message: 'PDF 안에 첨부 파일 1개(대출내역.xlsx)가 들어 있어 보안상 등록할 수 없습니다.', fix_hint: "첨부 파일을 지운 뒤 '인쇄 → PDF로 저장'으로 새로 만든 PDF를 올려 주세요." },
+  { step: 'PII_SCAN', step_label: '개인정보 가림', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', user_message: '2쪽에서 계좌번호 1건을 가렸습니다. 그중 1건은 실제 계좌번호인지 확인이 필요합니다.', fix_hint: '계좌번호가 아니라면 검토 화면에서 확인해 주세요.', location: { page: 2, excerpt: '…참조번호 [계좌번호]로 접수한다…' } },
+] };
+
+/** 인증이 필요한 이미지(마스킹된 쪽) → blob URL */
+export async function apiBlobUrl(path: string): Promise<string> {
+  if (MOCK) throw new ApiError(404, 'mock 이미지 없음');
+  const s = getSession();
+  const r = await fetch(`${API}${path}`, { headers: s ? { authorization: `Bearer ${s.token}` } : {} });
+  if (r.status === 401) expired();
+  if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+  return URL.createObjectURL(await r.blob());
 }

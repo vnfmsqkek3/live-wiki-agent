@@ -135,3 +135,10 @@ test('PiiScan Guardrail: 원문 덮어쓰기 없음(조문 훼손 방지), 비�
   assert.deepEqual(r.findings?.map((f) => f.code).sort(), ['PII_GUARDRAIL', 'SECRET_MASKED']);
   assert.equal(r.status, 'REVIEW_REQUIRED');
 });
+
+test('Finding 위치: 노하우 충돌 문장이 있는 쪽 번호(1부터)를 붙인다', async () => {
+  const { withPages } = await import('../src/lambdas.ts');
+  const f = [{ finding_id: 'f', step: 'KNOWHOW_VALIDATION', severity: 'HIGH' as const, code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'p', location: { excerpt: '1억원 이하는 현장 실사를 생략한다' } }];
+  const out = withPages(f, [{ page: 0, text: '머리말' }, { page: 1, text: '실무 팁\n1억원 이하는  현장 실사를 생략한다.' }]);
+  assert.equal(out[0]!.location?.page, 2);
+});

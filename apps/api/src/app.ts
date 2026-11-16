@@ -4,7 +4,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { card, matches, type Mark, type Page } from './library.ts';
-import { blockedReasons, progress } from './progress.ts';
+import { blockedReasons, issues, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
@@ -33,9 +33,13 @@ export interface Deps {
   /** 가이드 SSE (progress·result·error 이벤트). 없으면 JSON 응답만 */
   guideStream?(question: string, accessToken: string): Promise<ReadableStream<Uint8Array>>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
-  workflowFailure?(workflow_id: string): Promise<{ step: string; error: string } | undefined>;
+  workflowFailure?(workflow_id: string): Promise<{ step: string; error: string; message?: string } | undefined>;
   /** 업로드 진행바: WORKFLOWS 단계 기록 */
   workflowSteps?(workflow_id: string): Promise<{ step: string; status: string; ended_at: string; error?: string }[]>;
+  /** 마스킹된 쪽 이미지 (masked/pages/{nnnn}.png). 없으면 undefined */
+  pageImage?(doc_id: string, page_index: number): Promise<Uint8Array | undefined>;
+  /** 마스킹된 쪽 이미지가 있는 page_index 목록 */
+  pageImageList?(doc_id: string): Promise<number[]>;
   /** 문서보관함: 마스킹본 페이지 (`{doc_id}/masked/segments/`). 원본은 읽지 않는다 */
   pages?(doc_id: string): Promise<Page[]>;
   /** let522mj buildMarks: 판정·Finding → 밑줄 (page = pages 배열 인덱스, 못 찾으면 null) */
@@ -148,6 +152,28 @@ export function createApp(deps: Deps) {
     if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('NOT_FOUND', 'document not found');
     const rec = d.workflow_id && deps.workflowSteps ? await deps.workflowSteps(d.workflow_id) : [];
     return c.json({ ...progress(d.lifecycle, rec), blocked_reasons: d.lifecycle === 'BLOCKED' ? blockedReasons(d.findings) : [] });
+  });
+
+  // 올린 사람(또는 관리자)용 사유 목록: 몇 쪽·무엇이·왜·어떻게 고치는지 (사용자 지시 11/17)
+  app.get('/v1/documents/:id/issues', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('NOT_FOUND', 'document not found');
+    const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
+    const images = deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [];
+    return c.json({ doc_id: d.doc_id, lifecycle: d.lifecycle, items: issues(d.findings, failure), page_images: images.map((n) => n + 1) });
+  });
+
+  // 마스킹된 쪽 이미지 (원본 아님). page는 1부터
+  app.get('/v1/documents/:id/pages/:page/image', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('NOT_FOUND', 'document not found');
+    const n = Number(c.req.param('page'));
+    if (!Number.isInteger(n) || n < 1 || n > 2000) throw new ApiError('VALIDATION', 'page: 1 이상 정수');
+    const png = deps.pageImage ? await deps.pageImage(d.doc_id, n - 1).catch(() => undefined) : undefined;
+    if (!png) throw new ApiError('NOT_FOUND', 'page image not found');
+    return new Response(new Blob([new Uint8Array(png)]), { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=300' } });
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {

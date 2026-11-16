@@ -100,7 +100,9 @@ export async function workflowFailure(workflow_id: string) {
     TableName: env('TABLE_WORKFLOWS'), KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': { S: `WF#${workflow_id}` } },
   }));
   const failed = (r.Items ?? []).find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
-  return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown' } : undefined;
+  // 사용자에게는 한국어 안내 문장만 (AWS·런타임 영문 오류에는 ARN·경로가 섞일 수 있어 숨김)
+  const msg = failed?.message?.S;
+  return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown', ...(msg && /[가-힣]/.test(msg) ? { message: msg } : {}) } : undefined;
 }
 
 // ---- quarantine 버킷 JSON 입출력 (단계 6·7·8) ----
@@ -158,4 +160,12 @@ export async function workflowSteps(workflow_id: string) {
 }
 export async function putBytes(key: string, body: Uint8Array, contentType: string) {
   await s3().send(new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, Body: body, ContentType: contentType }));
+}
+
+/** 마스킹된 쪽 이미지 (PiiScan이 만든 masked/pages). API Task Role은 masked/만 읽는다 */
+export async function pageImage(doc_id: string, page_index: number) {
+  return getObjectBytes(`${doc_id}/masked/pages/${String(page_index).padStart(4, '0')}.png`);
+}
+export async function pageImageList(doc_id: string) {
+  return (await listKeys(`${doc_id}/masked/pages/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n));
 }
