@@ -53,7 +53,16 @@ createServer(async (req, res) => {
       const search = process.env.GATEWAY_URL
         ? (q: string) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
-      return send(200, await guide(b.prompt, { search, draft: draftWithModel, model: env('MODEL_SONNET') }));
+      const deps = { search, draft: draftWithModel, model: env('MODEL_SONNET') };
+      // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
+      if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {
+        res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
+        const ev = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
+        try { ev('result', await guide(b.prompt, { ...deps, progress: (text) => ev('progress', { text }) })); }
+        catch (e) { console.error(JSON.stringify({ err: (e as Error).name })); ev('error', { message: '가이드를 만들지 못했습니다' }); }
+        return res.end();
+      }
+      return send(200, await guide(b.prompt, deps));
     }
     send(404, { error: 'not found' });
   } catch (e) {

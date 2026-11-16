@@ -212,3 +212,38 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
     doc_marks: [], pages: [{ page: 0, text: '제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
   },
 ];
+
+/** 가이드 스트리밍 (SSE): 진행 문구를 onProgress로, 마지막에 결과. 서버가 스트림을 못 주면 JSON으로 받는다 */
+export async function streamGuide(question: string, onProgress: (text: string) => void): Promise<Guide> {
+  if (MOCK) {
+    for (const t of ['질문에 개인정보가 있는지 확인하는 중입니다', '관련 규정·노하우를 검색하는 중입니다', '근거 문서 3건으로 가이드를 작성하는 중입니다', '단계마다 출처를 확인하는 중입니다']) {
+      onProgress(t); await new Promise((r) => setTimeout(r, 450));
+    }
+    return MOCK_GUIDE;
+  }
+  const s = getSession();
+  const r = await fetch(`${API}/v1/guides`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'text/event-stream', ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
+    body: JSON.stringify({ question }),
+  });
+  if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+  if (!r.headers.get('content-type')?.includes('text/event-stream') || !r.body) return (await r.json()) as Guide;
+  const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buf = '';
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    buf += value;
+    let i: number;
+    while ((i = buf.indexOf('\n\n')) >= 0) {
+      const block = buf.slice(0, i); buf = buf.slice(i + 2);
+      const event = /^event: (.+)$/m.exec(block)?.[1];
+      const data = JSON.parse(/^data: (.+)$/m.exec(block)?.[1] ?? 'null') as { text?: string; message?: string } | Guide;
+      if (event === 'progress') onProgress((data as { text: string }).text);
+      else if (event === 'result') return data as Guide;
+      else if (event === 'error') throw new ApiError(502, (data as { message: string }).message);
+    }
+  }
+  throw new ApiError(502, '응답이 중간에 끊겼습니다');
+}

@@ -60,3 +60,10 @@ test('삭제 조항은 근거에서 제외, 과거 조문은 불확실로 표시
   assert.deepEqual(r.steps[0]!.sources.map((e) => e.doc_id), ['doc_K001']);
   assert.match(r.uncertainty, /과거 조문 1건/);
 });
+
+test('스트리밍 진행 문구: 개인정보 확인 → 검색 → 작성 → 출처 확인 순서, 질문 원문 미포함', async () => {
+  const said: string[] = [];
+  await guide('010-1234-5678 고객 담보 승인은?', { ...deps({ steps: [{ text: '본부 승인', sources: ['doc_F001'] }], uncertainty: '' }), progress: (t) => said.push(t) });
+  assert.deepEqual(said.map((s) => s.slice(0, 6)), ['질문에 개인', '관련 규정·', '근거 문서 ', '단계마다 출']);
+  assert.ok(said.every((s) => !s.includes('1234')));
+});

@@ -2,7 +2,7 @@
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, type Guide } from '../lib/api';
+import { api, ApiError, streamGuide, type Guide } from '../lib/api';
 
 function GuideView() {
   const router = useRouter();
@@ -12,11 +12,12 @@ function GuideView() {
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const [thanks, setThanks] = useState(false);
+  const [said, setSaid] = useState<string[]>([]);
 
   useEffect(() => {
     if (!q) return;
-    setBusy(true); setErr(''); setG(null); setThanks(false);
-    api<Guide>('POST', '/v1/guides', { question: q })
+    setBusy(true); setErr(''); setG(null); setThanks(false); setSaid([]);
+    streamGuide(q, (t) => setSaid((x) => [...x, t]))
       .then(setG)
       .catch((e: ApiError) => setErr(e.status === 401 ? '로그인한 뒤 다시 시도하세요.' : '가이드를 만들지 못했습니다. 잠시 뒤 다시 시도하세요.'))
       .finally(() => setBusy(false));
@@ -36,7 +37,11 @@ function GuideView() {
         <input className="field lg" type="search" aria-label="질문" placeholder="예: 담보 4억원 기업여신은 누가 승인하나요?" value={input} onChange={(e) => setInput(e.target.value)} maxLength={1000} />
         <p className="note" style={{ marginTop: 8 }}>개인정보는 입력하지 마세요. 입력하더라도 AI에 전달하기 전에 가립니다.</p>
       </form>
-      {busy && <p className="note" aria-live="polite">승인된 문서에서 근거를 찾고 가이드를 쓰는 중입니다.</p>}
+      {busy && (
+        <ol className="live-steps" aria-live="polite">
+          {(said.length ? said : ['요청을 보내는 중입니다']).map((t, i, a) => <li key={i} className={i === a.length - 1 ? 'now' : 'past'}>{t}{i === a.length - 1 ? '…' : ''}</li>)}
+        </ol>
+      )}
       {err && <p className="error" role="alert">{err}</p>}
       {g && (
         <>

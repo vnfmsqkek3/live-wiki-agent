@@ -29,7 +29,17 @@ export interface GuideDeps {
   search(query: string): Promise<Evidence[]>;
   draft(prompt: string): Promise<GuideDraft>;
   model: string;
+  /** 스트리밍 진행 문구 (사용자 확인 13항 10·11번). 원문·근거 본문은 보내지 않는다 */
+  progress?(text: string): void;
 }
+
+/** 진행 문구. 검색 문구는 search Tool 정의(tools.json progress, let522mj)가 있으면 그것으로 바꾼다 */
+export const PROGRESS = {
+  pii: '질문에 개인정보가 있는지 확인하는 중입니다',
+  search: '관련 규정·노하우를 검색하는 중입니다',
+  draft: (n: number) => `근거 문서 ${n}건으로 가이드를 작성하는 중입니다`,
+  verify: '단계마다 출처를 확인하는 중입니다',
+};
 
 export interface GuideResult {
   status: 'OK' | 'NO_EVIDENCE';
@@ -50,9 +60,12 @@ const SYSTEM = `당신은 한빛은행(Synthetic Bank) 업무 가이드 작성�
 export { SYSTEM as GUIDE_SYSTEM };
 
 export async function guide(query: string, deps: GuideDeps): Promise<GuideResult> {
+  const say = deps.progress ?? (() => {});
+  say(PROGRESS.pii);
   const spans = detectPii(query);
   const q = mask(query, spans); // 원문 PII는 Tool·모델에 보내지 않는다
   // 삭제 조항은 근거로 쓰지 않는다 (삭제 조항 오인용 0건, docs/02 4장). 과거 버전은 쓰되 불확실로 알린다
+  say(PROGRESS.search);
   const all = await deps.search(q);
   const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED');
   const historical = evidence.filter((e) => e.search_status === 'HISTORICAL').length;
@@ -60,8 +73,10 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   if (evidence.length === 0) return { ...base, status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: '열람 가능한 승인 문서에서 근거를 찾지 못했습니다.' };
 
   const ev = evidence.map((e) => ({ doc_id: e.doc_id, title: e.title, provision: e.provision, effective_from: e.effective_from, authority_status: e.authority_status, freshness: e.freshness, text: e.snippet }));
+  say(PROGRESS.draft(evidence.length));
   const draft = await deps.draft(`질문: ${q}\n\n<evidence>\n${JSON.stringify(ev, null, 1)}\n</evidence>`);
 
+  say(PROGRESS.verify);
   const byId = new Map(evidence.map((e) => [e.doc_id, e]));
   const steps: GuideResult['steps'] = [];
   let dropped = 0;

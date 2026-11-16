@@ -30,6 +30,8 @@ export interface Deps {
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string }): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
   guide(question: string, accessToken: string): Promise<unknown>;
+  /** 가이드 SSE (progress·result·error 이벤트). 없으면 JSON 응답만 */
+  guideStream?(question: string, accessToken: string): Promise<ReadableStream<Uint8Array>>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string } | undefined>;
   /** 업로드 진행바: WORKFLOWS 단계 기록 */
@@ -270,6 +272,12 @@ export function createApp(deps: Deps) {
 
   app.post('/v1/guides', async (c) => {
     const b = await body(c, GuideBody);
+    if (deps.guideStream && (c.req.header('accept') ?? '').includes('text/event-stream')) {
+      const stream = await deps.guideStream(b.question, c.get('token'));
+      await audit(c, 'GUIDE', 'agent');
+      // x-accel-buffering: 중간 프록시 버퍼링 방지 (CloudFront·ALB 통과는 yoyo0704)
+      return new Response(stream, { headers: { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', 'x-accel-buffering': 'no' } });
+    }
     const r = await deps.guide(b.question, c.get('token'));
     await audit(c, 'GUIDE', 'agent'); // 질의 원문은 감사 기록에 남기지 않는다
     return c.json(r);

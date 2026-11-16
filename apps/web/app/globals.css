@@ -163,3 +163,11 @@ mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2p
 .prog-steps li.failed, .prog-steps li.blocked { color: var(--danger); font-weight: 700; }
 .prog-steps li.failed::before, .prog-steps li.blocked::before { content: "×"; }
 @media (prefers-reduced-motion: reduce) { .bar > span { transition: none; } }
+
+/* 가이드 진행 문구 (스트리밍) */
+.live-steps { list-style: none; padding: 0; margin: 16px 0; font-size: .92rem; }
+.live-steps li { padding: 3px 0 3px 1.3em; position: relative; color: var(--ink-2); }
+.live-steps li::before { content: "✓"; position: absolute; left: 0; color: var(--verified); }
+.live-steps li.now { color: var(--ink); font-weight: 600; }
+.live-steps li.now::before { content: "◐"; color: var(--ledger); }
+@media (prefers-reduced-motion: no-preference) { .live-steps li.now::before { display: inline-block; animation: spin 1.2s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } } }

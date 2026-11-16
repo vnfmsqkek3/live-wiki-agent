@@ -71,7 +71,7 @@ export async function resume(d: DocumentRecord, decision: 'APPROVE' | 'REJECT' |
 }
 
 /** 가이드 Agent 호출. AGENT_RUNTIME_ARN이면 AgentCore Runtime(JWT authorizer), AGENT_URL이면 로컬 컨테이너 */
-export async function invokeAgent(question: string, accessToken: string) {
+export async function invokeAgent(question: string, accessToken: string, stream = false) {
   const arn = process.env.AGENT_RUNTIME_ARN;
   const url = arn
     ? `https://bedrock-agentcore.${region()}.amazonaws.com/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`
@@ -80,6 +80,7 @@ export async function invokeAgent(question: string, accessToken: string) {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
+      ...(stream ? { accept: 'text/event-stream' } : {}),
       authorization: `Bearer ${accessToken}`,
       'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': `guide-${crypto.randomUUID()}`, // 요청마다 독립 세션 (Memory 미사용)
     },
@@ -87,8 +88,10 @@ export async function invokeAgent(question: string, accessToken: string) {
     signal: AbortSignal.timeout(60_000),
   });
   if (!r.ok) throw new Error(`agent ${r.status}`);
-  return r.json();
+  return stream ? r.body! : r.json();
 }
+/** 스트리밍 가이드: Runtime SSE 본문을 그대로 넘긴다 */
+export const invokeAgentStream = (question: string, accessToken: string) => invokeAgent(question, accessToken, true) as Promise<ReadableStream<Uint8Array>>;
 
 /** WORKFLOWS 테이블에서 실패한 단계 (오류 이름만, 원문 없음) */
 export async function workflowFailure(workflow_id: string) {

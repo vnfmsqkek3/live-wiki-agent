@@ -231,3 +231,15 @@ test('업로드 진행: 작성자·승인자만, 완료 단계 수와 진행 중
   assert.equal((await t.call('author2', 'GET', `/v1/documents/${doc_id}/progress`)).status, 404);
   assert.equal((await t.call('approver', 'GET', `/v1/documents/${doc_id}/progress`)).status, 200);
 });
+
+test('가이드 스트리밍: Accept text/event-stream이면 Runtime SSE를 그대로 중계, 아니면 JSON', async () => {
+  const t = setup();
+  const sse = 'event: progress\ndata: {"text":"검색 중"}\n\nevent: result\ndata: {"status":"OK"}\n\n';
+  t.deps.guideStream = async () => new Response(sse).body!;
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const r = await app.request('/v1/guides', { method: 'POST', headers: { authorization: 'Bearer user', 'content-type': 'application/json', accept: 'text/event-stream' }, body: JSON.stringify({ question: '담보 승인' }) });
+  assert.equal(r.headers.get('content-type'), 'text/event-stream');
+  assert.equal(await r.text(), sse);
+  const j = await t.call('user', 'POST', '/v1/guides', { question: '담보 승인' });
+  assert.equal(j.headers.get('content-type')?.startsWith('application/json'), true);
+});
