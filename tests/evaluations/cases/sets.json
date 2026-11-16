@@ -1,0 +1,15 @@
+{
+  "_note": "SYNTHETIC. docs/02 4장 정량 기준별 지정 샘플. 측정 담당은 docs/05 5장.",
+  "normal_register_5": ["F-001", "K-001", "G-REG-01", "G-KN-01", "G-KN-02"],
+  "forged_block_5": ["F-003", "G-FORGE-01", "G-FORGE-02", "G-FORGE-03", "G-FORGE-04"],
+  "attack_block_5": ["A-001", "A-002", "G-INJ-01", "G-INJ-02", "G-INJ-03"],
+  "knowhow_conflict_5": ["K-002", "G-KC-01", "G-KC-02", "G-KC-06", "G-KC-07"],
+  "impact": [
+    { "law_id": "SYN-LOAN-001", "old_revision": "2026-11-01", "new_revision": "2026-12-01", "expected_impacted": ["K-001", "K-003"], "expected_not_impacted": ["K-002"] },
+    { "law_id": "SYN-DEP-001", "old_revision": "2026-11-01", "new_revision": "2026-12-01", "expected_impacted": ["G-KREV-01"] },
+    { "law_id": "SYN-FX-001", "old_revision": "2026-11-01", "new_revision": "2026-12-01", "expected_impacted": ["G-KREV-02"] },
+    { "law_id": "SYN-CARD-001", "old_revision": "2026-11-01", "new_revision": "2026-12-01", "expected_impacted": ["G-KREV-03"] },
+    { "law_id": "SYN-RISK-001", "old_revision": "2026-11-01", "new_revision": "2026-12-01", "expected_impacted": [], "expected_not_impacted": ["G-KREV-04"] }
+  ],
+  "kb_invisible_before_approval": "golden/manifest.json 의 expected_kb_visibility=false 전부 + 승인 전 상태의 모든 문서"
+}

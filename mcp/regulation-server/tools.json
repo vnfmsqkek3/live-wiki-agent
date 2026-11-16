@@ -1,0 +1,120 @@
+[
+  {
+    "name": "get_clause",
+    "description": "조문 조회. (1) 법령명+조문 번호: 기준일 시행 버전에서 조회 (2) 버전이 박힌 조문 ID(노하우 인용 등): 그 버전 원문 + 현행이 아니면 같은 위치 현행 조문(current). 상태 FOUND/HISTORICAL/DELETED/NOT_FOUND_VERIFIED/UNVERIFIED/ACCESS_DENIED",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "law": {
+          "type": "string",
+          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001). clause가 버전 박힌 조문 ID면 생략 가능"
+        },
+        "clause": {
+          "type": "string",
+          "description": "조문 표현 (예: 제12조제2항제3호가목, 제12조의2, 부칙 제1조) 또는 provision_id"
+        },
+        "as_of": {
+          "type": "string",
+          "description": "기준일 YYYY-MM-DD. 없으면 오늘",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      },
+      "required": [
+        "clause"
+      ]
+    }
+  },
+  {
+    "name": "get_official_policy",
+    "description": "공식 규정의 등록 버전 목록과 기준일 현행 버전",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "law": {
+          "type": "string",
+          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+        },
+        "as_of": {
+          "type": "string",
+          "description": "기준일 YYYY-MM-DD. 없으면 오늘",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      },
+      "required": [
+        "law"
+      ]
+    }
+  },
+  {
+    "name": "verify_version",
+    "description": "규정 버전이 Registry에 등록된 공식 버전인지, 기준일 현행인지, 해시가 일치하는지 확인",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "law": {
+          "type": "string",
+          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+        },
+        "revision_id": {
+          "type": "string",
+          "description": "버전 YYYY-MM-DD"
+        },
+        "content_hash": {
+          "type": "string",
+          "description": "sha256:{hex} (선택)"
+        },
+        "as_of": {
+          "type": "string",
+          "description": "기준일 YYYY-MM-DD. 없으면 오늘",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+        }
+      },
+      "required": [
+        "law",
+        "revision_id"
+      ]
+    }
+  },
+  {
+    "name": "resolve_reference",
+    "description": "조문이 참조하는 다른 조문(전항·같은 조·제N조 등)을 실제 조문 ID로 해석",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "provision_id": {
+          "type": "string",
+          "description": "조문 ID (예: SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2)"
+        }
+      },
+      "required": [
+        "provision_id"
+      ]
+    }
+  },
+  {
+    "name": "compare_versions",
+    "description": "두 버전의 조항별 변경(추가·삭제·수정, 수치 변화)",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "law": {
+          "type": "string",
+          "description": "법령·규정 이름 또는 law_id (예: 한빛은행 기업여신 심사규정, SYN-LOAN-001)"
+        },
+        "old_revision": {
+          "type": "string",
+          "description": "이전 버전 YYYY-MM-DD"
+        },
+        "new_revision": {
+          "type": "string",
+          "description": "새 버전 YYYY-MM-DD"
+        }
+      },
+      "required": [
+        "law",
+        "old_revision",
+        "new_revision"
+      ]
+    }
+  }
+]

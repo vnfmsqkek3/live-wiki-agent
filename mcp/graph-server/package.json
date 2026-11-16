@@ -1,0 +1,23 @@
+{
+  "name": "@hanaeum/graph-server",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aws-crypto/sha256-js": "5.2.0",
+    "@aws-sdk/credential-provider-node": "3.972.97",
+    "@hanaeum/legal-parser": "*",
+    "@hanaeum/mcp-kit": "*",
+    "@hanaeum/regulation-server": "*",
+    "@hanaeum/schemas": "*",
+    "@smithy/protocol-http": "5.6.2",
+    "@smithy/signature-v4": "5.7.5",
+    "@hanaeum/legal-etl": "*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "test": "node --test \"src/**/*.test.ts\""
+  }
+}
