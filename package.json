@@ -12,7 +12,8 @@
     "packages/*",
     "services/*",
     "workflows",
-    "tests/evaluations/runner"
+    "tests/evaluations/runner",
+    "tests/evaluations/cases"
   ],
   "scripts": {
     "lint": "eslint .",

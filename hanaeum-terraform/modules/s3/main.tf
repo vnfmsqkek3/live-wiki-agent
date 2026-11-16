@@ -1,6 +1,7 @@
 # 버킷 4종 (interfaces.md 3장). quarantine(원본 등급)·published(정제본) 분리 (docs/03 ①).
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
+variable "web_origins" { type = list(string) }
 
 locals {
   # 서버 접근 로그 대상 버킷은 SSE-KMS 를 쓸 수 없어 log 만 SSE-S3
@@ -11,7 +12,7 @@ locals {
     log        = { kms = false, versioning = false }
   }
   # 모델을 호출하는 Role 은 태그 hanaeum-model-caller=true 를 단다 → 원본 등급 키 읽기 거부
-  original_grade_keys = ["*/original.*", "*/work/*"]
+  original_grade_keys = ["*/original.*", "*/work/*", "_ocr-async/*"]
 }
 
 resource "aws_s3_bucket" "b" {
@@ -68,6 +69,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "log" {
     status = "Enabled"
     filter {}
     expiration { days = 90 }
+  }
+}
+
+# 브라우저 presigned PUT 업로드 (dhxorb96 요청 11/16). 웹 도메인은 CloudFront 생성 후 web_origins 에 추가
+resource "aws_s3_bucket_cors_configuration" "quarantine" {
+  bucket = aws_s3_bucket.b["quarantine"].id
+  cors_rule {
+    allowed_methods = ["PUT"]
+    allowed_origins = var.web_origins
+    allowed_headers = ["content-type", "content-length", "x-amz-*"]
+    max_age_seconds = 600
   }
 }
 

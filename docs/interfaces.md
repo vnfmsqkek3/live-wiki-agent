@@ -79,6 +79,16 @@
 - `BLOCKED`면 이후 단계를 건너뛰고 Finalize로 간다. Finalize 입력에는 `outcome: PUBLISHED | BLOCKED | REJECTED`가 추가된다.
 - 실행 이름 = `workflow_id`. 실행 입력 = 공통 입력 6필드.
 - WaitForApproval 입력에는 `task_token`이 추가된다. 승인 API는 `SendTaskSuccess(output={ "decision": "APPROVE" | "REJECT" | "REVALIDATE" })`. APPROVE만 Promote로 진행.
+- Findings 저장: 각 단계가 Documents(`pk=DOC#{doc_id}`, `sk=META`)의 `findings` 배열에서 **자기 단계 것만 교체**한다. 병렬 단계 충돌을 막기 위해 `updated_at` 조건부 쓰기 + 재시도 (`workflows/src/steps/findings-store.ts`).
+- yoyo0704 단계 산출물 (quarantine, 원본 등급):
+
+| 단계 | 산출물 | 비고 |
+|---|---|---|
+| MalwareCheck | — | GuardDuty 태그 `GuardDutyMalwareScanStatus`. THREATS_FOUND→BLOCKED, UNSUPPORTED·FAILED→REVIEW_REQUIRED, 15분 무응답→예외 |
+| PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason}]}` | PDF 페이지 글자 수 < 50 또는 깨진 문자 > 20%만 렌더링(가로 2000px). 이미지는 원본이 대상. DOCX·HWPX는 대상 없음 |
+| OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
+
+- SegmentBuild(let522mj)는 `work/text_layer.json` + `work/ocr/result.json`을 페이지 번호로 병합한다. OCR 결과에 없는 페이지는 텍스트 레이어를 쓴다.
 - 단계 Lambda는 Terraform 변수 `step_functions = { malware_check = "<arn>", … }`로 연결한다. 비어 있으면 dev stub(`{status:"OK"}`). 단계 키: `workflows/src/asl.ts`.
 - `Finding = { finding_id, step, severity: LOW|MEDIUM|HIGH, code, message, evidence_ref }` (원문 PII를 message에 넣지 않음)
 

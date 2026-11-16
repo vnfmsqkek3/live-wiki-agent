@@ -7,9 +7,10 @@ variable "table_workflows" { type = object({ name = string, arn = string }) }
 variable "table_documents" { type = object({ name = string, arn = string }) }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "step_functions" { type = map(string) }
+variable "ocr_endpoint_name" { type = string }
 variable "lambda_dist" {
   type    = string
-  default = "../../../workflows/dist" # npm run build -w workflows
+  default = "../../../workflows/.lambda" # npm run package -w workflows
 }
 
 locals {
@@ -22,6 +23,8 @@ locals {
   # yoyo0704 소유 단계 Lambda (workflows/src/steps)
   own_steps = {
     malware_check = { handler = "steps/malware-check.handler", timeout = 30, memory = 256 }
+    page_render   = { handler = "steps/page-render.handler", timeout = 300, memory = 2048 }
+    ocr_if_needed = { handler = "steps/ocr-if-needed.handler", timeout = 60, memory = 256 }
   }
   # 우선순위: 변수(다른 Owner Lambda) > 내 단계 > stub(mock)
   step_arns = merge(
@@ -114,7 +117,8 @@ resource "aws_iam_role_policy" "step" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn },
-      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*" },
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:PutObject", "s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/*" },
+      { Effect = "Allow", Action = ["sagemaker:InvokeEndpointAsync"], Resource = "arn:aws:sagemaker:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:endpoint/${var.ocr_endpoint_name}" },
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = var.table_documents.arn },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
     ]
@@ -140,7 +144,11 @@ resource "aws_lambda_function" "step" {
   timeout          = each.value.timeout
   memory_size      = each.value.memory
   environment {
-    variables = { TABLE_DOCUMENTS = var.table_documents.name }
+    variables = {
+      TABLE_DOCUMENTS   = var.table_documents.name
+      BUCKET_QUARANTINE = var.quarantine_bucket.name
+      OCR_ENDPOINT_NAME = var.ocr_endpoint_name
+    }
   }
   tracing_config { mode = "Active" }
   depends_on = [aws_cloudwatch_log_group.step]
@@ -288,3 +296,4 @@ resource "aws_sqs_queue_policy" "events" {
 
 output "state_machine_arn" { value = aws_sfn_state_machine.ingest.arn }
 output "trigger_queue_url" { value = aws_sqs_queue.trigger.url }
+output "trigger_queue_arn" { value = aws_sqs_queue.trigger.arn }

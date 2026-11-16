@@ -26,7 +26,8 @@
 ## 세션 시작 (두 번째부터)
 
 1. `.env.local`이 없으면 첫 실행 1~2단계. 있으면 AWS·Terraform 명령 전에 `set -a; . ./.env.local; set +a`
-2. `git fetch && git rebase origin/main` (작업 트리가 깨끗할 때)
+2. 작업 트리가 깨끗할 때 `git fetch --prune` → `git switch {닉네임} && git pull --ff-only origin {닉네임}` → `git merge --no-edit origin/main`
+   (push한 브랜치는 rebase 금지: force push가 필요해짐. 충돌은 브랜치 주인이 해결)
 3. 읽기: `공통기록/` 최신 10건 → `요청기록/` 중 나에게 온 OPEN 건 → `plan.md` → `트러블슈팅.md`
 
 ## 기록

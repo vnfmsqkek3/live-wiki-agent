@@ -28,9 +28,19 @@
 - Claude 5.5 미허용: 4.x 대체 ID로 진행. 계정 모델 액세스 요청 필요 (사용자).
 - 로컬 Terraform 1.14.9 / 최신 1.17.2. `required_version >= 1.14`로 두고 고정표엔 최신을 권장값으로 기록.
 
-## 다음 (11/17~18)
+## 11/18 (11/16 선행)
 
-- 모델 액세스 5.5 요청 결과 확인 → `models` 변수 교체
-- Bedrock KB + OpenSearch Serverless + Custom Transformation Lambda 연결 (let522mj와 1건 색인)
-- PaddleOCR 컨테이너·SageMaker Async 엔드포인트, MalwareCheck(GuardDuty Malware Protection for S3), PageRender, OcrIfNeeded
-- ECS Fargate(API), CloudFront + WAF
+| No | 작업 | 완료 조건 | 의존·mock | 상태 |
+|---|---|---|---|---|
+| 12 | Bedrock KB + AOSS(dev standby off) + 데이터 소스 2개 | 1건 색인 → HYBRID Retrieve + Rerank + ACL 필터 | Chunker Lambda(let522mj) 없음 → NONE 청킹 | [x] `kb-smoke.sh` ALL PASS |
+| 13 | Cognito Pre Token V2 (`dept` claim) | access token에 dept·groups | dhxorb96 요청 3 | [x] |
+| 14 | MalwareCheck (GuardDuty Malware Protection for S3) | 정상 OK, EICAR BLOCKED·승인 건너뜀 | — | [x] `smoke-dev.sh` ALL PASS |
+| 15 | PaddleOCR 컨테이너 + CodeBuild + SageMaker Async(0↔1) | 엔드포인트 InService | — | [~] |
+| 16 | PageRender, OcrIfNeeded Lambda | 한국어 PNG → result.json 텍스트·confidence·bbox | — | [~] 단위 테스트 통과, `smoke-ocr.sh` 대기 |
+| 17 | ECS Fargate(API), CloudFront + WAF | | dhxorb96 `apps/api`·`apps/web` (PR #2) | [ ] PR #2 머지 후 |
+
+## 다음
+
+- 11/19: AgentCore Gateway(interceptor 연결)·Runtime(customJWTAuthorizer) — dhxorb96 요청 4·5, Guardrails 리소스, Observability
+- ECS Fargate·CloudFront·WAF (PR #2 머지 후)
+- Claude 5.5 권한 열리면 `models` 변수 교체

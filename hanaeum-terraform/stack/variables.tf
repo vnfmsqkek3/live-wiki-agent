@@ -35,3 +35,9 @@ variable "kb_reader_role_arns" {
   type    = list(string)
   default = []
 }
+
+# quarantine presigned PUT 을 허용할 웹 출처. CloudFront 도메인이 생기면 추가
+variable "web_origins" {
+  type    = list(string)
+  default = ["http://localhost:3000"]
+}

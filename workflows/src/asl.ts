@@ -47,7 +47,8 @@ const RETRY = [
   },
   {
     // Bedrock 호출 단계 (docs/04 1.2)
-    ErrorEquals: ["ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException"],
+    // ConflictException: 데이터 소스당 Ingestion Job 동시 1개 (KbIngest, let522mj 요청 11/16)
+    ErrorEquals: ["ThrottlingException", "TooManyRequestsException", "ServiceUnavailableException", "ConflictException"],
     IntervalSeconds: 10, MaxAttempts: 2, BackoffRate: 2, JitterStrategy: "FULL",
   },
 ];

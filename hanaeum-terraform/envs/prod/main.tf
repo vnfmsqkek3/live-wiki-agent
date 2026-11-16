@@ -14,6 +14,10 @@ module "stack" {
   env         = "prod"
   name_suffix = ""
   owner       = "team"
+  team_lambdas = [
+    "type-detection", "file-structure-check", "trust-gate", "wait-for-approval", "finalize",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search",
+  ]
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
