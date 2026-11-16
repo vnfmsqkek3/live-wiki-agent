@@ -39,7 +39,29 @@
 | 15 | 분류 수정 API + 이력 | 테스트 | — | [x] |
 | 16 | `mcp/privacy-server`, `mcp/approval-server` | 테스트 + Gateway 경유 호출, 승인·게시 Tool 미노출 | 공유 Gateway 등록은 yoyo0704 | [x] 개인 dev |
 
-## 남은 작업
+## 11/16 저녁 (갱신 22:43)
+
+| No | 작업 | 완료 조건 | 의존 / mock | 상태 |
+|---|---|---|---|---|
+| 17 | 오케스트레이션 AgentCore 전환 (사용자 결정) | Strands Graph 오케스트레이터가 단계 Lambda를 Gateway Tool로 호출, 승인 후 resume, SFN 경로 제거 | yoyo0704 공유 Runtime·Gateway | [x] 공유 dev upload→PUBLISHED |
+| 18 | 보안 테스트 재실행 | `tests/security` 7/7 | — | [x] |
+| 19 | 노하우 검증 실제 Tool | TrustGate가 규정 저장소·KB 검색·Sonnet 사용, 정량 4/5 이상 | let522mj KB 색인 | [x] 5/5, 오탐 0/5 |
+| 20 | AgentCore Memory | — | 사용자 결정 C안으로 철회 | [x] revert |
+| 21 | 배포 산출물 | 웹·API Dockerfile, podman 빌드, 로컬 200 | yoyo0704 배포 | [x] 배포 대기 |
+| 22 | 문서보관함 (사용자 결정) | 화면·API·요약·밑줄, 등록일 | let522mj buildMarks(PR #8 병합) | [x] 공유 dev K-002 밑줄 2곳 확인 |
+
+## 남은 작업 (22:43 기준)
+
+| 우선 | 작업 | 이유 |
+|---|---|---|
+| P0 | 게시된 노하우 자동 재검증 (규정 개정·시행일 도래 시 freshness=REVIEW_REQUIRED) + 화면 07 | Change Impact DoD. 지금은 탐지 Tool만 있고 게시 문서에 반영되지 않음 |
+| P0 | 위조·인젝션·정상 문서 각 5건 정량 측정 | DoD 정량 |
+| P0 | API 검색 연결 (`server.ts` search 임시 빈 결과) | 검색 화면·가이드 실데이터 |
+| P0 | 가이드 Agent 공유 Runtime·실검색 | yoyo0704 Runtime 생성 후 |
+| P1 | Wiki Maintenance 초안 생성 모델, Opus 고위험 검토, Guardrails 설정, 추천 | docs/01 9.1 대응표 |
+| — | 실행 중인 AgentCore 이미지 podman 재빌드 | docker 라이선스 |
+
+### 이전 메모
 
 - yoyo0704가 단계 Lambda를 SFN에 연결하면 E2E에서 직접 호출 부분 제거
 - PR #1 CI 수정 후 머지, PR #2 정리
