@@ -33,12 +33,12 @@ export class MemoryRetriever implements Retriever {
   lastFilter: RetrievalFilter | undefined;
   lastQuery = "";
   add(text: string, metadata: Meta) { this.chunks.push({ text, metadata }); }
-  async retrieve(query: string, filter: RetrievalFilter): Promise<Hit[]> {
+  async retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> {
     this.lastFilter = filter;
     this.lastQuery = query;
     const q = bigrams(query);
     return this.chunks
-      .filter((c) => evalFilter(filter, c.metadata))
+      .filter((c) => !filter || evalFilter(filter, c.metadata))
       .map((c) => { const b = bigrams(c.text); let n = 0; for (const x of q) if (b.has(x)) n++; return { text: c.text, metadata: c.metadata, score: q.size ? n / q.size : 0 }; })
       .filter((h) => h.score > 0)
       .sort((a, b) => b.score - a.score)

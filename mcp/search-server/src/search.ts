@@ -34,7 +34,8 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
 
 // ── KB Retrieve ────────────────────────────────────────
 export interface Hit { text: string; score: number; metadata: Record<string, unknown> }
-export interface Retriever { retrieve(query: string, filter: RetrievalFilter): Promise<Hit[]> }
+/** filter 없음 = 운영자 시점 원시 조회 (측정 전용, Tool은 항상 필터를 넣는다) */
+export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> }
 
 // ponytail: 후보 50 → Rerank 15 → 최종 5 고정 기본값 (docs/01 8.5). 실험 후 조정
 export const CANDIDATES = 50;
@@ -50,13 +51,13 @@ export class BedrockRetriever implements Retriever {
     this.rerankArn = rerankModel && !rerankModel.startsWith("arn:") ? `arn:aws:bedrock:${process.env["AWS_REGION"] ?? "us-east-1"}::foundation-model/${rerankModel}` : rerankModel;
     this.c = c;
   }
-  async retrieve(text: string, filter: RetrievalFilter): Promise<Hit[]> {
+  async retrieve(text: string, filter?: RetrievalFilter): Promise<Hit[]> {
     const r = await this.c.send(new RetrieveCommand({
       knowledgeBaseId: this.kbId,
       retrievalQuery: { text },
       retrievalConfiguration: {
         vectorSearchConfiguration: {
-          numberOfResults: CANDIDATES, overrideSearchType: "HYBRID", filter,
+          numberOfResults: CANDIDATES, overrideSearchType: "HYBRID", ...(filter ? { filter } : {}),
           ...(this.rerankArn ? { rerankingConfiguration: { type: "BEDROCK_RERANKING_MODEL", bedrockRerankingConfiguration: { numberOfRerankedResults: RERANKED, modelConfiguration: { modelArn: this.rerankArn } } } } : {}),
         },
       },

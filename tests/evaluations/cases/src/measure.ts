@@ -50,7 +50,7 @@ export function measureParsing() {
 }
 
 // ── 공용: 검색 환경 (게시 대상 문서만 색인) ─────────────
-function buildEnv() {
+export function buildEnv() {
   const clauses = fixtureClauseStore() as MemoryClauseStore;
   const retriever = new MemoryRetriever();
   const states = new MemoryDocStates();
@@ -71,7 +71,7 @@ function buildEnv() {
     states.docs.set(d.document_id, { doc_id: d.document_id, lifecycle: "PUBLISHED", authority_status: "VERIFIED", freshness: "CURRENT", acl_groups: d.acl_groups, published_content_hash: hash });
   }
   const regulation = regulationTools(clauses, { today: () => EVAL_TODAY });
-  return { clauses, retriever, search: searchTools({ retriever, states, regulation }) };
+  return { clauses, retriever, states, search: searchTools({ retriever, states, regulation }) };
 }
 
 // ── 2. 정확 조문 검색 20 + 3. 삭제 조항 오인용 ──────────
