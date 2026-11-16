@@ -82,7 +82,7 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
       out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
       continue;
     }
-    const boxes = piiBoxes(o);
+    const boxes = await piiBoxes(o, deps.guardrail);
     await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o), 'image/png');
     out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
   }
