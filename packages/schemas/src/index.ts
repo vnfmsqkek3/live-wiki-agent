@@ -182,6 +182,8 @@ export type Citation = z.infer<typeof Citation>;
 
 // ── 헬퍼 ───────────────────────────────────────────────
 export const ymd = (isoDate: string): number => Number(isoDate.replaceAll("-", ""));
+/** YYYYMMDD 숫자 → "YYYY-MM-DD" (ymd의 역) */
+export const isoOfYmd = (n: number): string => `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}`;
 export const isoFromDotted = (s: string): string => {
   const [y, m, d] = s.split(".").map((x) => x.trim()).filter(Boolean);
   return `${y}-${m!.padStart(2, "0")}-${d!.padStart(2, "0")}`;

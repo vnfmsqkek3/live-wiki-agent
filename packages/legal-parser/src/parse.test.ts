@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { ProvisionId } from "@hanaeum/schemas";
-import { parseLaw, circledToInt } from "./index.ts";
+import { parseLaw, circledToInt } from "./parse.ts";
 import { readFixture, readFixtureJson } from "./fixtures.ts";
 
 interface Expected {

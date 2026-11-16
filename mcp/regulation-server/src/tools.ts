@@ -1,31 +1,15 @@
 // Regulation MCP Tool (읽기 전용): get_official_policy, verify_version, get_clause, resolve_reference, compare_versions, fetch_official_law
 // 검색 상태 원칙 (docs/01 8.7): 부재는 "확인한 버전·범위"가 있을 때만 NOT_FOUND_VERIFIED. 근거 부족은 UNVERIFIED.
-import { SUBITEM_CODES } from "@hanaeum/schemas";
-import type { Provision, SearchStatus, SubitemChar } from "@hanaeum/schemas";
+import type { Provision, SearchStatus } from "@hanaeum/schemas";
 import { diffLaws } from "@hanaeum/legal-parser";
 import { ToolError, aclKeys, asOfYmd, str } from "@hanaeum/mcp-kit";
 import type { Actor } from "@hanaeum/mcp-kit";
 import { relPath } from "./store.ts";
+import { clausePath } from "./clause.ts";
+export { clausePath } from "./clause.ts";
 import { fetchOfficialLaw } from "./browser.ts";
 import type { LawPageFetcher } from "./browser.ts";
 import type { ClauseStore, RevisionRecord } from "./store.ts";
-
-const SUB = Object.keys(SUBITEM_CODES).join("");
-const CLAUSE_EXPR = new RegExp(`^(부칙\\s*)?제(\\d+)조(?:의(\\d+))?(?:\\s*제(\\d+)항)?(?:\\s*제(\\d+)호(?:의(\\d+))?)?(?:\\s*([${SUB}])목)?$`, "u");
-
-/** "제12조제2항제3호가목" 또는 provision_id → 버전 무관 상대 경로 */
-export function clausePath(expr: string): string {
-  const e = expr.trim();
-  if (e.includes("/ARTICLE:") || /^(?:SUPPLEMENTARY:\d+\/)?ARTICLE:/u.test(e)) return e.includes("@") ? relPath(e) : e;
-  const m = e.replace(/\s+/gu, "").match(CLAUSE_EXPR) ?? e.match(CLAUSE_EXPR);
-  if (!m) throw new ToolError("INVALID_ARGUMENT", `조문 표현을 해석할 수 없음: ${expr}`);
-  const [, supp, a, ab, p, i, ib, s] = m;
-  let path = `${supp ? "SUPPLEMENTARY:*/" : ""}ARTICLE:${a}${ab ? `-${ab}` : ""}`;
-  if (p) path += `/PARAGRAPH:${p}`;
-  if (i) path += `/ITEM:${i}${ib ? `-${ib}` : ""}`;
-  if (s) path += `/SUBITEM:${SUBITEM_CODES[s as SubitemChar]}`;
-  return path;
-}
 
 const findPath = (provs: Provision[], path: string): Provision | undefined => {
   if (path.startsWith("SUPPLEMENTARY:*/")) {
@@ -108,11 +92,13 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
     const vis = revs.filter((r) => visible(r, actor));
     const rev = effectiveAt(vis, asOf);
     if (!rev) {
-      // 모든 버전이 보이고 VERIFIED일 때만 "그 날짜에 시행 버전 없음"을 확정. 아니면 확인 불가
-      const certain = vis.length === revs.length && revs.every((r) => r.authority_status === "VERIFIED");
+      // 모든 버전이 보이고 VERIFIED이며, 기준일이 보유한 가장 이른 버전 이후일 때만 "그 날짜에 시행 버전 없음"을 확정(폐지 등).
+      // 가장 이른 버전보다 앞선 기준일은 그 시점 원문을 보유하지 않은 것이라 확인 불가 (부재 단정 금지, docs/02 4장)
+      const earliest = Math.min(...revs.map((r) => r.effective_from));
+      const certain = asOf >= earliest && vis.length === revs.length && revs.every((r) => r.authority_status === "VERIFIED");
       return certain
         ? { search_status: "NOT_FOUND_VERIFIED", reason: `기준일 ${asOf}에 시행 중인 승인 버전 없음 (등록 버전 ${vis.map((r) => r.revision_id).join(", ")})`, law_id: lawId }
-        : { search_status: "UNVERIFIED", reason: `기준일 ${asOf}에 확인 가능한 승인 버전 없음`, law_id: lawId };
+        : { search_status: "UNVERIFIED", reason: asOf < earliest ? `기준일 ${asOf}은 보유한 가장 이른 버전(${earliest}) 이전 — 그 시점 원문 미보유` : `기준일 ${asOf}에 확인 가능한 승인 버전 없음`, law_id: lawId };
     }
     const base = { law_id: lawId, revision_id: rev.revision_id, effective_from: rev.effective_from, effective_to: rev.effective_to };
     const provs = await store.provisions(lawId, rev.revision_id);

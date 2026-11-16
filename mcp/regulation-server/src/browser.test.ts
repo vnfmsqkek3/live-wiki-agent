@@ -58,3 +58,11 @@ test("cachedFetcher: 1일 안에 같은 법령은 Browser 재실행 없이 캐�
   assert.equal((await fetchOfficialLaw(f, s, { law_name: "은행법" })).from_cache, false);
   assert.equal(calls, 2);
 });
+
+test("fetch_official_law: 가지 조문·호·목 표현도 공용 clausePath로 해석 (축소판 제거)", async () => {
+  const body = "제1조(목적) 목적.\n제12조의2(특례) ① 다음 각 호를 따른다.\n1. 첫째\n가. 세부";
+  const fetcher: LawPageFetcher = { fetch: async (n) => ({ url: lawUrl(n), header: "[시행 2026. 7. 1.] [법률 제1호, 2026. 1. 1., 일부개정]", body }) };
+  const t = regulationTools(fixtureClauseStore(), { fetcher });
+  assert.match((await t.fetch_official_law({ law_name: "은행법", clause: "제12조의2제1항제1호가목" })).clause!.text, /^가\. 세부$/u);
+  assert.equal((await t.fetch_official_law({ law_name: "은행법", clause: "승인 기준" })).clause, null, "해석 불가 표현은 null");
+});

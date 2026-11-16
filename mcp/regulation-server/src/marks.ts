@@ -1,5 +1,6 @@
 // 문서보관함 페이지 하이라이트 (요청기록 20261116-2220): 검사·검증 결과를 "몇 페이지 몇 번째 글자부터"로 바꾼다.
 // 밑줄마다 이유·근거(조문 원문·시행일)·수정할 사항. 모델 판단은 인용 원문 대조를 통과한 것만 밑줄로 쓴다.
+import { isoOfYmd } from "@hanaeum/schemas";
 import type { ClauseStore } from "./store.ts";
 import type { RegistryMatch } from "./registry.ts";
 
@@ -53,7 +54,7 @@ function locateNear(pages: string[], needle: string, anchor: string): { page: nu
   return hits.length === 1 ? hits[0]! : null;
 }
 
-const iso = (n?: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}` : undefined);
+const iso = (n?: number) => (n ? isoOfYmd(n) : undefined);
 
 /** 조문 ID → 근거 (원문·표기·시행일). 저장소에 없으면 undefined */
 async function basisOf(store: ClauseStore, pid: string): Promise<Basis | undefined> {

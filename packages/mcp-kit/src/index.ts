@@ -2,6 +2,7 @@
 // Gateway는 Tool 인자를 event로, Tool 이름을 context.clientContext.custom.bedrockAgentCoreToolName("{target}___{tool}")으로 전달.
 // 신원: Gateway REQUEST interceptor가 JWT를 재검증한 뒤 event.__actor = { sub, groups, dept? }를 주입한다 (interfaces.md 9장, dhxorb96 M0 확정).
 // interceptor가 모델이 보낸 __actor를 덮어쓰므로 __actor만 신뢰하고, 그 밖의 신원 인자(user_id·actor·groups 등)는 무시한다.
+import { detectPii, mask } from "@hanaeum/pii";
 import { Role } from "@hanaeum/schemas";
 
 export interface Actor { sub: string; groups: string[]; dept?: string }
@@ -30,25 +31,11 @@ export const toolName = (ctx: LambdaContext): string => {
 /** 사용자 그룹 → 문서 acl_groups와 대조할 값. "ALL" + 역할 + DEPT#{부서} */
 export const aclKeys = (a: Actor): string[] => ["ALL", ...a.groups, ...(a.dept ? [`DEPT#${a.dept}`] : [])];
 
-/** 질의·인자의 명백한 PII 패턴 치환 (모델·임베딩 호출 전 최소 방어. 정밀 검사는 privacy-server) */
-/** YYYY-MM-DD 형태의 실제 날짜 (계좌번호 오탐 제외용). 시행일 기준 질의의 날짜를 지우지 않기 위함 (dhxorb96 요청 1912) */
-export const isDate = (s: string): boolean => {
-  const m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})$/u);
-  if (!m) return false;
-  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
-  const dt = new Date(Date.UTC(y, mo - 1, d));
-  return y >= 1900 && y <= 2999 && dt.getUTCMonth() === mo - 1 && dt.getUTCDate() === d;
-};
-const PII: [RegExp, (m: string) => string][] = [
-  [/\d{6}\s*-\s*[1-4]\d{6}/gu, () => "[주민번호]"],
-  [/01[016789]-?\d{3,4}-?\d{4}/gu, () => "[전화번호]"],
-  [/\d{3,6}-\d{2,6}-\d{2,6}(?:-\d{1,3})?/gu, (m) => (isDate(m) ? m : "[계좌번호]")],
-  [/[\w.+-]+@[\w-]+\.[\w.]+/gu, () => "[이메일]"],
-];
+/** 질의·인자의 개인 식별 정보 치환 (모델·임베딩 호출 전). 규칙은 단일 원본 @hanaeum/pii (dhxorb96):
+ *  주민번호·전화·이메일·카드·계좌·고객번호 등 개인을 식별하는 값만. 이름·나이 등은 대상 아님 (사용자 결정 11/17) */
 export const maskPii = (s: string): { text: string; masked: boolean } => {
-  let t = s;
-  for (const [re, rep] of PII) t = t.replace(re, rep);
-  return { text: t, masked: t !== s };
+  const spans = detectPii(s);
+  return { text: spans.length ? mask(s, spans) : s, masked: spans.length > 0 };
 };
 
 export function makeHandler(tools: Record<string, ToolHandler>) {
