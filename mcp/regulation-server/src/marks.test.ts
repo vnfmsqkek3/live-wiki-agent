@@ -71,3 +71,17 @@ test("리뷰 반영: 인젝션은 step으로 판별, PII_GUARDRAIL 포함, OUTDA
   const [x] = await buildMarks(["「은행법」 제12조제1항에 따라 처리한다."], { knowhow: { items: [], outdated: [o] } }, s);
   assert.equal(x!.page, null);
 });
+
+test("실사례(QA K-001): 같은 문장의 '실사 생략 금지'는 근거 확인됨(제14조제1항), '사진 첨부'는 실무 보완(제14조제2항) — 고칠 곳 아님", async () => {
+  const s = fixtureClauseStore();
+  const page = "2. 현장 실사는 생략하지 않는다. 실사 사진은 실사 보고서에 첨부한다 (제14조제1항).";
+  const base = { label: "", verified_quote: true };
+  const marks = await buildMarks([page], { knowhow: { outdated: [], items: [
+    { ...base, statement: "현장 실사는 생략하지 않는다", provision_id: "SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1", relation: "SUPPORTS", reason: "조문도 현장 실사를 반드시 실시하도록 정함", quote: "현장 실사를 반드시 실시하여야 한다" },
+    { ...base, statement: "실사 사진은 실사 보고서에 첨부한다", provision_id: "SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:2", relation: "SUPPLEMENTS", reason: "제14조제2항은 실사 결과를 보고서로 작성·보관하라고만 정하고 사진 첨부는 정하지 않는다. 사진 첨부는 이 보고서를 구체화한 실무 보완이다.", quote: "실사 보고서로 작성하여" },
+  ] } }, s);
+  assert.deepEqual(marks.map((m) => [m.kind, m.label, m.severity]), [["CONFIRMED", "근거 확인됨", "LOW"], ["SUPPLEMENT", "실무 보완(참고)", "LOW"]]);
+  assert.match(marks[0]!.basis!.label, /제14조제1항/u);
+  assert.match(marks[1]!.fix!, /권장 사항/u);
+  assert.ok(marks.every((m) => m.page === 0 && m.start !== null), "두 부분 모두 문장 위치에 표시");
+});
