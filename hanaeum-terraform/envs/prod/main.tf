@@ -16,7 +16,7 @@ module "stack" {
   owner       = "team"
   # prod 배포 직전 main 의 검증된 커밋으로 고정
   # dev 에서 smoke·실측을 통과한 커밋과 같게 (11/17 02시 기준). 바꿀 때는 dev 먼저 검증
-  lambda_refs       = { yoyo0704 = "2443244", dhxorb96 = "ff8b69e", let522mj = "7646838" }
+  lambda_refs       = { yoyo0704 = "2443244", dhxorb96 = "ff8b69e", let522mj = "b580e7e" # PR #11 병합 (실패 사유 안내·Rerank 게이트)
   ocr_source_ref    = "3310656"
   webapp_source_ref = "ff8b69e" # 웹·API (ECS·CloudFront)
   agents_source_ref = "ff8b69e" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
