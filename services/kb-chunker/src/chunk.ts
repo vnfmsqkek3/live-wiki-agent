@@ -1,0 +1,112 @@
+// 청킹 로직 (순수 함수). docs/01 8.1~8.3, docs/04 6.4
+// 법령: 항 = 기본 청크, 항 없는 조 = 조 전체, 긴 항은 호 경계에서 분할. 부칙 조·별표는 독립 청크.
+// 노하우·매뉴얼: Markdown 제목(##) 단위, 없으면 문서 전체.
+// 임베딩 입력(contentBody) = augmented_search_text = 문맥 헤더 + 실제 본문. original_text는 인용용으로 메타데이터에 분리.
+import { parseLaw } from "@hanaeum/legal-parser";
+import type { DocumentMetadata, Provision, ProvisionStatus } from "@hanaeum/schemas";
+
+export interface Chunk {
+  augmented_search_text: string; // = KB contentBody (임베딩·BM25 대상)
+  metadata: DocumentMetadata & {
+    provision_id: string; provision_path: string; provision_status: ProvisionStatus;
+    parent_id: string; source_page: number; original_text: string;
+  };
+}
+
+// ponytail: 글자 수 근사. Titan V2 한도(8k 토큰)보다 충분히 작게 잡음. 실측 후 토크나이저 기준으로 교체
+export const MAX_CHUNK_CHARS = 1800;
+
+const fmtDate = (ymd: number) => `${String(ymd).slice(0, 4)}-${String(ymd).slice(4, 6)}-${String(ymd).slice(6, 8)}`;
+
+/** 노드 + 하위 노드 원문을 순서대로 이어붙임 (마커 포함) */
+function subtree(p: Provision, children: Map<string, Provision[]>): Provision[] {
+  return [p, ...(children.get(p.provision_id) ?? []).flatMap((c) => subtree(c, children))];
+}
+const render = (nodes: Provision[], field: "original_text" | "normalized_text") =>
+  nodes.map((n) => (n.level === "ARTICLE" ? `${n.original_marker}${n.title ? `(${n.title})` : ""} ` : `${n.original_marker} `) + n[field]).join("\n").trim();
+
+export function chunkLegal(text: string, meta: DocumentMetadata): Chunk[] {
+  if (!meta.law_id || !meta.revision_id) throw new Error("법령 청킹에는 law_id·revision_id 필요");
+  const lawName = meta.law_name ?? meta.title;
+  const law = parseLaw(text, { law_id: meta.law_id, law_name: lawName, revision_id: meta.revision_id });
+  const byId = new Map(law.provisions.map((p) => [p.provision_id, p]));
+  const children = new Map<string, Provision[]>();
+  for (const p of law.provisions) if (p.parent_id) children.set(p.parent_id, [...(children.get(p.parent_id) ?? []), p]);
+
+  // 청크 단위 선택
+  const units: Provision[] = [];
+  for (const p of law.provisions) {
+    if (p.level === "ANNEX") units.push(p);
+    if (p.level !== "ARTICLE") continue;
+    const paras = (children.get(p.provision_id) ?? []).filter((c) => c.level === "PARAGRAPH");
+    if (!paras.length) { units.push(p); continue; }
+    for (const para of paras) {
+      const nodes = subtree(para, children);
+      if (render(nodes, "original_text").length <= MAX_CHUNK_CHARS) { units.push(para); continue; }
+      // 긴 항: 항 본문 + 호 단위로 분할 (상위 항 문맥은 헤더로 연결)
+      units.push(para);
+      for (const item of (children.get(para.provision_id) ?? [])) units.push(item);
+    }
+  }
+
+  const splitLong = new Set(units.filter((u) => u.level === "ITEM").map((u) => u.parent_id));
+  return units.map((u) => {
+    const article = u.level === "ARTICLE" ? u : [...ancestors(u, byId)].find((a) => a.level === "ARTICLE");
+    const nodes = u.level === "PARAGRAPH" && splitLong.has(u.provision_id) ? [u] : subtree(u, children);
+    const original = render(nodes, "original_text");
+    const normalized = render(nodes, "normalized_text");
+    const header = [
+      lawName,
+      `시행 ${fmtDate(meta.effective_from)}`,
+      ...u.heading_path,
+      article ? `${article.path_label}${article.title ? `(${article.title})` : ""}` : undefined,
+      u.level !== "ARTICLE" ? u.path_label : undefined,
+      u.status === "DELETED" ? "삭제됨" : undefined,
+    ].filter(Boolean).join(" · ");
+    return {
+      augmented_search_text: `[${header}]\n${normalized}`,
+      metadata: {
+        ...meta,
+        provision_id: u.provision_id,
+        provision_path: u.path_label,
+        provision_status: u.status,
+        parent_id: u.parent_id ?? meta.doc_id,
+        source_page: 0,
+        original_text: original,
+      },
+    };
+  });
+}
+
+function* ancestors(p: Provision, byId: Map<string, Provision>) {
+  let cur = p.parent_id ? byId.get(p.parent_id) : undefined;
+  while (cur) { yield cur; cur = cur.parent_id ? byId.get(cur.parent_id) : undefined; }
+}
+
+export function chunkKnowledge(text: string, meta: DocumentMetadata): Chunk[] {
+  const body = text.replace(/^---\n[\s\S]*?\n---\n/u, ""); // front matter 제거
+  const sections: { heading: string; text: string }[] = [];
+  let cur = { heading: meta.title, text: "" };
+  for (const line of body.split(/\r?\n/u)) {
+    const h = line.match(/^#{2,3}\s+(.+)$/u);
+    if (h) { if (cur.text.trim()) sections.push(cur); cur = { heading: h[1]!.trim(), text: "" }; continue; }
+    if (/^#\s+/u.test(line)) continue; // 문서 제목은 헤더로
+    cur.text += line + "\n";
+  }
+  if (cur.text.trim()) sections.push(cur);
+  if (!sections.length) throw new Error("노하우 본문이 비어 있음");
+  const kind = meta.document_type === "MANUAL" ? "매뉴얼" : "노하우";
+  return sections.map((s, i) => {
+    const t = s.text.trim();
+    return {
+      augmented_search_text: `[${meta.title} · ${kind} · ${s.heading}]\n${t}`,
+      metadata: {
+        ...meta, provision_id: `${meta.doc_id}#s${i}`, provision_path: s.heading, provision_status: "ACTIVE",
+        parent_id: meta.doc_id, source_page: 0, original_text: t,
+      },
+    };
+  });
+}
+
+export const chunkDocument = (text: string, meta: DocumentMetadata): Chunk[] =>
+  meta.document_type === "REGULATION" ? chunkLegal(text, meta) : chunkKnowledge(text, meta);

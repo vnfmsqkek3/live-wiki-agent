@@ -1,0 +1,261 @@
+{
+  "_note": "SYNTHETIC. Golden 규정 Registry 기준본 (scripts/make-golden.ts 생성).",
+  "regulations": [
+    {
+      "registry_doc_no": "HB-REG-DEP-001",
+      "law_id": "SYN-DEP-001",
+      "law_name": "한빛은행 수신업무 처리규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 20261130,
+      "owner_dept": "수신부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:8b3da4d03d6b705be5404e86c1443bdbb62af46e396b93ecd6ed13965e215ade",
+      "fixture": "golden/G-REG-01.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "1천만원"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-FX-001",
+      "law_id": "SYN-FX-001",
+      "law_name": "한빛은행 외국환업무 취급규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 20261130,
+      "owner_dept": "외환부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:f8bbe250f345f3661f57aefb1981fab69dac585a8a1ea254555b7526c5209dd2",
+      "fixture": "golden/G-REG-02.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "미화 5천달러"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-CARD-001",
+      "law_id": "SYN-CARD-001",
+      "law_name": "한빛은행 신용카드 발급규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 20261130,
+      "owner_dept": "카드부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:cf80abc3026ec952ac9c9670f8cf89bab9fb622630602b86dae6030f4181d4d7",
+      "fixture": "golden/G-REG-03.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "19세"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-RISK-001",
+      "law_id": "SYN-RISK-001",
+      "law_name": "한빛은행 신용리스크 관리규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 20261130,
+      "owner_dept": "리스크부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:f9e0047bacaf09877250044fffa20cb6dc388a24d1b9d3d4979586e298eb3ebc",
+      "fixture": "golden/G-REG-04.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "20%"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-IC-001",
+      "law_id": "SYN-IC-001",
+      "law_name": "한빛은행 내부통제 기준",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "준법부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:0b346b246c32e852e6c8981506dc4e0e4ea800221702bddc9449596898a4f15c",
+      "fixture": "golden/G-REG-05.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "분기"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-PRIV-001",
+      "law_id": "SYN-PRIV-001",
+      "law_name": "한빛은행 개인정보 보호규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "정보보호부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:0ee419d7890510f17f1fa0243b617329b54562768faf239649f2e27aa2f65c09",
+      "fixture": "golden/G-REG-06.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "5년"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-ITSEC-001",
+      "law_id": "SYN-ITSEC-001",
+      "law_name": "한빛은행 전산보안 관리규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "IT부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:03489909ea15cd8b5b84df7b4144d63fba4cf6ac8adbc6e821bc3c36e1473b17",
+      "fixture": "golden/G-REG-07.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "90일"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-TRUST-001",
+      "law_id": "SYN-TRUST-001",
+      "law_name": "한빛은행 신탁업무 운용규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "신탁부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:6d16c6e1c21fc72b8c29194082326c0fc81ddd79e991ebf27463f218a96d82c7",
+      "fixture": "golden/G-REG-08.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "10%"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-FUND-001",
+      "law_id": "SYN-FUND-001",
+      "law_name": "한빛은행 펀드 판매규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "자산관리부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:dc1a961b04c05b22637226e86cb19181bbb33348a7987a34718cce4386e38c61",
+      "fixture": "golden/G-REG-09.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "2영업일"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-AML-001",
+      "law_id": "SYN-AML-001",
+      "law_name": "한빛은행 자금세탁방지 업무규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "준법부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:535ee73cdb81ebb9b83177e888ccbb34bf83a5551ca18555516167e81821f589",
+      "fixture": "golden/G-REG-10.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "1천만원"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-CS-001",
+      "law_id": "SYN-CS-001",
+      "law_name": "한빛은행 민원 처리규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "소비자보호부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:3d2fd90fbf4cd81c55833f61c52c34b175663792d2eaa97c781d693e3f184669",
+      "fixture": "golden/G-REG-11.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "14일"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-HR-001",
+      "law_id": "SYN-HR-001",
+      "law_name": "한빛은행 직원 겸직 관리규정",
+      "revision_id": "2026-11-01",
+      "version": 1,
+      "effective_from": 20261101,
+      "effective_to": 99991231,
+      "owner_dept": "인사부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:286f042ed02333791d168e40f34c06f66fd353d1b7e2a97c632fa65ac35a010e",
+      "fixture": "golden/G-REG-12.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "30일"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-DEP-001",
+      "law_id": "SYN-DEP-001",
+      "law_name": "한빛은행 수신업무 처리규정",
+      "revision_id": "2026-12-01",
+      "version": 2,
+      "effective_from": 20261201,
+      "effective_to": 99991231,
+      "owner_dept": "수신부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:5becdb8d1a30cea9a4902f182094e7e877638d328f463110063b58cc3d8f1f71",
+      "fixture": "golden/G-REV-01.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "5백만원"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-FX-001",
+      "law_id": "SYN-FX-001",
+      "law_name": "한빛은행 외국환업무 취급규정",
+      "revision_id": "2026-12-01",
+      "version": 2,
+      "effective_from": 20261201,
+      "effective_to": 99991231,
+      "owner_dept": "외환부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:d0fd6ee1ddd0a5f6ef6ca5f3eef3229ee46018203c0cecfeb18e4013c5f133b6",
+      "fixture": "golden/G-REV-02.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "미화 3천달러"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-CARD-001",
+      "law_id": "SYN-CARD-001",
+      "law_name": "한빛은행 신용카드 발급규정",
+      "revision_id": "2026-12-01",
+      "version": 2,
+      "effective_from": 20261201,
+      "effective_to": 99991231,
+      "owner_dept": "카드부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:e67f17892d52181c512aaa17a68463714e98098ba2b3c9bb1c1f4316be3c16fb",
+      "fixture": "golden/G-REV-03.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "20세"
+      }
+    },
+    {
+      "registry_doc_no": "HB-REG-RISK-001",
+      "law_id": "SYN-RISK-001",
+      "law_name": "한빛은행 신용리스크 관리규정",
+      "revision_id": "2026-12-01",
+      "version": 2,
+      "effective_from": 20261201,
+      "effective_to": 99991231,
+      "owner_dept": "리스크부",
+      "approved_by": "REG_APPROVER(가상)",
+      "content_hash": "sha256:3a7762921b07e961cd870275f1de1fc3500a18b357aa364d78ea5198bb9d7c2a",
+      "fixture": "golden/G-REV-04.txt",
+      "key_values": {
+        "ARTICLE:5/PARAGRAPH:1": "15%"
+      }
+    }
+  ]
+}

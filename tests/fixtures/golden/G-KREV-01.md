@@ -1,0 +1,14 @@
+---
+doc: G-KREV-01
+synthetic: true
+title: 예금 수신 실무 메모 1
+author: 수신 담당자 (가상)
+cites: [SYN-DEP-001@2026-11-01/ARTICLE:5/PARAGRAPH:1]
+---
+SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 개정 영향 대상
+
+# 예금 수신 실무 메모 1
+
+## 절차
+1. 수신업무 처리규정 제5조제1항의 고액 현금 인출 기준(1천만원)을 먼저 확인한다.
+2. 확인 결과를 업무일지에 남긴다.
