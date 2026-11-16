@@ -1,9 +1,9 @@
 'use client';
-// 01 사용자 홈: 검색이 주 동작. 추천은 신뢰 인장과 함께 장부 행으로.
+// 01 사용자 홈: 검색이 주 동작. 아래는 최근 게시된 문서(실제 게시 기록). 조회수 집계가 없으므로 '많이 본' 표현은 쓰지 않는다
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
-import { api, MOCK, type SearchItem } from './lib/api';
+import { api, MOCK, type LibraryCard } from './lib/api';
 import { FreshnessFlag, Seal } from './seal';
 
 const TAGS = ['체크리스트', '실무사례', '공식규정', '여신'];
@@ -11,8 +11,8 @@ const TAGS = ['체크리스트', '실무사례', '공식규정', '여신'];
 export default function Home() {
   const router = useRouter();
   const [q, setQ] = useState('');
-  const [items, setItems] = useState<SearchItem[]>([]);
-  useEffect(() => { api<{ items: SearchItem[] }>('GET', '/v1/search?q=' + encodeURIComponent('추천')).then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
+  const [items, setItems] = useState<LibraryCard[]>([]);
+  useEffect(() => { api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => setItems(r.items.filter((i) => i.lifecycle === 'PUBLISHED').slice(0, 5))).catch(() => setItems([])); }, []);
   const go = (query: string, tag?: string) => router.push(`/search?q=${encodeURIComponent(query)}${tag ? `&tags=${encodeURIComponent(tag)}` : ''}`);
   return (
     <>
@@ -26,19 +26,21 @@ export default function Home() {
       <h2 className="section">자주 찾는 주제</h2>
       <ul className="tags">{TAGS.map((t) => <li key={t}><button onClick={() => go(t, t)}>{t}</button></li>)}</ul>
 
-      <h2 className="section">이번 주 많이 본 문서</h2>
-      <ul className="ledger">
-        {items.map((i) => (
-          <li className="entry" key={i.doc_id}>
-            <Seal i={i} />
-            <h3 className="doc-title">{i.title}</h3>
-            <div className="meta">{i.team}, {i.updated} 수정</div>
-            <FreshnessFlag freshness={i.freshness} />
-            <p className="note" style={{ margin: '8px 0 0' }}>{i.reason}</p>
-          </li>
-        ))}
-      </ul>
-      <div className="actions"><Link href="/search" className="btn">전체 문서 검색</Link></div>
+      <h2 className="section">최근 게시된 문서</h2>
+      {items.length === 0 ? <p className="note">아직 볼 수 있는 게시 문서가 없습니다.</p> : (
+        <ul className="ledger">
+          {items.map((i) => (
+            <li className="entry" key={i.doc_id}>
+              <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
+              <h3 className="doc-title"><Link className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
+              <div className="meta">{i.business_path.join(' › ') || '업무 미분류'} · 변경 {i.updated_at.slice(0, 10)}</div>
+              <FreshnessFlag freshness={i.freshness} />
+              {i.summary && <p className="note" style={{ margin: '8px 0 0' }}>{i.summary}</p>}
+            </li>
+          ))}
+        </ul>
+      )}
+      <div className="actions"><Link href="/library" className="btn">문서보관함 전체 보기</Link></div>
     </>
   );
 }
