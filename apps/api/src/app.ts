@@ -38,6 +38,8 @@ export interface Deps {
   workflowSteps?(workflow_id: string): Promise<{ step: string; status: string; ended_at: string; error?: string }[]>;
   /** 마스킹된 쪽 이미지 (masked/pages/{nnnn}.png). 없으면 undefined */
   pageImage?(doc_id: string, page_index: number): Promise<Uint8Array | undefined>;
+  /** explain_findings(yoyo0704) 결과 masked/explanation.json. 없으면 undefined */
+  explanation?(doc_id: string): Promise<unknown>;
   /** 마스킹된 쪽 이미지가 있는 page_index 목록 */
   pageImageList?(doc_id: string): Promise<number[]>;
   /** 문서보관함: 마스킹본 페이지 (`{doc_id}/masked/segments/`). 원본은 읽지 않는다 */
@@ -161,7 +163,8 @@ export function createApp(deps: Deps) {
     if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('NOT_FOUND', 'document not found');
     const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const images = deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [];
-    return c.json({ doc_id: d.doc_id, lifecycle: d.lifecycle, items: issues(d.findings, failure), page_images: images.map((n) => n + 1) });
+    const explanation = deps.explanation ? await deps.explanation(d.doc_id).catch(() => undefined) : undefined;
+    return c.json({ doc_id: d.doc_id, lifecycle: d.lifecycle, items: issues(d.findings, failure), page_images: images.map((n) => n + 1), explanation: explanation ?? null });
   });
 
   // 마스킹된 쪽 이미지 (원본 아님). page는 1부터

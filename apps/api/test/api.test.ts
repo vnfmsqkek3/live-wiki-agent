@@ -249,7 +249,7 @@ test('업로드 진행: 건너뛴 단계(그림 분석 꺼짐)는 진행 중으�
   const p = progress('QUARANTINED', ['MalwareCheck', 'FileStructureCheck', 'TextLayerExtract', 'PageRender', 'OcrIfNeeded', 'SegmentBuild', 'PiiScan', 'InjectionScan'].map((step) => ({ step, status: 'OK' })));
   assert.equal(p.steps.find((s) => s.key === 'ImageDescribe')?.state, 'skipped');
   assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'Classify');
-  assert.equal(p.total, 11);
+  assert.equal(p.total, 12);
   assert.equal(progress('IN_REVIEW', []).done, progress('IN_REVIEW', []).total);
 });
 
@@ -299,6 +299,7 @@ test('사유 목록: 단계 Finding(쪽·안내) + 게시 실패 문장(사유/�
   const t = setup();
   t.deps.pageImage = async (_d, n) => (n === 1 ? new Uint8Array([137, 80, 78, 71]) : undefined);
   t.deps.pageImageList = async () => [1];
+  t.deps.explanation = async () => ({ summary: '첨부 파일 때문에 차단', items: [] });
   t.deps.workflowFailure = async () => ({ step: 'Promote', error: 'RegistryNotFound', message: '공식 원본 목록에서 이 규정을 찾지 못해 게시할 수 없습니다 (조치: 분류를 노하우로 바꿔 다시 요청해 주세요.)' });
   const app = (await import('../src/app.ts')).createApp(t.deps);
   const call = (who: string, path: string) => app.request(path, { headers: { authorization: `Bearer ${who}` } });
@@ -312,6 +313,7 @@ test('사유 목록: 단계 Finding(쪽·안내) + 게시 실패 문장(사유/�
   assert.match(j.items[0]!.fix_hint!, /^분류를 노하우로/);
   assert.equal(j.items[1]!.location?.page, 2);
   assert.deepEqual(j.page_images, [2]);
+  assert.equal((j as unknown as { explanation: { summary: string } }).explanation.summary, '첨부 파일 때문에 차단');
   assert.equal((await call('author2', `/v1/documents/${doc_id}/issues`)).status, 404);
   assert.equal((await call('approver', `/v1/documents/${doc_id}/issues`)).status, 200);
   const img = await call('author', `/v1/documents/${doc_id}/pages/2/image`);

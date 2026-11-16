@@ -54,11 +54,15 @@ export function fileStructureCheck(kind: FileKind, body: Uint8Array): StepOutput
   if (kind === 'pdf') {
     const s = ascii(body);
     if (/\/EmbeddedFile\b/.test(s)) {
-      const names = pdfAttachments(s);
-      const list = names.slice(0, 3).join(', ') + (names.length > 3 ? ` 외 ${names.length - 3}개` : '');
-      findings.push(f('FILE_STRUCTURE', 'HIGH', 'PDF_EMBEDDED_FILE', `PDF 첨부 파일 ${names.length}개`, 'catalog', {
-        user_message: `PDF 안에 첨부 파일 ${names.length}개(${list})가 들어 있어 보안상 등록할 수 없습니다.`,
+      const files = pdfEmbedded(s);
+      const list = files.slice(0, 3).map((x) => x.name).join(', ') + (files.length > 3 ? ` 외 ${files.length - 3}개` : '');
+      const onlyC2pa = files.length > 0 && files.every((x) => x.c2pa);
+      findings.push(f('FILE_STRUCTURE', 'HIGH', 'PDF_EMBEDDED_FILE', `PDF 첨부 파일 ${files.length}개`, 'catalog', {
+        user_message: onlyC2pa
+          ? `PDF 안에 콘텐츠 출처 서명(C2PA, ${list})이 첨부되어 있습니다. 문서 작성 도구가 자동으로 넣는 경우가 많지만, 첨부 파일은 보안상 등록할 수 없습니다.`
+          : `PDF 안에 첨부 파일 ${files.length}개(${list})가 들어 있어 보안상 등록할 수 없습니다.`,
         fix_hint: `첨부 파일을 지운 뒤 ${FIX_PDF}`,
+        details: { embedded_files: files.slice(0, 10) },
       }));
     }
     for (const [re, code, sev, what] of [
@@ -69,6 +73,7 @@ export function fileStructureCheck(kind: FileKind, body: Uint8Array): StepOutput
       if (!re.test(s)) continue;
       const objs = pdfObjects(s, re);
       findings.push(f('FILE_STRUCTURE', sev, code, `PDF ${code}`, objs.length ? `obj:${objs.join(',')}` : 'catalog', {
+        details: { objects: objs }, // ponytail: 쪽 번호는 페이지 트리 해석이 필요해 비움. 필요하면 pdfjs로 Annots·AA를 쪽에 대응
         user_message: `PDF 안에 ${what}이 들어 있습니다${objs.length ? ` (내부 객체 ${objs.join(', ')}번)` : ''}.${sev === 'HIGH' ? ' 보안상 등록할 수 없습니다.' : ' 관리자가 확인합니다.'}`,
         fix_hint: FIX_PDF,
       }));
@@ -130,7 +135,7 @@ function* pngChunks(b: Uint8Array) {
   }
 }
 
-function f(step: string, severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'user_message' | 'fix_hint' | 'location'> = {}): Finding {
+function f(step: string, severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'user_message' | 'fix_hint' | 'location' | 'details'> = {}): Finding {
   return { finding_id: newId.fnd(), step, severity, code, message, evidence_ref, ...extra };
 }
 
@@ -141,10 +146,25 @@ function pdfString(raw: string) {
   return Buffer.from(s, 'latin1').toString('utf8');
 }
 /** PDF 첨부 파일 이름들 (Filespec의 /UF 또는 /F) */
-export function pdfAttachments(s: string): string[] {
-  const names = [...s.matchAll(/\/Type\s*\/Filespec[\s\S]{0,600}?\/(?:UF|F)\s*\(((?:\\.|[^\\)]){1,200})\)/g)].map((m) => pdfString(m[1]!));
-  const fallback = (s.match(/\/Type\s*\/EmbeddedFile\b/g) ?? []).length;
-  return names.length ? [...new Set(names)] : Array.from({ length: fallback }, () => '이름 없는 첨부');
+export function pdfAttachments(s: string): string[] { return pdfEmbedded(s).map((e) => e.name); }
+
+/** PDF 첨부 사실: 이름(/UF·/F), 형식(/Subtype), 크기(/Params /Size 또는 /Length). C2PA(콘텐츠 출처 서명)는 표시 */
+export function pdfEmbedded(s: string): { name: string; subtype?: string; size?: number; c2pa?: boolean }[] {
+  const objDict = (n: string) => { const m = new RegExp(`(?:^|\\s)${n}\\s+0\\s+obj\\b([\\s\\S]{0,1500}?)(?:stream|endobj)`).exec(s); return m?.[1] ?? ''; };
+  const out: { name: string; subtype?: string; size?: number; c2pa?: boolean }[] = [];
+  for (const m of s.matchAll(/\/Type\s*\/Filespec([\s\S]{0,800}?)(?:>>\s*endobj|endobj)/g)) {
+    const spec = m[1]!;
+    const nm = /\/(?:UF|F)\s*\(((?:\\.|[^\\)]){1,200})\)/.exec(spec);
+    const ef = /\/EF\s*<<[\s\S]*?\/(?:UF|F)\s+(\d+)\s+0\s+R/.exec(spec);
+    const dict = ef ? objDict(ef[1]!) : '';
+    const subtype = /\/Subtype\s*\/([^\s/<>\[\]()]+)/.exec(dict)?.[1]?.replace(/#2F/gi, '/');
+    const size = Number(/\/Size\s+(\d+)/.exec(dict)?.[1] ?? /\/Length\s+(\d+)/.exec(dict)?.[1] ?? NaN);
+    const name = nm ? pdfString(nm[1]!) : '이름 없는 첨부';
+    const c2pa = /c2pa|content credentials/i.test(`${name} ${subtype ?? ''} ${/\/AFRelationship\s*\/(\w+)/.exec(spec)?.[1] ?? ''}`) || /c2pa/i.test(dict);
+    out.push({ name, ...(subtype ? { subtype } : {}), ...(Number.isFinite(size) ? { size } : {}), ...(c2pa ? { c2pa: true } : {}) });
+  }
+  if (out.length) return out;
+  return Array.from({ length: (s.match(/\/Type\s*\/EmbeddedFile\b/g) ?? []).length }, () => ({ name: '이름 없는 첨부' }));
 }
 /** 패턴이 들어 있는 PDF 객체 번호들 */
 export function pdfObjects(s: string, re: RegExp): number[] {

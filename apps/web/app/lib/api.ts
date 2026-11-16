@@ -261,9 +261,15 @@ export async function streamGuide(question: string, onProgress: (text: string) =
 }
 
 // ---------- 올린 사람용 사유 목록 (사용자 지시 11/17) ----------
-export interface Issue { step: string; step_label: string; severity: 'HIGH' | 'MEDIUM' | 'LOW'; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
-export interface Issues { doc_id: string; lifecycle: string; items: Issue[]; page_images: number[] }
-export const MOCK_ISSUES: Issues = { doc_id: 'doc_MOCK', lifecycle: 'BLOCKED', page_images: [], items: [
+export interface Issue { finding_id?: string; step: string; step_label: string; severity: 'HIGH' | 'MEDIUM' | 'LOW'; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
+/** AgentCore explain_findings 결과 (yoyo0704). 판정은 바꾸지 않고 사실을 설명만 한다 */
+export interface Explanation { summary: string; items: { finding_id: string; page?: number; where: string; problem: string; reason: string; risk: '높음' | '중간' | '낮음'; fix: string }[]; next_action?: string; model?: string; generated_at?: string }
+export interface Issues { doc_id: string; lifecycle: string; items: Issue[]; page_images: number[]; explanation?: Explanation | null }
+export const MOCK_ISSUES: Issues = { doc_id: 'doc_MOCK', lifecycle: 'BLOCKED', page_images: [],
+  explanation: { summary: 'PDF 안에 콘텐츠 출처 서명(C2PA) 첨부가 있어 보안 검사에서 차단되었습니다. 문서 작성 도구가 자동으로 넣은 것으로 보이며 위험은 낮지만, 첨부를 뺀 PDF로 다시 올려야 등록됩니다.',
+    items: [{ finding_id: 'f1', where: '파일 전체(PDF 첨부)', problem: '첨부 파일 1개(Content Credentials, application/c2pa, 2KB)', reason: '첨부 파일은 내용을 검사할 수 없어 보안 정책상 등록하지 않습니다.', risk: '낮음', fix: "PDF 뷰어에서 '인쇄 → PDF로 저장'으로 다시 저장해 올려 주세요." }],
+    next_action: '다시 저장한 PDF를 새로 등록하세요.', model: 'mock' },
+  items: [
   { step: 'FILE_STRUCTURE', step_label: '파일 구조 검사', severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', user_message: 'PDF 안에 첨부 파일 1개(대출내역.xlsx)가 들어 있어 보안상 등록할 수 없습니다.', fix_hint: "첨부 파일을 지운 뒤 '인쇄 → PDF로 저장'으로 새로 만든 PDF를 올려 주세요." },
   { step: 'PII_SCAN', step_label: '개인정보 가림', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', user_message: '2쪽에서 계좌번호 1건을 가렸습니다. 그중 1건은 실제 계좌번호인지 확인이 필요합니다.', fix_hint: '계좌번호가 아니라면 검토 화면에서 확인해 주세요.', location: { page: 2, excerpt: '…참조번호 [계좌번호]로 접수한다…' } },
 ] };

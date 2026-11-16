@@ -40,6 +40,8 @@ export interface Finding {
   user_message?: string;
   /** 어떻게 고쳐 다시 올리는지 */
   fix_hint?: string;
+  /** 판정 근거 사실 (explain_findings 모델 입력, yoyo0704). 원문·개인정보 금지 */
+  details?: Record<string, unknown>;
 }
 
 /** 마스킹본에서 [start,end) 주변 문장 일부 (120자 이하, 줄바꿈 정리) */

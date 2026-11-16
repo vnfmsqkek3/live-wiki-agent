@@ -2,7 +2,7 @@
 export const INGEST_STEPS = [
   ['MalwareCheck', '악성코드 검사'], ['FileStructureCheck', '파일 구조 검사'], ['TextLayerExtract', '텍스트 추출'], ['PageRender', '페이지 이미지'],
   ['OcrIfNeeded', '문자 인식'], ['SegmentBuild', '본문 정리'], ['PiiScan', '개인정보 가림'], ['ImageDescribe', '그림 분석'], ['InjectionScan', '지시문 검사'],
-  ['Classify', '분류·요약'], ['TrustGate', '출처·근거 검증'], ['WaitForApproval', '검토 준비'],
+  ['Classify', '분류·요약'], ['TrustGate', '출처·근거 검증'], ['ExplainFindings', '확인 결과 설명'], ['WaitForApproval', '검토 준비'],
 ] as const;
 export type StepState = 'done' | 'running' | 'pending' | 'failed' | 'blocked' | 'skipped';
 
@@ -53,13 +53,13 @@ const STEP_LABEL: Record<string, string> = Object.fromEntries([...INGEST_STEPS, 
   ['TYPE_DETECTION', '형식 확인'], ['MALWARE', '악성코드 검사'], ['FILE_STRUCTURE', '파일 구조 검사'], ['OCR', '문자 인식'], ['PII_SCAN', '개인정보 가림'], ['INJECTION_SCAN', '지시문 검사'],
   ['CLASSIFY', '분류·요약'], ['TRUST_GATE', '출처·근거 검증'], ['KNOWHOW_VALIDATION', '노하우 검증'], ['IMAGE_DESCRIBE', '그림 분석'], ['TEXT_LAYER', '텍스트 추출'], ['SEGMENT', '본문 정리']]);
 
-export interface Issue { step: string; step_label: string; severity: string; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
+export interface Issue { finding_id?: string; step: string; step_label: string; severity: string; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
 
 /** 올린 사람용 사유 목록: 단계 Finding(위치·안내) + 실행 실패(게시 실패 포함). 심각도·쪽 순 */
-export function issues(findings: { step: string; severity: string; code: string; message: string; user_message?: string; fix_hint?: string; location?: Issue['location'] }[],
+export function issues(findings: { finding_id?: string; step: string; severity: string; code: string; message: string; user_message?: string; fix_hint?: string; location?: Issue['location'] }[],
   failure?: { step: string; error: string; message?: string }): Issue[] {
   const out: Issue[] = findings.map((f) => ({
-    step: f.step, step_label: STEP_LABEL[f.step] ?? f.step, severity: f.severity, code: f.code,
+    ...(f.finding_id ? { finding_id: f.finding_id } : {}), step: f.step, step_label: STEP_LABEL[f.step] ?? f.step, severity: f.severity, code: f.code,
     user_message: f.user_message ?? REASON[f.code] ?? f.message, ...(f.fix_hint ? { fix_hint: f.fix_hint } : {}), ...(f.location ? { location: f.location } : {}),
   }));
   if (failure) {

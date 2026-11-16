@@ -70,3 +70,16 @@ test('2차: APPROVE면 promote→kb_ingest(폴링)→graph_upsert→finalize(PUB
   await run(publishGraph(u.d, input, 'REJECT'), u.d, input);
   assert.deepEqual(u.calls, [{ step: 'finalize', args: { ...input, outcome: 'REJECTED' } }]);
 });
+
+test('차단·검토 필요면 끝내기 전에 explain_findings 호출, 설명 실패는 SKIPPED로 두고 계속 / 문제없으면 호출 안 함', async () => {
+  const b = deps({ file_structure_check: () => ({ status: 'BLOCKED' }) });
+  await run(ingestGraph(b.d, input), b.d, input);
+  assert.deepEqual(b.calls.slice(-2).map((c) => c.step), ['explain_findings', 'finalize']);
+  const r = deps({ trust_gate: () => ({ status: 'REVIEW_REQUIRED' }), explain_findings: () => Object.assign(new Error('x'), { name: 'ModelError' }) });
+  assert.equal((await run(ingestGraph(r.d, input), r.d, input)).status, 'COMPLETED');
+  assert.ok(r.records.includes('ExplainFindings=SKIPPED'));
+  assert.equal(r.calls.at(-1)!.step, 'await_review');
+  const ok = deps();
+  await run(ingestGraph(ok.d, input), ok.d, input);
+  assert.ok(!ok.calls.some((c) => c.step === 'explain_findings'));
+});

@@ -142,3 +142,18 @@ test('Finding 위치: 노하우 충돌 문장이 있는 쪽 번호(1부터)를 �
   const out = withPages(f, [{ page: 0, text: '머리말' }, { page: 1, text: '실무 팁\n1억원 이하는  현장 실사를 생략한다.' }]);
   assert.equal(out[0]!.location?.page, 2);
 });
+
+test('FileStructureCheck: PDF 첨부 사실(이름·형식·크기), C2PA 출처 서명 표시, 스크립트 객체 번호', () => {
+  const pdf = new TextEncoder().encode(`%PDF-1.7
+5 0 obj << /Type /Filespec /F (Content Credentials) /UF (Content Credentials) /AFRelationship /Data /EF << /F 6 0 R >> >> endobj
+6 0 obj << /Type /EmbeddedFile /Subtype /application#2Fc2pa /Params << /Size 2048 >> /Length 100 >> stream
+xx
+endstream endobj
+9 0 obj << /S /JavaScript /JS (app.alert(1)) >> endobj
+%%EOF`);
+  const r = fileStructureCheck('pdf', pdf);
+  const e = r.findings?.find((x) => x.code === 'PDF_EMBEDDED_FILE');
+  assert.deepEqual(e?.details, { embedded_files: [{ name: 'Content Credentials', subtype: 'application/c2pa', size: 2048, c2pa: true }] });
+  assert.match(e!.user_message!, /콘텐츠 출처 서명\(C2PA/);
+  assert.deepEqual(r.findings?.find((x) => x.code === 'PDF_JAVASCRIPT')?.details, { objects: [9] });
+});

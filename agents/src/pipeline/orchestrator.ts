@@ -23,10 +23,11 @@ export interface PipelineDeps {
 export const STEP_NAMES: Record<string, string> = {
   malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
   ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', classify: 'Classify',
-  trust_gate: 'TrustGate', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize',
+  trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize',
 };
 
 const BLOCKED = 'blocked';
+const REVIEW = 'review'; // 어느 단계든 REVIEW_REQUIRED였으면 true
 
 /** 단계 노드: 앞에서 BLOCKED면 아무 것도 하지 않고 통과. PENDING이면 대기 후 같은 입력으로 재호출 (단계는 멱등) */
 class StepNode extends Node {
@@ -58,6 +59,7 @@ class StepNode extends Node {
     }
     await this.deps.record(this.input.workflow_id, this.input.doc_id, name, out!.status);
     if (out!.status === 'BLOCKED') state.app.set(BLOCKED, true);
+    if (out!.status === 'REVIEW_REQUIRED') state.app.set(REVIEW, true);
     return done(`${name}: ${out!.status}`);
   }
 }
@@ -95,6 +97,15 @@ class ReviewOrBlock extends Node {
   // eslint-disable-next-line require-yield -- Strands Node 계약이 AsyncGenerator. 스트림 이벤트 없이 결과만 반환
   async *handle(_i: unknown, state: MultiAgentState): AsyncGenerator<never, NodeResultUpdate, undefined> {
     const blocked = state.app.get(BLOCKED) === true;
+    // 차단·검토 필요면 확인 결과를 사람이 읽을 설명으로 (yoyo0704 explain_findings, 사용자 지시 11/17). 부가 기능이라 실패해도 계속
+    if (blocked || state.app.get(REVIEW) === true) {
+      try {
+        const ex = await this.deps.callTool('explain_findings', { ...this.input });
+        await this.deps.record(this.input.workflow_id, this.input.doc_id, STEP_NAMES.explain_findings!, ex.status);
+      } catch (e) {
+        await this.deps.record(this.input.workflow_id, this.input.doc_id, STEP_NAMES.explain_findings!, 'SKIPPED', (e as Error).name).catch(() => {});
+      }
+    }
     const step = blocked ? 'finalize' : 'await_review';
     const out = await this.deps.callTool(step, { ...this.input, ...(blocked ? { outcome: 'BLOCKED' } : {}) });
     await this.deps.record(this.input.workflow_id, this.input.doc_id, STEP_NAMES[step]!, blocked ? 'BLOCKED' : out.status);
