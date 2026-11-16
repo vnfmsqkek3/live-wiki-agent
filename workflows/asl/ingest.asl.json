@@ -68,7 +68,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -196,7 +197,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -316,7 +318,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -446,7 +449,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -564,7 +568,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -684,7 +689,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -804,7 +810,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -924,7 +931,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -1044,7 +1052,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -1164,7 +1173,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -1284,7 +1294,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -1419,7 +1430,8 @@
                   "ErrorEquals": [
                     "ThrottlingException",
                     "TooManyRequestsException",
-                    "ServiceUnavailableException"
+                    "ServiceUnavailableException",
+                    "ConflictException"
                   ],
                   "IntervalSeconds": 10,
                   "MaxAttempts": 2,
@@ -1468,7 +1480,8 @@
                   "ErrorEquals": [
                     "ThrottlingException",
                     "TooManyRequestsException",
-                    "ServiceUnavailableException"
+                    "ServiceUnavailableException",
+                    "ConflictException"
                   ],
                   "IntervalSeconds": 10,
                   "MaxAttempts": 2,
@@ -1632,7 +1645,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,
@@ -1752,7 +1766,8 @@
           "ErrorEquals": [
             "ThrottlingException",
             "TooManyRequestsException",
-            "ServiceUnavailableException"
+            "ServiceUnavailableException",
+            "ConflictException"
           ],
           "IntervalSeconds": 10,
           "MaxAttempts": 2,

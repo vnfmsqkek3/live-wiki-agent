@@ -16,6 +16,7 @@ module "s3" {
   source      = "../modules/s3"
   n           = local.n
   kms_key_arn = module.kms.key_arn
+  web_origins = var.web_origins
 }
 
 module "ddb" {
@@ -36,8 +37,31 @@ module "sfn" {
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
   table_workflows   = module.ddb.tables["workflows"]
+  table_documents   = module.ddb.tables["documents"]
+  ocr_endpoint_name = module.ocr.endpoint_name
   quarantine_bucket = module.s3.buckets["quarantine"]
-  step_functions    = var.step_functions
+  step_functions    = merge(local.team_steps, local.lambda_arn)
+}
+
+module "kb" {
+  source             = "../modules/kb"
+  n                  = local.n
+  kms_key_arn        = module.kms.key_arn
+  published_bucket   = module.s3.buckets["published"]
+  artifact_bucket    = module.s3.buckets["artifact"]
+  embed_model_id     = var.models["MODEL_EMBED"]
+  rerank_model_id    = var.models["MODEL_RERANK"]
+  standby_replicas   = var.env == "prod" ? "ENABLED" : "DISABLED"
+  chunker_lambda_arn = local.chunker_arn_var != null ? local.chunker_arn_var : try(module.kb_chunker[0].arn, null)
+  reader_role_arns   = local.reader_roles
+}
+
+module "ocr" {
+  source            = "../modules/ocr"
+  n                 = local.n
+  kms_key_arn       = module.kms.key_arn
+  quarantine_bucket = module.s3.buckets["quarantine"]
+  artifact_bucket   = module.s3.buckets["artifact"]
 }
 
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
@@ -54,6 +78,10 @@ locals {
       COGNITO_CLIENT_ID    = module.cognito.client_id
       KMS_KEY_ARN          = module.kms.key_arn
       VPC_ID               = module.network.vpc_id
+      KB_ID                = module.kb.kb_id
+      OCR_ENDPOINT_NAME    = module.ocr.endpoint_name
+      KB_DS_LEGAL_ID       = module.kb.data_source_ids["legal"]
+      KB_DS_KNOWLEDGE_ID   = module.kb.data_source_ids["knowledge"]
     },
     var.models,
   )

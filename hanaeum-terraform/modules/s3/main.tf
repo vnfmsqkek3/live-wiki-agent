@@ -1,6 +1,7 @@
 # 버킷 4종 (interfaces.md 3장). quarantine(원본 등급)·published(정제본) 분리 (docs/03 ①).
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
+variable "web_origins" { type = list(string) }
 
 locals {
   # 서버 접근 로그 대상 버킷은 SSE-KMS 를 쓸 수 없어 log 만 SSE-S3
@@ -11,7 +12,7 @@ locals {
     log        = { kms = false, versioning = false }
   }
   # 모델을 호출하는 Role 은 태그 hanaeum-model-caller=true 를 단다 → 원본 등급 키 읽기 거부
-  original_grade_keys = ["*/original.*", "*/work/*"]
+  original_grade_keys = ["*/original.*", "*/work/*", "_ocr-async/*"]
 }
 
 resource "aws_s3_bucket" "b" {
@@ -68,6 +69,17 @@ resource "aws_s3_bucket_lifecycle_configuration" "log" {
     status = "Enabled"
     filter {}
     expiration { days = 90 }
+  }
+}
+
+# 브라우저 presigned PUT 업로드 (dhxorb96 요청 11/16). 웹 도메인은 CloudFront 생성 후 web_origins 에 추가
+resource "aws_s3_bucket_cors_configuration" "quarantine" {
+  bucket = aws_s3_bucket.b["quarantine"].id
+  cors_rule {
+    allowed_methods = ["PUT"]
+    allowed_origins = var.web_origins
+    allowed_headers = ["content-type", "content-length", "x-amz-*"]
+    max_age_seconds = 600
   }
 }
 
@@ -136,4 +148,80 @@ resource "aws_s3_bucket_policy" "b" {
 
 output "buckets" {
   value = { for k, v in aws_s3_bucket.b : k => { name = v.id, arn = v.arn } }
+}
+
+# ---------- 단계 1 MalwareCheck: GuardDuty Malware Protection for S3 (quarantine) ----------
+# 스캔 결과는 객체 태그 GuardDutyMalwareScanStatus 로 남는다 → workflows/src/steps/malware-check.ts 가 읽음.
+data "aws_caller_identity" "me" {}
+data "aws_region" "this" {}
+
+resource "aws_iam_role" "guardduty" {
+  name = "${var.n.prefix}-role-gd-malware${var.n.suffix}"
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [{
+      Effect    = "Allow"
+      Principal = { Service = "malware-protection-plan.guardduty.amazonaws.com" }
+      Action    = "sts:AssumeRole"
+      Condition = { StringEquals = { "aws:SourceAccount" = data.aws_caller_identity.me.account_id } }
+    }]
+  })
+}
+
+resource "aws_iam_role_policy" "guardduty" {
+  role = aws_iam_role.guardduty.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Sid       = "EventBridgeManagedRule"
+        Effect    = "Allow"
+        Action    = ["events:PutRule", "events:DeleteRule", "events:PutTargets", "events:RemoveTargets"]
+        Resource  = "arn:aws:events:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+        Condition = { StringLike = { "events:ManagedBy" = "malware-protection-plan.guardduty.amazonaws.com" } }
+      },
+      {
+        Sid      = "EventBridgeDescribe"
+        Effect   = "Allow"
+        Action   = ["events:DescribeRule", "events:ListTargetsByRule"]
+        Resource = "arn:aws:events:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:rule/DO-NOT-DELETE-AmazonGuardDutyMalwareProtectionS3*"
+      },
+      {
+        Sid      = "BucketNotification"
+        Effect   = "Allow"
+        Action   = ["s3:PutBucketNotification", "s3:GetBucketNotification", "s3:ListBucket"]
+        Resource = aws_s3_bucket.b["quarantine"].arn
+      },
+      {
+        Sid      = "ValidationObject"
+        Effect   = "Allow"
+        Action   = ["s3:PutObject"]
+        Resource = "${aws_s3_bucket.b["quarantine"].arn}/malware-protection-resource-validation-object"
+      },
+      {
+        Sid      = "ScanAndTag"
+        Effect   = "Allow"
+        Action   = ["s3:GetObject", "s3:GetObjectVersion", "s3:GetObjectTagging", "s3:GetObjectVersionTagging", "s3:PutObjectTagging", "s3:PutObjectVersionTagging"]
+        Resource = "${aws_s3_bucket.b["quarantine"].arn}/*"
+      },
+      {
+        Sid       = "Kms"
+        Effect    = "Allow"
+        Action    = ["kms:GenerateDataKey", "kms:Decrypt"]
+        Resource  = var.kms_key_arn
+        Condition = { StringLike = { "kms:ViaService" = "s3.*.amazonaws.com" } }
+      },
+    ]
+  })
+}
+
+resource "aws_guardduty_malware_protection_plan" "quarantine" {
+  role = aws_iam_role.guardduty.arn
+  protected_resource {
+    s3_bucket { bucket_name = aws_s3_bucket.b["quarantine"].id }
+  }
+  actions {
+    tagging { status = "ENABLED" }
+  }
+  depends_on = [aws_iam_role_policy.guardduty, aws_s3_bucket_notification.quarantine]
 }

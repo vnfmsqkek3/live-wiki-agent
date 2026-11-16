@@ -12,7 +12,8 @@
 
 ```bash
 set -a; . ./.env.local; set +a
-npm run build -w workflows          # Lambda 번들 (sfn 모듈이 workflows/dist 를 zip)
+npm run package -w workflows        # Lambda 번들 (linux arm64 의존성 포함, workflows/.lambda)
+npm run build -w services/auth-triggers
 terraform -chdir=hanaeum-terraform/envs/dev init
 terraform -chdir=hanaeum-terraform/envs/dev apply
 ```

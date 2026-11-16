@@ -31,6 +31,8 @@
 | `apps/web/` | dhxorb96 | let522mj | |
 | `agents/` | dhxorb96 | let522mj | |
 | `mcp/approval-server/`, `mcp/privacy-server/` | dhxorb96 | yoyo0704 | |
+| `mcp/gateway-interceptor/` | dhxorb96 | yoyo0704 | Gateway REQUEST interceptor (`__actor` 주입) |
+| `services/auth-triggers/` | yoyo0704 | dhxorb96 | Cognito Pre Token V2 (access token `dept`) |
 | `tests/e2e/`, `tests/security/` | dhxorb96 | yoyo0704 | |
 | `docs/interfaces.md` | 섹션별 Owner | 나머지 2명 | |
 

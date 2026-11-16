@@ -1,0 +1,14 @@
+{
+  "settings": { "index": { "knn": true, "knn.algo_param.ef_search": 512 } },
+  "mappings": {
+    "properties": {
+      "embedding": {
+        "type": "knn_vector",
+        "dimension": 1024,
+        "method": { "name": "hnsw", "engine": "faiss", "space_type": "l2", "parameters": { "ef_construction": 512, "m": 16 } }
+      },
+      "text": { "type": "text" },
+      "bedrock_metadata": { "type": "text", "index": false }
+    }
+  }
+}

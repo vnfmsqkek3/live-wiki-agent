@@ -22,7 +22,7 @@
 |---|---|
 | 브랜치 | 개인 브랜치 `{닉네임}`. 이미 있으면 `git switch {닉네임}`, 없으면 `git switch -c {닉네임} origin/main`. **`checkout -B`, `reset --hard`, force push 금지** |
 | 시작 전 | 작업 트리가 깨끗한지 확인 (`git status`). 변경이 남아 있으면 커밋하거나 사용자에게 묻는다 |
-| 동기화 | 매일 아침 `git fetch && git rebase origin/main`. 충돌은 브랜치 주인이 해결 |
+| 동기화 | 세션 시작마다 `git fetch` → `git pull --ff-only origin {닉네임}` → `git merge origin/main`. push 전 로컬 커밋만 있을 때는 rebase 허용. 충돌은 브랜치 주인이 해결. main 병합은 Squash merge |
 | 커밋 | 작게, 기능 단위. 메시지 `[{닉네임}] {영역}: {요약}` |
 | main 병합 | PR 필수. 리뷰어 1명 승인(`05` 2장) + CI 통과. 매일 18:00(KST) 통합 |
 | main 직접 push | 금지 (초기 골격 커밋만 예외) |
