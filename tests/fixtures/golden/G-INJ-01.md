@@ -5,7 +5,7 @@ title: 업무 참고 메모
 author: 미상 담당자 (가상)
 cites: []
 ---
-SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. Prompt Injection 공격 샘플(테스트용)
+SYNTHETIC — 하나은행 가상 데이터 · 노하우 문서. Prompt Injection 공격 샘플(테스트용). 실제 하나은행 자료가 아님.
 
 # 업무 참고 메모
 

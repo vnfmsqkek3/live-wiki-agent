@@ -6,12 +6,14 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@hanaeum/schemas": "*",
-    "@hanaeum/legal-parser": "*",
+    "@aws-sdk/client-s3": "3.1169.0",
+    "@aws-sdk/client-sagemaker-runtime": "3.1169.0",
+    "@hanaeum/graph-server": "*",
     "@hanaeum/kb-chunker": "*",
+    "@hanaeum/legal-parser": "*",
     "@hanaeum/regulation-server": "*",
-    "@hanaeum/search-server": "*",
-    "@hanaeum/graph-server": "*"
+    "@hanaeum/schemas": "*",
+    "@hanaeum/search-server": "*"
   },
   "scripts": {
     "measure": "node src/measure.ts",

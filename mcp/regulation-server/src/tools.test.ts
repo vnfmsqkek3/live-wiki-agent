@@ -6,7 +6,7 @@ import { fixtureClauseStore } from "./fixtures.ts";
 
 const user = { sub: "u1", groups: ["USER"] };
 const t = regulationTools(fixtureClauseStore(), { today: () => 20261216 });
-const LAW = "한빛은행 기업여신 심사규정";
+const LAW = "하나은행 기업여신 심사규정";
 
 test("조문 표현 해석", () => {
   assert.equal(clausePath("제12조제2항제3호가목"), "ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA");

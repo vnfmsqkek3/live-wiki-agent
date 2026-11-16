@@ -8,7 +8,7 @@ import type { Io } from "./index.ts";
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const read = (p: string) => readFileSync(new URL(p, FIX), "utf8");
 const meta = (o: Partial<DocumentMetadata> = {}): DocumentMetadata => ({
-  doc_id: "F-001", title: "한빛은행 기업여신 심사규정", law_name: "한빛은행 기업여신 심사규정", document_type: "REGULATION", index_group: "legal-clauses",
+  doc_id: "F-001", title: "하나은행 기업여신 심사규정", law_name: "하나은행 기업여신 심사규정", document_type: "REGULATION", index_group: "legal-clauses",
   authority_status: "VERIFIED", freshness: "CURRENT", lifecycle: "PUBLISHED", law_id: "SYN-LOAN-001", revision_id: "2026-11-01",
   effective_from: 20261101, effective_to: 99991231, acl_groups: ["ALL"], dept: "여신", approval_id: "apr_1", content_hash: "sha256:" + "0".repeat(64), ...o,
 });
@@ -22,7 +22,7 @@ test("법령: 항 단위 청크, 항 없는 조는 조 전체, 문맥 헤더에 
   assert.ok(ids.includes("ARTICLE:10/PARAGRAPH:1"));
   assert.ok(!ids.some((i) => i.includes("ITEM")), "짧은 항의 호는 항 청크에 포함");
   const c = chunks.find((x) => x.metadata.provision_id.endsWith("ARTICLE:12/PARAGRAPH:1"))!;
-  assert.equal(c.augmented_search_text.split("\n")[0], "[한빛은행 기업여신 심사규정 · 시행 2026-11-01 · 제2장 심사 절차 · 제12조(승인 기준) · 제12조제1항]");
+  assert.equal(c.augmented_search_text.split("\n")[0], "[하나은행 기업여신 심사규정 · 시행 2026-11-01 · 제2장 심사 절차 · 제12조(승인 기준) · 제12조제1항]");
   assert.equal(c.metadata.parent_id, "SYN-LOAN-001@2026-11-01/ARTICLE:12");
   assert.equal(c.metadata.provision_path, "제12조제1항");
 });
@@ -86,4 +86,19 @@ test("Lambda transform: 배치 읽기 → 청크 배치 쓰기, 메타데이터 
   ] }, io);
   assert.equal(mixed.outputFiles.length, 1);
   assert.deepEqual(mixed.outputFiles[0]!.fileMetadata, meta());
+});
+
+test("그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빠지고 별도 청크(has_figure, 인용 원문 없음)로", async () => {
+  const { figureLine } = await import("@hanaeum/schemas");
+  const law = readFileSync(new URL("../../../tests/fixtures/documents/F-001.txt", import.meta.url), "utf8");
+  const fig = figureLine(1, { kind: "표", description: "여신 금액별 승인권자 표", overlay_text: "5억원 이상 본부", intent: "승인 기준 요약" });
+  const base = chunkDocument(law, meta());
+  const withFig = chunkDocument(`${law}\n${fig}`, meta());
+  assert.equal(withFig.length, base.length + 1, "본문 청크는 그대로, 그림 청크 1개 추가");
+  assert.deepEqual(withFig.slice(0, -1).map((c) => c.metadata.original_text), base.map((c) => c.metadata.original_text));
+  const f = withFig.at(-1)!;
+  assert.equal(f.metadata.has_figure, true);
+  assert.equal(f.metadata.original_text, "", "그림 묘사는 인용 원문이 아님");
+  assert.equal(f.metadata.source_page, 1);
+  assert.match(f.augmented_search_text, /그림 \(2쪽\)[\s\S]*승인권자 표 \/ 표기: 5억원 이상 본부 \/ 의도: 승인 기준 요약/u);
 });

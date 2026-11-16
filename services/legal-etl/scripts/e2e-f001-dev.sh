@@ -19,7 +19,7 @@ code() { tail -1 <<<"$1"; }; bodyof() { sed '$d' <<<"$1"; }
 AT=$(token demo-author); PT=$(token demo-approver); UT=$(token demo-user)
 
 # 1 업로드 (presigned PUT → S3 이벤트 → SQS → type-detection → SFN 시작)
-R=$(call "$AT" POST /v1/documents/upload-url "{\"filename\":\"F-001.pdf\",\"size\":$(wc -c <"$PDF" | tr -d ' '),\"title\":\"[SYNTHETIC] 한빛은행 기업여신 심사규정\",\"dept\":\"여신\",\"acl_groups\":[\"ALL\"]}")
+R=$(call "$AT" POST /v1/documents/upload-url "{\"filename\":\"F-001.pdf\",\"size\":$(wc -c <"$PDF" | tr -d ' '),\"title\":\"[SYNTHETIC] 하나은행 기업여신 심사규정\",\"dept\":\"여신\",\"acl_groups\":[\"ALL\"]}")
 [ "$(code "$R")" = 201 ] || fail "upload-url $R"
 DOC=$(bodyof "$R" | j doc_id); URL=$(bodyof "$R" | j url)
 curl -sS -f -X PUT --data-binary @"$PDF" "$URL" >/dev/null || fail "S3 PUT"

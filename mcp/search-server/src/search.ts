@@ -96,7 +96,7 @@ export interface DocStates { get(docIds: string[]): Promise<Map<string, DocState
 export interface Result {
   doc_id: string; title: string;
   snippet: string; // 인용 원문 (문맥 헤더 없음)
-  provision?: string; // 사람이 읽는 조문 표기 "한빛은행 기업여신 심사규정 제12조제1항" (규정만)
+  provision?: string; // 사람이 읽는 조문 표기 "하나은행 기업여신 심사규정 제12조제1항" (규정만)
   effective_from: string; // YYYY-MM-DD
   authority_status: AuthorityStatus; freshness: Freshness;
   search_status: "FOUND" | "HISTORICAL" | "DELETED";
@@ -104,6 +104,7 @@ export interface Result {
   document_type: string; provision_id: string; path_label: string; provision_status: string;
   conditional: boolean; effective_to: string; score: number;
   business_path: string[]; tags: string[];
+  quotable: boolean; // false = 그림 묘사 등 원문이 아닌 결과. 근거 인용 금지
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
@@ -135,7 +136,8 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
     const pathLabel = String(m["provision_path"] ?? "");
     kept.push({
       doc_id: st.doc_id, title: String(m["title"] ?? ""),
-      snippet: String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
+      snippet: m["has_figure"] === true ? `[그림 설명 · 원문 아님] ${h.text.replace(/^\[[^\]]*\]\n/u, "")}` : String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
+      quotable: m["has_figure"] !== true,
       ...(isReg && pathLabel ? { provision: `${String(m["law_name"] ?? m["title"] ?? "")} ${pathLabel}`.trim() } : {}),
       effective_from: isoDate(st.effective_from ?? Number(m["effective_from"])),
       authority_status: st.authority_status, freshness: st.freshness,

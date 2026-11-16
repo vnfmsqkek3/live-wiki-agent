@@ -1,11 +1,11 @@
-{"id":"CL-01","query":"한빛은행 기업여신 심사규정 제12조제1항 승인 기준 알려줘","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1","expected_text":"3억원"}
+{"id":"CL-01","query":"하나은행 기업여신 심사규정 제12조제1항 승인 기준 알려줘","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1","expected_text":"3억원"}
 {"id":"CL-02","query":"기업여신 심사규정 제10조제2항 감정평가서 기한","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-LOAN-001@2026-12-01/ARTICLE:10/PARAGRAPH:2","expected_text":"3개월"}
 {"id":"CL-03","query":"기업여신 심사규정 제14조제1항","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-LOAN-001@2026-12-01/ARTICLE:14/PARAGRAPH:1","expected_text":"현장 실사"}
 {"id":"CL-04","query":"기업여신 심사규정 제12조제1항 (2025년 기준)","as_of":"2025-06-01","expected_status":"HISTORICAL","expected_provision_id":"SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1","expected_text":"7억원"}
 {"id":"CL-05","query":"기업여신 심사규정 제16조 영업점 전결 특례","as_of":"2026-12-15","expected_status":"HISTORICAL","expected_provision_id":"SYN-LOAN-001@2025-01-01/ARTICLE:16","expected_text":"전결"}
 {"id":"CL-06","query":"기업여신 심사규정 제15조제2항 LTV 가산","as_of":"2026-12-15","expected_status":"DELETED","expected_provision_id":"SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:2"}
 {"id":"CL-07","query":"기업여신 심사규정 제99조","as_of":"2026-12-15","expected_status":"NOT_FOUND_VERIFIED"}
-{"id":"CL-08","query":"한빛은행 수신업무 처리규정 제5조제1항 고액 현금 인출","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-DEP-001@2026-12-01/ARTICLE:5/PARAGRAPH:1","expected_text":"5백만원"}
+{"id":"CL-08","query":"하나은행 수신업무 처리규정 제5조제1항 고액 현금 인출","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-DEP-001@2026-12-01/ARTICLE:5/PARAGRAPH:1","expected_text":"5백만원"}
 {"id":"CL-09","query":"수신업무 처리규정 제6조제2항 확인 기록 보관","as_of":"2026-12-15","expected_status":"DELETED","expected_provision_id":"SYN-DEP-001@2026-12-01/ARTICLE:6/PARAGRAPH:2"}
 {"id":"CL-10","query":"수신업무 처리규정 제5조제1항 (11월 기준)","as_of":"2026-11-15","expected_status":"HISTORICAL","expected_provision_id":"SYN-DEP-001@2026-11-01/ARTICLE:5/PARAGRAPH:1","expected_text":"1천만원"}
 {"id":"CL-11","query":"외국환업무 취급규정 제6조제1항제3호","as_of":"2026-12-15","expected_status":"FOUND","expected_provision_id":"SYN-FX-001@2026-12-01/ARTICLE:6/PARAGRAPH:1/ITEM:3","expected_text":"제재 대상"}

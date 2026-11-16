@@ -1,4 +1,5 @@
 // 단계 5 SegmentBuild: text_layer + OCR 결과를 페이지별 세그먼트로 병합 (docs/04 1.1, 2.1)
+import { ocrRows, restoreCircled } from "@hanaeum/legal-parser";
 import { newId } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore } from "./store.ts";
@@ -31,7 +32,9 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     const blocks = [...op.blocks].sort((a, b) => a.reading_order - b.reading_order);
     const avg = blocks.length ? blocks.reduce((s, b) => s + b.confidence, 0) / blocks.length : 0;
     return {
-      doc_id: layer.doc_id, page_index: p.page_index, source: "ocr", text: blocks.map((b) => b.text).join("\n"),
+      // 같은 높이 블록을 한 줄로 묶고, 숫자로 읽힌 항 번호(①→1)를 순서 근거가 있을 때만 되돌린다 (13항 12번 실측)
+      doc_id: layer.doc_id, page_index: p.page_index, source: "ocr",
+      text: restoreCircled((blocks.every((b) => b.bbox?.length === 4) ? ocrRows(blocks) : blocks.map((b) => b.text)).join("\n")),
       blocks, avg_confidence: avg, low_confidence: !blocks.length || avg < PAGE_AVG_MIN || blocks.some((b) => b.confidence < BLOCK_MIN),
     } satisfies Segment;
   });

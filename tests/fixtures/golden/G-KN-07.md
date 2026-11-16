@@ -5,7 +5,7 @@ title: 전산 보안 체크 포인트 7
 author: IT 담당자 (가상)
 cites: [SYN-ITSEC-001@2026-11-01/ARTICLE:7-2]
 ---
-SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 정상 노하우
+SYNTHETIC — 하나은행 가상 데이터 · 노하우 문서. 정상 노하우. 실제 하나은행 자료가 아님.
 
 # 전산 보안 체크 포인트 7
 
