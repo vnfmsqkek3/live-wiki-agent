@@ -6,6 +6,11 @@ import {
 } from './lambdas.ts';
 import { structured } from './model.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, type ClassifyOut } from './steps/classify.ts';
+import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, type Judgement } from './steps/knowhow.ts';
+import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
+import { DynamoClauseStore, regulationTools } from '@hanaeum/regulation-server';
+import { BedrockRetriever, DynamoDocStates, searchTools } from '@hanaeum/search-server';
+import { extractCitations } from '@hanaeum/graph-server';
 
 const store = storeFromEnv();
 /** 마스킹 본문 (masked/segments, 페이지 순) */
@@ -24,7 +29,30 @@ const registry: LambdaDeps['registry'] = process.env.TABLE_REGULATIONS
   }
   : undefined;
 
-const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText };
+/** 노하우 검증 실제 Tool (규정 저장소·KB 검색·Sonnet 판정). KB_ID·TABLE_REGULATIONS 있을 때만. 검색은 시스템 행위자(승인자 범위)로 ACL·현재 상태 재검증 */
+const e = process.env;
+const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
+  ? (() => {
+    const clauses = new DynamoClauseStore(e.TABLE_REGULATIONS);
+    const search = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: new DynamoDocStates(e.TABLE_DOCUMENTS!), regulation: regulationTools(clauses) });
+    const system = { sub: 'system:trust-gate', groups: ['REG_APPROVER'] };
+    return {
+      maskedText,
+      ...knowhowDeps({
+        store: clauses as unknown as ClauseStoreLike,
+        extract: (t, st, asOf) => extractCitations(t, st as never, asOf),
+        searchProvisionIds: async (q) => ((await search.search_wiki({ query: q, index_groups: ['legal-clauses'], top_k: 5 }, system)).items ?? [])
+          .filter((i) => i.search_status === 'FOUND').map((i) => i.provision_id).filter(Boolean),
+        judge: async (t, cl) => {
+          const r = await structured<{ items: Judgement[] }>('SONNET', JUDGE_SYSTEM, judgePrompt(t, cl), 'submit_judgement', JUDGE_SCHEMA as unknown as Record<string, unknown>);
+          return { items: r.value.items, model: r.model };
+        },
+      }),
+    };
+  })()
+  : undefined;
+
+const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText, knowhow };
 const seg: SegmentDeps = {
   store, listKeys, getJson, putJson, guardrail: applyGuardrail,
   classify: (tier, prompt) => structured<ClassifyOut>(tier, CLASSIFY_SYSTEM, prompt, 'submit_classification', CLASSIFY_SCHEMA as unknown as Record<string, unknown>),

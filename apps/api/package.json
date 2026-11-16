@@ -20,7 +20,9 @@
     "hono": "4.13.18",
     "ulid": "3.0.2",
     "zod": "4.6.7",
-    "@hanaeum/regulation-server": "*"
+    "@hanaeum/regulation-server": "*",
+    "@hanaeum/search-server": "*",
+    "@hanaeum/graph-server": "*"
   },
   "devDependencies": {
     "esbuild": "0.28.2"
