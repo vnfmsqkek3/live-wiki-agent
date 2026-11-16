@@ -14,7 +14,7 @@ test("ID 정규식", () => {
 
 test("메타데이터: REGULATION은 law_id 필수, 날짜 범위", () => {
   const base = {
-    doc_id: "F-001", document_type: "REGULATION", index_group: "legal-clauses",
+    doc_id: "F-001", title: "기업여신 심사규정 v1", document_type: "REGULATION", index_group: "legal-clauses",
     authority_status: "VERIFIED", freshness: "CURRENT", lifecycle: "PUBLISHED",
     law_id: "SYN-LOAN-001", revision_id: "2026-11-01", effective_from: 20261101, effective_to: 99991231,
     acl_groups: ["ALL"], dept: "여신", approval_id: "apr_x", content_hash: "sha256:" + "a".repeat(64),

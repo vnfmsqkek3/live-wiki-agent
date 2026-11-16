@@ -2,5 +2,10 @@
   "name": "@hanaeum/legal-parser",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@hanaeum/schemas": "*"
+  }
 }

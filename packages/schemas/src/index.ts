@@ -63,7 +63,9 @@ export const DocumentMetadata = z.object({
   authority_status: AuthorityStatus,
   freshness: Freshness,
   lifecycle: Lifecycle,
+  title: z.string().min(1), // v0.1 추가: 청크 문맥 헤더용
   law_id: z.string().optional(),
+  law_name: z.string().optional(), // v0.1 추가: 법령 청크 헤더용
   revision_id: z.string().regex(new RegExp(`^${REV}$`)).optional(),
   effective_from: YmdNumber,
   effective_to: YmdNumber,

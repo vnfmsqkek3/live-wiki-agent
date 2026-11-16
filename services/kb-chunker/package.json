@@ -2,5 +2,12 @@
   "name": "@hanaeum/kb-chunker",
   "private": true,
   "type": "module",
-  "exports": { ".": "./src/index.ts" }
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "3.1169.0",
+    "@hanaeum/schemas": "*",
+    "@hanaeum/legal-parser": "*"
+  }
 }
