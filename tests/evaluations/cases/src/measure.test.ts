@@ -1,0 +1,22 @@
+// 데이터 QA 회귀 게이트 (docs/02 4장 기준치). 기준 미달이면 CI 실패
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { measureParsing, measureClauseSearch, measureDeletionSafety, measureImpact } from "./measure.ts";
+
+const FIX = new URL("../../../fixtures/", import.meta.url);
+
+test("Golden 60건 구성·SYNTHETIC 표시·Registry 해시", () => {
+  const m = JSON.parse(readFileSync(new URL("golden/manifest.json", FIX), "utf8"));
+  assert.equal(m.documents.length, 60);
+  assert.deepEqual(m.counts, { "기반 규정": 15, "개정·삭제": 10, "악성·위조": 10, "정상 노하우": 15, "충돌 노하우": 10 });
+  for (const d of m.documents) assert.ok(readFileSync(new URL(d.file, FIX)).includes("SYNTHETIC"), d.document_id);
+  const reg = JSON.parse(readFileSync(new URL("registry/registry.golden.json", FIX), "utf8"));
+  for (const r of reg.regulations) assert.equal("sha256:" + createHash("sha256").update(readFileSync(new URL(r.fixture, FIX))).digest("hex"), r.content_hash, r.fixture);
+});
+
+test("법령 구조 파싱 ≥ 95%", () => assert.ok(measureParsing().accuracy >= 0.95));
+test("정확 조문 검색 ≥ 19/20", async () => { const r = await measureClauseSearch(); assert.ok(r.correct >= 19, JSON.stringify(r.rows.filter((x) => !x.ok))); });
+test("삭제 조항 오인용 0건", async () => assert.equal((await measureDeletionSafety()).miscitations, 0));
+test("변경 영향 탐지 5/5, 대조군 오탐 0", async () => { const r = await measureImpact(); assert.deepEqual([r.detected, r.expected, r.false_positives], [5, 5, 0]); });

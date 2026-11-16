@@ -63,7 +63,7 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
     if (!rev) return { search_status: "NOT_FOUND_VERIFIED", reason: `기준일 ${asOf}에 시행 중인 승인 버전 없음 (등록 버전 ${revs.map((r) => r.revision_id).join(", ")})`, law_id: lawId };
     const base = { law_id: lawId, revision_id: rev.revision_id, effective_from: rev.effective_from, effective_to: rev.effective_to };
     const provs = await store.provisions(lawId, rev.revision_id);
-    if (!provs || !rev.parse_ok) return { search_status: "UNVERIFIED", reason: "조문 구조 데이터 없음 또는 파싱 검토 미완료", ...base };
+    if (!provs) return { search_status: "UNVERIFIED", reason: "조문 구조 데이터 없음", ...base };
 
     const p = findPath(provs, path);
     if (p) {
@@ -89,6 +89,8 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
         };
       }
     }
+    // 파싱 이슈가 남은 버전은 구조가 완전하다고 볼 수 없으므로 부재를 확정하지 않는다
+    if (!rev.parse_ok) return { search_status: "UNVERIFIED", reason: "파싱 검토 미완료 버전: 부재를 확정할 수 없음", ...base };
     return { search_status: "NOT_FOUND_VERIFIED", reason: `${lawId}@${rev.revision_id} 전체 구조에서 ${path} 없음 (과거 버전 포함 확인)`, ...base };
   }
 

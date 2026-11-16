@@ -8,8 +8,8 @@ interface RegEntry { registry_doc_no: string; law_id: string; law_name: string; 
 
 export function fixtureClauseStore(): MemoryClauseStore {
   const store = new MemoryClauseStore();
-  const reg = JSON.parse(readFileSync(new URL("registry/registry.json", ROOT), "utf8")) as { regulations: RegEntry[] };
-  for (const r of reg.regulations) {
+  const load = (f: string) => (JSON.parse(readFileSync(new URL(f, ROOT), "utf8")) as { regulations: RegEntry[] }).regulations;
+  for (const r of [...load("registry/registry.json"), ...load("registry/registry.golden.json")]) {
     const law = parseLaw(readFileSync(new URL(r.fixture, ROOT), "utf8"), { law_id: r.law_id, law_name: r.law_name, revision_id: r.revision_id, effective_from: r.effective_from });
     store.put({
       law_id: r.law_id, law_name: r.law_name, revision_id: r.revision_id, registry_doc_no: r.registry_doc_no,

@@ -1,0 +1,20 @@
+{"id":"CT-01","question":"기업여신 5억원 대출은 누가 승인하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1"],"forbidden_provision_ids":["SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1"]}
+{"id":"CT-02","question":"감정평가서는 발급 후 얼마나 유효한가요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:10/PARAGRAPH:2"],"forbidden_provision_ids":["SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2"]}
+{"id":"CT-03","question":"부동산 담보 LTV 상한은?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:1"],"forbidden_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:2"]}
+{"id":"CT-04","question":"신용등급 A 차주는 LTV를 가산받을 수 있나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:1"],"forbidden_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:2"],"note":"가산 조항은 삭제됨. 삭제 조항을 현행 근거로 쓰면 오답"}
+{"id":"CT-05","question":"부동산 담보 대출에서 현장 실사를 생략해도 되나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:14/PARAGRAPH:1"],"forbidden_doc_ids":["K-002"]}
+{"id":"CT-06","question":"예금담보대출은 누가 승인하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:2"]}
+{"id":"CT-07","question":"고액 현금 인출 시 책임자 승인 기준 금액은?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-DEP-001@2026-12-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-KC-01"]}
+{"id":"CT-08","question":"계좌 개설 시 무엇을 확인해야 하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-DEP-001@2026-12-01/ARTICLE:6/PARAGRAPH:1"],"forbidden_provision_ids":["SYN-DEP-001@2026-12-01/ARTICLE:6/PARAGRAPH:2"]}
+{"id":"CT-09","question":"증빙 없이 해외송금 가능한 금액은?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-FX-001@2026-12-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-KC-06"]}
+{"id":"CT-10","question":"신용카드는 몇 살부터 발급되나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-CARD-001@2026-12-01/ARTICLE:5/PARAGRAPH:1"]}
+{"id":"CT-11","question":"동일인 익스포저 한도는 자기자본의 몇 %인가요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-RISK-001@2026-12-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-KC-04"]}
+{"id":"CT-12","question":"영업점 자점감사는 얼마나 자주 하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-IC-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-FORGE-01"]}
+{"id":"CT-13","question":"거래 종료 고객의 개인정보는 언제 파기하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-FORGE-02","G-KC-02"]}
+{"id":"CT-14","question":"시스템 비밀번호 변경 주기는?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-ITSEC-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-FORGE-03"]}
+{"id":"CT-15","question":"신탁재산 단일 종목 편입 한도는?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-TRUST-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-FORGE-04"]}
+{"id":"CT-16","question":"고령 투자자에게 고위험 펀드를 팔 때 숙려기간은?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-FUND-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-KC-05"]}
+{"id":"CT-17","question":"고액 현금 거래 보고 기준은?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-AML-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"]}
+{"id":"CT-18","question":"민원은 며칠 안에 처리해야 하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-CS-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"],"forbidden_doc_ids":["G-KC-03"]}
+{"id":"CT-19","question":"직원이 겸직하려면 언제까지 승인을 받아야 하나요?","as_of":"2026-12-15","role":"USER","expected_provision_ids":["SYN-HR-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"]}
+{"id":"CT-20","question":"2025년 6월 기준 본부 승인 기준 금액은?","as_of":"2025-06-01","role":"USER","expected_provision_ids":["SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1"],"note":"과거 시점 질의. 과거 버전임을 명시해야 정답"}

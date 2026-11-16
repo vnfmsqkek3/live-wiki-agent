@@ -1,0 +1,2383 @@
+{
+  "_note": "SYNTHETIC. Golden Dataset 60건 (docs/02 3.2). scripts/make-golden.ts가 생성. 손으로 고치지 말 것.",
+  "counts": {
+    "기반 규정": 15,
+    "개정·삭제": 10,
+    "악성·위조": 10,
+    "정상 노하우": 15,
+    "충돌 노하우": 10
+  },
+  "documents": [
+    {
+      "document_id": "F-001",
+      "file": "documents/F-001.txt",
+      "title": "기업여신 심사규정 v1",
+      "document_type": "REGULATION",
+      "law_id": "SYN-LOAN-001",
+      "revision_id": "2026-11-01",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "test_scenario": "공식 기반 데이터 검증 (데모 02·04)",
+      "category": "기반 규정"
+    },
+    {
+      "document_id": "F-002",
+      "file": "documents/F-002.txt",
+      "title": "기업여신 심사규정 v2",
+      "document_type": "REGULATION",
+      "law_id": "SYN-LOAN-001",
+      "revision_id": "2026-12-01",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "test_scenario": "개정·영향 분석 (데모 04)",
+      "expected_changes": [
+        "ARTICLE:10/PARAGRAPH:2",
+        "ARTICLE:12/PARAGRAPH:1",
+        "ARTICLE:15/PARAGRAPH:1",
+        "ARTICLE:15/PARAGRAPH:2"
+      ],
+      "expected_impacted": [
+        "K-001",
+        "K-003"
+      ],
+      "category": "개정·삭제"
+    },
+    {
+      "document_id": "F-003",
+      "file": "documents/F-003.txt",
+      "title": "공식 문서 위장 허위 규정",
+      "document_type": "REGULATION",
+      "law_id": "SYN-LOAN-001",
+      "revision_id": "2026-11-01",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "test_scenario": "Registry 해시·조항 수치 불일치 → 게시 차단 (데모 02)",
+      "expected_findings": [
+        "REGISTRY_HASH_MISMATCH",
+        "KEY_VALUE_MISMATCH"
+      ],
+      "category": "악성·위조"
+    },
+    {
+      "document_id": "K-001",
+      "file": "documents/K-001.md",
+      "title": "정상 담보평가 노하우",
+      "document_type": "KNOWHOW",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "test_scenario": "근거 부합 → 승인 가능 (데모 03·04)",
+      "category": "정상 노하우"
+    },
+    {
+      "document_id": "K-002",
+      "file": "documents/K-002.md",
+      "title": "필수 절차 생략 노하우",
+      "document_type": "KNOWHOW",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "test_scenario": "현장 실사 생략 → 규정 충돌 / 검토 필요 (데모 03)",
+      "category": "충돌 노하우"
+    },
+    {
+      "document_id": "K-003",
+      "file": "documents/K-003.md",
+      "title": "과거 규정 인용 노하우",
+      "document_type": "KNOWHOW",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_freshness": "REVIEW_REQUIRED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "test_scenario": "7억 기준(과거) 인용 → 최신성 검증 실패 (데모 04)",
+      "category": "개정·삭제"
+    },
+    {
+      "document_id": "K-004",
+      "file": "documents/K-004.md",
+      "title": "근거 부족 실무 팁",
+      "document_type": "KNOWHOW",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "VERIFIED",
+      "expected_conditional": true,
+      "expected_conflict": false,
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": "after_human_approval",
+      "test_scenario": "조건부 검증 / 사람 검토",
+      "category": "정상 노하우"
+    },
+    {
+      "document_id": "A-001",
+      "file": "documents/A-001.md",
+      "title": "답변 변경 유도 악성 문서",
+      "document_type": "KNOWHOW",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": false,
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": false,
+      "test_scenario": "Prompt Injection 검사 (데모 02)",
+      "expected_findings": [
+        "PROMPT_INJECTION"
+      ],
+      "category": "악성·위조"
+    },
+    {
+      "document_id": "A-002",
+      "file": "documents/A-002.png",
+      "title": "PNG 메타데이터 공격 이미지",
+      "document_type": "KNOWHOW",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": false,
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": false,
+      "test_scenario": "tEXt Injection + IEND 뒤 데이터 → 파일 구조 검사",
+      "expected_findings": [
+        "PNG_TEXT_CHUNK_INJECTION",
+        "TRAILING_DATA_AFTER_IEND"
+      ],
+      "category": "악성·위조"
+    },
+    {
+      "document_id": "L-001",
+      "file": "legal/source/L-001.txt",
+      "title": "특수기호·삭제·가지번호 법령",
+      "document_type": "REGULATION",
+      "law_id": "SYN-VLOAN-001",
+      "revision_id": "2026-11-01",
+      "dept": "법무",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-VLOAN-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "test_scenario": "구조 파싱 검증 (데모 05). 정답 legal/expected/L-001.json",
+      "category": "기반 규정"
+    },
+    {
+      "document_id": "F-000",
+      "category": "기반 규정",
+      "file": "documents/F-000.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-LOAN-001",
+      "revision_id": "2025-01-01",
+      "dept": "여신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-LOAN-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "test_scenario": "과거 버전 (HISTORICAL 조회)"
+    },
+    {
+      "document_id": "G-REG-01",
+      "category": "기반 규정",
+      "file": "golden/G-REG-01.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-DEP-001",
+      "law_name": "한빛은행 수신업무 처리규정",
+      "revision_id": "2026-11-01",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-DEP-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-02",
+      "category": "기반 규정",
+      "file": "golden/G-REG-02.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-FX-001",
+      "law_name": "한빛은행 외국환업무 취급규정",
+      "revision_id": "2026-11-01",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-FX-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-03",
+      "category": "기반 규정",
+      "file": "golden/G-REG-03.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-CARD-001",
+      "law_name": "한빛은행 신용카드 발급규정",
+      "revision_id": "2026-11-01",
+      "dept": "카드",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-CARD-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-04",
+      "category": "기반 규정",
+      "file": "golden/G-REG-04.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-RISK-001",
+      "law_name": "한빛은행 신용리스크 관리규정",
+      "revision_id": "2026-11-01",
+      "dept": "리스크",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-RISK-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-05",
+      "category": "기반 규정",
+      "file": "golden/G-REG-05.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-IC-001",
+      "law_name": "한빛은행 내부통제 기준",
+      "revision_id": "2026-11-01",
+      "dept": "준법",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-IC-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-06",
+      "category": "기반 규정",
+      "file": "golden/G-REG-06.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-PRIV-001",
+      "law_name": "한빛은행 개인정보 보호규정",
+      "revision_id": "2026-11-01",
+      "dept": "정보보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-PRIV-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-07",
+      "category": "기반 규정",
+      "file": "golden/G-REG-07.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-ITSEC-001",
+      "law_name": "한빛은행 전산보안 관리규정",
+      "revision_id": "2026-11-01",
+      "dept": "IT",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-ITSEC-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-08",
+      "category": "기반 규정",
+      "file": "golden/G-REG-08.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-TRUST-001",
+      "law_name": "한빛은행 신탁업무 운용규정",
+      "revision_id": "2026-11-01",
+      "dept": "신탁",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-TRUST-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-09",
+      "category": "기반 규정",
+      "file": "golden/G-REG-09.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-FUND-001",
+      "law_name": "한빛은행 펀드 판매규정",
+      "revision_id": "2026-11-01",
+      "dept": "자산관리",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-FUND-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-10",
+      "category": "기반 규정",
+      "file": "golden/G-REG-10.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-AML-001",
+      "law_name": "한빛은행 자금세탁방지 업무규정",
+      "revision_id": "2026-11-01",
+      "dept": "준법",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-AML-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-11",
+      "category": "기반 규정",
+      "file": "golden/G-REG-11.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-CS-001",
+      "law_name": "한빛은행 민원 처리규정",
+      "revision_id": "2026-11-01",
+      "dept": "소비자보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-CS-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REG-12",
+      "category": "기반 규정",
+      "file": "golden/G-REG-12.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-HR-001",
+      "law_name": "한빛은행 직원 겸직 관리규정",
+      "revision_id": "2026-11-01",
+      "dept": "인사",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-HR-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "test_scenario": "공식성·구조 파싱"
+    },
+    {
+      "document_id": "G-REV-01",
+      "category": "개정·삭제",
+      "file": "golden/G-REV-01.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-DEP-001",
+      "law_name": "한빛은행 수신업무 처리규정",
+      "revision_id": "2026-12-01",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-DEP-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "DELETED"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "expected_changes": [
+        "ARTICLE:5/PARAGRAPH:1",
+        "ARTICLE:6/PARAGRAPH:2"
+      ],
+      "test_scenario": "시행일·변경 영향 (수치 개정 + 항 삭제)"
+    },
+    {
+      "document_id": "G-KREV-01",
+      "category": "개정·삭제",
+      "file": "golden/G-KREV-01.md",
+      "document_type": "KNOWHOW",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-DEP-001",
+      "related_clause": "SYN-DEP-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-DEP-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "impacted_by": "SYN-DEP-001@2026-12-01",
+      "test_scenario": "규정 개정 → 영향 탐지"
+    },
+    {
+      "document_id": "G-REV-02",
+      "category": "개정·삭제",
+      "file": "golden/G-REV-02.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-FX-001",
+      "law_name": "한빛은행 외국환업무 취급규정",
+      "revision_id": "2026-12-01",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-FX-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "DELETED"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "expected_changes": [
+        "ARTICLE:5/PARAGRAPH:1",
+        "ARTICLE:6/PARAGRAPH:2"
+      ],
+      "test_scenario": "시행일·변경 영향 (수치 개정 + 항 삭제)"
+    },
+    {
+      "document_id": "G-KREV-02",
+      "category": "개정·삭제",
+      "file": "golden/G-KREV-02.md",
+      "document_type": "KNOWHOW",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-FX-001",
+      "related_clause": "SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "impacted_by": "SYN-FX-001@2026-12-01",
+      "test_scenario": "규정 개정 → 영향 탐지"
+    },
+    {
+      "document_id": "G-REV-03",
+      "category": "개정·삭제",
+      "file": "golden/G-REV-03.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-CARD-001",
+      "law_name": "한빛은행 신용카드 발급규정",
+      "revision_id": "2026-12-01",
+      "dept": "카드",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-CARD-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "DELETED"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "expected_changes": [
+        "ARTICLE:5/PARAGRAPH:1",
+        "ARTICLE:6/PARAGRAPH:2"
+      ],
+      "test_scenario": "시행일·변경 영향 (수치 개정 + 항 삭제)"
+    },
+    {
+      "document_id": "G-KREV-03",
+      "category": "개정·삭제",
+      "file": "golden/G-KREV-03.md",
+      "document_type": "KNOWHOW",
+      "dept": "카드",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-CARD-001",
+      "related_clause": "SYN-CARD-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-CARD-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "impacted_by": "SYN-CARD-001@2026-12-01",
+      "test_scenario": "규정 개정 → 영향 탐지"
+    },
+    {
+      "document_id": "G-REV-04",
+      "category": "개정·삭제",
+      "file": "golden/G-REV-04.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-RISK-001",
+      "law_name": "한빛은행 신용리스크 관리규정",
+      "revision_id": "2026-12-01",
+      "dept": "리스크",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-RISK-001",
+      "related_clause": null,
+      "expected_kb_visibility": true,
+      "expected_structure": [
+        [
+          "ARTICLE:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:2/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:5/PARAGRAPH:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:1",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:2",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:1/ITEM:3",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:6/PARAGRAPH:2",
+          "DELETED"
+        ],
+        [
+          "ARTICLE:7",
+          "ACTIVE"
+        ],
+        [
+          "ARTICLE:7-2",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1",
+          "ACTIVE"
+        ],
+        [
+          "SUPPLEMENTARY:1/ARTICLE:1",
+          "ACTIVE"
+        ]
+      ],
+      "expected_changes": [
+        "ARTICLE:5/PARAGRAPH:1",
+        "ARTICLE:6/PARAGRAPH:2"
+      ],
+      "test_scenario": "시행일·변경 영향 (수치 개정 + 항 삭제)"
+    },
+    {
+      "document_id": "G-KREV-04",
+      "category": "개정·삭제",
+      "file": "golden/G-KREV-04.md",
+      "document_type": "KNOWHOW",
+      "dept": "리스크",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-RISK-001",
+      "related_clause": "SYN-RISK-001@2026-11-01/ARTICLE:7",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-RISK-001@2026-11-01/ARTICLE:7"
+      ],
+      "impacted_by": null,
+      "test_scenario": "영향 없음 대조군"
+    },
+    {
+      "document_id": "G-KN-01",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-01.md",
+      "document_type": "KNOWHOW",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-DEP-001",
+      "related_clause": "SYN-DEP-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-DEP-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-02",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-02.md",
+      "document_type": "KNOWHOW",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-FX-001",
+      "related_clause": "SYN-FX-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-FX-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-03",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-03.md",
+      "document_type": "KNOWHOW",
+      "dept": "카드",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-CARD-001",
+      "related_clause": "SYN-CARD-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-CARD-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-04",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-04.md",
+      "document_type": "KNOWHOW",
+      "dept": "리스크",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-RISK-001",
+      "related_clause": "SYN-RISK-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-RISK-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-05",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-05.md",
+      "document_type": "KNOWHOW",
+      "dept": "준법",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-IC-001",
+      "related_clause": "SYN-IC-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-IC-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-06",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-06.md",
+      "document_type": "KNOWHOW",
+      "dept": "정보보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-PRIV-001",
+      "related_clause": "SYN-PRIV-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-PRIV-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-07",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-07.md",
+      "document_type": "KNOWHOW",
+      "dept": "IT",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-ITSEC-001",
+      "related_clause": "SYN-ITSEC-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-ITSEC-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-08",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-08.md",
+      "document_type": "KNOWHOW",
+      "dept": "신탁",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-TRUST-001",
+      "related_clause": "SYN-TRUST-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-TRUST-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-09",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-09.md",
+      "document_type": "KNOWHOW",
+      "dept": "자산관리",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-FUND-001",
+      "related_clause": "SYN-FUND-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-FUND-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-10",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-10.md",
+      "document_type": "KNOWHOW",
+      "dept": "준법",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-AML-001",
+      "related_clause": "SYN-AML-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-AML-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-11",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-11.md",
+      "document_type": "KNOWHOW",
+      "dept": "소비자보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-CS-001",
+      "related_clause": "SYN-CS-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-CS-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-12",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-12.md",
+      "document_type": "KNOWHOW",
+      "dept": "인사",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-HR-001",
+      "related_clause": "SYN-HR-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-HR-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KN-13",
+      "category": "정상 노하우",
+      "file": "golden/G-KN-13.md",
+      "document_type": "KNOWHOW",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "PASS",
+      "expected_status": "VERIFIED",
+      "expected_conflict": false,
+      "related_regulation": "SYN-DEP-001",
+      "related_clause": "SYN-DEP-001@2026-11-01/ARTICLE:7-2",
+      "expected_kb_visibility": true,
+      "cites": [
+        "SYN-DEP-001@2026-11-01/ARTICLE:7-2"
+      ],
+      "test_scenario": "근거 부합 검증"
+    },
+    {
+      "document_id": "G-KC-01",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-01.md",
+      "document_type": "KNOWHOW",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "VALUE_MISMATCH",
+      "related_regulation": "SYN-DEP-001",
+      "related_clause": "SYN-DEP-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-DEP-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "test_scenario": "수치 상충 (1천만원 ↔ 3천만원)"
+    },
+    {
+      "document_id": "G-KC-02",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-02.md",
+      "document_type": "KNOWHOW",
+      "dept": "정보보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "VALUE_MISMATCH",
+      "related_regulation": "SYN-PRIV-001",
+      "related_clause": "SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "test_scenario": "수치 상충 (5년 ↔ 1년)"
+    },
+    {
+      "document_id": "G-KC-03",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-03.md",
+      "document_type": "KNOWHOW",
+      "dept": "소비자보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "VALUE_MISMATCH",
+      "related_regulation": "SYN-CS-001",
+      "related_clause": "SYN-CS-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-CS-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "test_scenario": "수치 상충 (14일 ↔ 60일)"
+    },
+    {
+      "document_id": "G-KC-04",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-04.md",
+      "document_type": "KNOWHOW",
+      "dept": "리스크",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "VALUE_MISMATCH",
+      "related_regulation": "SYN-RISK-001",
+      "related_clause": "SYN-RISK-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-RISK-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "test_scenario": "수치 상충 (20% ↔ 35%)"
+    },
+    {
+      "document_id": "G-KC-05",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-05.md",
+      "document_type": "KNOWHOW",
+      "dept": "자산관리",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "VALUE_MISMATCH",
+      "related_regulation": "SYN-FUND-001",
+      "related_clause": "SYN-FUND-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-FUND-001@2026-11-01/ARTICLE:5/PARAGRAPH:1"
+      ],
+      "test_scenario": "수치 상충 (2영업일 ↔ 당일)"
+    },
+    {
+      "document_id": "G-KC-06",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-06.md",
+      "document_type": "KNOWHOW",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "MANDATORY_STEP_OMITTED",
+      "related_regulation": "SYN-FX-001",
+      "related_clause": "SYN-FX-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-FX-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "필수 확인 생략"
+    },
+    {
+      "document_id": "G-KC-07",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-07.md",
+      "document_type": "KNOWHOW",
+      "dept": "IT",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "MANDATORY_STEP_OMITTED",
+      "related_regulation": "SYN-ITSEC-001",
+      "related_clause": "SYN-ITSEC-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-ITSEC-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "필수 확인 생략"
+    },
+    {
+      "document_id": "G-KC-08",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-08.md",
+      "document_type": "KNOWHOW",
+      "dept": "인사",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "MANDATORY_STEP_OMITTED",
+      "related_regulation": "SYN-HR-001",
+      "related_clause": "SYN-HR-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-HR-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "필수 확인 생략"
+    },
+    {
+      "document_id": "G-KC-09",
+      "category": "충돌 노하우",
+      "file": "golden/G-KC-09.md",
+      "document_type": "KNOWHOW",
+      "dept": "준법",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "REVIEW_REQUIRED",
+      "expected_status": "UNVERIFIED",
+      "expected_conflict": true,
+      "conflict_type": "MANDATORY_STEP_OMITTED",
+      "related_regulation": "SYN-IC-001",
+      "related_clause": "SYN-IC-001@2026-11-01/ARTICLE:6/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "cites": [
+        "SYN-IC-001@2026-11-01/ARTICLE:6/PARAGRAPH:1"
+      ],
+      "test_scenario": "필수 확인 생략"
+    },
+    {
+      "document_id": "G-FORGE-01",
+      "category": "악성·위조",
+      "file": "golden/G-FORGE-01.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-IC-001",
+      "revision_id": "2026-11-01",
+      "dept": "준법",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-IC-001",
+      "related_clause": "SYN-IC-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "REGISTRY_HASH_MISMATCH",
+        "KEY_VALUE_MISMATCH"
+      ],
+      "test_scenario": "Registry 불일치 → 게시 차단"
+    },
+    {
+      "document_id": "G-FORGE-02",
+      "category": "악성·위조",
+      "file": "golden/G-FORGE-02.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-PRIV-001",
+      "revision_id": "2026-11-01",
+      "dept": "정보보호",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-PRIV-001",
+      "related_clause": "SYN-PRIV-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "REGISTRY_HASH_MISMATCH",
+        "KEY_VALUE_MISMATCH"
+      ],
+      "test_scenario": "Registry 불일치 → 게시 차단"
+    },
+    {
+      "document_id": "G-FORGE-03",
+      "category": "악성·위조",
+      "file": "golden/G-FORGE-03.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-ITSEC-001",
+      "revision_id": "2026-11-01",
+      "dept": "IT",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-ITSEC-001",
+      "related_clause": "SYN-ITSEC-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "REGISTRY_HASH_MISMATCH",
+        "KEY_VALUE_MISMATCH"
+      ],
+      "test_scenario": "Registry 불일치 → 게시 차단"
+    },
+    {
+      "document_id": "G-FORGE-04",
+      "category": "악성·위조",
+      "file": "golden/G-FORGE-04.txt",
+      "document_type": "REGULATION",
+      "law_id": "SYN-TRUST-001",
+      "revision_id": "2026-11-01",
+      "dept": "신탁",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": true,
+      "related_regulation": "SYN-TRUST-001",
+      "related_clause": "SYN-TRUST-001@2026-11-01/ARTICLE:5/PARAGRAPH:1",
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "REGISTRY_HASH_MISMATCH",
+        "KEY_VALUE_MISMATCH"
+      ],
+      "test_scenario": "Registry 불일치 → 게시 차단"
+    },
+    {
+      "document_id": "G-INJ-01",
+      "category": "악성·위조",
+      "file": "golden/G-INJ-01.md",
+      "document_type": "KNOWHOW",
+      "dept": "미상",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": false,
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "PROMPT_INJECTION"
+      ],
+      "test_scenario": "Prompt Injection → KB 유입 차단"
+    },
+    {
+      "document_id": "G-INJ-02",
+      "category": "악성·위조",
+      "file": "golden/G-INJ-02.md",
+      "document_type": "KNOWHOW",
+      "dept": "미상",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": false,
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "PROMPT_INJECTION"
+      ],
+      "test_scenario": "Prompt Injection → KB 유입 차단"
+    },
+    {
+      "document_id": "G-INJ-03",
+      "category": "악성·위조",
+      "file": "golden/G-INJ-03.md",
+      "document_type": "KNOWHOW",
+      "dept": "미상",
+      "acl_groups": [
+        "ALL"
+      ],
+      "expected_trust_gate": "QUARANTINED",
+      "expected_status": "REJECTED",
+      "expected_conflict": false,
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": false,
+      "expected_findings": [
+        "PROMPT_INJECTION"
+      ],
+      "test_scenario": "Prompt Injection → KB 유입 차단"
+    }
+  ]
+}

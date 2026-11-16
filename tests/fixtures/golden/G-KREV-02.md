@@ -1,0 +1,14 @@
+---
+doc: G-KREV-02
+synthetic: true
+title: 외국환 실무 메모 2
+author: 외환 담당자 (가상)
+cites: [SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1]
+---
+SYNTHETIC — 한빛은행(Synthetic Bank) 가상 노하우 문서. 개정 영향 대상
+
+# 외국환 실무 메모 2
+
+## 절차
+1. 외국환업무 취급규정 제5조제1항의 증빙 없는 송금 한도 기준(미화 5천달러)을 먼저 확인한다.
+2. 확인 결과를 업무일지에 남긴다.
