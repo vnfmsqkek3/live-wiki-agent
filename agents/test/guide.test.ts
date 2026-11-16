@@ -106,3 +106,22 @@ test('Memory 없거나 컨텍스트 없으면 기존 동작', async () => {
   assert.equal(r.memory_used, false);
   assert.equal(saved.length, 0);
 });
+
+test('Memory 삭제: 이벤트와 /users/{actorId}/ 장기 요약 레코드를 모두 지운다', async () => {
+  const { agentCoreMemory } = await import('../src/memory.ts');
+  const sent: { cmd: string; input: Record<string, unknown> }[] = [];
+  const client = {
+    send: async (c: { constructor: { name: string }; input: Record<string, unknown> }) => {
+      sent.push({ cmd: c.constructor.name, input: c.input });
+      if (c.constructor.name === 'ListSessionsCommand') return { sessionSummaries: [{ sessionId: 's1' }] };
+      if (c.constructor.name === 'ListEventsCommand') return { events: [{ eventId: 'e1' }, { eventId: 'e2' }] };
+      if (c.constructor.name === 'ListMemoryRecordsCommand') return { memoryRecordSummaries: [{ memoryRecordId: 'r1' }] };
+      return {};
+    },
+  };
+  const m = agentCoreMemory('mem-1', 'us-east-1', client as never);
+  assert.equal(await m.deleteActor('11111111-2222-3333-4444-555555555555'), 3);
+  assert.equal(sent.find((s) => s.cmd === 'ListMemoryRecordsCommand')!.input.namespace, '/users/11111111-2222-3333-4444-555555555555/');
+  assert.deepEqual(sent.filter((s) => s.cmd.startsWith('Delete')).map((s) => s.cmd), ['DeleteEventCommand', 'DeleteEventCommand', 'DeleteMemoryRecordCommand']);
+  await assert.rejects(m.deleteActor('../other'), /invalid memory id/);
+});
