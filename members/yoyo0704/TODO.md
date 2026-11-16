@@ -4,13 +4,13 @@
 소유 경로: `hanaeum-terraform/`, `services/ocr/`, `workflows/`, root 설정·`.github/workflows/`, `mcp/observability-server/`, `tests/evaluations/runner/`, `observability/`.
 
 ## 11/16 · M0
-- [ ] `scripts/setup-env.sh yoyo0704`, 계정 ID 확인
-- [ ] Terraform State 버킷 `hanaeum-mvp-s3-tfstate` (버전관리·SSE·`use_lockfile`, 충돌 시 `-{계정ID}`)
-- [ ] Bedrock 모델 액세스·inference profile ID 확인 (Claude Sonnet/Haiku/Opus 5.5, Titan V2, Cohere Rerank 3.5) → `interfaces.md` 8장
-- [ ] SageMaker `ml.g5.xlarge` 쿼터 확인 (부족하면 즉시 증설 요청, 대안 CPU OCR Lambda — `docs/04` 2장)
-- [ ] AgentCore Policy·Evaluations us-east-1 가용성 확인
-- [ ] repo 골격: root `package.json`(npm workspaces), `tsconfig.base.json`, `.github/workflows/` 4종(`docs/06` 3장), `.env.example` — main에 초기 커밋
-- [ ] 버전 고정표 기입 (Node LTS, Terraform·provider, PaddleOCR)
+- [x] `scripts/setup-env.sh yoyo0704`, 계정 ID 확인
+- [x] Terraform State 버킷 `hanaeum-mvp-s3-tfstate` (버전관리·SSE·`use_lockfile`, 충돌 시 `-{계정ID}`)
+- [x] Bedrock 모델 액세스·inference profile ID 확인 (Claude Sonnet/Haiku/Opus 5.5, Titan V2, Cohere Rerank 3.5) → `interfaces.md` 8장
+- [x] SageMaker `ml.g5.xlarge` 쿼터 확인 (부족하면 즉시 증설 요청, 대안 CPU OCR Lambda — `docs/04` 2장)
+- [x] AgentCore Policy·Evaluations us-east-1 가용성 확인
+- [x] repo 골격: root `package.json`(npm workspaces), `tsconfig.base.json`, `.github/workflows/` 4종(`docs/06` 3장), `.env.example` — main에 초기 커밋
+- [x] 버전 고정표 기입 (Node LTS, Terraform·provider, PaddleOCR)
 
 ## 11/17
 - [ ] 모듈 구조 `hanaeum-terraform/modules/{network,iam,kms,s3,ddb,sfn,cognito,api,kb,opensearch,graph,ocr,agentcore,guardrails,observability}` + `envs/{dev-*,prod}`

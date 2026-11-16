@@ -14,3 +14,7 @@ node_modules/
 !자료/**/
 !자료/README.md
 !자료/**/.gitkeep
+dist/
+*.tfplan
+.terraform.tfstate.lock.info
+.build/

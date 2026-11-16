@@ -1,0 +1,1830 @@
+{
+  "Comment": "Living Wiki 문서 처리 14단계 (생성 파일: workflows/src/asl.ts 를 수정하고 다시 생성)",
+  "StartAt": "Init",
+  "TimeoutSeconds": 86400,
+  "States": {
+    "HandleError_Finalize": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#Finalize"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Finalize": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_finalize}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor",
+          "outcome.$": "$.outcome"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_Finalize"
+        }
+      ],
+      "Next": "Record_Finalize"
+    },
+    "Record_Finalize": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#Finalize"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.outcome"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Done"
+    },
+    "Done": {
+      "Type": "Succeed"
+    },
+    "Failed": {
+      "Type": "Fail",
+      "Error": "IngestStepFailed"
+    },
+    "Blocked": {
+      "Type": "Pass",
+      "Result": "BLOCKED",
+      "ResultPath": "$.outcome",
+      "Next": "Finalize"
+    },
+    "Rejected": {
+      "Type": "Pass",
+      "Result": "REJECTED",
+      "ResultPath": "$.outcome",
+      "Next": "Finalize"
+    },
+    "HandleError_GraphUpsert": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#GraphUpsert"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "GraphUpsert": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_graph_upsert}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_GraphUpsert"
+        }
+      ],
+      "Next": "Record_GraphUpsert"
+    },
+    "Record_GraphUpsert": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#GraphUpsert"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_GraphUpsert"
+    },
+    "Check_GraphUpsert": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "Finalize"
+    },
+    "HandleError_KbIngest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#KbIngest"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "KbIngest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_kb_ingest}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_KbIngest"
+        }
+      ],
+      "Next": "Record_KbIngest"
+    },
+    "Record_KbIngest": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#KbIngest"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_KbIngest"
+    },
+    "Wait_KbIngest": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "KbIngest"
+    },
+    "Check_KbIngest": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        },
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "PENDING",
+          "Next": "Wait_KbIngest"
+        }
+      ],
+      "Default": "GraphUpsert"
+    },
+    "HandleError_Promote": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#Promote"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Promote": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_promote}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_Promote"
+        }
+      ],
+      "Next": "Record_Promote"
+    },
+    "Record_Promote": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#Promote"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_Promote"
+    },
+    "Check_Promote": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "KbIngest"
+    },
+    "HandleError_WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#WaitForApproval"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke.waitForTaskToken",
+      "Parameters": {
+        "FunctionName": "${fn_wait_for_approval}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor",
+          "task_token.$": "$$.Task.Token"
+        }
+      },
+      "ResultPath": "$.approval",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_WaitForApproval"
+        }
+      ],
+      "Next": "Record_WaitForApproval"
+    },
+    "Record_WaitForApproval": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#WaitForApproval"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.approval.decision"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_WaitForApproval"
+    },
+    "Check_WaitForApproval": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.approval.decision",
+          "StringEquals": "APPROVE",
+          "Next": "Promote"
+        }
+      ],
+      "Default": "Rejected"
+    },
+    "HandleError_TrustGate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#TrustGate"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "TrustGate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_trust_gate}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_TrustGate"
+        }
+      ],
+      "Next": "Record_TrustGate"
+    },
+    "Record_TrustGate": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#TrustGate"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_TrustGate"
+    },
+    "Check_TrustGate": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "WaitForApproval"
+    },
+    "HandleError_Classify": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#Classify"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "Classify": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_classify}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_Classify"
+        }
+      ],
+      "Next": "Record_Classify"
+    },
+    "Record_Classify": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#Classify"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_Classify"
+    },
+    "Check_Classify": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "TrustGate"
+    },
+    "HandleError_InjectionScan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#InjectionScan"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "InjectionScan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_injection_scan}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_InjectionScan"
+        }
+      ],
+      "Next": "Record_InjectionScan"
+    },
+    "Record_InjectionScan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#InjectionScan"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_InjectionScan"
+    },
+    "Check_InjectionScan": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "Classify"
+    },
+    "HandleError_PiiScan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#PiiScan"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "PiiScan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_pii_scan}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_PiiScan"
+        }
+      ],
+      "Next": "Record_PiiScan"
+    },
+    "Record_PiiScan": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#PiiScan"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_PiiScan"
+    },
+    "Check_PiiScan": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "InjectionScan"
+    },
+    "HandleError_SegmentBuild": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#SegmentBuild"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "SegmentBuild": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_segment_build}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_SegmentBuild"
+        }
+      ],
+      "Next": "Record_SegmentBuild"
+    },
+    "Record_SegmentBuild": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#SegmentBuild"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_SegmentBuild"
+    },
+    "Check_SegmentBuild": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "PiiScan"
+    },
+    "HandleError_OcrIfNeeded": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#OcrIfNeeded"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "OcrIfNeeded": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_ocr_if_needed}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_OcrIfNeeded"
+        }
+      ],
+      "Next": "Record_OcrIfNeeded"
+    },
+    "Record_OcrIfNeeded": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#OcrIfNeeded"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_OcrIfNeeded"
+    },
+    "Wait_OcrIfNeeded": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "OcrIfNeeded"
+    },
+    "Check_OcrIfNeeded": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        },
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "PENDING",
+          "Next": "Wait_OcrIfNeeded"
+        }
+      ],
+      "Default": "SegmentBuild"
+    },
+    "HandleError_ParallelPreprocess": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#ParallelPreprocess"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "ParallelPreprocess": {
+      "Type": "Parallel",
+      "Branches": [
+        {
+          "StartAt": "TextLayerExtract",
+          "States": {
+            "TextLayerExtract": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${fn_text_layer_extract}",
+                "Payload": {
+                  "workflow_id.$": "$.ctx.workflow_id",
+                  "doc_id.$": "$.ctx.doc_id",
+                  "version.$": "$.ctx.version",
+                  "bucket.$": "$.ctx.bucket",
+                  "prefix.$": "$.ctx.prefix",
+                  "actor.$": "$.ctx.actor"
+                }
+              },
+              "ResultSelector": {
+                "status.$": "$.Payload.status"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                },
+                {
+                  "ErrorEquals": [
+                    "ThrottlingException",
+                    "TooManyRequestsException",
+                    "ServiceUnavailableException"
+                  ],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "End": true
+            }
+          }
+        },
+        {
+          "StartAt": "PageRender",
+          "States": {
+            "PageRender": {
+              "Type": "Task",
+              "Resource": "arn:aws:states:::lambda:invoke",
+              "Parameters": {
+                "FunctionName": "${fn_page_render}",
+                "Payload": {
+                  "workflow_id.$": "$.ctx.workflow_id",
+                  "doc_id.$": "$.ctx.doc_id",
+                  "version.$": "$.ctx.version",
+                  "bucket.$": "$.ctx.bucket",
+                  "prefix.$": "$.ctx.prefix",
+                  "actor.$": "$.ctx.actor"
+                }
+              },
+              "ResultSelector": {
+                "status.$": "$.Payload.status"
+              },
+              "Retry": [
+                {
+                  "ErrorEquals": [
+                    "Lambda.ServiceException",
+                    "Lambda.AWSLambdaException",
+                    "Lambda.SdkClientException",
+                    "Lambda.TooManyRequestsException"
+                  ],
+                  "IntervalSeconds": 2,
+                  "MaxAttempts": 3,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                },
+                {
+                  "ErrorEquals": [
+                    "ThrottlingException",
+                    "TooManyRequestsException",
+                    "ServiceUnavailableException"
+                  ],
+                  "IntervalSeconds": 10,
+                  "MaxAttempts": 2,
+                  "BackoffRate": 2,
+                  "JitterStrategy": "FULL"
+                }
+              ],
+              "End": true
+            }
+          }
+        }
+      ],
+      "ResultSelector": {
+        "a.$": "$[0].status",
+        "b.$": "$[1].status"
+      },
+      "ResultPath": "$.par",
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_ParallelPreprocess"
+        }
+      ],
+      "Next": "Record_TextLayerExtract"
+    },
+    "Record_TextLayerExtract": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#TextLayerExtract"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.par.a"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Record_PageRender"
+    },
+    "Record_PageRender": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#PageRender"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.par.b"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_ParallelPreprocess"
+    },
+    "Check_ParallelPreprocess": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Or": [
+            {
+              "Variable": "$.par.a",
+              "StringEquals": "BLOCKED"
+            },
+            {
+              "Variable": "$.par.b",
+              "StringEquals": "BLOCKED"
+            }
+          ],
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "OcrIfNeeded"
+    },
+    "HandleError_FileStructureCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#FileStructureCheck"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "FileStructureCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_file_structure_check}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_FileStructureCheck"
+        }
+      ],
+      "Next": "Record_FileStructureCheck"
+    },
+    "Record_FileStructureCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#FileStructureCheck"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_FileStructureCheck"
+    },
+    "Check_FileStructureCheck": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        }
+      ],
+      "Default": "ParallelPreprocess"
+    },
+    "HandleError_MalwareCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#MalwareCheck"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S": "FAILED"
+          },
+          "error": {
+            "S.$": "$.error.Error"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Failed"
+    },
+    "MalwareCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::lambda:invoke",
+      "Parameters": {
+        "FunctionName": "${fn_malware_check}",
+        "Payload": {
+          "workflow_id.$": "$.ctx.workflow_id",
+          "doc_id.$": "$.ctx.doc_id",
+          "version.$": "$.ctx.version",
+          "bucket.$": "$.ctx.bucket",
+          "prefix.$": "$.ctx.prefix",
+          "actor.$": "$.ctx.actor"
+        }
+      },
+      "ResultSelector": {
+        "status.$": "$.Payload.status"
+      },
+      "ResultPath": "$.last",
+      "Retry": [
+        {
+          "ErrorEquals": [
+            "Lambda.ServiceException",
+            "Lambda.AWSLambdaException",
+            "Lambda.SdkClientException",
+            "Lambda.TooManyRequestsException"
+          ],
+          "IntervalSeconds": 2,
+          "MaxAttempts": 3,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        },
+        {
+          "ErrorEquals": [
+            "ThrottlingException",
+            "TooManyRequestsException",
+            "ServiceUnavailableException"
+          ],
+          "IntervalSeconds": 10,
+          "MaxAttempts": 2,
+          "BackoffRate": 2,
+          "JitterStrategy": "FULL"
+        }
+      ],
+      "Catch": [
+        {
+          "ErrorEquals": [
+            "States.ALL"
+          ],
+          "ResultPath": "$.error",
+          "Next": "HandleError_MalwareCheck"
+        }
+      ],
+      "Next": "Record_MalwareCheck"
+    },
+    "Record_MalwareCheck": {
+      "Type": "Task",
+      "Resource": "arn:aws:states:::dynamodb:putItem",
+      "Parameters": {
+        "TableName": "${table_workflows}",
+        "Item": {
+          "pk": {
+            "S.$": "States.Format('WF#{}', $.ctx.workflow_id)"
+          },
+          "sk": {
+            "S": "STEP#MalwareCheck"
+          },
+          "doc_id": {
+            "S.$": "$.ctx.doc_id"
+          },
+          "status": {
+            "S.$": "$.last.status"
+          },
+          "ended_at": {
+            "S.$": "$$.State.EnteredTime"
+          }
+        }
+      },
+      "ResultPath": null,
+      "Next": "Check_MalwareCheck"
+    },
+    "Wait_MalwareCheck": {
+      "Type": "Wait",
+      "Seconds": 15,
+      "Next": "MalwareCheck"
+    },
+    "Check_MalwareCheck": {
+      "Type": "Choice",
+      "Choices": [
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "BLOCKED",
+          "Next": "Blocked"
+        },
+        {
+          "Variable": "$.last.status",
+          "StringEquals": "PENDING",
+          "Next": "Wait_MalwareCheck"
+        }
+      ],
+      "Default": "FileStructureCheck"
+    },
+    "Init": {
+      "Type": "Pass",
+      "Parameters": {
+        "ctx.$": "$",
+        "outcome": "PUBLISHED"
+      },
+      "Next": "MalwareCheck"
+    }
+  }
+}
