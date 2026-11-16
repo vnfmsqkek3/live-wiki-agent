@@ -7,7 +7,8 @@ import type { GEdge, GNode, Graph } from "./model.ts";
 
 export const BATCH = 50;
 
-export interface CiteRow { wiki_id: string; wiki_doc_id: string; title: string; provision_id: string; law_id: string; path: string; evidence_span: string }
+export interface CiteRow { wiki_id: string; wiki_doc_id: string; title: string; acl: string; provision_id: string; law_id: string; path: string; evidence_span: string }
+export interface OutEdge { type: string; to: string; to_label: string; to_acl: string | null; from_acl: string | null; props: Record<string, unknown> }
 export interface RefRow { from_id: string; from_path: string; to_path: string; law_id: string; revision_id: string }
 
 export interface GraphStore {
@@ -17,7 +18,7 @@ export interface GraphStore {
   citers(lawId: string, paths: string[]): Promise<CiteRow[]>;
   /** law_id 안에서 paths를 REFERENCES로 가리키는 조문 (간접 영향 1홉) */
   referrers(lawId: string, paths: string[]): Promise<RefRow[]>;
-  outgoing(id: string): Promise<{ type: string; to: string; to_label: string; props: Record<string, unknown> }[]>;
+  outgoing(id: string): Promise<OutEdge[]>;
 }
 
 /** 경로 겹침: 같거나, 한쪽이 다른 쪽의 상위 */
@@ -61,7 +62,7 @@ export class MemoryGraphStore implements GraphStore {
       if (e.type !== "CITES") continue;
       const p = this.nodes.get(e.to)!; const w = this.nodes.get(e.from)!;
       if (p.props["law_id"] !== lawId || !paths.some((x) => overlaps(String(p.props["path"]), x))) continue;
-      rows.push({ wiki_id: w.id, wiki_doc_id: String(w.props["doc_id"]), title: String(w.props["title"]), provision_id: p.id, law_id: lawId, path: String(p.props["path"]), evidence_span: e.props.evidence_span });
+      rows.push({ wiki_id: w.id, wiki_doc_id: String(w.props["doc_id"]), title: String(w.props["title"]), acl: String(w.props["acl"] ?? ""), provision_id: p.id, law_id: lawId, path: String(p.props["path"]), evidence_span: e.props.evidence_span });
     }
     return rows;
   }
@@ -76,7 +77,9 @@ export class MemoryGraphStore implements GraphStore {
     return rows;
   }
   async outgoing(id: string) {
-    return [...this.edges.values()].filter((e) => e.from === id).map((e) => ({ type: e.type, to: e.to, to_label: e.toLabel, props: e.props }));
+    const acl = (n?: GNode) => (n?.props["acl"] === undefined ? null : String(n.props["acl"]));
+    return [...this.edges.values()].filter((e) => e.from === id)
+      .map((e) => ({ type: e.type, to: e.to, to_label: e.toLabel, to_acl: acl(this.nodes.get(e.to)), from_acl: acl(this.nodes.get(e.from)), props: e.props }));
   }
 }
 
@@ -122,7 +125,7 @@ export class NeptuneGraphStore implements GraphStore {
   }
   async citers(lawId: string, paths: string[]) {
     const rows = await this.run<CiteRow>(
-      "MATCH (w:WIKI_VERSION)-[c:CITES]->(p) WHERE p.law_id = $law RETURN w.id AS wiki_id, w.doc_id AS wiki_doc_id, w.title AS title, p.id AS provision_id, p.law_id AS law_id, p.path AS path, c.evidence_span AS evidence_span",
+      "MATCH (w:WIKI_VERSION)-[c:CITES]->(p) WHERE p.law_id = $law RETURN w.id AS wiki_id, w.doc_id AS wiki_doc_id, w.title AS title, w.acl AS acl, p.id AS provision_id, p.law_id AS law_id, p.path AS path, c.evidence_span AS evidence_span",
       { law: lawId });
     return rows.filter((r) => paths.some((x) => overlaps(r.path, x)));
   }
@@ -133,7 +136,7 @@ export class NeptuneGraphStore implements GraphStore {
     return rows.filter((r) => paths.some((x) => overlaps(r.to_path, x)));
   }
   async outgoing(id: string) {
-    return this.run<{ type: string; to: string; to_label: string; props: Record<string, unknown> }>(
-      "MATCH (a {id: $id})-[r]->(b) RETURN type(r) AS type, b.id AS to, labels(b)[0] AS to_label, properties(r) AS props", { id });
+    return this.run<OutEdge>(
+      "MATCH (a {id: $id})-[r]->(b) RETURN type(r) AS type, b.id AS to, labels(b)[0] AS to_label, b.acl AS to_acl, a.acl AS from_acl, properties(r) AS props", { id });
   }
 }

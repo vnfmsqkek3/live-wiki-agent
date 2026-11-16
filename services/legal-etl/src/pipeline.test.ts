@@ -79,7 +79,14 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   const out = await promoteStep({ ...pin, approval_id: "apr_1" }, s, r);
   assert.equal(out.output_key, `legal/${DOC}/content.txt`);
   assert.equal(r.approvals.get("apr_1")!.status, "USED");
-  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_1" }, s, r), /재사용/u); // 재사용 차단
+  // 같은 워크플로 재시도는 허용(멱등), 다른 워크플로의 재사용은 차단
+  assert.equal((await promoteStep({ ...pin, approval_id: "apr_1" }, s, r)).status, "OK");
+  await assert.rejects(promoteStep({ ...pin, workflow_id: "wf_other", approval_id: "apr_1" }, s, r), /재사용/u);
+  assert.match(out.content_hash!, /^sha256:/u);
+  // 이전 실행의 잔여 마스킹 페이지가 섞이면 실패
+  await s.put(Q, `${DOC}/masked/segments/0007.json`, JSON.stringify({ text: "옛 페이지" }));
+  r.approvals.set("apr_2", { approval_id: "apr_2", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
+  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), /세그먼트 불일치/u);
 
   const meta = MetadataSidecar.parse(JSON.parse((await s.get(P, `legal/${DOC}/content.txt.metadata.json`)).toString())).metadataAttributes;
   assert.equal(meta.index_group, "legal-clauses");

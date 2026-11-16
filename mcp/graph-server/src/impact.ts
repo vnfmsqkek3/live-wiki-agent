@@ -17,7 +17,8 @@ export interface ImpactReport { law_id: string; old_revision: string; new_revisi
 const pick = (c: ProvisionChange) => ({ path: c.path, kind: c.kind, old_text: c.old_text, new_text: c.new_text, numbers_changed: c.numbers_changed });
 const isHigh = (c: ProvisionChange) => c.kind === "DELETED" || c.kind === "REMOVED" || c.numbers_changed.old.join() !== c.numbers_changed.new.join();
 
-export async function analyzeImpact(oldLaw: ParsedLaw, newLaw: ParsedLaw, graph: GraphStore): Promise<ImpactReport> {
+/** canSee: 노하우 ACL 문자열("A|B") → 사용자 열람 가능 여부. 없으면 전체(배치·평가용) */
+export async function analyzeImpact(oldLaw: ParsedLaw, newLaw: ParsedLaw, graph: GraphStore, canSee: (acl: string) => boolean = () => true): Promise<ImpactReport> {
   if (oldLaw.law_id !== newLaw.law_id) throw new Error("서로 다른 법령은 비교하지 않음");
   const changes = diffLaws(oldLaw, newLaw).filter((c) => !c.path.startsWith("SUPPLEMENTARY:")); // 부칙은 별도 검토 (경과조치)
   const byDoc = new Map<string, ImpactItem>();
@@ -31,14 +32,14 @@ export async function analyzeImpact(oldLaw: ParsedLaw, newLaw: ParsedLaw, graph:
 
   const paths = changes.map((c) => c.path);
   const overlapsAny = (p: string, c: ProvisionChange) => p === c.path || p.startsWith(c.path + "/") || c.path.startsWith(p + "/");
-  for (const row of await graph.citers(newLaw.law_id, paths)) {
+  for (const row of (await graph.citers(newLaw.law_id, paths)).filter((r) => canSee(r.acl))) {
     for (const c of changes) if (overlapsAny(row.path, c)) add(row, "DIRECT", c);
   }
   // 간접: 변경 조문을 참조하는 다른 조문을 인용한 노하우 (1홉)
   const refs = await graph.referrers(newLaw.law_id, paths);
   const viaPaths = [...new Set(refs.map((r) => r.from_path))].filter((p) => !paths.some((x) => x === p));
   if (viaPaths.length) {
-    for (const row of await graph.citers(newLaw.law_id, viaPaths)) {
+    for (const row of (await graph.citers(newLaw.law_id, viaPaths)).filter((r) => canSee(r.acl))) {
       if (byDoc.get(row.wiki_doc_id)?.relation === "DIRECT") continue;
       for (const r of refs.filter((x) => overlapsAny(row.path, { path: x.from_path } as ProvisionChange))) {
         const c = changes.find((x) => overlapsAny(r.to_path, x))!;

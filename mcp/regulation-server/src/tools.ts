@@ -18,7 +18,7 @@ export function clausePath(expr: string): string {
   const m = e.replace(/\s+/gu, "").match(CLAUSE_EXPR) ?? e.match(CLAUSE_EXPR);
   if (!m) throw new ToolError("INVALID_ARGUMENT", `조문 표현을 해석할 수 없음: ${expr}`);
   const [, supp, a, ab, p, i, ib, s] = m;
-  let path = `${supp ? "SUPPLEMENTARY:1/" : ""}ARTICLE:${a}${ab ? `-${ab}` : ""}`;
+  let path = `${supp ? "SUPPLEMENTARY:*/" : ""}ARTICLE:${a}${ab ? `-${ab}` : ""}`;
   if (p) path += `/PARAGRAPH:${p}`;
   if (i) path += `/ITEM:${i}${ib ? `-${ib}` : ""}`;
   if (s) path += `/SUBITEM:${SUBITEM_CODES[s as SubitemChar]}`;
@@ -26,14 +26,22 @@ export function clausePath(expr: string): string {
 }
 
 const findPath = (provs: Provision[], path: string): Provision | undefined => {
+  if (path.startsWith("SUPPLEMENTARY:*/")) {
+    // "부칙 제N조"는 부칙이 여러 개면 가장 최근(마지막) 부칙으로 해석
+    const n = Math.max(0, ...provs.map((p) => Number(relPath(p.provision_id).match(/^SUPPLEMENTARY:(\d+)/u)?.[1] ?? 0)));
+    if (!n) return undefined;
+    path = path.replace("SUPPLEMENTARY:*/", `SUPPLEMENTARY:${n}/`);
+  }
   const byRel = new Map(provs.map((p) => [relPath(p.provision_id), p]));
   // "제12조제1호"처럼 항이 생략된 표현은 제1항 경로로 보완
   return byRel.get(path) ?? byRel.get(path.replace(/^(.*ARTICLE:[\d-]+)(\/ITEM:.*)$/u, "$1/PARAGRAPH:1$2"));
 };
 
 const visible = (r: RevisionRecord, actor: Actor) => r.acl_groups.some((g) => aclKeys(actor).includes(g));
+/** 기준일에 시행 중인 VERIFIED 버전. 기간이 겹치면(이전 버전 종료일 미갱신) 가장 최근 시행 버전이 우선 */
 const effectiveAt = (revs: RevisionRecord[], ymd: number) =>
-  revs.find((r) => r.authority_status === "VERIFIED" && r.effective_from <= ymd && ymd <= r.effective_to);
+  revs.filter((r) => r.authority_status === "VERIFIED" && r.effective_from <= ymd && ymd <= r.effective_to)
+    .sort((a, b) => b.effective_from - a.effective_from)[0];
 const systemToday = () => Number(new Date().toISOString().slice(0, 10).replaceAll("-", ""));
 
 export interface ClauseResult {
@@ -59,8 +67,15 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
     const revs = await store.revisions(lawId);
     if (!revs.length) return { search_status: "UNVERIFIED", reason: "법령 버전 정보 없음", law_id: lawId };
     if (!revs.some((r) => visible(r, actor))) return { search_status: "ACCESS_DENIED", reason: "열람 권한 없음", law_id: lawId };
-    const rev = effectiveAt(revs.filter((r) => visible(r, actor)), asOf);
-    if (!rev) return { search_status: "NOT_FOUND_VERIFIED", reason: `기준일 ${asOf}에 시행 중인 승인 버전 없음 (등록 버전 ${revs.map((r) => r.revision_id).join(", ")})`, law_id: lawId };
+    const vis = revs.filter((r) => visible(r, actor));
+    const rev = effectiveAt(vis, asOf);
+    if (!rev) {
+      // 모든 버전이 보이고 VERIFIED일 때만 "그 날짜에 시행 버전 없음"을 확정. 아니면 확인 불가
+      const certain = vis.length === revs.length && revs.every((r) => r.authority_status === "VERIFIED");
+      return certain
+        ? { search_status: "NOT_FOUND_VERIFIED", reason: `기준일 ${asOf}에 시행 중인 승인 버전 없음 (등록 버전 ${vis.map((r) => r.revision_id).join(", ")})`, law_id: lawId }
+        : { search_status: "UNVERIFIED", reason: `기준일 ${asOf}에 확인 가능한 승인 버전 없음`, law_id: lawId };
+    }
     const base = { law_id: lawId, revision_id: rev.revision_id, effective_from: rev.effective_from, effective_to: rev.effective_to };
     const provs = await store.provisions(lawId, rev.revision_id);
     if (!provs) return { search_status: "UNVERIFIED", reason: "조문 구조 데이터 없음", ...base };
@@ -78,9 +93,11 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
       };
     }
     // 현행 버전에 없음 → 과거 버전에서 찾으면 HISTORICAL, 어디에도 없으면 확인된 부재
-    for (const old of revs.filter((r) => r.effective_to < rev.effective_from && visible(r, actor)).reverse()) {
+    let unchecked = false;
+    for (const old of vis.filter((r) => r.effective_from < rev.effective_from).sort((a, b) => b.effective_from - a.effective_from)) {
       const op = await store.provisions(lawId, old.revision_id);
-      const hit = op && findPath(op, path);
+      if (!op) { unchecked = true; continue; }
+      const hit = findPath(op, path);
       if (hit) {
         return {
           search_status: "HISTORICAL", reason: `현행 버전(${rev.revision_id})에 없음. 과거 버전 ${old.revision_id}에만 존재`,
@@ -91,6 +108,7 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
     }
     // 파싱 이슈가 남은 버전은 구조가 완전하다고 볼 수 없으므로 부재를 확정하지 않는다
     if (!rev.parse_ok) return { search_status: "UNVERIFIED", reason: "파싱 검토 미완료 버전: 부재를 확정할 수 없음", ...base };
+    if (unchecked || vis.length !== revs.length) return { search_status: "UNVERIFIED", reason: "확인하지 못한 과거 버전이 있어 부재를 확정할 수 없음", ...base };
     return { search_status: "NOT_FOUND_VERIFIED", reason: `${lawId}@${rev.revision_id} 전체 구조에서 ${path} 없음 (과거 버전 포함 확인)`, ...base };
   }
 
@@ -105,7 +123,7 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
       if (!revs.length) return { search_status: "ACCESS_DENIED", reason: "열람 권한 없음" };
       const cur = effectiveAt(revs, asOf);
       return {
-        search_status: cur ? "FOUND" : "NOT_FOUND_VERIFIED",
+        search_status: cur ? "FOUND" : "UNVERIFIED",
         law_id: lawId, law_name: revs[0]!.law_name, as_of: asOf,
         current: cur ? { revision_id: cur.revision_id, effective_from: cur.effective_from, effective_to: cur.effective_to, registry_doc_no: cur.registry_doc_no, content_hash: cur.content_hash } : null,
         versions: revs.map((r) => ({ revision_id: r.revision_id, effective_from: r.effective_from, effective_to: r.effective_to, authority_status: r.authority_status })),

@@ -66,3 +66,18 @@ test("Gateway 핸들러: 신원은 컨텍스트에서만, 인자 속 신원 무�
   const ok = await h({ law: LAW, clause: "제12조", as_of: "2026-12-15" }, ctx(JSON.stringify(user)));
   assert.equal((ok as { search_status: string }).search_status, "FOUND");
 });
+
+test("UNVERIFIED 버전·권한 밖 버전이 있으면 부재 확정 금지, 겹치는 기간은 최신 버전 우선, 부칙은 최신 부칙", async () => {
+  const { MemoryClauseStore } = await import("./store.ts");
+  const { parseLaw } = await import("@hanaeum/legal-parser");
+  const s = new MemoryClauseStore();
+  const law = (rev: string, txt: string) => parseLaw(txt, { law_id: "SYN-T-001", law_name: "가상시험규정", revision_id: rev });
+  const rec = (rev: string, from: number, to: number, o: object = {}) => ({ law_id: "SYN-T-001", law_name: "가상시험규정", revision_id: rev, effective_from: from, effective_to: to, authority_status: "VERIFIED" as const, doc_id: rev, content_hash: "", acl_groups: ["ALL"], parse_ok: true, ...o });
+  s.put(rec("2026-01-01", 20260101, 99991231), law("2026-01-01", "제1조(목적) 옛 기준 5억원.\n부칙\n제1조(시행일) 2026년 1월 1일 시행.\n부칙 <2026. 6. 1.>\n제1조(시행일) 2026년 6월 1일 시행."));
+  s.put(rec("2026-07-01", 20260701, 99991231), law("2026-07-01", "제1조(목적) 새 기준 3억원."));
+  s.put(rec("2027-01-01", 20270101, 99991231, { authority_status: "UNVERIFIED" }));
+  const t = regulationTools(s, { today: () => 20261216 });
+  assert.match((await t.get_clause({ law: "가상시험규정", clause: "제1조", as_of: "2026-12-15" }, user)).original_text!, /3억원/u);
+  assert.equal((await t.get_clause({ law: "가상시험규정", clause: "제1조", as_of: "2025-01-01" }, user)).search_status, "UNVERIFIED");
+  assert.match((await t.get_clause({ law: "가상시험규정", clause: "부칙 제1조", as_of: "2026-03-01" }, user)).original_text!, /6월 1일/u);
+});

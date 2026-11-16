@@ -115,6 +115,7 @@ export type StepInput = z.infer<typeof StepInput>;
 export const StepOutput = z.object({
   status: z.enum(["OK", "REVIEW_REQUIRED", "BLOCKED"]),
   output_key: z.string().optional(),
+  content_hash: z.string().optional(), // Promote: 게시본 해시 (Finalize가 Documents에 기록)
   findings: z.array(Finding).optional(),
 });
 export type StepOutput = z.infer<typeof StepOutput>;

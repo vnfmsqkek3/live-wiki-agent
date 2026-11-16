@@ -62,14 +62,26 @@ export class BedrockRetriever implements Retriever {
 }
 
 // ── 현재 상태 재검증 ───────────────────────────────────
-export interface DocState { doc_id: string; lifecycle: Lifecycle; authority_status: AuthorityStatus; conditional?: boolean; freshness: Freshness; acl_groups: string[]; content_hash: string }
+export interface DocState {
+  doc_id: string; lifecycle: Lifecycle; authority_status: AuthorityStatus; conditional?: boolean; freshness: Freshness; acl_groups: string[]; content_hash: string;
+  effective_from?: number; effective_to?: number; // 현재 유효기간 (새 버전 시행 시 갱신). KB 메타데이터보다 우선
+}
 export interface DocStates { get(docIds: string[]): Promise<Map<string, DocState>> }
 
 export interface Result {
   doc_id: string; title: string; document_type: string; provision_id: string; path_label: string; provision_status: string;
   original_text: string; authority_status: AuthorityStatus; conditional: boolean; freshness: Freshness;
   effective_from: number; effective_to: number; score: number;
+  historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
+
+/** 유효기간 판정: DynamoDB 현재 상태가 있으면 그것을, 없으면 KB 메타데이터를 쓴다. 기간 정보 없이 SUPERSEDED면 현행 아님 */
+const current = (st: DocState, m: Record<string, unknown>, asOf: number) => {
+  const from = st.effective_from ?? Number(m["effective_from"]);
+  const to = st.effective_to ?? Number(m["effective_to"]);
+  if (st.effective_to === undefined && st.freshness === "SUPERSEDED") return false;
+  return from <= asOf && asOf <= to;
+};
 
 export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Actor, o: FilterOpts): { kept: Result[]; dropped: number } {
   const keys = aclKeys(actor);
@@ -82,14 +94,16 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       && st.authority_status !== "REJECTED"
       && st.acl_groups.some((g) => keys.includes(g))
       && st.content_hash === m["content_hash"] // KB 동기화 지연으로 남은 옛 버전 청크 차단
-      && (o.includeHistory || (Number(m["effective_from"]) <= o.asOf && o.asOf <= Number(m["effective_to"]) && m["provision_status"] !== "DELETED"));
+      && (o.includeHistory || (current(st, m, o.asOf) && m["provision_status"] !== "DELETED"));
     if (!ok) continue;
+    const hist = m["provision_status"] === "DELETED" || !current(st, m, o.asOf);
     kept.push({
+      historical: hist,
       doc_id: st.doc_id, title: String(m["title"] ?? ""), document_type: String(m["document_type"]),
       provision_id: String(m["provision_id"] ?? ""), path_label: String(m["provision_path"] ?? ""), provision_status: String(m["provision_status"] ?? "ACTIVE"),
       original_text: String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
       authority_status: st.authority_status, conditional: !!st.conditional, freshness: st.freshness,
-      effective_from: Number(m["effective_from"]), effective_to: Number(m["effective_to"]), score: h.score,
+      effective_from: st.effective_from ?? Number(m["effective_from"]), effective_to: st.effective_to ?? Number(m["effective_to"]), score: h.score,
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -113,8 +127,9 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     const states = await deps.states.get([...new Set(hits.map((h) => String(h.metadata["doc_id"])))]);
     const { kept, dropped } = revalidate(hits, states, actor, o);
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7)
-    const search_status: SearchStatus = kept.length ? "FOUND" : "UNVERIFIED";
-    return { search_status, results: kept.slice(0, k), dropped_after_revalidation: dropped, pii_masked: q.masked };
+    const top = kept.slice(0, k);
+    const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
+    return { search_status, results: top, dropped_after_revalidation: dropped, pii_masked: q.masked };
   }
 
   return {

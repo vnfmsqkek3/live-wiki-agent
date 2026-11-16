@@ -119,7 +119,7 @@ export async function measureDeletionSafety() {
 export async function measureImpact() {
   const clauses = fixtureClauseStore() as MemoryClauseStore;
   const graph = new MemoryGraphStore();
-  const base = { workflow_id: "wf_eval", bucket: "-", prefix: "", actor: APPROVER, acl_groups: ["ALL"], content_hash: "-" };
+  const base = { workflow_id: "wf_eval", bucket: "-", prefix: "", actor: APPROVER, acl_groups: ["ALL"], content_hash: "-", authority_status: "VERIFIED" as const };
   // 규정 전 버전 그래프 적재 (구조는 저장소에 이미 있으므로 putLaw 생략)
   const byLaw = new Map<string, typeof clauses.revs>();
   for (const r of clauses.revs) byLaw.set(r.law_id, [...(byLaw.get(r.law_id) ?? []), r]);

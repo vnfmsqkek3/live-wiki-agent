@@ -48,10 +48,11 @@ export function lawGraph(law: ParsedLaw, v: LawVersionInfo): Graph {
 export interface Citation { provision_id: string; evidence_span: string; confidence: number }
 
 /** 승인된 노하우 → WIKI_VERSION + CITES (승인 전 관계는 그래프에 올리지 않음) */
-export function wikiGraph(doc: { doc_id: string; version: number; title: string; effective_from: number; effective_to: number }, citations: Citation[]): Graph {
+export function wikiGraph(doc: { doc_id: string; version: number; title: string; effective_from: number; effective_to: number; acl_groups: string[] }, citations: Citation[]): Graph {
   const id = `${doc.doc_id}@v${doc.version}`;
   return {
-    nodes: [{ id, label: "WIKI_VERSION", props: { doc_id: doc.doc_id, version: doc.version, title: doc.title } }],
+    // acl은 문자열로 저장 (Neptune 속성은 리스트 미지원). Tool이 사용자 ACL로 다시 거른다
+    nodes: [{ id, label: "WIKI_VERSION", props: { doc_id: doc.doc_id, version: doc.version, title: doc.title, acl: doc.acl_groups.join("|") } }],
     edges: citations.map((c) => ({
       type: "CITES", from: id, fromLabel: "WIKI_VERSION", to: c.provision_id, toLabel: labelOfId(c.provision_id),
       props: { doc_id: doc.doc_id, evidence_span: c.evidence_span, source_version: id, confidence: c.confidence, reviewer_status: "APPROVED", valid_from: doc.effective_from, valid_to: doc.effective_to },

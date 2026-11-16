@@ -46,19 +46,23 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   const originals = await store.list(input.bucket, `${input.doc_id}/original.`);
   if (originals.length !== 1) throw new Error("original 객체가 1개가 아님");
   const originalHash = sha256(await store.get(input.bucket, originals[0]!));
-  await records.consumeApproval({ approval_id: input.approval_id, doc_id: input.doc_id, version: input.version, content_hash: originalHash });
+  await records.consumeApproval({ approval_id: input.approval_id, doc_id: input.doc_id, version: input.version, content_hash: originalHash, workflow_id: input.workflow_id });
 
-  // 마스킹본만 게시 (원문·work/ 는 절대 published로 가지 않음)
+  // 마스킹본만 게시 (원문·work/ 는 절대 published로 가지 않음). 페이지 수가 이번 추출 결과와 정확히 같아야 함 (이전 실행의 잔여 페이지 혼입 차단)
+  const { page_count } = JSON.parse((await store.get(input.bucket, `${input.doc_id}/work/text_layer.json`)).toString()) as { page_count: number };
+  const expected = Array.from({ length: page_count }, (_, i) => `${input.doc_id}/masked/segments/${String(i).padStart(4, "0")}.json`);
   const segKeys = (await store.list(input.bucket, `${input.doc_id}/masked/segments/`)).filter((k) => k.endsWith(".json"));
-  if (!segKeys.length) throw new Error("마스킹 세그먼트 없음");
+  if (segKeys.join() !== expected.join()) throw new Error(`마스킹 세그먼트 불일치: ${segKeys.length}개 / 기대 ${page_count}개`);
   const texts: string[] = [];
   for (const k of segKeys) texts.push((JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string }).text);
   const content = texts.join("\n");
   if (!content.trim()) throw new Error("게시할 본문이 비어 있음");
 
-  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, input.approval_id, sha256(content)) });
+  const contentHash = sha256(content);
+  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, input.approval_id, contentHash) });
   const key = `${publishedPrefix(doc)}content.txt`;
   await store.put(input.published_bucket, key, content, "text/plain; charset=utf-8");
   await store.put(input.published_bucket, `${key}.metadata.json`, JSON.stringify(meta));
-  return { status: "OK", output_key: key };
+  // content_hash: Finalize가 Documents.content_hash에 기록해야 검색 재검증이 통과함
+  return { status: "OK", output_key: key, content_hash: contentHash };
 }

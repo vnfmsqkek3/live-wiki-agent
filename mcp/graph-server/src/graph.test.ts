@@ -10,7 +10,7 @@ const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const read = (p: string) => readFileSync(new URL(p, FIX), "utf8");
 const manifest = JSON.parse(read("documents/manifest.json")) as { documents: { document_id: string; expected_impacted?: string[] }[] };
 const frontCites = (p: string) => (read(p).match(/^cites: \[(.*)\]$/mu)![1]!).split(",").map((s) => s.trim()).filter(Boolean);
-const base = { workflow_id: "wf_x", bucket: "q", prefix: "", actor: { sub: "s", groups: ["REG_APPROVER"] }, acl_groups: ["ALL"], content_hash: "sha256:x" };
+const base = { workflow_id: "wf_x", bucket: "q", prefix: "", actor: { sub: "s", groups: ["REG_APPROVER"] }, acl_groups: ["ALL"], content_hash: "sha256:x", authority_status: "VERIFIED" as const };
 const LAW = { law_id: "SYN-LOAN-001", law_name: "한빛은행 기업여신 심사규정" };
 
 /** 3개 버전 규정 + K-001~K-003 노하우를 GraphUpsert 단계로 적재 */
@@ -91,4 +91,30 @@ test("인용 후보 추출: K-001·K-003 본문에서 front matter 정답 복원
     assert.deepEqual(got, frontCites(`documents/${k}.md`).sort(), k);
   }
   assert.deepEqual(await extractCitations(read("documents/K-004.md"), store, 20261115), []);
+});
+
+test("ACL: 다른 부서 전용 노하우는 trace_impact·get_dependencies에 노출되지 않음", async () => {
+  const { graph, clauses } = await loaded();
+  await graphUpsertStep({ ...base, acl_groups: ["DEPT#리스크"], doc_id: "K-902", version: 1, document_type: "KNOWHOW", title: "리스크부 전용", effective_from: 20261101, effective_to: 99991231, content: "",
+    citations: [{ provision_id: "SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:1", evidence_span: "비공개 근거", confidence: 1 }] }, graph, clauses);
+  const t = graphTools({ graph, clauses });
+  const args = { law: "SYN-LOAN-001", old_revision: "2026-11-01", new_revision: "2026-12-01" };
+  assert.ok(!(await t.trace_impact(args, { sub: "a", groups: ["AUTHOR"], dept: "여신" })).impacted.some((i) => i.doc_id === "K-902"));
+  assert.ok((await t.trace_impact(args, { sub: "b", groups: ["AUTHOR"], dept: "리스크" })).impacted.some((i) => i.doc_id === "K-902"));
+  await assert.rejects(t.get_dependencies({ id: "K-902@v1" }, { sub: "a", groups: ["AUTHOR"], dept: "여신" }), /권한/u);
+});
+
+test("새 버전 적재 시 겹치는 이전 버전 종료일을 닫아 현행으로 남지 않게 함, 파싱 이슈는 미적재", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const w = Object.assign(clauses, { putLaw: async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l) });
+  const reg = (doc: string, rev: string, from: number) => graphUpsertStep({ ...base, doc_id: doc, version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: from, effective_to: 99991231,
+    content: read(`documents/${doc}.txt`), law: { ...LAW, revision_id: rev } }, graph, w);
+  await reg("F-001", "2026-11-01", 20261101);
+  await reg("F-002", "2026-12-01", 20261201);
+  assert.equal((await clauses.revisions("SYN-LOAN-001")).find((r) => r.revision_id === "2026-11-01")!.effective_to, 20261130);
+  const bad = await graphUpsertStep({ ...base, doc_id: "L-001", version: 1, document_type: "REGULATION", title: "가상여신거래법", effective_from: 20261101, effective_to: 99991231,
+    content: read("legal/source/L-001.txt"), law: { law_id: "SYN-VLOAN-001", law_name: "가상여신거래법", revision_id: "2026-11-01" } }, graph, w);
+  assert.equal(bad.status, "REVIEW_REQUIRED");
+  assert.equal((await clauses.revisions("SYN-VLOAN-001")).length, 0, "검토 전 미적재");
 });

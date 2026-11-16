@@ -64,25 +64,29 @@ export interface DocumentRecord {
 
 export interface ApprovalRecord {
   approval_id: string; doc_id: string; version: number; content_hash: string;
-  status: "PENDING" | "APPROVED" | "REJECTED" | "USED"; decided_at?: string;
+  status: "PENDING" | "APPROVED" | "REJECTED" | "USED"; decided_at?: string; used_by?: string;
 }
+export interface ConsumeArgs { approval_id: string; doc_id: string; version: number; content_hash: string; workflow_id: string }
 
 export interface Records {
   getDocument(docId: string): Promise<DocumentRecord | undefined>;
-  /** interfaces.md 7.1: APPROVED → USED 조건부 전환. 조건 불일치면 예외 (재사용·중복 callback 차단) */
-  consumeApproval(a: { approval_id: string; doc_id: string; version: number; content_hash: string }): Promise<ApprovalRecord>;
+  /** interfaces.md 7.1: APPROVED → USED 조건부 전환. 조건 불일치면 예외 (재사용·중복 callback 차단).
+   *  같은 워크플로의 재시도(Promote 중간 실패)는 USED + used_by=workflow_id 일 때 허용 (멱등) */
+  consumeApproval(a: ConsumeArgs): Promise<ApprovalRecord>;
 }
 
 export class MemoryRecords implements Records {
   readonly documents = new Map<string, DocumentRecord>();
   readonly approvals = new Map<string, ApprovalRecord>();
   async getDocument(id: string) { return this.documents.get(id); }
-  async consumeApproval(a: { approval_id: string; doc_id: string; version: number; content_hash: string }) {
+  async consumeApproval(a: ConsumeArgs) {
     const r = this.approvals.get(a.approval_id);
-    if (!r || r.status !== "APPROVED" || r.doc_id !== a.doc_id || r.version !== a.version || r.content_hash !== a.content_hash) {
+    const usable = r && (r.status === "APPROVED" || (r.status === "USED" && r.used_by === a.workflow_id));
+    if (!r || !usable || r.doc_id !== a.doc_id || r.version !== a.version || r.content_hash !== a.content_hash) {
       throw Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${a.approval_id}`), { name: "ApprovalBindingError" });
     }
     r.status = "USED";
+    r.used_by = a.workflow_id;
     return { ...r };
   }
 }
@@ -98,15 +102,15 @@ export class DynamoRecords implements Records {
     const r = await this.db.send(new GetCommand({ TableName: this.tables.documents, Key: { doc_id } }));
     return r.Item as DocumentRecord | undefined;
   }
-  async consumeApproval(a: { approval_id: string; doc_id: string; version: number; content_hash: string }) {
+  async consumeApproval(a: ConsumeArgs) {
     try {
       const r = await this.db.send(new UpdateCommand({
         TableName: this.tables.approvals,
         Key: { approval_id: a.approval_id },
-        UpdateExpression: "SET #s = :used, used_at = :now",
-        ConditionExpression: "#s = :approved AND doc_id = :d AND version = :v AND content_hash = :h",
+        UpdateExpression: "SET #s = :used, used_by = :wf, used_at = if_not_exists(used_at, :now)",
+        ConditionExpression: "(#s = :approved OR (#s = :used AND used_by = :wf)) AND doc_id = :d AND version = :v AND content_hash = :h",
         ExpressionAttributeNames: { "#s": "status" },
-        ExpressionAttributeValues: { ":used": "USED", ":approved": "APPROVED", ":d": a.doc_id, ":v": a.version, ":h": a.content_hash, ":now": new Date().toISOString() },
+        ExpressionAttributeValues: { ":used": "USED", ":approved": "APPROVED", ":wf": a.workflow_id, ":d": a.doc_id, ":v": a.version, ":h": a.content_hash, ":now": new Date().toISOString() },
         ReturnValues: "ALL_NEW",
       }));
       return r.Attributes as ApprovalRecord;

@@ -89,3 +89,17 @@ test("retrieve_evidence: 지정 문서 안에서만", async () => {
   const r = await tools.retrieve_evidence({ query: "현장 실사", doc_ids: ["K-001"], as_of: "2026-12-15" }, user);
   assert.ok(r.results.length > 0 && r.results.every((x) => x.doc_id === "K-001"));
 });
+
+test("이전 버전 KB 메타데이터가 갱신되지 않아도 DynamoDB 현재 유효기간·SUPERSEDED로 차단, 이력 검색은 HISTORICAL", async () => {
+  const { tools, states, retriever } = setup();
+  // F-001 청크의 KB 메타데이터를 열린 기간으로 바꿔 '종료일 미갱신' 상황 재현
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "F-001") c.metadata["effective_to"] = 99991231;
+  states.docs.get("F-001")!.effective_to = 20261130;
+  const r = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 금액", as_of: "2026-12-15", index_groups: ["legal-clauses"] }, user);
+  assert.ok(!r.results.some((x) => x.doc_id === "F-001"));
+  states.docs.get("F-002")!.freshness = "SUPERSEDED"; // 기간 정보 없이 SUPERSEDED
+  const only = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 금액", as_of: "2026-12-15", index_groups: ["legal-clauses"] }, user);
+  assert.ok(!only.results.some((x) => x.doc_id === "F-002"));
+  const hist = await tools.retrieve_evidence({ query: "LTV 가산", doc_ids: ["F-002"], as_of: "2026-12-15", include_history: true }, user);
+  assert.equal(hist.search_status, "HISTORICAL");
+});

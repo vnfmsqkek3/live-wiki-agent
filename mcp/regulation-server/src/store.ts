@@ -3,7 +3,7 @@
 //   PK = LAW#{law_id}  SK = REV#{revision_id}                → RevisionRecord
 //   PK = LAW#{law_id}  SK = REV#{revision_id}#P#{rel_path}   → Provision
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand } from "@aws-sdk/lib-dynamodb";
+import { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import type { AuthorityStatus, ParsedLaw, Provision } from "@hanaeum/schemas";
 
 export interface RevisionRecord {
@@ -42,6 +42,10 @@ export class MemoryClauseStore implements ClauseStore {
       ?? matchLawName(n, this.revs.map((r) => ({ law_id: r.law_id, law_name: r.law_name })));
   }
   async revisions(lawId: string) { return this.revs.filter((r) => r.law_id === lawId).sort((a, b) => a.effective_from - b.effective_from); }
+  async closeRevision(lawId: string, rev: string, effectiveTo: number) {
+    const r = this.revs.find((x) => x.law_id === lawId && x.revision_id === rev);
+    if (r && r.effective_to > effectiveTo) r.effective_to = effectiveTo;
+  }
   async provisions(lawId: string, rev: string) { return this.provs.get(`${lawId}@${rev}`); }
 }
 
@@ -75,6 +79,16 @@ export class DynamoClauseStore implements ClauseStore {
   async provisions(lawId: string, rev: string) {
     const items = await this.query(`LAW#${lawId}`, `REV#${rev}#P#`);
     return items.length ? (items as unknown as Provision[]).sort((a, b) => a.source_line - b.source_line) : undefined;
+  }
+  /** 이전 버전 종료일 갱신 (더 늦은 값일 때만 앞당김) */
+  async closeRevision(lawId: string, rev: string, effectiveTo: number) {
+    try {
+      await this.db.send(new UpdateCommand({
+        TableName: this.table, Key: { PK: `LAW#${lawId}`, SK: `REV#${rev}` },
+        UpdateExpression: "SET effective_to = :t", ConditionExpression: "attribute_exists(PK) AND effective_to > :t",
+        ExpressionAttributeValues: { ":t": effectiveTo },
+      }));
+    } catch (e) { if ((e as Error).name !== "ConditionalCheckFailedException") throw e; }
   }
   /** 승인된 법령 버전 적재 (Promote 이후 호출). 25건 배치 */
   async putLaw(rec: RevisionRecord, law: ParsedLaw) {

@@ -74,3 +74,11 @@ test("인라인 엣지 케이스: 불규칙 띄어쓰기·가운뎃점", () => {
   assert.equal(refs.filter((r) => r.kind === "EXTERNAL").length, 1);
   assert.match(l.provisions[0]!.normalized_text, /제3조·제4조/u);
 });
+
+test("본문 줄 머리의 \"제N조(제목)에 따른\" 인용은 조로 분할하지 않음", () => {
+  const l = parseLaw("제1조(목적) 목적을 정한다.\n① 첫째 항.\n제10조(특례)에 따른 경우는 예외로 한다.\n② 기타.\n제3조(기타) 끝.", { law_id: "SYN-X-2", law_name: "가상", revision_id: "2026-01-01" });
+  const ids = l.provisions.map((p) => p.provision_id.split("/").slice(1).join("/"));
+  assert.ok(!ids.includes("ARTICLE:10"));
+  assert.ok(ids.includes("ARTICLE:1/PARAGRAPH:2"));
+  assert.match(l.provisions.find((p) => p.provision_id.endsWith("PARAGRAPH:1"))!.normalized_text, /제10조\(특례\)에 따른/u);
+});
