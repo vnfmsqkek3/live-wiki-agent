@@ -56,7 +56,7 @@ export default function Upload() {
   return (
     <>
       <h1 className="title">문서 등록</h1>
-      <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 한빛은행 합성 문서만 등록할 수 있습니다.</p>
+      <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
       <form onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
         <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />

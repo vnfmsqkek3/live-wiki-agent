@@ -11,9 +11,9 @@ export default function Login() {
   const [busy, setBusy] = useState(false);
   return (
     <div style={{ maxWidth: '24rem', margin: '8vh auto 0' }}>
-      <span className="seal official" aria-hidden="true" style={{ width: 72, height: 72, marginBottom: 16, fontSize: '.95rem' }}>한빛</span>
+      <span className="seal official" aria-hidden="true" style={{ width: 72, height: 72, marginBottom: 16, fontSize: '.95rem' }}>위키</span>
       <h1 className="title" style={{ marginBottom: 6 }}>Living Wiki</h1>
-      <p className="note">근거와 시행일이 확인된 업무 지식만 모아 둔 한빛은행(합성) 사내 Wiki입니다.</p>
+      <p className="note">근거와 시행일이 확인된 업무 지식만 모아 둔 하나은행(가상 데이터) 사내 Wiki 시연판입니다.</p>
       {MOCK && <p className="mock">연습용 로그인입니다. 아이디에 author를 넣으면 작성자, approver를 넣으면 승인자로 들어갑니다.</p>}
       <form onSubmit={async (e) => { e.preventDefault(); setErr(''); setBusy(true); try { await login(u, p); router.push('/'); } catch (x) { setErr((x as Error).message); setBusy(false); } }}>
         <label className="lbl" htmlFor="u">아이디</label>

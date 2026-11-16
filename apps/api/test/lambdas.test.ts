@@ -193,7 +193,7 @@ test('TrustGate + Registry: 해시 일치 규정은 VERIFIED·PASS, law_id 등 �
 
   const f = setup(pdf);
   await f.store.putDoc({ ...f.doc, content_hash: 'sha256:ff', classification: cls('REGULATION') });
-  assert.equal((await makeTrustGate({ ...f.deps, registry, maskedText: async () => '한빛은행 기업여신 심사규정 위장본' })(f.input)).status, 'REVIEW_REQUIRED');
+  assert.equal((await makeTrustGate({ ...f.deps, registry, maskedText: async () => '하나은행 기업여신 심사규정 위장본' })(f.input)).status, 'REVIEW_REQUIRED');
   const e = (await f.store.getDoc(f.doc.doc_id))!;
   assert.ok(e.findings.some((x) => x.code === 'REGISTRY_MISMATCH' && /ARTICLE:12/.test(x.message)));
   assert.equal(e.law_id, undefined);

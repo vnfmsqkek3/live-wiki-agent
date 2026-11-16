@@ -7,7 +7,7 @@ import { Tabs } from './tabs';
 const batang = Gowun_Batang({ weight: ['400', '700'], subsets: ['latin'], variable: '--font-batang', preload: false, display: 'swap' });
 const plex = IBM_Plex_Sans_KR({ weight: ['400', '500', '600', '700'], subsets: ['latin'], variable: '--font-plex', preload: false, display: 'swap' });
 
-export const metadata: Metadata = { title: 'Living Wiki', description: '한빛은행(합성) 지식의 근거와 유효성을 확인하는 Wiki' };
+export const metadata: Metadata = { title: 'Living Wiki', description: '하나은행(가상 데이터) 지식의 근거와 유효성을 확인하는 Wiki' };
 export const viewport: Viewport = {
   width: 'device-width', initialScale: 1,
   themeColor: [{ media: '(prefers-color-scheme: light)', color: '#eef1ec' }, { media: '(prefers-color-scheme: dark)', color: '#142030' }],
@@ -19,7 +19,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
       <body>
         <main>
           {children}
-          <p className="meta" style={{ marginTop: 40 }}>한빛은행은 가상 기관이며, 여기 있는 모든 문서는 시연용 합성 데이터(SYNTHETIC)입니다.</p>
+          <p className="meta" style={{ marginTop: 40 }}>여기 있는 모든 문서는 시연용 하나은행 가상 데이터(SYNTHETIC)이며, 실제 하나은행의 규정·자료가 아닙니다.</p>
         </main>
         <Tabs />
       </body>

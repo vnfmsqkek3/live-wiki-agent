@@ -57,7 +57,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   return j as T;
 }
 
-// ---------- 합성 mock (한빛은행 · SYNTHETIC) ----------
+// ---------- 합성 mock (하나은행 가상 데이터 · SYNTHETIC) ----------
 export interface SearchItem {
   doc_id: string; title: string; snippet: string; team: string; updated: string; stars: number;
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
