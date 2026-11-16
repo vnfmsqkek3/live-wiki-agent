@@ -1,31 +1,15 @@
 // Regulation MCP Tool (읽기 전용): get_official_policy, verify_version, get_clause, resolve_reference, compare_versions, fetch_official_law
 // 검색 상태 원칙 (docs/01 8.7): 부재는 "확인한 버전·범위"가 있을 때만 NOT_FOUND_VERIFIED. 근거 부족은 UNVERIFIED.
-import { SUBITEM_CODES } from "@hanaeum/schemas";
-import type { Provision, SearchStatus, SubitemChar } from "@hanaeum/schemas";
+import type { Provision, SearchStatus } from "@hanaeum/schemas";
 import { diffLaws } from "@hanaeum/legal-parser";
 import { ToolError, aclKeys, asOfYmd, str } from "@hanaeum/mcp-kit";
 import type { Actor } from "@hanaeum/mcp-kit";
 import { relPath } from "./store.ts";
+import { clausePath } from "./clause.ts";
+export { clausePath } from "./clause.ts";
 import { fetchOfficialLaw } from "./browser.ts";
 import type { LawPageFetcher } from "./browser.ts";
 import type { ClauseStore, RevisionRecord } from "./store.ts";
-
-const SUB = Object.keys(SUBITEM_CODES).join("");
-const CLAUSE_EXPR = new RegExp(`^(부칙\\s*)?제(\\d+)조(?:의(\\d+))?(?:\\s*제(\\d+)항)?(?:\\s*제(\\d+)호(?:의(\\d+))?)?(?:\\s*([${SUB}])목)?$`, "u");
-
-/** "제12조제2항제3호가목" 또는 provision_id → 버전 무관 상대 경로 */
-export function clausePath(expr: string): string {
-  const e = expr.trim();
-  if (e.includes("/ARTICLE:") || /^(?:SUPPLEMENTARY:\d+\/)?ARTICLE:/u.test(e)) return e.includes("@") ? relPath(e) : e;
-  const m = e.replace(/\s+/gu, "").match(CLAUSE_EXPR) ?? e.match(CLAUSE_EXPR);
-  if (!m) throw new ToolError("INVALID_ARGUMENT", `조문 표현을 해석할 수 없음: ${expr}`);
-  const [, supp, a, ab, p, i, ib, s] = m;
-  let path = `${supp ? "SUPPLEMENTARY:*/" : ""}ARTICLE:${a}${ab ? `-${ab}` : ""}`;
-  if (p) path += `/PARAGRAPH:${p}`;
-  if (i) path += `/ITEM:${i}${ib ? `-${ib}` : ""}`;
-  if (s) path += `/SUBITEM:${SUBITEM_CODES[s as SubitemChar]}`;
-  return path;
-}
 
 const findPath = (provs: Provision[], path: string): Provision | undefined => {
   if (path.startsWith("SUPPLEMENTARY:*/")) {

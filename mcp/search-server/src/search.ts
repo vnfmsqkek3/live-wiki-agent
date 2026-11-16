@@ -2,7 +2,8 @@
 // 하드 게이트(ACL·공식성·유효기간)는 Rerank 전에 서버가 필터로 강제하고, 결과는 DynamoDB 현재 상태로 다시 검증한다.
 import { BedrockAgentRuntimeClient, RetrieveCommand } from "@aws-sdk/client-bedrock-agent-runtime";
 import type { RetrievalFilter } from "@aws-sdk/client-bedrock-agent-runtime";
-import type { AuthorityStatus, Freshness, IndexGroup, Lifecycle, SearchStatus } from "@hanaeum/schemas";
+import { IndexGroup, isoOfYmd } from "@hanaeum/schemas";
+import type { AuthorityStatus, Freshness, Lifecycle, SearchStatus } from "@hanaeum/schemas";
 import { ToolError, aclKeys, asOfYmd, maskPii, str } from "@hanaeum/mcp-kit";
 import type { Actor } from "@hanaeum/mcp-kit";
 import type { regulationTools } from "@hanaeum/regulation-server";
@@ -113,7 +114,7 @@ export interface Result {
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
-const isoDate = (ymd: number) => `${String(ymd).slice(0, 4)}-${String(ymd).slice(4, 6)}-${String(ymd).slice(6, 8)}`;
+const isoDate = isoOfYmd;
 
 /** 유효기간 판정: DynamoDB 현재 상태가 있으면 그것을, 없으면 KB 메타데이터를 쓴다. 기간 정보 없이 SUPERSEDED면 현행 아님 */
 const current = (st: DocState, m: Record<string, unknown>, asOf: number) => {
@@ -160,8 +161,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
 const groupsArg = (args: Record<string, unknown>): IndexGroup[] | undefined => {
   const v = args["index_groups"];
   if (v === undefined) return undefined;
-  const allowed = ["legal-clauses", "wiki-knowledge", "official-manuals"];
-  if (!Array.isArray(v) || v.some((g) => !allowed.includes(g as string))) throw new ToolError("INVALID_ARGUMENT", "index_groups");
+  if (!Array.isArray(v) || v.some((g) => !IndexGroup.safeParse(g).success)) throw new ToolError("INVALID_ARGUMENT", "index_groups");
   return v as IndexGroup[];
 };
 /** 업무 분류·태그 필터 인자 (문서보관함·검색 화면) */

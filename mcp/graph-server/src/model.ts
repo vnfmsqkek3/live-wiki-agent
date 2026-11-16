@@ -1,4 +1,5 @@
 // 법령·노하우 그래프 모델 (docs/01 5.2, docs/04 5장). 결정적 ID, 모든 노드·엣지에 doc_id.
+import { relPath } from "@hanaeum/legal-parser";
 import type { ParsedLaw, Provision } from "@hanaeum/schemas";
 
 export type NodeLabel = "LAW" | "LAW_VERSION" | "ARTICLE_VERSION" | "CLAUSE_VERSION" | "ANNEX" | "WIKI_VERSION";
@@ -11,7 +12,6 @@ export interface GEdge {
 }
 export interface Graph { nodes: GNode[]; edges: GEdge[] }
 
-const relPath = (id: string) => id.slice(id.indexOf("/") + 1);
 const labelOf = (p: Provision): NodeLabel => (p.level === "ARTICLE" ? "ARTICLE_VERSION" : p.level === "ANNEX" ? "ANNEX" : "CLAUSE_VERSION");
 export const labelOfId = (id: string): NodeLabel =>
   /\/ANNEX:[\d-]+$/u.test(id) ? "ANNEX" : /\/ARTICLE:[\d-]+$/u.test(id) ? "ARTICLE_VERSION" : id.includes("/") ? "CLAUSE_VERSION" : id.includes("@") ? "LAW_VERSION" : "LAW";

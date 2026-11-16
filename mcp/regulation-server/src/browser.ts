@@ -4,9 +4,10 @@
 import WebSocket from "ws";
 import { Browser } from "bedrock-agentcore/browser";
 import { parseLaw, diffLaws } from "@hanaeum/legal-parser";
-import { isoFromDotted, ymd } from "@hanaeum/schemas";
+import { isoFromDotted, isoOfYmd, ymd } from "@hanaeum/schemas";
 import type { ClauseStore } from "./store.ts";
 import { relPath } from "./store.ts";
+import { clausePath } from "./clause.ts";
 
 export const LAW_SITE = "https://www.law.go.kr";
 export const lawUrl = (lawName: string) => `${LAW_SITE}/법령/${encodeURIComponent(lawName.trim())}`;
@@ -113,14 +114,7 @@ export interface OfficialLawResult {
   stored?: { law_id: string; revision_id: string; effective_from: string; newer_official: boolean; changed: number; added: number; removed: number; changed_paths: string[] };
 }
 
-const iso = (n: number) => `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}`;
-
-/** clause 예: "제2조", "제2조제1항" → 경로 ARTICLE:2/PARAGRAPH:1 와 대조 */
-const clausePath = (c: string) => {
-  const m = /^제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호)?$/u.exec(c.replace(/\s/gu, ""));
-  if (!m) return undefined;
-  return [`ARTICLE:${m[1]}${m[2] ? `-${m[2]}` : ""}`, m[3] && `PARAGRAPH:${m[3]}`, m[4] && `ITEM:${m[4]}`].filter(Boolean).join("/");
-};
+const iso = isoOfYmd;
 
 export async function fetchOfficialLaw(fetcher: LawPageFetcher, store: ClauseStore, a: { law_name: string; clause?: string }, now = () => new Date()): Promise<OfficialLawResult> {
   const page = await fetcher.fetch(a.law_name);
@@ -135,7 +129,8 @@ export async function fetchOfficialLaw(fetcher: LawPageFetcher, store: ClauseSto
     provision_count: law.provisions.length, parse_issues: law.issues.length,
   };
   if (a.clause) {
-    const path = clausePath(a.clause);
+    let path: string | undefined;
+    try { path = clausePath(a.clause); } catch { path = undefined; } // 해석 불가 표현이면 clause=null
     // 조·항 단위 요청이면 하위 항·호·목 원문까지 이어 붙인다
     const ps = path ? law.provisions.filter((x) => { const r = relPath(x.provision_id); return r === path || r.startsWith(`${path}/`); }) : [];
     out.clause = ps.length ? { path: path!, text: ps.map((x) => `${x.original_marker}${x.title ? `(${x.title})` : ""} ${x.original_text}`.trim()).join("\n") } : null;
