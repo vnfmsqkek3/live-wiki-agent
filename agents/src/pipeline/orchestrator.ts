@@ -115,9 +115,11 @@ export async function run(graph: Graph, deps: PipelineDeps, input: StepInput) {
   try {
     const r = await graph.invoke(`workflow ${input.workflow_id}`);
     if (r.status !== 'COMPLETED') throw r.error ?? new Error(`graph ${r.status}`);
+    await deps.record(input.workflow_id, input.doc_id, 'EXECUTION', 'SUCCEEDED'); // 이전 실행의 FAILED 기록을 덮어쓴다
     return { status: 'COMPLETED' as const, steps: r.results.map((x) => x.nodeId) };
   } catch (e) {
-    await deps.record(input.workflow_id, input.doc_id, 'EXECUTION', 'FAILED', 'IngestStepFailed');
+    // 기록 자체가 실패해도 프로세스를 죽이지 않는다 (Runtime 세션 보호)
+    await deps.record(input.workflow_id, input.doc_id, 'EXECUTION', 'FAILED', 'IngestStepFailed').catch((x: Error) => console.error(JSON.stringify({ record_failed: x.name })));
     return { status: 'FAILED' as const, error: (e as Error).message.slice(0, 200) };
   }
 }

@@ -162,6 +162,8 @@ export function makeTrustGate(deps: LambdaDeps) {
 export function makeWaitForApproval(deps: LambdaDeps) {
   return async (i: StepInput & { task_token?: string }) => {
     const d = await mustDoc(deps.store, i.doc_id);
+    // 게시·승인 대기·차단된 문서를 다시 검토 대기로 되돌리지 않는다 (재실행 안전장치)
+    if (d.lifecycle !== 'QUARANTINED' && d.lifecycle !== 'IN_REVIEW') throw new Error(`invalid lifecycle for review: ${d.lifecycle}`);
     await deps.store.putDoc({ ...d, ...(i.task_token ? { task_token: i.task_token } : {}), lifecycle: 'IN_REVIEW', updated_at: now() });
     return { status: i.task_token ? 'PENDING' : 'OK' };
   };

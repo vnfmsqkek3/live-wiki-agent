@@ -9,11 +9,10 @@ const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`
 const region = () => env('AWS_REGION');
 
 let id = 0;
-/** Gateway MCP tools/call (SigV4, service bedrock-agentcore). Tool 이름 = `{target}___{step}` 또는 단계 키 그대로 */
+/** Gateway MCP tools/call (SigV4, service bedrock-agentcore). Target 이름 = 단계 키(- 구분), Tool 이름 = run → `malware-check___run` */
 export async function callTool(step: string, args: Record<string, unknown>): Promise<StepOutput> {
   const url = new URL(env('PIPELINE_GATEWAY_URL'));
-  const prefix = process.env.PIPELINE_TOOL_PREFIX ?? 'steps___';
-  const body = JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name: `${prefix}${step}`, arguments: args } });
+  const body = JSON.stringify({ jsonrpc: '2.0', id: ++id, method: 'tools/call', params: { name: `${step.replace(/_/g, '-')}___run`, arguments: args } });
   const signer = new SignatureV4({ service: 'bedrock-agentcore', region: region(), credentials: defaultProvider(), sha256: Sha256 });
   const req = await signer.sign({
     method: 'POST', protocol: url.protocol, hostname: url.hostname, path: url.pathname,

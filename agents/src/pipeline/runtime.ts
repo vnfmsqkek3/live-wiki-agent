@@ -5,6 +5,7 @@ import { awsDeps } from './aws.ts';
 import { ingestGraph, publishGraph, run, type StepInput } from './orchestrator.ts';
 
 let busy = 0;
+process.on('unhandledRejection', (e) => console.error(JSON.stringify({ unhandled: (e as Error)?.name }))); // 세션 유지
 async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> {
   let s = '';
   for await (const c of req) { s += c; if (s.length > 16_000) throw new Error('payload too large'); }

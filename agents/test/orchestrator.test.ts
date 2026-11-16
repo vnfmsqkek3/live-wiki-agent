@@ -33,6 +33,7 @@ test('1차: 고정 순서 (병렬 2개 합류 후 진행), 마지막에 검토 �
   assert.deepEqual(order.slice(4), ['ocr_if_needed', 'segment_build', 'pii_scan', 'injection_scan', 'classify', 'trust_gate', 'await_review']);
   assert.ok(t.calls.every((c) => c.args.workflow_id === 'wf_1' && c.args.doc_id === 'doc_1'));
   assert.ok(t.records.includes('WaitForApproval=OK'));
+  assert.equal(t.records.at(-1), 'EXECUTION=SUCCEEDED');
 });
 
 test('PENDING은 같은 입력으로 재호출 (멱등 폴링)', async () => {

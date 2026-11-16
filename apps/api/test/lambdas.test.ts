@@ -147,3 +147,11 @@ test('Classify: 마스킹 텍스트만 모델에 전달, 최상위 document_type
   const d = (await t.store.getDoc(t.doc.doc_id))!;
   assert.deepEqual([d.document_type, d.classification?.source, d.classification?.confidence], ['KNOWHOW', 'MODEL', 0.65]);
 });
+
+test('await_review: 게시된 문서는 검토 대기로 되돌리지 않음 (재실행 안전장치)', async () => {
+  const t = setup(pdf);
+  await t.store.putDoc({ ...t.doc, lifecycle: 'PUBLISHED' });
+  await assert.rejects(makeWaitForApproval(t.deps)(t.input), /invalid lifecycle/);
+  await t.store.putDoc({ ...t.doc, lifecycle: 'QUARANTINED' });
+  assert.equal((await makeWaitForApproval(t.deps)(t.input)).status, 'OK');
+});
