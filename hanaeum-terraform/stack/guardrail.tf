@@ -1,6 +1,6 @@
 # Bedrock Guardrails (docs/01 4.3, docs/03 ⑤, 13항 4): 정규식이 못 잡는 문맥 PII(이름·주소 등) 마스킹만.
 # 다른 정책(주제·욕설·프롬프트 공격)은 끈다: 차단되면 출력이 차단 문구로 바뀌어 본문을 잃는다. 지시문 검사는 InjectionScan
-# PiiScan(dhxorb96 applyGuardrail)이 ApplyGuardrail 로 호출 (모델 추론 아님). 출력 text 는 ANONYMIZE 된 본문.
+# PiiScan(dhxorb96 applyGuardrail)이 ApplyGuardrail(source OUTPUT — INPUT 은 마스킹 안 함, 실측)로 호출. 출력 text 는 ANONYMIZE 된 본문.
 resource "aws_bedrock_guardrail" "pii" {
   name                      = "${local.n.prefix}-guardrail-pii${local.n.suffix}"
   description               = "문서·질의 PII 마스킹 (SYNTHETIC 데이터)"
@@ -16,19 +16,7 @@ resource "aws_bedrock_guardrail" "pii" {
         action = "ANONYMIZE"
       }
     }
-    # 국내 식별번호 (정규식 단계와 이중 방어)
-    regexes_config {
-      name        = "KR_RRN"
-      description = "주민등록번호"
-      pattern     = "\\d{6}-?[1-4]\\d{6}"
-      action      = "ANONYMIZE"
-    }
-    regexes_config {
-      name        = "KR_ACCOUNT"
-      description = "계좌번호 형식"
-      pattern     = "\\d{3,6}-\\d{2,6}-\\d{2,6}(-\\d{1,3})?"
-      action      = "ANONYMIZE"
-    }
+    # 국내 식별번호·계좌는 규칙 단계(@hanaeum/pii: 주민번호 체크섬, 날짜 제외)만. Guardrail regex 는 시행일 등 날짜를 가려 뺌 (dhxorb96 실측 11/16)
   }
 }
 
