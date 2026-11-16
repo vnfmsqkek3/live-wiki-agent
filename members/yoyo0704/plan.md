@@ -45,9 +45,9 @@
 | No | yoyo0704 몫 | 상태 |
 |---|---|---|
 | ① | 파이프라인 Gateway(AWS_IAM) + 단계 Lambda 14개 Target | [x] READY, tools/list·tools/call 검증 |
-| ② | 오케스트레이터 Runtime 리소스·Role·ECR | [~] Role·ECR 완료. Runtime 은 dhxorb96 이미지 push 후 `pipeline_runtime_image` 지정 |
+| ② | 오케스트레이터 Runtime 리소스·Role·ECR | [x] `hanaeum_mvp_rt_pipeline_dev` READY (이미지 d0eeeae), await-review Target, Observability |
 | ③ | type-detection `InvokeAgentRuntime` 권한 | [x] (env `PIPELINE_RUNTIME_ARN` 채우면 전환) |
-| ④ | 전환 확인 후 SFN·`workflows/asl` 폐기, `interfaces.md` 6장 개정 | [ ] 6.1 추가함. 폐기는 전환 E2E 후 |
+| ④ | 전환 확인 후 SFN·`workflows/asl` 폐기, `interfaces.md` 6장 개정 | [~] 공유 dev 전환 완료(smoke-agentcore PASS). SFN 폐기는 승인 resume→PUBLISHED 확인 후 |
 | ⑤ | 파이프라인 Gateway 는 오케스트레이터 Role 만 | [x] IAM(InvokeGateway). AgentCore Policy 엔진은 P1 |
 
 ## 다음 (세션 이어받기용, 11/16 20:15 기준)
