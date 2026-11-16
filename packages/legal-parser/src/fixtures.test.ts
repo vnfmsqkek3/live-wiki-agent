@@ -50,7 +50,7 @@ test("데모 업로드 PDF: Registry pdf_content_hash와 일치, F-003(위조) P
   const reg = readFixtureJson<{ regulations: { pdf_fixture?: string; pdf_content_hash?: string }[] }>("registry/registry.json");
   const withPdf = reg.regulations.filter((r) => r.pdf_fixture);
   assert.equal(withPdf.length, 3);
-  for (const r of withPdf) assert.equal(sha(r.pdf_fixture!), r.pdf_content_hash, r.pdf_fixture);
+  for (const r of withPdf) assert.equal(sha(r.pdf_fixture!), r.pdf_content_hash, r.pdf_fixture!);
   const all = reg.regulations.flatMap((r) => [r.pdf_content_hash]);
   assert.ok(!all.includes(sha("documents/pdf/F-003.pdf")));
   for (const d of manifest.documents as (Doc & { upload_file?: string | null })[]) {
