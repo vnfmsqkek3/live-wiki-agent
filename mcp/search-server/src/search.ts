@@ -52,19 +52,34 @@ export class BedrockRetriever implements Retriever {
     this.c = c;
   }
   async retrieve(text: string, filter?: RetrievalFilter): Promise<Hit[]> {
+    try {
+      return await this.query(text, filter, this.rerankArn);
+    } catch (e) {
+      // 재정렬 모델 접근 거부(Marketplace 계약 대기 등)면 HYBRID 결과로 대체. 질의 원문은 로그에 남기지 않는다
+      // ponytail: 접근 거부가 풀릴 때까지 매 호출 1회씩 실패 후 재시도. 지속되면 실패 캐시
+      if (!this.rerankArn || !isRerankAccessError(e)) throw e;
+      console.warn(JSON.stringify({ msg: "rerank 불가 → HYBRID 대체", error: (e as Error).name }));
+      return this.query(text, filter);
+    }
+  }
+  private async query(text: string, filter?: RetrievalFilter, rerankArn?: string): Promise<Hit[]> {
     const r = await this.c.send(new RetrieveCommand({
       knowledgeBaseId: this.kbId,
       retrievalQuery: { text },
       retrievalConfiguration: {
         vectorSearchConfiguration: {
           numberOfResults: CANDIDATES, overrideSearchType: "HYBRID", ...(filter ? { filter } : {}),
-          ...(this.rerankArn ? { rerankingConfiguration: { type: "BEDROCK_RERANKING_MODEL", bedrockRerankingConfiguration: { numberOfRerankedResults: RERANKED, modelConfiguration: { modelArn: this.rerankArn } } } } : {}),
+          ...(rerankArn ? { rerankingConfiguration: { type: "BEDROCK_RERANKING_MODEL", bedrockRerankingConfiguration: { numberOfRerankedResults: RERANKED, modelConfiguration: { modelArn: rerankArn } } } } : {}),
         },
       },
     }));
     return (r.retrievalResults ?? []).map((x) => ({ text: x.content?.text ?? "", score: x.score ?? 0, metadata: (x.metadata ?? {}) as Record<string, unknown> }));
   }
 }
+
+/** 재정렬 모델 접근 거부 (실측 11/16: ValidationException "Model access is denied ... aws-marketplace") */
+export const isRerankAccessError = (e: unknown) =>
+  ["ValidationException", "AccessDeniedException"].includes((e as Error).name) && /model access|marketplace/iu.test((e as Error).message);
 
 // ── 현재 상태 재검증 ───────────────────────────────────
 export interface DocState {
