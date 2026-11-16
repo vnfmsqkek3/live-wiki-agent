@@ -31,7 +31,7 @@ function setup() {
   const app = createApp(deps);
   const call = (who: string | undefined, method: string, path: string, body?: unknown) =>
     app.request(path, { method, headers: { 'content-type': 'application/json', ...(who ? { authorization: `Bearer ${who}` } : {}) }, body: body === undefined ? undefined : JSON.stringify(body) });
-  return { app, store, objects, tasks, call };
+  return { app, store, objects, tasks, call, deps };
 }
 
 const upload = { filename: 'F-001.pdf', size: 1000, title: '기업여신 심사규정 v1 (SYNTHETIC)', dept: 'loan', acl_groups: ['ALL'] };
@@ -164,4 +164,14 @@ test('CORS: 허용 출처만 응답 헤더, 그 외 출처는 없음', async () 
   const pre = (origin: string) => t.app.request('/v1/search?q=x', { method: 'OPTIONS', headers: { origin, 'access-control-request-method': 'GET' } });
   assert.equal((await pre('http://localhost:3000')).headers.get('access-control-allow-origin'), 'http://localhost:3000');
   assert.equal((await pre('https://evil.example')).headers.get('access-control-allow-origin'), null);
+});
+
+test('승인 후 워크플로 재개가 실패해도 결정은 유지하고 workflow_resumed=false로 알림', async () => {
+  const t = setup();
+  const { approval_id } = await submitted(t);
+  const app2 = createApp({ ...t.deps, sendDecision: async () => { throw Object.assign(new Error('x'), { name: 'TaskTimedOut' }); } });
+  const r = await app2.request(`/v1/approvals/${approval_id}/decision`, { method: 'POST', headers: { authorization: 'Bearer approver', 'content-type': 'application/json' }, body: JSON.stringify({ decision: 'APPROVE', reason: 'r' }) });
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { approval_id, status: 'APPROVED', workflow_resumed: false });
+  assert.ok(t.store.audits.some((a) => a.action === 'WORKFLOW_RESUME_FAILED'));
 });

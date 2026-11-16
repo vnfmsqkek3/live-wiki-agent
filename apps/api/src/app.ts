@@ -178,10 +178,17 @@ export function createApp(deps: Deps) {
     const now = new Date().toISOString();
     if (b.decision === 'REVALIDATE') await store.putDoc({ ...d, lifecycle: 'IN_REVIEW', freshness: 'REVIEW_REQUIRED', updated_at: now });
     else if (status === 'REJECTED') await store.putDoc({ ...d, lifecycle: 'BLOCKED', authority_status: 'REJECTED', updated_at: now });
-    if (apr.task_token)
-      await deps.sendDecision(apr.task_token, b.decision);
     await audit(c, `DECISION_${b.decision}`, apr.approval_id);
-    return c.json({ approval_id: decided.approval_id, status: decided.status });
+    // 결정은 위 조건부 쓰기로 이미 확정. 워크플로 재개 실패가 결정을 되돌리지 않도록 분리해 알린다
+    let workflow_resumed = false;
+    if (apr.task_token) {
+      try { await deps.sendDecision(apr.task_token, b.decision); workflow_resumed = true; }
+      catch (e) {
+        console.error(JSON.stringify({ trace_id: c.get('trace_id'), err: String((e as Error)?.name) }));
+        await audit(c, 'WORKFLOW_RESUME_FAILED', apr.approval_id); // ponytail: 재시도 API 없음, 운영자가 SFN 콘솔에서 처리
+      }
+    }
+    return c.json({ approval_id: decided.approval_id, status: decided.status, workflow_resumed });
   });
 
   // ---- 검색·피드백 ----
