@@ -1,5 +1,6 @@
 // 단계 5 SegmentBuild: text_layer + OCR 결과를 페이지별 세그먼트로 병합 (docs/04 1.1, 2.1)
-import { ocrRows, restoreCircled } from "@hanaeum/legal-parser";
+import { ocrRows, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
+import { detectPii, mask } from "@hanaeum/pii";
 import { newId } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore } from "./store.ts";
@@ -52,9 +53,38 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
     await store.put(input.bucket, `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, JSON.stringify(s));
   }
   const low = segments.filter((s) => s.low_confidence);
-  const findings: Finding[] = low.map((s) => ({
-    finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE",
-    message: `page ${s.page_index} OCR 평균 신뢰도 ${s.avg_confidence?.toFixed(3)}`, evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`,
-  }));
-  return { status: low.length ? "REVIEW_REQUIRED" : "OK", output_key: `${work}/segments/`, findings };
+  const findings: Finding[] = low.map((s) => {
+    const msg = `${s.page_index + 1}쪽 글자 인식(OCR) 신뢰도가 낮아(평균 ${Math.round((s.avg_confidence ?? 0) * 100)}%) 일부 글자가 틀렸을 수 있습니다.`;
+    return {
+      finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE", message: msg,
+      evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, location: { page: s.page_index + 1 },
+      user_message: msg, fix_hint: "300dpi 이상으로 선명하게 다시 스캔하거나, 원본을 'PDF로 저장'해 글자가 선택되는 PDF로 올려 주세요.",
+    };
+  });
+  findings.push(...structureFindings(segments, work));
+  const review = findings.some((f) => f.severity !== "LOW");
+  return { status: review ? "REVIEW_REQUIRED" : "OK", output_key: `${work}/segments/`, findings };
 }
+
+/** 조문형 문서(제N조 머리 3개 이상)의 구조 이상을 쪽·문장 위치로 안내. 부칙(타법개정 인용이 많음)은 제외, 최대 5건.
+ *  이 단계는 PII 마스킹 전이라 excerpt는 반드시 @hanaeum/pii로 가린 뒤 담는다 */
+export function structureFindings(segments: Pick<Segment, "page_index" | "text">[], work: string): Finding[] {
+  const lines: { page: number; text: string }[] = segments.flatMap((s) => s.text.split("\n").map((t) => ({ page: s.page_index + 1, text: t })));
+  if (lines.filter((l) => /^제\d+조/u.test(l.text.trim())).length < 3) return [];
+  const suppAt = lines.findIndex((l) => /^부\s*칙/u.test(l.text.trim()));
+  const law = parseLaw(lines.map((l) => l.text).join("\n"), { law_id: "CHECK", law_name: "check", revision_id: "2000-01-01" });
+  return law.issues
+    .filter((i) => i.code === "NUMBER_REGRESSION" && i.line && (suppAt < 0 || i.line - 1 < suppAt))
+    .slice(0, 5)
+    .map((i) => {
+      const at = lines[i.line! - 1]!;
+      const excerpt = maskText(at.text.trim()).slice(0, 120);
+      const msg = `${at.page}쪽 "${excerpt.slice(0, 40)}" 부근: 조·항·호 번호 순서가 맞지 않습니다(${i.message.split(":")[0]}). 조문이 빠졌거나 번호가 잘못 붙었을 수 있습니다.`;
+      return {
+        finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM" as const, code: "STRUCTURE_NUMBERING", message: msg,
+        evidence_ref: `${work}/segments/`, location: { page: at.page, excerpt }, user_message: msg,
+        fix_hint: "원본에서 해당 쪽의 조·항·호 번호를 확인해 고친 뒤 다시 올려 주세요. 의도된 번호라면 검토자에게 사유를 남겨 주세요.",
+      };
+    });
+}
+const maskText = (t: string) => { const sp = detectPii(t); return sp.length ? mask(t, sp) : t; };
