@@ -30,8 +30,8 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "2443244"                                  # workflows·auth-triggers·services/ocr
-    dhxorb96 = "7a1e804"                                  # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    yoyo0704 = "2443244" # workflows·auth-triggers·services/ocr
+    dhxorb96 = "7a1e804" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "7646838" # PR #10 병합 (검색 판정·Rerank 하한·@hanaeum/pii)
   }
 

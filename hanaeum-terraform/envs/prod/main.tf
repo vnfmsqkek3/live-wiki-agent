@@ -15,7 +15,11 @@ module "stack" {
   name_suffix = ""
   owner       = "team"
   # prod 배포 직전 main 의 검증된 커밋으로 고정
-  lambda_refs = { yoyo0704 = "PENDING", dhxorb96 = "PENDING", let522mj = "PENDING" }
+  # dev 에서 smoke·실측을 통과한 커밋과 같게 (11/17 02시 기준). 바꿀 때는 dev 먼저 검증
+  lambda_refs       = { yoyo0704 = "2443244", dhxorb96 = "7a1e804", let522mj = "7646838" }
+  ocr_source_ref    = "3310656"
+  webapp_source_ref = "7a1e804" # 웹·API (ECS·CloudFront)
+  agents_source_ref = "7a1e804" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "interceptor", "mcp-privacy", "mcp-approval",
