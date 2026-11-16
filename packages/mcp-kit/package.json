@@ -6,7 +6,8 @@
     ".": "./src/index.ts"
   },
   "dependencies": {
-    "@hanaeum/schemas": "*"
+    "@hanaeum/schemas": "*",
+    "@hanaeum/pii": "*"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",
