@@ -30,10 +30,20 @@
 | 11 | 단계 Lambda type-detection·2·9·10·14 | 단위 테스트 + 개인 dev 배포 | SFN 연결은 yoyo0704 | [m] 직접 호출로 검증 |
 | 12 | 승인 E2E (공유 dev) | `tests/e2e/approval-flow-dev.sh` ALL PASS | 단계 6·7·8 미연결 | [x] |
 
+## 11/19 (앞당겨 진행)
+
+| No | 작업 | 완료 조건 | 의존 / mock | 상태 |
+|---|---|---|---|---|
+| 13 | 검색·가이드 Agent | 질의 PII 검사, 출처 검증, 불확실성 표시, 테스트 | search Tool(let522mj) mock | [m] 실모델 확인 |
+| 14 | 화면 05·03 | 빌드·스크린샷 확인 | API mock | [m] |
+| 15 | 분류 수정 API + 이력 | 테스트 | — | [x] |
+
 ## 남은 작업
 
 - yoyo0704가 단계 Lambda를 SFN에 연결하면 E2E에서 직접 호출 부분 제거
 - PR #1 CI 수정 후 머지, PR #2 정리
+- AgentCore Runtime 이미지 갱신(가이드 Agent) 후 Gateway search Tool 실연동
+- Guardrails 출력 검사 (GUARDRAIL_ID 생성 후)
 - 단계 6·7·8 Lambda (let522mj SegmentBuild 산출물 `work/segments/` 확정 후), Classify 실모델
 - web `NEXT_PUBLIC_API_URL` 연결 (API 배포 위치 결정 후: ECS Fargate는 yoyo0704)
 - Classify(단계 8) 실모델 호출 + structured output
