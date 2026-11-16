@@ -129,7 +129,8 @@ export async function applyGuardrail(text: string) {
   if (!id) return undefined;
   const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
   const r = await new BedrockRuntimeClient({ region: region() }).send(new ApplyGuardrailCommand({
-    guardrailIdentifier: id, guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'INPUT', content: [{ text: { text } }],
+    guardrailIdentifier: id, // INPUT은 ANONYMIZE를 적용하지 않음(실측 11/16: action NONE). 마스킹 결과를 받으려면 OUTPUT
+    guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', content: [{ text: { text } }],
   }));
   const detected = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
   return { text: r.outputs?.[0]?.text ?? text, detected };
