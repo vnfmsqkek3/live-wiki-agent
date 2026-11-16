@@ -31,8 +31,8 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "2443244" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "ff8b69e" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "b580e7e" # PR #11 병합 (실패 사유 안내·Rerank 게이트)
+    dhxorb96 = "2d2a1a2" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    let522mj = "dc1ba61" # PR #12 병합 (실무 보완 밑줄·색인 실패 문장)
   }
 
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
@@ -43,8 +43,8 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "ff8b69e" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
-  agents_source_ref = "ff8b69e" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "2d2a1a2" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  agents_source_ref = "2d2a1a2" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
