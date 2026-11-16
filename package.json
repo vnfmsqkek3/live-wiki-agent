@@ -21,7 +21,10 @@
     "build": "npm run build --workspaces --if-present"
   },
   "devDependencies": {
+    "@aws-sdk/credential-provider-node": "3.972.97",
     "@eslint/js": "10.0.1",
+    "@smithy/hash-node": "4.5.2",
+    "@smithy/signature-v4": "5.7.5",
     "@types/node": "26.6.6",
     "eslint": "10.15.0",
     "typescript": "6.0.3",

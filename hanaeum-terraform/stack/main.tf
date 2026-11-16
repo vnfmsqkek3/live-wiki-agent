@@ -40,6 +40,19 @@ module "sfn" {
   step_functions    = var.step_functions
 }
 
+module "kb" {
+  source             = "../modules/kb"
+  n                  = local.n
+  kms_key_arn        = module.kms.key_arn
+  published_bucket   = module.s3.buckets["published"]
+  artifact_bucket    = module.s3.buckets["artifact"]
+  embed_model_id     = var.models["MODEL_EMBED"]
+  rerank_model_id    = var.models["MODEL_RERANK"]
+  standby_replicas   = var.env == "prod" ? "ENABLED" : "DISABLED"
+  chunker_lambda_arn = var.kb_chunker_lambda_arn
+  reader_role_arns   = var.kb_reader_role_arns
+}
+
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
 locals {
   params = merge(
@@ -54,6 +67,9 @@ locals {
       COGNITO_CLIENT_ID    = module.cognito.client_id
       KMS_KEY_ARN          = module.kms.key_arn
       VPC_ID               = module.network.vpc_id
+      KB_ID                = module.kb.kb_id
+      KB_DS_LEGAL_ID       = module.kb.data_source_ids["legal"]
+      KB_DS_KNOWLEDGE_ID   = module.kb.data_source_ids["knowledge"]
     },
     var.models,
   )

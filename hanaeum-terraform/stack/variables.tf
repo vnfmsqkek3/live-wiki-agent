@@ -23,3 +23,15 @@ variable "step_functions" {
   type    = map(string)
   default = {}
 }
+
+# let522mj 의 KB Custom Transformation Lambda ARN (services/kb-chunker). null 이면 NONE 청킹만.
+variable "kb_chunker_lambda_arn" {
+  type    = string
+  default = null
+}
+
+# KB Retrieve 를 직접 호출하는 Role (search MCP Tool 등). AOSS 데이터 접근 정책에 추가된다.
+variable "kb_reader_role_arns" {
+  type    = list(string)
+  default = []
+}
