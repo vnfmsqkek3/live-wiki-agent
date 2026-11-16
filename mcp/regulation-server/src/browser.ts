@@ -14,6 +14,33 @@ export const lawUrl = (lawName: string) => `${LAW_SITE}/법령/${encodeURICompon
 export interface LawPage { url: string; header: string; body: string }
 export interface LawPageFetcher { fetch(lawName: string): Promise<LawPage> }
 
+/** 분석 단계 판단: 본문이 인용한 「법령명」 중 내부 규정 저장소에 없는 외부 법령. 비어 있으면 Browser를 돌리지 않는다 */
+export async function externalLaws(text: string, store: ClauseStore, max = 5): Promise<string[]> {
+  const names = [...new Set([...text.matchAll(/「([^」\n]{2,40}?)」/gu)].map((m) => m[1]!.replace(/\s+/gu, " ").trim()))]
+    .filter((n) => /(법|법률|령|규칙)$/u.test(n)); // 법령명만 (서식·문서명 제외)
+  const out: string[] = [];
+  for (const n of names) if (!(await store.lawIdByName(n)) && out.length < max) out.push(n);
+  return out;
+}
+
+/** 같은 법령을 다시 열 때 Browser 재실행을 막는 캐시 (기본 1일) */
+export interface LawPageCache { get(lawName: string): Promise<(LawPage & { fetched_at: string }) | undefined>; put(lawName: string, page: LawPage, fetchedAt: string): Promise<void> }
+export const CACHE_MS = 24 * 3600 * 1000;
+export function cachedFetcher(inner: LawPageFetcher, cache: LawPageCache, now = () => new Date()): LawPageFetcher & { lastFetchedAt?: string; lastFromCache?: boolean } {
+  const f: LawPageFetcher & { lastFetchedAt?: string; lastFromCache?: boolean } = {
+    async fetch(lawName) {
+      const hit = await cache.get(lawName);
+      if (hit && now().getTime() - Date.parse(hit.fetched_at) < CACHE_MS) { f.lastFetchedAt = hit.fetched_at; f.lastFromCache = true; return hit; }
+      const page = await inner.fetch(lawName);
+      const at = now().toISOString();
+      await cache.put(lawName, page, at);
+      f.lastFetchedAt = at; f.lastFromCache = false;
+      return page;
+    },
+  };
+  return f;
+}
+
 /** CDP 최소 클라이언트: 명령 id로 응답을 짝짓는다 */
 function cdp(ws: WebSocket) {
   let id = 0;
@@ -77,7 +104,7 @@ export function parseHeader(h: string) {
 }
 
 export interface OfficialLawResult {
-  law_name: string; source: string; url: string; fetched_at: string;
+  law_name: string; source: string; url: string; fetched_at: string; from_cache: boolean;
   effective_from?: string; promulgation?: string;
   authority_status: "UNVERIFIED"; note: string;
   provision_count: number; parse_issues: number;
@@ -97,11 +124,13 @@ const clausePath = (c: string) => {
 
 export async function fetchOfficialLaw(fetcher: LawPageFetcher, store: ClauseStore, a: { law_name: string; clause?: string }, now = () => new Date()): Promise<OfficialLawResult> {
   const page = await fetcher.fetch(a.law_name);
+  const cacheInfo = fetcher as { lastFetchedAt?: string; lastFromCache?: boolean };
   const { effective_from, promulgation } = parseHeader(page.header);
   const rev = effective_from ?? "unknown";
   const law = parseLaw(page.body, { law_id: "WEB", law_name: a.law_name, revision_id: rev, ...(effective_from ? { effective_from: ymd(effective_from) } : {}) });
   const out: OfficialLawResult = {
-    law_name: a.law_name, source: "국가법령정보센터 (AgentCore Browser)", url: page.url, fetched_at: now().toISOString(),
+    law_name: a.law_name, source: "국가법령정보센터 (AgentCore Browser)", url: page.url, fetched_at: cacheInfo.lastFetchedAt ?? now().toISOString(),
+    from_cache: cacheInfo.lastFromCache === true,
     ...(effective_from ? { effective_from } : {}), ...(promulgation ? { promulgation } : {}),
     authority_status: "UNVERIFIED", note: "외부 공식 사이트 원문 참고용. Registry 등록·승인 전에는 게시·검증 근거로 쓰지 않음",
     provision_count: law.provisions.length, parse_issues: law.issues.length,

@@ -141,7 +141,9 @@ test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA25
 test("승인 API 형식의 Documents 항목 정규화: classification 유형·문자열 시행일, 유형 없으면 게시 거부", async () => {
   const { normalizeDocument } = await import("./store.ts");
   const base = { doc_id: DOC, version: 1, title: "t", dept: "d", acl_groups: ["ALL"], authority_status: "VERIFIED" };
-  const d = normalizeDocument({ ...base, classification: { document_type: "REGULATION" }, effective_from: "2026-11-01", effective_to: "9999-12-31" });
+  const d = normalizeDocument({ ...base, classification: { document_type: "REGULATION", business_path: ["여신", "심사"], tags: ["승인", " "] }, effective_from: "2026-11-01", effective_to: "9999-12-31" });
+  assert.deepEqual([d.business_path, d.tags], [["여신", "심사"], ["승인"]]);
+  assert.equal(normalizeDocument({ ...base, classification: { document_type: "KNOWHOW", business_path: [], tags: [] } }).business_path, undefined, "빈 분류는 싣지 않음");
   assert.equal(d.document_type, "REGULATION");
   assert.equal(d.effective_from, 20261101);
   assert.equal(d.effective_to, 99991231);
