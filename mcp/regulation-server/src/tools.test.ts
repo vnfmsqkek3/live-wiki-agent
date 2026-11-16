@@ -82,3 +82,13 @@ test("UNVERIFIED 버전·권한 밖 버전이 있으면 부재 확정 금지, �
   assert.equal((await t.get_clause({ law: "가상시험규정", clause: "제1조", as_of: "2025-01-01" }, user)).search_status, "UNVERIFIED");
   assert.match((await t.get_clause({ law: "가상시험규정", clause: "부칙 제1조", as_of: "2026-03-01" }, user)).original_text!, /6월 1일/u);
 });
+
+test("tools.json(Gateway 등록 스키마)과 구현 Tool 이름 일치 — regulation·search·graph", async () => {
+  const { readFileSync } = await import("node:fs");
+  const names = (p: string) => (JSON.parse(readFileSync(new URL(p, import.meta.url), "utf8")) as { name: string }[]).map((x) => x.name).sort();
+  const { searchTools } = await import("@hanaeum/search-server");
+  const { graphTools } = await import("@hanaeum/graph-server");
+  assert.deepEqual(names("../tools.json"), Object.keys(t).sort());
+  assert.deepEqual(names("../../search-server/tools.json"), Object.keys(searchTools({} as never)).sort());
+  assert.deepEqual(names("../../graph-server/tools.json"), Object.keys(graphTools({} as never)).sort());
+});
