@@ -58,3 +58,16 @@ test("노하우: 개정 전 인용(K-003)·충돌(K-002)에 밑줄, 인용 대�
   assert.deepEqual([pii.page, pii.start], [0, null]);
   assert.equal(marks.length, 2, "확정 마스킹(PII_MASKED)은 밑줄 대상 아님");
 });
+
+test("리뷰 반영: 인젝션은 step으로 판별, PII_GUARDRAIL 포함, OUTDATED 조문 표기는 그 법령 근처 한 곳일 때만", async () => {
+  const s = fixtureClauseStore();
+  const f = await buildMarks(["본문"], { findings: [
+    { step: "INJECTION_SCAN", severity: "HIGH", code: "OVERRIDE_KO", message: "지시 무시 문구", evidence_ref: "page:0" },
+    { step: "PII_SCAN", severity: "MEDIUM", code: "PII_GUARDRAIL", message: "추가 검사 의심", evidence_ref: "page:0" },
+  ] }, s);
+  assert.deepEqual(f.map((m) => [m.kind, m.severity]), [["INJECTION", "HIGH"], ["PII_UNCERTAIN", "MEDIUM"]]);
+  const o = { cited: "SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1", current: "SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1", label: "한빛은행 기업여신 심사규정 제12조제1항" };
+  // 다른 법령의 같은 조문 표기만 있으면 문서 단위
+  const [x] = await buildMarks(["「은행법」 제12조제1항에 따라 처리한다."], { knowhow: { items: [], outdated: [o] } }, s);
+  assert.equal(x!.page, null);
+});

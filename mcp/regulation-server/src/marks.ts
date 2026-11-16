@@ -18,7 +18,7 @@ export interface MarkSources {
   /** 규정 문서: registryMatch 결과 (해시 불일치일 때 claimed.clauses 포함) */
   registry?: RegistryMatch;
   /** 단계 Finding. evidence_ref "page:n" 이면 그 페이지 */
-  findings?: { severity: string; code: string; message: string; evidence_ref: string }[];
+  findings?: { step?: string; severity: string; code: string; message: string; evidence_ref: string }[];
 }
 
 const SKIP = /[\s「」"'“”‘’·ㆍ]/u;
@@ -38,6 +38,19 @@ export function locate(pages: string[], needle: string): { page: number; start: 
     }
   }
   return null;
+}
+
+/** needle이 anchor(법령 이름) 바로 뒤 40자 안에 나오는 자리가 정확히 한 곳이면 그 위치 */
+function locateNear(pages: string[], needle: string, anchor: string): { page: number; start: number; end: number } | null {
+  if (!anchor) return null;
+  const hits: { page: number; start: number; end: number }[] = [];
+  for (let p = 0; p < pages.length; p++) {
+    const t = pages[p]!;
+    for (let i = t.indexOf(needle); i >= 0; i = t.indexOf(needle, i + 1)) {
+      if (t.slice(Math.max(0, i - 40), i).includes(anchor)) hits.push({ page: p, start: i, end: i + needle.length });
+    }
+  }
+  return hits.length === 1 ? hits[0]! : null;
 }
 
 const iso = (n?: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}` : undefined);
@@ -75,8 +88,10 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
   for (const o of src.knowhow?.outdated ?? []) {
     const basis = await basisOf(store, o.current);
     const cited = await basisOf(store, o.cited);
-    // 본문에는 "제14조제1항"처럼 조문 표기만 쓰는 경우가 많다
-    const where = locate(pages, cited?.text ?? "") ?? locate(pages, o.label.split(" ").pop() ?? o.label);
+    // 본문에는 "제14조제1항"처럼 조문 표기만 쓰는 경우가 많다. 다른 법령의 같은 조문 표기에 잘못 걸리지 않도록
+    // 그 법령 이름(마지막 단어, 예: 심사규정)이 바로 앞 40자 안에 있고 그런 자리가 한 곳뿐일 때만 위치로 쓴다. 아니면 문서 단위(null)
+    const lawWord = (cited?.label ?? o.label).split(" ").slice(0, -1).pop() ?? "";
+    const where = locate(pages, cited?.text ?? "") ?? locateNear(pages, o.label.split(" ").pop() ?? o.label, lawWord);
     marks.push({
       ...(where ?? { page: null, start: null, end: null }), kind: "OUTDATED", severity: "HIGH",
       reason: `개정 전 조문 인용 (${cited?.effective_from ?? "이전 버전"} 시행분)`,
@@ -104,7 +119,9 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     }
   }
   for (const f of src.findings ?? []) {
-    const kind: MarkKind | undefined = f.code.startsWith("PII_UNCERTAIN") ? "PII_UNCERTAIN" : f.code.startsWith("INJECTION") ? "INJECTION" : undefined;
+    // 인젝션은 단계로 판별 (code는 OVERRIDE_KO·ROLE_HIJACK 등), PII는 확인 필요 코드만 (확정 마스킹 PII_MASKED_* 제외)
+    const kind: MarkKind | undefined = f.step === "INJECTION_SCAN" ? "INJECTION"
+      : f.code.startsWith("PII_UNCERTAIN") || f.code === "PII_GUARDRAIL" ? "PII_UNCERTAIN" : undefined;
     if (!kind) continue;
     const m = /^page:(\d+)$/u.exec(f.evidence_ref);
     marks.push({ page: m ? Number(m[1]) : null, start: null, end: null, kind, severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM", reason: f.message,
