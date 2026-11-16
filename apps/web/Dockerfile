@@ -1,5 +1,5 @@
 # 웹(Next.js standalone) → ECS Fargate. 빌드 컨텍스트는 저장소 루트:
-#   docker buildx build --platform linux/arm64 -f apps/web/Dockerfile \
+#   podman build --platform linux/arm64 -f apps/web/Dockerfile \
 #     --build-arg NEXT_PUBLIC_COGNITO_CLIENT_ID=<client id> .
 # NEXT_PUBLIC_* 는 빌드 시 고정된다. API_URL 기본값 ''= 같은 도메인(CloudFront /v1/* → API ALB 대상)
 FROM node:24-slim AS build

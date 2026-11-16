@@ -1,5 +1,5 @@
 # AgentCore Runtime은 linux/arm64 고정 (docs/04 7장). 빌드 컨텍스트는 저장소 루트:
-#   docker buildx build --platform linux/arm64 -f agents/Dockerfile .
+#   podman build --platform linux/arm64 -f agents/Dockerfile .
 FROM node:24-slim
 WORKDIR /app/agents
 ENV NODE_ENV=production
