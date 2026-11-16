@@ -54,7 +54,7 @@ export async function kbIngestStep(input: StepInput, api: IngestionApi, records:
     return { status: "PENDING" };
   }
   const j = await api.get(env.KB_ID, state.data_source_id, state.job_id);
-  if (j.status === "FAILED" || j.status === "STOPPED") throw stepFailure("IngestionFailed", `검색 색인에 실패했습니다(${j.status}: ${j.failureReasons.join("; ").slice(0, 160)}).`, "문서는 승인된 상태로 남아 있습니다. 관리자에게 재색인을 요청해 주세요.");
+  if (j.status === "FAILED" || j.status === "STOPPED") throw stepFailure("IngestionFailed", "검색 색인에 실패했습니다.", "문서는 승인된 상태로 남아 있습니다. 관리자에게 재색인을 요청해 주세요.", `${j.status}: ${j.failureReasons.join("; ").slice(0, 300)}`);
   if (j.status !== "COMPLETE") return { status: "PENDING" };
   // 참고 구현 사고 교훈: "워크플로 성공인데 벡터 없음" 방지 — 실패 문서가 1건이라도 있으면 실패
   if (j.failed > 0) throw stepFailure("IngestionFailed", `검색 색인 중 ${j.failed}건이 실패했습니다(문서 형식이 색인 계약과 다를 수 있음).`, "관리자에게 재색인을 요청해 주세요. 반복되면 문서를 다시 올려 주세요.");
