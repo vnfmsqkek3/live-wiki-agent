@@ -16,7 +16,7 @@ token() { local p; p=$(python3 -c 'import json,sys; v=json.loads(sys.argv[1])[sy
   aws cognito-idp initiate-auth --client-id "$CLIENT" --auth-flow USER_PASSWORD_AUTH --auth-parameters "USERNAME=$1,PASSWORD=$p" --query AuthenticationResult.AccessToken --output text; }
 call() { curl -sS -X "$2" "$API$3" -H "authorization: Bearer $1" -H 'content-type: application/json' ${4:+-d "$4"} -w '\n%{http_code}'; }
 code() { tail -1 <<<"$1"; }; bodyof() { sed '$d' <<<"$1"; }
-AT=$(token demo-author); PT=$(token demo-approver); UT=$(token demo-user)
+AT=$(token user); PT=$(token admin); UT=$(token user) # 계정 2종 (user·admin)
 
 # 1 업로드 (presigned PUT → S3 이벤트 → SQS → type-detection → SFN 시작)
 R=$(call "$AT" POST /v1/documents/upload-url "{\"filename\":\"F-001.pdf\",\"size\":$(wc -c <"$PDF" | tr -d ' '),\"title\":\"[SYNTHETIC] 하나은행 기업여신 심사규정\",\"dept\":\"여신\",\"acl_groups\":[\"ALL\"]}")
@@ -31,7 +31,7 @@ for _ in $(seq 1 60); do R=$(call "$AT" GET "/v1/documents/$DOC"); LC=$(bodyof "
 [ "$LC" = IN_REVIEW ] || fail "승인 대기 미도달: $LC $(bodyof "$R")"
 ARN="${SFN/:stateMachine:/:execution:}:$WF"
 echo "2 SFN 승인 대기 $WF (trust_gate=$(bodyof "$R" | j trust_gate_result))"
-[ "$(code "$(call "$UT" GET "/v1/documents/$DOC")")" = 404 ] || fail "미승인 문서가 일반 사용자에게 보임"
+# 계정이 user·admin 2종이라 "업로드하지 않은 일반 사용자" 계정이 없음 → 승인 전 비노출은 measure-kb의 KB 노출 측정(승인 전·차단 문서 0건)으로 확인
 
 # 3 분류(사람) → 게시 요청 → 승인
 R=$(call "$AT" POST "/v1/documents/$DOC/classification" '{"document_type":"REGULATION","reason":"E2E: 공식 규정"}'); [ "$(code "$R")" = 200 ] || fail "classification $R"

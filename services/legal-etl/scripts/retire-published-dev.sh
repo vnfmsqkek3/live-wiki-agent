@@ -17,7 +17,7 @@ for d in "$@"; do
   for p in legal knowledge; do aws s3 rm "s3://$BP/$p/$d/" --recursive >/dev/null; done
   aws dynamodb update-item --table-name "$TD" --key "{\"pk\":{\"S\":\"DOC#$d\"},\"sk\":{\"S\":\"META\"}}" \
     --update-expression "SET lifecycle = :l, deleted_reason = :r, updated_at = :t" --condition-expression "attribute_exists(pk)" \
-    --expression-attribute-values "{\":l\":{\"S\":\"DELETED\"},\":r\":{\"S\":\"$REASON\"},\":t\":{\"S\":\"$(date -u +%FT%TZ)\"}}"
+    --expression-attribute-values "$(python3 -c 'import json,sys; print(json.dumps({":l":{"S":"DELETED"},":r":{"S":sys.argv[1]},":t":{"S":sys.argv[2]}}))' "$REASON" "$(date -u +%FT%TZ)")" # 사유의 특수문자 안전
 done
 [ $APPLY = 1 ] || { echo "(점검만. 실행하려면 --apply)"; exit 0; }
 # ③ 재색인: S3에서 지운 객체가 KB에서도 빠진다 (데이터 소스당 동시 1개 → 순서대로)
