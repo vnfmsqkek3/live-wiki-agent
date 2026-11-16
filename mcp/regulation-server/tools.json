@@ -22,7 +22,8 @@
       "required": [
         "clause"
       ]
-    }
+    },
+    "progress": "조문 원문과 시행 버전을 확인하는 중입니다"
   },
   {
     "name": "get_official_policy",
@@ -43,7 +44,8 @@
       "required": [
         "law"
       ]
-    }
+    },
+    "progress": "공식 규정 정보를 확인하는 중입니다"
   },
   {
     "name": "verify_version",
@@ -73,7 +75,8 @@
         "law",
         "revision_id"
       ]
-    }
+    },
+    "progress": "현재 시행 중인 버전인지 확인하는 중입니다"
   },
   {
     "name": "resolve_reference",
@@ -89,7 +92,8 @@
       "required": [
         "provision_id"
       ]
-    }
+    },
+    "progress": "조문이 참조하는 다른 조문을 확인하는 중입니다"
   },
   {
     "name": "compare_versions",
@@ -115,7 +119,8 @@
         "old_revision",
         "new_revision"
       ]
-    }
+    },
+    "progress": "개정 전후 조문을 비교하는 중입니다"
   },
   {
     "name": "fetch_official_law",
@@ -135,6 +140,7 @@
       "required": [
         "law_name"
       ]
-    }
+    },
+    "progress": "국가법령정보센터에서 최신 법령을 확인하는 중입니다"
   }
 ]

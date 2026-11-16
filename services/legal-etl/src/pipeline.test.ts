@@ -38,7 +38,8 @@ test("3a: PDF 페이지별 글자 수로 OCR 대상 판정, 미지원 형식은 
   assert.equal(layer.page_count, 2);
   assert.equal(layer.pages[0]!.needs_ocr, false);
   assert.equal(layer.pages[1]!.needs_ocr, true);
-  await assert.rejects(extractTextLayer(Buffer.from("x"), "docx", DOC), /지원하지 않는 형식/u);
+  await assert.rejects(extractTextLayer(Buffer.from("x"), "docx", DOC)); // 깨진 DOCX(ZIP 아님)는 실패
+  await assert.rejects(extractTextLayer(Buffer.from("x"), "xlsx", DOC), /지원하지 않는 형식/u);
 });
 
 test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED", async () => {
@@ -136,6 +137,10 @@ test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA25
   assert.equal(out.status, "OK");
   assert.equal(r.approvals.get("apr_9")!.status, "USED");
   assert.equal(r.documents.get(DOC)!.published_content_hash, out.content_hash);
+  const first = r.documents.get(DOC)!.published_at;
+  assert.match(first ?? "", /^\d{4}-\d{2}-\d{2}T/u, "게시 시각 기록");
+  await promoteStep({ ...input, published_bucket: P }, s, r);
+  assert.equal(r.documents.get(DOC)!.published_at, first, "같은 workflow 재시도는 게시 시각을 바꾸지 않음");
 });
 
 test("승인 API 형식의 Documents 항목 정규화: classification 유형·문자열 시행일, 유형 없으면 게시 거부", async () => {
