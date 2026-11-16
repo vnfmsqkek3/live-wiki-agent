@@ -33,6 +33,7 @@ STEPS_ROLE=$(role steps "$(cat <<EOF
  {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":"arn:aws:s3:::$BQ/*"},
  {"Effect":"Allow","Action":["s3:PutObject"],"Resource":["arn:aws:s3:::$BP/legal/*","arn:aws:s3:::$BP/knowledge/*"]},
  {"Effect":"Allow","Action":["s3:GetObject","s3:PutObject"],"Resource":"arn:aws:s3:::$BA/kb-ingest/*"},
+ {"Effect":"Allow","Action":["s3:ListBucket"],"Resource":"arn:aws:s3:::$BA","Condition":{"StringLike":{"s3:prefix":"kb-ingest/*"}}},
  {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:UpdateItem"],"Resource":"$DDB/$TD"},
  {"Effect":"Allow","Action":["dynamodb:GetItem","dynamodb:UpdateItem","dynamodb:Query"],"Resource":["$DDB/$TA","$DDB/$TA/index/gsi1"]},
  {"Effect":"Allow","Action":["bedrock:StartIngestionJob","bedrock:GetIngestionJob"],"Resource":"$KB_ARN"},

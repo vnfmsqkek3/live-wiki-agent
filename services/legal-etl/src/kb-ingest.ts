@@ -1,9 +1,14 @@
 // 단계 12 KbIngest (폴링 단계, interfaces.md 6장): ASL이 같은 공통 입력으로 15초마다 다시 호출한다.
 // 첫 호출: StartIngestionJob → Job ID를 artifact 버킷에 저장 → PENDING
 // 이후 호출: 저장된 Job 상태 조회 → 진행 중이면 PENDING, COMPLETE + 실패 0건이면 OK, 실패면 예외
+import { createHash } from "node:crypto";
 import { BedrockAgentClient, StartIngestionJobCommand, GetIngestionJobCommand } from "@aws-sdk/client-bedrock-agent";
 import type { StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore, Records } from "./store.ts";
+
+/** StartIngestionJob clientToken: 영숫자·하이픈만, 33~256자 → 워크플로·문서·버전의 sha256 hex (결정적) */
+export const ingestToken = (i: Pick<StepInput, "workflow_id" | "doc_id" | "version">) =>
+  createHash("sha256").update(`${i.workflow_id}/${i.doc_id}/v${i.version}`).digest("hex");
 
 export interface IngestionApi {
   start(kbId: string, dsId: string, token: string): Promise<string>;
@@ -40,7 +45,7 @@ export async function kbIngestStep(input: StepInput, api: IngestionApi, records:
     if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
     const ds = doc.document_type === "REGULATION" ? env.KB_DS_LEGAL_ID : env.KB_DS_KNOWLEDGE_ID;
     // clientToken 결정적: 저장 전에 Lambda가 죽어 재호출돼도 같은 Job (멱등). 데이터 소스당 동시 Job 충돌(ConflictException)은 예외 → SFN Retry/Catch
-    const job_id = await api.start(env.KB_ID, ds, `${input.workflow_id}-${input.doc_id}-v${input.version}`.slice(0, 256));
+    const job_id = await api.start(env.KB_ID, ds, ingestToken(input));
     await store.put(env.BUCKET_ARTIFACT, key, JSON.stringify({ job_id, data_source_id: ds } satisfies JobState));
     return { status: "PENDING" };
   }

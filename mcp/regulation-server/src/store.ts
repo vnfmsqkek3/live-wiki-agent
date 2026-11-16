@@ -3,6 +3,7 @@
 //   pk = LAW#{law_id}  sk = REV#{revision_id}                → RevisionRecord
 //   pk = LAW#{law_id}  sk = REV#{revision_id}#P#{rel_path}   → Provision
 //   pk = LAWNAMES      sk = LAW#{law_id}                     → 법령명 목록
+//   pk = REGHASH#{sha256:hex}  sk = REV                      → {law_id, revision_id} (Registry 해시 → 개정본)
 // 테이블 키 스키마 pk/sk(S)는 yoyo0704 배포본 (interfaces.md 4장). 키 값은 Owner인 let522mj가 정함
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
@@ -12,6 +13,7 @@ export interface RevisionRecord {
   law_id: string; law_name: string; revision_id: string; registry_doc_no?: string;
   effective_from: number; effective_to: number; authority_status: AuthorityStatus;
   doc_id: string; content_hash: string; acl_groups: string[];
+  pdf_content_hash?: string; // 데모 업로드(PDF) 원본 해시. Trust Gate는 업로드 바이트 해시를 content_hash 또는 이것과 대조
   parse_ok: boolean; // 구조 파싱 이슈 0건일 때만 true. false면 부재 판정 금지(UNVERIFIED)
 }
 
@@ -19,6 +21,8 @@ export interface ClauseStore {
   lawIdByName(nameOrId: string): Promise<string | undefined>;
   revisions(lawId: string): Promise<RevisionRecord[]>;
   provisions(lawId: string, revisionId: string): Promise<Provision[] | undefined>;
+  /** Registry 원본 해시(content_hash·pdf_content_hash)로 개정본 찾기 */
+  revisionByHash(hash: string): Promise<RevisionRecord | undefined>;
 }
 
 export const relPath = (provisionId: string) => provisionId.slice(provisionId.indexOf("/") + 1);
@@ -49,6 +53,7 @@ export class MemoryClauseStore implements ClauseStore {
     if (r && r.effective_to > effectiveTo) r.effective_to = effectiveTo;
   }
   async provisions(lawId: string, rev: string) { return this.provs.get(`${lawId}@${rev}`); }
+  async revisionByHash(h: string) { return h ? this.revs.find((r) => r.content_hash === h || r.pdf_content_hash === h) : undefined; }
 }
 
 export class DynamoClauseStore implements ClauseStore {
@@ -82,6 +87,11 @@ export class DynamoClauseStore implements ClauseStore {
     const items = await this.query(`LAW#${lawId}`, `REV#${rev}#P#`);
     return items.length ? (items as unknown as Provision[]).sort((a, b) => a.source_line - b.source_line) : undefined;
   }
+  async revisionByHash(h: string) {
+    const [hit] = h ? await this.query(`REGHASH#${h}`, "REV") : [];
+    if (!hit) return undefined;
+    return (await this.query(`LAW#${String(hit["law_id"])}`, `REV#${String(hit["revision_id"])}`)).find((i) => i["sk"] === `REV#${String(hit["revision_id"])}`) as unknown as RevisionRecord | undefined;
+  }
   /** 이전 버전 종료일 갱신 (더 늦은 값일 때만 앞당김) */
   async closeRevision(lawId: string, rev: string, effectiveTo: number) {
     try {
@@ -97,6 +107,7 @@ export class DynamoClauseStore implements ClauseStore {
     const items = [
       { pk: "LAWNAMES", sk: `LAW#${rec.law_id}`, law_id: rec.law_id, law_name: rec.law_name },
       { pk: `LAW#${rec.law_id}`, sk: `REV#${rec.revision_id}`, ...rec },
+      ...[rec.content_hash, rec.pdf_content_hash].filter(Boolean).map((h) => ({ pk: `REGHASH#${h}`, sk: "REV", law_id: rec.law_id, revision_id: rec.revision_id })),
       ...law.provisions.map((p) => ({ pk: `LAW#${rec.law_id}`, sk: `REV#${rec.revision_id}#P#${relPath(p.provision_id)}`, ...p })),
     ];
     for (let i = 0; i < items.length; i += 25) {
