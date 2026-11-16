@@ -4,7 +4,7 @@
 상태: **완료**(실환경 증빙 있음) / **부분**(로직·오프라인 또는 일부 실환경만, 남은 조건 명시) / **대기**(선행 조건 미충족) / **미착수**
 `docs/02` 1장: 화면·mock만으로 완료 처리 금지, 입력→판단→통제→결과→검증 근거 연결, 반복 실행 가능한 테스트.
 
-마지막 갱신: 2026-11-16 19:35 (PR #1 병합 반영: CI ci-app·ci-data 대상)
+마지막 갱신: 2026-11-16 20:15 (PR #3 머지, 공유 dev 연결 완료)
 
 ## 1. 기능별 DoD (`docs/02` 2장, let522mj 담당분)
 
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 11/16 M0 | `packages/schemas` v0, 합성 10건 | 완료 | schemas 리뷰는 PR #3 (dhxorb96) |
 | 11/17 | Parser v0, Registry 기준본·해시 fixture | 완료 | 공개 법령 검증까지 |
-| 11/18 | Chunker·Promote·KbIngest·search Tool, **E2E 1건** | 부분 | Lambda 7개 배포·실행 확인. E2E는 Step Functions 연결·KB chunker 연결 대기 (yoyo0704) |
+| 11/18 | Chunker·Promote·KbIngest·search Tool, **E2E 1건** | 부분 | Lambda 7개 배포·SFN·KB chunker 연결 완료(yoyo0704, 11/16). E2E는 승인 API 경유로 진행 예정 |
 | 11/19 | Exact Lookup·검색 상태, Golden 60 | 완료 | 실 DynamoDB 20/20 |
 | 11/20 | GraphUpsert·Change Impact | 부분 | 로직·오프라인 완료, Neptune 대기 |
 | 11/21 | 정량 기준 측정 | 부분 | 오프라인 완료, 실환경 재측정 필요 |
