@@ -157,6 +157,16 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ]
     }
+    # 실패·검토 사유 설명 (사용자 지시 11/17). model-caller: Documents findings(사실)만 읽고 masked/explanation.json 작성
+    explain-findings = {
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/explain-findings.handler", memory = 256, timeout = 120, model_caller = true
+      env = { BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name, MODEL_SONNET = var.models["MODEL_SONNET"] }
+      statements = [
+        { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["quarantine"].arn}/*/masked/explanation.json" },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ]
+    }
     # 그래프 (Neptune, VPC). graph-upsert 는 쓰기 직렬화를 위해 reserved concurrency 1 (docs/04 5장)
     graph-upsert = {
       zip = "${local.lz}/graph_upsert.zip", handler = "index.handler", memory = 512, timeout = 300, model_caller = false, vpc = true, reserved = 1
@@ -257,7 +267,7 @@ locals {
   # 파이프라인 단계 키 → 팀 Lambda 키 (Gateway Tool 로 등록)
   step_fn = {
     file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
-    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
 
