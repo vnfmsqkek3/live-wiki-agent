@@ -1,0 +1,93 @@
+'use client';
+// API·인증 클라이언트. NEXT_PUBLIC_API_URL이 없으면 합성 mock으로 동작한다 (11/17 공유 dev 연동 전).
+// 버튼 노출은 편의일 뿐 권한은 서버가 강제한다 (01 §3.1).
+
+const API = process.env.NEXT_PUBLIC_API_URL;
+const REGION = process.env.NEXT_PUBLIC_AWS_REGION ?? 'us-east-1';
+const CLIENT_ID = process.env.NEXT_PUBLIC_COGNITO_CLIENT_ID;
+export const MOCK = !API;
+
+export type Role = 'USER' | 'AUTHOR' | 'REG_APPROVER' | 'SECURITY_REVIEWER' | 'PLATFORM_OPERATOR';
+export interface Session { token: string; groups: Role[]; username: string }
+
+const KEY = 'hanaeum.session';
+// ponytail: sessionStorage(탭 단위). XSS 노출면이 있으므로 prod 전 Cognito managed login + httpOnly 쿠키 검토
+export function getSession(): Session | undefined {
+  try { const s = sessionStorage.getItem(KEY); return s ? (JSON.parse(s) as Session) : undefined; } catch { return undefined; }
+}
+export function logout() { try { sessionStorage.removeItem(KEY); } catch {} }
+
+export async function login(username: string, password: string): Promise<Session> {
+  let s: Session;
+  if (MOCK || !CLIENT_ID) {
+    const groups: Role[] = username.includes('approver') ? ['REG_APPROVER'] : username.includes('author') ? ['AUTHOR'] : ['USER'];
+    s = { token: 'mock', groups, username };
+  } else {
+    const r = await fetch(`https://cognito-idp.${REGION}.amazonaws.com/`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-amz-json-1.1', 'x-amz-target': 'AWSCognitoIdentityProviderService.InitiateAuth' },
+      body: JSON.stringify({ AuthFlow: 'USER_PASSWORD_AUTH', ClientId: CLIENT_ID, AuthParameters: { USERNAME: username, PASSWORD: password } }),
+    });
+    if (!r.ok) throw new Error('아이디 또는 비밀번호를 확인하세요');
+    const token = ((await r.json()) as { AuthenticationResult: { AccessToken: string } }).AuthenticationResult.AccessToken;
+    // 표시용으로만 디코드 (서명 검증은 서버)
+    const claims = JSON.parse(atob(token.split('.')[1]!.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>;
+    s = { token, groups: (claims['cognito:groups'] as Role[] | undefined) ?? ['USER'], username };
+  }
+  sessionStorage.setItem(KEY, JSON.stringify(s));
+  return s;
+}
+
+export class ApiError extends Error {
+  status: number;
+  constructor(status: number, message: string) { super(message); this.status = status; }
+}
+
+export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
+  if (MOCK) return mock(method, path, body) as T;
+  const s = getSession();
+  const r = await fetch(`${API}${path}`, {
+    method,
+    headers: { 'content-type': 'application/json', ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
+  if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
+  return j as T;
+}
+
+// ---------- 합성 mock (한빛은행 · SYNTHETIC) ----------
+export interface SearchItem {
+  doc_id: string; title: string; snippet: string; team: string; date: string; stars: number;
+  tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED';
+  document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; citation?: string; reason: string;
+}
+export const MOCK_ITEMS: SearchItem[] = [
+  { doc_id: 'doc_F001', title: '[SYNTHETIC] 기업여신 심사규정 v1', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', date: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', citation: 'SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2', reason: '질의의 "담보 승인 기준"과 조문 일치' },
+  { doc_id: 'doc_K001', title: '[SYNTHETIC] 담보평가 실무 체크리스트', snippet: '감정평가서 수령 후 3영업일 내 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', date: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', citation: 'SYN-LOAN-001 제12조 근거 부합', reason: '같은 팀 조회 다수 · 근거 규정 최신' },
+  { doc_id: 'doc_K003', title: '[SYNTHETIC] 소액 담보 처리 팁 (2025)', snippet: '5억원 미만은 지점 전결로 처리 가능 (구 규정 기준).', team: '여신심사2팀', date: '2025-06-02', stars: 4.8, tags: ['실무사례'], authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', document_type: 'KNOWHOW', citation: 'SYN-LOAN-001@2025-01-01 (과거 버전)', reason: '평점은 높지만 근거 규정이 개정되어 재검증 필요' },
+];
+
+function mock(method: string, path: string, body?: unknown): unknown {
+  if (path.startsWith('/v1/search')) {
+    const u = new URL(path, 'http://x');
+  
+    const tag = u.searchParams.get('tags');
+    return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
+  }
+  if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
+  if (path === '/v1/approvals?status=PENDING')
+    return { items: [
+      { approval_id: 'apr_F003', doc_id: 'doc_F003', kind: 'MISMATCH', title: '[SYNTHETIC] 기업여신 심사규정 (출처 불명)', detail: '공식 원본 3억 / 업로드 5억 (제12조제2항)' },
+      { approval_id: 'apr_K001', doc_id: 'doc_K001', kind: 'PENDING', title: '[SYNTHETIC] 담보평가 실무 체크리스트', detail: '작성자 검토 완료 · PII 마스킹 확인' },
+    ] };
+  if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
+  if (/\/v1\/documents\/.+\/analyze/.test(path)) return { workflow_id: 'wf_MOCK' };
+  throw new ApiError(404, `mock 없음: ${method} ${path}`);
+}
+
+export async function uploadFile(url: string, file: File) {
+  if (url.startsWith('mock://')) return;
+  const r = await fetch(url, { method: 'PUT', body: file });
+  if (!r.ok) throw new ApiError(r.status, '파일 업로드 실패');
+}
