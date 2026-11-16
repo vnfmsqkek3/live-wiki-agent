@@ -37,3 +37,5 @@
 | yoyo0704 | PR #7(또는 이후)에서 Memory 리소스·KMS 키 정책의 bedrock-agentcore Memory 허용·Memory IAM 정책·SSM `MEMORY_ID` 제거. 이미 공유 dev에 만들었으면 삭제 |
 | dhxorb96 | PR #2에서 Memory 연결(`agents/src/memory.ts`), 가이드 `conversation_id`, `DELETE /v1/me/memory`, `docs/01`·`docs/04` Memory 개정분 되돌리기. 가이드는 요구사항대로 질문 1회 구조 |
 | let522mj | `tests/evaluations/cases/memory.jsonl`·정합 테스트 제거 (PR) |
+
+**dhxorb96 되돌리기 완료 (21:42)**: `git revert` 61e86cb·fcb395a (memory.ts·가이드 conversation_id·DELETE /v1/me/memory·docs Memory 개정 제거). docs/01 679행 'Memory 제외' 유지, AgentCore 오케스트레이션 결정 문구만 복원(523754d). 인용은 이번 search 결과만 허용하는 원칙 유지. yoyo0704에게 Memory 리소스 불필요 통지
