@@ -41,6 +41,10 @@ QA_FILES="tests/fixtures/documents/pdf/K-001.pdf,/path/외부법령인용.pdf" t
 | D6 | 상세: 쪽별 요약 | 모든 쪽에 요약 | dhxorb96 |
 | D7 | 상세: 외부 법령 참고 | 본문이 「…법」을 인용하면 Browser로 찾은 최신 공식 법령을 '참고(미검증)'로 | dhxorb96·let522mj |
 | D8 | 상세: 신뢰 인장 | 승인된 노하우·매뉴얼은 '검증 완료' | dhxorb96 |
+| S1 | 검색어 없음 | 전체 게시 문서 목록 | dhxorb96 |
+| S2 | 짧은 단어 검색 | "개인정보" → 관련 문서 2건 이상 | dhxorb96·let522mj |
+| S3 | 검색어 지우기 | 지우면 바로 전체 목록 | dhxorb96 |
+| D9 | 상세: 확인된 근거·실무 보완 | 참고 구역에 근거 확인됨·실무 보완 | dhxorb96·let522mj |
 | G1 | 권한 | user가 /admin 접근 시 '볼 수 없는 화면' | dhxorb96 |
 
 ## 보고

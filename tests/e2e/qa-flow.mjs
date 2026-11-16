@@ -114,10 +114,13 @@ for (const file of FILES) {
 
   // F8 보관함 카드 → 상세
   await go('/library', 5000);
-  const clicked = await ev(`(() => { const a = [...document.querySelectorAll('li.entry a')].find((x) => x.textContent.includes(${JSON.stringify(title)})); if (!a) return false; a.click(); return true; })()`);
+  // 제목이 아니라 카드 빈 곳(왼쪽 아래)을 실제 마우스로 누른다
+  const pos = await ev(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return null; li.scrollIntoView(); const r = li.getBoundingClientRect(); return { x: r.left + 24, y: r.bottom - 8 }; })()`);
+  if (pos) for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: pos.x, y: pos.y, button: 'left', clickCount: 1 });
+  const clicked = !!pos;
   await sleep(6000);
   const detailUrl = await ev('location.href');
-  check('F8', clicked && detailUrl.includes('id='), clicked ? '카드 클릭 → 상세' : '보관함에 카드 없음');
+  check('F8', clicked && detailUrl.includes('id='), clicked ? (detailUrl.includes('id=') ? '카드 빈 곳 클릭 → 상세' : '카드 빈 곳 클릭해도 이동 안 함') : '보관함에 카드 없음');
   const dt = await ev("Object.fromEntries([...document.querySelectorAll('dl.meta-grid dt')].map((x) => [x.textContent.trim(), x.nextElementSibling?.textContent.trim()]))");
   const body2 = await text();
   const det = (await api(`/v1/library/${docId}`)).body;
@@ -131,11 +134,27 @@ for (const file of FILES) {
   const sums = det?.pages?.map((p) => !!p.summary) ?? [];
   check('D6', sums.length > 0 && sums.every(Boolean) ? true : sums.some(Boolean) ? 'partial' : false, `쪽 요약 ${sums.filter(Boolean).length}/${sums.length}`);
   const citesLaw = /「[^」]+법」/.test(det?.pages?.map((p) => p.text).join('\n') ?? '');
-  const hasExt = /외부 법령|국가법령정보센터/.test(body2);
+  const hasExt = citesLaw ? !!(await until(async () => /외부 법령 최신본 참고/.test(await text()) && !/확인하는 중입니다…/.test(await text()), 60_000, 3000)) : false;
+  if (hasExt) await shot(`${tag}-D7-external`);
   check('D7', !citesLaw ? 'partial' : hasExt, !citesLaw ? '본문에 「…법」 인용 없음 (해당 없음)' : hasExt ? '외부 법령 참고 표시' : '본문이 「…법」을 인용하지만 외부 법령 참고 없음');
+  const notes = await ev("[...document.querySelectorAll('h3.section')].find((h) => h.textContent.includes('참고: 확인된 근거'))?.nextElementSibling?.innerText ?? ''");
+  check('D9', tag === 'K-001' ? /근거 확인됨|실무 보완/.test(notes) : 'partial', tag === 'K-001' ? (notes ? `참고 구역: ${notes.split('\n').filter((l) => /근거 확인됨|실무 보완/.test(l)).slice(0, 3).join(' / ')}` : '참고 구역 없음(근거 확인됨·실무 보완 미표시)') : '해당 없음');
   const seal = await ev("document.querySelector('.seal')?.getAttribute('aria-label') ?? ''");
   check('D8', /검증 완료|공식 규정/.test(seal), `인장 '${seal}'`);
 }
+
+// S1·S2: 검색 화면 (user)
+await login('user');
+await go('/search', 5000);
+const allN = await ev("document.querySelectorAll('li.entry').length");
+check('S1', allN > 0 && /전체 게시 문서/.test(await text()), `검색어 없음 → 카드 ${allN}개`);
+await go('/search?q=' + encodeURIComponent('개인정보'), 6000);
+const priv = await ev("[...document.querySelectorAll('li.entry h3')].map((h) => h.textContent.slice(0, 30))");
+check('S2', priv.length >= 2, `'개인정보' → ${priv.join(' / ')}`);
+await ev("const i = document.querySelector('input[type=search]'); i.focus(); i.select()");
+for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
+await sleep(5000);
+check('S3', (await ev('location.search')) === '' && /전체 게시 문서/.test(await text()), `검색어 지운 뒤 ${await ev('location.pathname + location.search')}`);
 
 writeFileSync(`${OUT}/qa-result.json`, JSON.stringify({ base: BASE, at: new Date().toISOString(), results, page_errors: [...new Set(errors)].slice(0, 20), api_errors: net.filter((n) => n.status >= 400).map((n) => `${n.status} ${new URL(n.url).pathname}`) }, null, 2));
 console.log(`\n결과: ${OUT}/qa-result.json`);
