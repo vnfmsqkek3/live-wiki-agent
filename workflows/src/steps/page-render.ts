@@ -75,9 +75,11 @@ export function makeHandler(d: Deps) {
         out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason });
       }
     } else if (ext === "png" || ext === "jpg" || ext === "jpeg") {
-      // 이미지는 원본을 그대로 OCR 대상으로 (크기 조정은 OCR 컨테이너가 한다)
+      // 이미지는 work/pages/ 로 복사해 OCR 대상으로. OCR(SageMaker) Role 은 원본 경로를 읽지 않는다
       out.page_count = 1;
-      out.pages.push({ page_index: 0, key, width: 0, height: 0, reason: "image" });
+      const pk = `${pagesDir}/0000.${ext === "jpeg" ? "jpg" : ext}`;
+      await d.put(e.bucket, pk, await d.get(e.bucket, key), ext === "png" ? "image/png" : "image/jpeg");
+      out.pages.push({ page_index: 0, key: pk, width: 0, height: 0, reason: "image" });
     }
     // docx·hwpx 는 구조화 텍스트만 쓰므로 OCR 대상 없음 (TextLayerExtract, let522mj)
 
