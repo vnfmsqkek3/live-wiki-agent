@@ -85,7 +85,8 @@ export async function invokeAgent(question: string, accessToken: string, stream 
       'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': `guide-${crypto.randomUUID()}`, // 요청마다 독립 세션 (Memory 미사용)
     },
     body: JSON.stringify({ prompt: question }),
-    signal: AbortSignal.timeout(60_000),
+    // Agent Tool 선택(최대 60초) + 작성 시간. 스트리밍은 15초 ping으로 연결 유지
+    signal: AbortSignal.timeout(stream ? 180_000 : 120_000),
   });
   if (!r.ok) throw new Error(`agent ${r.status}`);
   return stream ? r.body! : r.json();
