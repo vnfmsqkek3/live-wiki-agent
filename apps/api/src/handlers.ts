@@ -5,7 +5,7 @@ import {
   type LambdaDeps, type SegmentDeps,
 } from './lambdas.ts';
 import { structured } from './model.ts';
-import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, type ClassifyOut } from './steps/classify.ts';
+import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, type Judgement } from './steps/knowhow.ts';
 import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
 import { DynamoClauseStore, regulationTools } from '@hanaeum/regulation-server';
@@ -56,6 +56,7 @@ const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, reg
 const seg: SegmentDeps = {
   store, listKeys, getJson, putJson, guardrail: applyGuardrail,
   classify: (tier, prompt) => structured<ClassifyOut>(tier, CLASSIFY_SYSTEM, prompt, 'submit_classification', CLASSIFY_SCHEMA as unknown as Record<string, unknown>),
+  summarize: (prompt) => structured<SummaryOut>('HAIKU', SUMMARY_SYSTEM, prompt, 'submit_summary', SUMMARY_SCHEMA as unknown as Record<string, unknown>),
 };
 
 export const typeDetection = makeTypeDetection(deps);

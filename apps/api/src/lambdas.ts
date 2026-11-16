@@ -8,7 +8,7 @@ import { trustGate, type RegistryEntry } from './steps/trust-gate.ts';
 import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
-import { classifyPrompt, type ClassifyOut } from './steps/classify.ts';
+import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
 
@@ -32,6 +32,7 @@ export interface SegmentDeps {
   putJson(key: string, v: unknown): Promise<void>;
   guardrail?: GuardrailCheck;
   classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
+  summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
 }
 type Seg = { page_index: number; text: string };
 const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
@@ -72,11 +73,14 @@ export function makeClassify(deps: SegmentDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     if (!deps.classify) throw new Error('classify model not configured');
     const d = await mustDoc(deps.store, i.doc_id);
-    const text = (await maskedSegments(deps, i.doc_id)).sort((a, b) => a.page_index - b.page_index).map((s) => s.text).join('\n').slice(0, 6000);
+    const segs = (await maskedSegments(deps, i.doc_id)).sort((a, b) => a.page_index - b.page_index);
+    const text = segs.map((s) => s.text).join('\n').slice(0, 6000);
     const prompt = classifyPrompt(d.title, text);
     let r = await deps.classify('HAIKU', prompt);
     if (r.value.confidence < 0.7) r = await deps.classify('SONNET', prompt); // 에스컬레이션 (docs/01 9장)
     const v = r.value;
+    // 요약 실패는 게시를 막지 않는다 (보관함에 요약 없음으로 표시)
+    const sum = deps.summarize ? await deps.summarize(summaryPrompt(d.title, segs)).catch((e: Error) => { console.warn(JSON.stringify({ msg: 'summary failed', doc_id: d.doc_id, err: e.name })); return undefined; }) : undefined;
     const findings: Finding[] = v.confidence < 0.7
       ? [{ finding_id: newId.fnd(), step: 'CLASSIFY', severity: 'MEDIUM', code: 'CLASSIFY_LOW_CONFIDENCE', message: `분류 신뢰도 ${v.confidence.toFixed(2)} → 작성자 확인 필요`, evidence_ref: r.model }]
       : [];
@@ -84,6 +88,7 @@ export function makeClassify(deps: SegmentDeps) {
       ...addFindings(d, findings),
       document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
       classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
+      ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),
     });
     return { status: findings.length ? 'REVIEW_REQUIRED' : 'OK', findings };
   };

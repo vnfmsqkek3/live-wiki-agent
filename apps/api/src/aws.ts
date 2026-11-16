@@ -131,3 +131,10 @@ export async function applyGuardrail(text: string) {
   const detected = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
   return { text: r.outputs?.[0]?.text ?? text, detected };
 }
+
+/** 문서보관함: 마스킹본 페이지만 읽는다 (masked/segments). 원본·work는 읽지 않는다 */
+export async function pages(doc_id: string) {
+  const keys = (await listKeys(`${doc_id}/masked/segments/`)).filter((k) => k.endsWith('.json'));
+  const segs = await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string }>(k)));
+  return segs.map((s) => ({ page: s.page_index, text: s.text }));
+}

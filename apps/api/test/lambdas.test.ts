@@ -148,6 +148,23 @@ test('Classify: 마스킹 텍스트만 모델에 전달, 최상위 document_type
   assert.deepEqual([d.document_type, d.classification?.source, d.classification?.confidence], ['KNOWHOW', 'MODEL', 0.65]);
 });
 
+test('Classify 요약: 마스킹본 페이지만 Haiku에 전달·문서/페이지 요약 저장, 요약 실패는 분류를 막지 않음', async () => {
+  const cls: SegmentDeps['classify'] = async () => ({ model: 'h', value: { document_type: 'KNOWHOW', business_path: ['여신'], tags: [], confidence: 0.9, rationale: 'r' } });
+  const t = segSetup(['고객 010-9999-8888 담보 팁', '둘째 장'], cls);
+  let prompt = '';
+  t.deps.summarize = async (p) => { prompt = p; return { model: 'h', value: { summary: '요약', pages: [{ page: 0, summary: '첫 장' }, { page: 1, summary: '둘째' }] } }; };
+  await t.store.putDoc(t.doc);
+  await makePiiScan(t.deps)(t.input);
+  assert.equal((await makeClassify(t.deps)(t.input)).status, 'OK');
+  assert.ok(!prompt.includes('9999-8888') && prompt.includes('<page n="1">'));
+  const d = (await t.store.getDoc(t.doc.doc_id))!;
+  assert.deepEqual([d.summary, d.page_summaries?.length], ['요약', 2]);
+  t.deps.summarize = async () => { throw new Error('throttled'); };
+  await t.store.putDoc({ ...d, summary: undefined, page_summaries: undefined });
+  assert.equal((await makeClassify(t.deps)(t.input)).status, 'OK');
+  assert.equal((await t.store.getDoc(t.doc.doc_id))!.summary, undefined);
+});
+
 test('await_review: 게시된 문서는 검토 대기로 되돌리지 않음 (재실행 안전장치)', async () => {
   const t = setup(pdf);
   await t.store.putDoc({ ...t.doc, lifecycle: 'PUBLISHED' });

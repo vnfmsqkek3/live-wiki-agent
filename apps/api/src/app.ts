@@ -3,6 +3,7 @@ import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
+import { card, matches, type Mark, type Page } from './library.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
@@ -30,6 +31,10 @@ export interface Deps {
   guide(question: string, accessToken: string): Promise<unknown>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string } | undefined>;
+  /** 문서보관함: 마스킹본 페이지 (`{doc_id}/masked/segments/`). 원본은 읽지 않는다 */
+  pages?(doc_id: string): Promise<Page[]>;
+  /** let522mj buildMarks: 판정·Finding → 밑줄 (page = pages 배열 인덱스, 못 찾으면 null) */
+  marks?(pages: Page[], doc: DocumentRecord): Promise<Mark[]>;
 }
 
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
@@ -216,6 +221,29 @@ export function createApp(deps: Deps) {
       await audit(c, 'WORKFLOW_RESUME_FAILED', apr.approval_id); // ponytail: 재시도 API 없음, 운영자가 재호출
     }
     return c.json({ approval_id: decided.approval_id, status: decided.status, workflow_resumed });
+  });
+
+  // ---- 문서보관함 (권한 내 PUBLISHED + 본인 문서) ----
+  const visibleDocs = async (a: Actor) => (await store.listDocs()).filter((d) => d.owner === a.sub || (d.lifecycle === 'PUBLISHED' && canRead(a, d.acl_groups)));
+  app.get('/v1/library', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const f = { type: c.req.query('type'), business: c.req.query('business'), tag: c.req.query('tag'), q: c.req.query('q')?.slice(0, 200) };
+    const items = vis.filter((d) => d.lifecycle !== 'BLOCKED' && matches(d, f)).sort((x, y) => y.updated_at.localeCompare(x.updated_at)).map((d) => card(d, vis));
+    return c.json({ items });
+  });
+  app.get('/v1/library/:id', async (c) => {
+    const a = c.get('actor');
+    const vis = await visibleDocs(a);
+    const d = vis.find((x) => x.doc_id === c.req.param('id'));
+    if (!d) throw new ApiError('NOT_FOUND', 'document not found'); // 권한 없음도 404
+    const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
+    const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
+    const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
+    return c.json({
+      ...card(d, vis),
+      doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
+      pages: pages.map((p, i) => ({ page: p.page, text: p.text, summary: sum.get(p.page) ?? null, marks: marks.filter((m) => m.page === i) })),
+    });
   });
 
   // ---- 검색·피드백 ----

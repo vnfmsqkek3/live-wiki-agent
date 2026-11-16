@@ -71,6 +71,9 @@ export interface DocumentRecord {
   law_id?: string; law_name?: string; revision_id?: string; effective_from?: string; effective_to?: string; registry_doc_no?: string; previous_revision_id?: string;
   /** 승인된 노하우 인용 (GraphUpsert 입력) */
   citations?: { provision_id: string; evidence_span: string; confidence: number }[];
+  /** 문서보관함 요약 (Classify 단계, 마스킹본 → Haiku). page_summaries[i] = page_index i 요약 */
+  summary?: string;
+  page_summaries?: { page: number; summary: string }[];
   /** 노하우 검증 결과 (TrustGate가 KNOWHOW 문서에 기록) */
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
   /** 출처 불일치 처리 결과 */

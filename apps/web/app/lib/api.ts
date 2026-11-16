@@ -76,6 +76,16 @@ function mock(method: string, path: string, body?: unknown): unknown {
     const tag = u.searchParams.get('tags');
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
+  if (path.startsWith('/v1/library/')) {
+    const d = MOCK_LIBRARY.find((x) => x.doc_id === decodeURIComponent(path.slice('/v1/library/'.length)));
+    if (!d) throw new ApiError(404, 'document not found');
+    return d;
+  }
+  if (path.startsWith('/v1/library')) {
+    const u = new URL(path, 'http://x');
+    const type = u.searchParams.get('type');
+    return { items: MOCK_LIBRARY.filter((d) => !type || d.document_type === type) };
+  }
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
   if (path === '/v1/approvals?status=PENDING')
     return { items: [
@@ -145,3 +155,41 @@ const MOCK_GUIDE: Guide = {
   ],
   uncertainty: '"5억원 미만은 지점 전결" 팁은 개정 전 규정을 근거로 하고 있어 재검토 중입니다. 현행 기준은 3억원 이상 본부 승인입니다.',
 };
+
+// ---------- 문서보관함 (let522mj 요청 2220) ----------
+export interface Mark {
+  page: number | null; start: number | null; end: number | null; severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
+  reason: string; basis?: { provision_id: string; label: string; text: string; effective_from?: string }; fix?: string;
+}
+export interface LibraryCard {
+  doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
+  business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
+  freshness: 'CURRENT' | 'REVIEW_REQUIRED'; effective_from: string | null; mark_count: number;
+  related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string }[];
+}
+export interface LibraryDoc extends LibraryCard { doc_marks: Mark[]; pages: { page: number; text: string; summary: string | null; marks: Mark[] }[] }
+
+const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
+export const MOCK_LIBRARY: LibraryDoc[] = [
+  {
+    doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', document_type: 'KNOWHOW', lifecycle: 'PUBLISHED', business_path: ['여신', '담보'], tags: ['실무사례', '담보'],
+    summary: '1억원 이하 부동산 담보대출을 빠르게 처리하는 요령입니다. 현장 실사를 생략하고 감정평가서만으로 처리하며, 실사 보고서는 사후에 작성한다고 안내합니다.',
+    authority_status: 'UNVERIFIED', freshness: 'CURRENT', effective_from: null, mark_count: 2,
+    related: [{ doc_id: 'doc_F001', title: '기업여신 심사규정', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
+    doc_marks: [],
+    pages: [
+      { page: 0, text: K002, summary: '금액 기준으로 현장 실사를 생략하는 처리 요령과 보고서 사후 작성을 안내합니다.', marks: [
+        { page: 0, start: K002.indexOf('1억원'), end: K002.indexOf('처리한다.') + 5, severity: 'HIGH', kind: 'CONFLICT', reason: '규정은 담보가 부동산이면 금액과 관계없이 현장 실사를 반드시 하도록 정하고 있습니다.', basis: { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', text: '① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', effective_from: '2026-11-01' }, fix: '근거 조문에 맞게 수정: "담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다."' },
+        { page: 0, start: K002.indexOf('실사 보고서'), end: K002.length, severity: 'MEDIUM', kind: 'INSUFFICIENT', reason: '보고서 작성 시점에 대한 기준을 조문에서 찾지 못했습니다.', fix: '근거 조문을 명시하거나 담당 부서 확인' },
+      ] },
+    ],
+  },
+  {
+    doc_id: 'doc_F001', title: '기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED', business_path: ['여신'], tags: ['공식규정'],
+    summary: '기업여신 심사 절차와 승인 기준을 정합니다. 5억원 이상은 본부 승인, 부동산 담보는 금액과 관계없이 현장 실사를 해야 합니다.',
+    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', mark_count: 0,
+    related: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
+    doc_marks: [], pages: [{ page: 0, text: '제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
+  },
+];

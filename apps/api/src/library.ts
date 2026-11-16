@@ -1,0 +1,56 @@
+// 문서보관함 (let522mj 요청 2220, 데이터 계약 v0). 카드·연관성은 저장된 결과만으로 조합한다 (모델 호출 없음).
+// 밑줄(marks)은 let522mj buildMarks(@hanaeum/regulation-server)가 페이지·글자 위치로 바꾼다 (Deps.marks). 없으면 빈 목록.
+import type { DocumentRecord } from './contracts.ts';
+
+export type Relation = 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR';
+export interface Related { doc_id: string; title: string; relation: Relation; reason: string }
+export interface Mark {
+  /** pages 배열 인덱스. 위치를 못 찾으면 null → 문서 단위 표시 */
+  page: number | null; start: number | null; end: number | null; severity: 'HIGH' | 'MEDIUM' | 'LOW';
+  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
+  reason: string; basis?: { provision_id: string; label: string; text: string; effective_from: string }; fix?: string;
+}
+export interface Page { page: number; text: string }
+
+const lawOf = (provision_id: string) => provision_id.split('@')[0]!;
+
+/** 밑줄 후보 수 (목록용). 모델 판단은 인용 원문 대조 통과분만 센다 */
+export function markCount(d: DocumentRecord) {
+  const kv = d.knowhow_validation;
+  const judged = (kv?.items ?? []).filter((j) => j.verified_quote && (j.relation === 'CONFLICTS' || j.relation === 'INSUFFICIENT')).length;
+  const found = d.findings.filter((f) => f.code === 'REGISTRY_MISMATCH' || f.code.startsWith('PII_UNCERTAIN') || f.step === 'INJECTION_SCAN').length;
+  return judged + (kv?.outdated.length ?? 0) + found;
+}
+
+/** 연관 문서: 노하우 판정 근거 규정(CITES·CONFLICTS), 규정을 근거로 쓴 노하우(CITED_BY). 열람 가능한 문서(visible)만 */
+export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[] {
+  const out = new Map<string, Related>();
+  const add = (r: Related) => { if (r.doc_id !== d.doc_id && (!out.has(r.doc_id) || r.relation === 'CONFLICTS')) out.set(r.doc_id, r); };
+  for (const j of d.knowhow_validation?.items ?? []) {
+    if (!j.verified_quote || (j.relation !== 'SUPPORTS' && j.relation !== 'CONFLICTS')) continue;
+    const reg = visible.find((x) => x.law_id === lawOf(j.provision_id) && x.lifecycle === 'PUBLISHED');
+    if (reg) add({ doc_id: reg.doc_id, title: reg.title, relation: j.relation === 'CONFLICTS' ? 'CONFLICTS' : 'CITES', reason: j.label });
+  }
+  if (d.law_id) for (const k of visible) {
+    const hit = k.knowhow_validation?.items.find((j) => j.verified_quote && lawOf(j.provision_id) === d.law_id && (j.relation === 'SUPPORTS' || j.relation === 'CONFLICTS'));
+    if (hit) add({ doc_id: k.doc_id, title: k.title, relation: hit.relation === 'CONFLICTS' ? 'CONFLICTS' : 'CITED_BY', reason: hit.label });
+  }
+  return [...out.values()];
+}
+
+export function card(d: DocumentRecord, visible: DocumentRecord[]) {
+  return {
+    doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle,
+    business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
+    authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
+    mark_count: markCount(d), related: related(d, visible),
+  };
+}
+
+export function matches(d: DocumentRecord, f: { type?: string; business?: string; tag?: string; q?: string }) {
+  const c = d.classification;
+  return (!f.type || (d.document_type ?? c?.document_type) === f.type)
+    && (!f.business || (c?.business_path ?? []).includes(f.business))
+    && (!f.tag || (c?.tags ?? []).includes(f.tag))
+    && (!f.q || `${d.title} ${d.summary ?? ''}`.toLowerCase().includes(f.q.toLowerCase()));
+}
