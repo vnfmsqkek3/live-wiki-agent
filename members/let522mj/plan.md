@@ -34,3 +34,10 @@
 | Neptune 실연동 (`NeptuneGraphStore`) | 11/20 Neptune 배포 | trace_impact 5/5 실그래프 |
 | 공개 법령 샘플로 파서 일반화 검증 | 국가법령정보센터 자료 (자료/데이터원천/법령) | 조·항·호·목 95% |
 | DOCX·HWPX 텍스트 추출 | 필요 시 (데모는 PDF/텍스트) | 미구현 상태 명시 실패 → 구현 |
+
+## PR #1(yoyo0704 repo 골격) 병합 후 할 일
+
+- root `package.json`·`tsconfig.base.json`·`package-lock.json` 충돌 예상 → **yoyo0704 버전 채택** (Owner). 내 root 3파일·`.npmrc`는 버리고 rebase
+- yoyo0704 root는 워크스페이스별 `npm test`/`typecheck` 실행 → 각 워크스페이스 `package.json`에 `"test": "node --test src/**/*.test.ts"`, `"typecheck": "tsc -p ../../tsconfig.json"` 류 스크립트 추가 필요
+- TS 6.0.3 + `noUncheckedIndexedAccess`에서 typecheck 재확인, `workspaces`에 `tests/evaluations/cases` 추가 요청 (현재 `tests/evaluations/runner`만 있음)
+- `docs/interfaces.md` 양쪽 수정 → 섹션별로 병합 (1·2·5 내 것, 8 버전표 합침)
