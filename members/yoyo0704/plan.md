@@ -40,8 +40,17 @@
 | 18 | 팀 Lambda 연결 (dev: Owner 개인 Lambda, type-detection 공유+SQS), chunker, CORS | 실제 업로드 → WaitForApproval 도달 | dhxorb96·let522mj Lambda | [x] `smoke-pipeline.sh` PASS. 승인 이후는 승인 API 필요 (직접 APPROVE 시 Promote ApprovalBindingError = 정상) |
 | 17 | ECS Fargate(API), CloudFront + WAF | | dhxorb96 `apps/api`·`apps/web` (PR #2) | [ ] PR #2 머지 후 |
 
-## 다음
+## 다음 (세션 이어받기용, 11/16 20:15 기준)
 
-- 11/19: AgentCore Gateway(interceptor 연결)·Runtime(customJWTAuthorizer) — dhxorb96 요청 4·5, Guardrails 리소스, Observability
-- ECS Fargate·CloudFront·WAF (PR #2 머지 후)
-- Claude 5.5 권한 열리면 `models` 변수 교체
+| 순서 | 작업 | 상태·메모 |
+|---|---|---|
+| 1 | OCR 엔드포인트 `ml.g4dn.xlarge` apply 완료 확인 | 진행 중. 실패 시 `aws sagemaker describe-endpoint --endpoint-name hanaeum-mvp-sm-ocr-dev`의 FailureReason 확인 → Failed 엔드포인트는 state 밖에 남으므로 delete 후 재apply |
+| 2 | `workflows/scripts/smoke-ocr.sh dev` (paddle 3.3.1 기준선) | 한국어 PNG → result.json 텍스트·confidence·bbox |
+| 3 | paddle 업그레이드: `paddlepaddle-gpu==3.4.0` (cu129 인덱스) + `paddlex==3.7.2` 고정 → 재빌드 → smoke-ocr 재검증 → `interfaces.md` 8장 갱신 | 사용자 승인됨(A안). cu130은 드라이버 580+ 필요라 제외 |
+| 4 | 브랜치 → main PR (smoke-pipeline.sh, OCR g4dn, 3.4.0) | PR #1 squash 머지됨. 리뷰는 요청기록으로 dhxorb96 에게 |
+| 5 | E2E 승인 이후 구간 (Promote → KbIngest → Finalize → 검색) | let522mj kb_ingest 재배포(DS ID 변경) + dhxorb96 승인 API 필요. 회신 확인 |
+| 6 | 11/19: AgentCore Gateway(search·regulation·privacy·approval Target + interceptor), Runtime(customJWTAuthorizer), Guardrails, Observability | 요청 1730 4·5, 1809 추가, 1830 2 |
+| 7 | ECS Fargate(API)·CloudFront+WAF | PR #2 머지 후. CloudFront 도메인 → `web_origins` 추가 |
+
+규칙: main 올리기 전 `git fetch` → 새 커밋·`요청기록/*to_yoyo0704*` 확인·회신. 기록 파일은 main 직접, 코드는 브랜치+PR. 작업마다 `docs/02` DoD 대비 체크.
+smoke: `workflows/scripts/smoke-dev.sh`(배선·GuardDuty, stub 기준이라 현재 팀 Lambda 연결 후엔 smoke-pipeline 사용), `smoke-pipeline.sh`(실제 업로드→승인 대기), `hanaeum-terraform/scripts/kb-smoke.sh`, `smoke-ocr.sh`.
