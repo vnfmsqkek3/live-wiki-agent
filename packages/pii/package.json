@@ -1,0 +1,9 @@
+{
+  "name": "@hanaeum/pii",
+  "private": true,
+  "type": "module",
+  "description": "개인정보 탐지·마스킹 규칙 (의존성 없음, 빌드 없음). Owner dhxorb96",
+  "exports": { ".": { "types": "./index.d.ts", "default": "./index.js" } },
+  "files": ["index.js", "index.d.ts"],
+  "scripts": { "typecheck": "tsc -p tsconfig.json", "test": "node --test" }
+}

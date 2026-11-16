@@ -1,0 +1,10 @@
+{
+  "name": "@hanaeum/mcp-approval-server",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/*.test.ts",
+    "typecheck": "tsc -p .",
+    "build": "esbuild src/lambda.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/index.mjs --external:@aws-sdk/* --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
+  }
+}
