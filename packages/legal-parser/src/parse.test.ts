@@ -102,3 +102,10 @@ test("공개 법령에서 발견한 엣지 케이스: 관 계층, 제목 안 괄
   assert.ok(by.get("ARTICLE:53")!.original_text.includes("復"), "원문 glyph(호환 한자) 보존");
   assert.ok(!by.get("ARTICLE:53")!.normalized_text.includes("復"), "정규화 본문은 NFC");
 });
+
+test("타법개정 부칙 머리(법령명 괄호)도 부칙으로 인식 — 국가법령정보센터 웹 원문 형식", () => {
+  const t = ["제1조(목적) 목적.", "제2조(정의) 정의.", " 부  칙 <법률 제5982호, 1999. 5. 24.> (정부조직법)", "제1조 (시행일) 이 법은 공포한 날부터 시행한다.", "제2조 생략"].join("\n");
+  const law = parseLaw(t, { law_id: "X", law_name: "x", revision_id: "2026-01-01" });
+  assert.deepEqual(law.issues.filter((i) => i.code === "NUMBER_REGRESSION"), []);
+  assert.ok(law.provisions.some((p) => p.provision_id === "X@2026-01-01/SUPPLEMENTARY:1/ARTICLE:2"));
+});

@@ -2,10 +2,12 @@
 import { makeHandler } from "@hanaeum/mcp-kit";
 import { DynamoClauseStore } from "./store.ts";
 import { regulationTools } from "./tools.ts";
+import { AgentCoreLawFetcher } from "./browser.ts";
 
 export * from "./store.ts";
 export * from "./tools.ts";
 export * from "./registry.ts";
+export * from "./browser.ts";
 
 const table = process.env["TABLE_REGULATIONS"];
-export const handler = makeHandler(table ? regulationTools(new DynamoClauseStore(table)) : {});
+export const handler = makeHandler(table ? regulationTools(new DynamoClauseStore(table), { fetcher: new AgentCoreLawFetcher() }) : {});
