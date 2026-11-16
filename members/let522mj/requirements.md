@@ -4,13 +4,13 @@
 상태: **완료**(실환경 증빙 있음) / **부분**(로직·오프라인 또는 일부 실환경만, 남은 조건 명시) / **대기**(선행 조건 미충족) / **미착수**
 `docs/02` 1장: 화면·mock만으로 완료 처리 금지, 입력→판단→통제→결과→검증 근거 연결, 반복 실행 가능한 테스트.
 
-마지막 갱신: 2026-11-16 20:15 (PR #3 머지, 공유 dev 연결 완료)
+마지막 갱신: 2026-11-16 20:16 (실 E2E 하류 구간 통과, PR #4)
 
 ## 1. 기능별 DoD (`docs/02` 2장, let522mj 담당분)
 
 | 우선 | 기능 | 완료 기준 | 상태 | 증빙 | 남은 조건 |
 |---|---|---|---|---|---|
-| P0 | 승인·게시 (인덱싱) | 승인 전 검색 제외, 승인 후에만 공개 인덱싱 | 부분 | Promote 승인 1회 사용·해시 바인딩, KB 필터 `lifecycle=PUBLISHED`, 검색 재검증 (테스트). Lambda 배포 | Step Functions 연결 → 실 E2E, 미승인 KB 가시성 0건 측정 |
+| P0 | 승인·게시 (인덱싱) | 승인 전 검색 제외, 승인 후에만 공개 인덱싱 | 부분 | Promote 승인 1회 사용·해시 바인딩, KB 필터 `lifecycle=PUBLISHED`, 검색 재검증 (테스트). Lambda 배포 | 실환경: 승인 API 경유 Promote(USED 1회)→KbIngest→검색 FOUND, Finalize 전 재검증 제외 14/14. 남은 것: 6·9단계 SFN 연결 후 전 구간 무대체 E2E, 가시성 측정 |
 | P0 | 법령 전처리 | 조·항·호·목, 삭제, 시행일 보존 + Custom Chunking | 부분 | 공개 법령 10건 구조 12,589/12,589, chunker Lambda 실환경 실행(F-002 → 15청크) | KB 데이터 소스에 chunker 연결 후 실 색인 |
 | P0 | 검색 (답변은 dhxorb96) | 정확한 조문·근거·시행 버전·불확실성 | 부분 | 실 DynamoDB 정확 조문 20/20, search Lambda 실환경 응답(빈 KB → UNVERIFIED) | KB 색인 후 HYBRID 검색 결과 확인, Gateway 등록 |
 | P0 | Change Impact (탐지) | 개정 규정에 영향받는 노하우 탐지 | 부분 | 오프라인 5/5·오탐 0, F-001→F-002 Diff | Neptune(11/20) 실연동 |
@@ -51,7 +51,7 @@
 |---|---|---|---|
 | 11/16 M0 | `packages/schemas` v0, 합성 10건 | 완료 | schemas 리뷰는 PR #3 (dhxorb96) |
 | 11/17 | Parser v0, Registry 기준본·해시 fixture | 완료 | 공개 법령 검증까지 |
-| 11/18 | Chunker·Promote·KbIngest·search Tool, **E2E 1건** | 부분 | Lambda 7개 배포·SFN·KB chunker 연결 완료(yoyo0704, 11/16). E2E는 승인 API 경유로 진행 예정 |
+| 11/18 | Chunker·Promote·KbIngest·search Tool, **E2E 1건** | 부분 (하류 구간 실환경 통과 11/16 20:16, 6·9단계 대체) | Lambda 7개 배포·SFN·KB chunker 연결 완료(yoyo0704, 11/16). E2E는 승인 API 경유로 진행 예정 |
 | 11/19 | Exact Lookup·검색 상태, Golden 60 | 완료 | 실 DynamoDB 20/20 |
 | 11/20 | GraphUpsert·Change Impact | 부분 | 로직·오프라인 완료, Neptune 대기 |
 | 11/21 | 정량 기준 측정 | 부분 | 오프라인 완료, 실환경 재측정 필요 |

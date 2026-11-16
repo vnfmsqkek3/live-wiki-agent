@@ -58,10 +58,6 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   if (!apr || !hashMatches(apr.content_hash, original)) {
     throw Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${apr?.approval_id ?? "승인 레코드 없음"}`), { name: "ApprovalBindingError" });
   }
-  // 조건부 전환은 레코드에 저장된 해시 값 그대로로 (형식 차이와 무관하게 위에서 바이트 일치를 확인함)
-  await records.consumeApproval({ approval_id: apr.approval_id, doc_id: input.doc_id, version: input.version, content_hash: apr.content_hash, workflow_id: input.workflow_id });
-  const approvalId = apr.approval_id;
-
   // 마스킹본만 게시 (원문·work/ 는 절대 published로 가지 않음). 페이지 수가 이번 추출 결과와 정확히 같아야 함 (이전 실행의 잔여 페이지 혼입 차단)
   const { page_count } = JSON.parse((await store.get(input.bucket, `${input.doc_id}/work/text_layer.json`)).toString()) as { page_count: number };
   const expected = Array.from({ length: page_count }, (_, i) => `${input.doc_id}/masked/segments/${String(i).padStart(4, "0")}.json`);
@@ -73,7 +69,10 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   if (!content.trim()) throw new Error("게시할 본문이 비어 있음");
 
   const contentHash = sha256(content);
-  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, approvalId, contentHash) });
+  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, apr.approval_id, contentHash) });
+  // 게시 가능 여부(세그먼트·본문·메타데이터)를 다 확인한 뒤에 승인을 소비한다 (입력 결함으로 실패해도 승인이 소모되지 않게).
+  // 조건부 전환은 레코드에 저장된 해시 값 그대로로 (형식 차이와 무관하게 위에서 바이트 일치를 확인함)
+  await records.consumeApproval({ approval_id: apr.approval_id, doc_id: input.doc_id, version: input.version, content_hash: apr.content_hash, workflow_id: input.workflow_id });
   const key = `${publishedPrefix(doc)}content.txt`;
   await store.put(input.published_bucket, key, content, "text/plain; charset=utf-8");
   await store.put(input.published_bucket, `${key}.metadata.json`, JSON.stringify(meta));
