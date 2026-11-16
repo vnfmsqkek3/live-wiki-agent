@@ -73,6 +73,8 @@ export interface DocumentRecord {
   citations?: { provision_id: string; evidence_span: string; confidence: number }[];
   /** 노하우 검증 결과 (TrustGate가 KNOWHOW 문서에 기록) */
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
+  /** 출처 불일치 처리 결과 */
+  source_review?: { decision: 'REJECT'; by: string; reason: string; at: string };
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
   parse_reviewed?: boolean;
   workflow_id?: string;
@@ -144,5 +146,8 @@ export const ClassificationBody = z.object({
   document_type: z.enum(['REGULATION', 'KNOWHOW', 'MANUAL']),
   reason: z.string().min(1).max(500),
 });
+
+/** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
+export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 
 export const GuideBody = z.object({ question: z.string().trim().min(1).max(1000) });

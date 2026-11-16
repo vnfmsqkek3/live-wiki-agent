@@ -78,9 +78,11 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
   if (path === '/v1/approvals?status=PENDING')
     return { items: [
-      { approval_id: 'apr_F003', doc_id: 'doc_F003', kind: 'MISMATCH', title: '기업여신 심사규정 (출처 미확인 사본)', detail: '제12조제2항 담보 기준이 공식 원본은 3억원, 업로드본은 5억원입니다.', stage: 1 },
-      { approval_id: 'apr_K001', doc_id: 'doc_K001', kind: 'PENDING', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },
+      { approval_id: 'apr_K001', doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },
     ] };
+  if (path === '/v1/review-queue')
+    return { items: [{ doc_id: 'doc_F003', title: '기업여신 심사규정 (출처 미확인 사본)', dept: '여신', findings: [{ message: '공식 원본과 내용 불일치 (조문 1개: ARTICLE:12/PARAGRAPH:1, 원본 5억원 · 업로드본 3억원). 위조 확정 아님, 출처 검토 필요', evidence_ref: 'SYN-LOAN-001@2026-11-01' }] }] };
+  if (/\/v1\/documents\/.+\/source-review/.test(path)) return { lifecycle: 'BLOCKED' };
   if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
   if (/\/v1\/documents\/.+\/analyze/.test(path)) return { workflow_id: 'wf_MOCK' };
   if (/\/v1\/documents\/.+\/review/.test(path)) return MOCK_REVIEW;

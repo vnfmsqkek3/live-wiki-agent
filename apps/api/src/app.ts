@@ -4,12 +4,12 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import {
-  ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, UploadUrlBody, newId,
+  ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
-import { submitForApproval } from './submit.ts';
+import { hasSourceMismatch, submitForApproval } from './submit.ts';
 
 export interface Deps {
   /** 브라우저 허용 출처 (CORS). 와일드카드 금지 (운영 교훈 #3) */
@@ -152,6 +152,30 @@ export function createApp(deps: Deps) {
     });
     await audit(c, 'CLASSIFY_EDIT', d.doc_id);
     return c.json({ document_type: b.document_type });
+  });
+
+  // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----
+  app.get('/v1/review-queue', async (c) => {
+    need(c, APPROVERS);
+    const items = (await store.listDocs())
+      .filter((d) => d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review)
+      .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'SOURCE_MISMATCH', findings: d.findings.filter((f) => f.code === 'REGISTRY_MISMATCH') }));
+    return c.json({ items });
+  });
+
+  app.post('/v1/documents/:id/source-review', async (c) => {
+    const a = need(c, APPROVERS);
+    const b = await body(c, SourceReviewBody);
+    const d = await loadDoc(c, c.req.param('id'));
+    if (!hasSourceMismatch(d) || d.source_review) throw new ApiError('CONFLICT', 'no pending source mismatch');
+    const at = new Date().toISOString();
+    await store.putDoc({ ...d, lifecycle: 'BLOCKED', authority_status: 'REJECTED', source_review: { decision: b.decision, by: a.sub, reason: b.reason, at }, updated_at: at });
+    await audit(c, 'SOURCE_REVIEW_REJECT', d.doc_id);
+    let workflow_resumed = false;
+    if (d.task_token) {
+      try { await deps.sendDecision(d.task_token, 'REJECT'); workflow_resumed = true; } catch { await audit(c, 'WORKFLOW_RESUME_FAILED', d.doc_id); }
+    }
+    return c.json({ doc_id: d.doc_id, lifecycle: 'BLOCKED', workflow_resumed });
   });
 
   // ---- 승인 (사람만) ----

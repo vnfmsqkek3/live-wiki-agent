@@ -182,3 +182,29 @@ test('ACL 키: DEPT#{부서}만 부서 일치로 인정', async () => {
   assert.ok(!canRead({ sub: 's', groups: ['USER'], dept: '여신' }, ['dept:여신']));
   assert.ok(!canRead({ sub: 's', groups: ['USER'] }, ['DEPT#undefined']));
 });
+
+test('출처 불일치(F-003류): 게시 요청 차단, 검토 큐에 노출, 승인자 반려 시 BLOCKED + 워크플로 종료', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  const mismatch = { finding_id: 'fnd_x', step: 'TRUST_GATE', severity: 'HIGH' as const, code: 'REGISTRY_MISMATCH', message: '공식 원본과 내용 불일치 · 위조 확정 아님', evidence_ref: 'SYN-LOAN-001@2026-11-01' };
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', s3_version_id: 'v1', content_hash: 'sha256:x', task_token: 'tok-f3', findings: [mismatch] });
+
+  const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
+  assert.equal(s.status, 409);
+  assert.match(((await s.json()) as { error: { message: string } }).error.message, /출처 확인 전/);
+
+  assert.equal((await t.call('user', 'GET', '/v1/review-queue')).status, 403);
+  const q = (await (await t.call('approver', 'GET', '/v1/review-queue')).json()) as { items: { doc_id: string }[] };
+  assert.deepEqual(q.items.map((i) => i.doc_id), [doc_id]);
+
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/source-review`, { decision: 'REJECT', reason: 'x' })).status, 403);
+  const rv = await t.call('approver', 'POST', `/v1/documents/${doc_id}/source-review`, { decision: 'REJECT', reason: '공식 원본과 승인 기준 금액 불일치' });
+  assert.equal(rv.status, 200);
+  const e = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([e.lifecycle, e.authority_status], ['BLOCKED', 'REJECTED']);
+  assert.deepEqual(t.tasks.at(-1), { token: 'tok-f3', decision: 'REJECT' });
+  assert.equal((await t.call('approver', 'POST', `/v1/documents/${doc_id}/source-review`, { decision: 'REJECT', reason: 'again' })).status, 409);
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/review-queue')).json()) as { items: unknown[] }).items.length, 0);
+});
