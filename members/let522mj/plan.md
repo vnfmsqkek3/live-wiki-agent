@@ -18,6 +18,8 @@ gh pr list --state all                  # PR #1·#2 병합 여부 확인
 **기록 올리는 규칙 (팀 관행, 11/16 사용자 확인)**: 기록 파일(`요청기록/`, `공통기록/`, `members/let522mj/`, `트러블슈팅.md`)은 **기록 전용 커밋으로 main에 직접 push**한다. 코드·계약 문서(`docs/`)는 `let522mj` 브랜치 → PR. 요청이 브랜치에만 있으면 다른 팀원이 못 본다.
 
 ```bash
+# 0) 먼저 브랜치를 main과 병합 완료 (충돌 시 members/let522mj/*는 브랜치 쪽(--ours)이 최신). 병합 실패 상태에서 복사 금지
+git fetch origin && git merge --no-edit origin/main && ! grep -rlE '^(<<<<<<<|>>>>>>>)' 요청기록 공통기록 members/let522mj 트러블슈팅.md || exit 1
 W=$(mktemp -d)/main-records; git worktree add --detach $W origin/main
 for f in 요청기록/*let522mj* 공통기록/*let522mj* members/let522mj/*; do mkdir -p "$W/$(dirname "$f")"; cp "$f" "$W/$f"; done
 # 내가 처리 결과를 적은 남의 요청기록, 트러블슈팅.md도 필요하면 복사 (남의 줄을 지우지 않았는지 git diff --cached로 확인)
