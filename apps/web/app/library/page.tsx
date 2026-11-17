@@ -515,6 +515,20 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           )}
         </DetailCard>
       )}
+      {(d.clarify?.length ?? 0) > 0 && (
+        <DetailCard title="확인 필요" group="judge" count={d.clarify!.filter((c) => c.status === 'OPEN').length}>
+          <h3 className="section">확인 필요 (애매한 곳)</h3>
+          <ul className="fixes">{d.clarify!.map((c) => (
+            <li key={c.finding_id} className="fix">
+              <p className="fix-head">{c.item}{c.page ? ` · ${c.page}쪽` : ''} · {c.status === 'OPEN' ? '처리 전' : c.status === 'DISMISSED' ? '해당 없음' : '반영함'}</p>
+              <p>{c.question}</p>
+              <blockquote className="basis"><p>{c.before}</p></blockquote>
+              {c.status === 'DISMISSED' && <p className="note">해당 없음 사유: {c.dismiss_reason}</p>}
+              {c.status === 'OPEN' && c.suggestions.length > 0 && <p className="note">제안: {c.suggestions.map((sg) => sg.value).join(', ')}</p>}
+            </li>
+          ))}</ul>
+        </DetailCard>
+      )}
       <p className="cards-head ref">참고</p>
       {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
       {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완" count={notes.length}><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
