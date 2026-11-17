@@ -303,6 +303,9 @@ test('Clarify 보정(11/18 dev): 표 빈 칸은 LOW, 빈 양식 행은 항목 �
   assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/SL-C563W', title: 'SL-C563W' }), false);
   assert.equal(sameModelPage(text, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실' }), true);
   assert.equal(sameModelPage(text, { url: 'https://x.com/SL-K3250NR', title: '드라이버' }), true);
+  assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/NT301E5C-S55M/', title: '노트북 NT301E5C-S55M' }), false);
+  assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/', title: '지원' }), false); // /model/ 인데 문서 모델 없음
+  assert.equal(sameModelPage('브라더 MFC-L5700DN', { url: 'https://support.brother.co.kr/MFC-L5700DN/download', title: 'MFC-L5700DN 드라이버' }), true);
 });
 
 test('Clarify 보정(11/18 dev): 줄 경계에서 자르고 표시, 미완성 주장은 원문으로 확인', async () => {

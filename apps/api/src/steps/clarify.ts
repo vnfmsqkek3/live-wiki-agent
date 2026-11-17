@@ -122,13 +122,16 @@ export const isBlankTemplateRow = (s: string) => isTableRow(s) && s.split('|').m
 /** 잠금 규칙: 절차·승인·한도 '문장'의 담당자·빠진 값만 MEDIUM(게시 요청 잠금). 표 빈 칸은 LOW(권고) — 계약 6.5, 11/18 dev 과차단 보정 */
 export const clarifySeverity = (c: ClarifyCandidate): 'MEDIUM' | 'LOW' => ((c.kind === 'VAGUE_ACTOR' || c.kind === 'MISSING_VALUE') && c.in_procedure && !isTableRow(c.before) ? 'MEDIUM' : 'LOW');
 
-/** 문서 속 모델명 (예: SL-K3250NR, HL-L6400). 웹 제안은 같은 모델이거나 모델 무관 페이지만 (11/18 dev: 다른 모델 SL-C563W 페이지 제안) */
-const MODEL_RE = /\b[A-Z]{1,4}-?[A-Z]{0,2}\d{3,5}[A-Z]{0,4}\b/g;
-export const modelsIn = (s: string) => [...new Set(s.toUpperCase().match(MODEL_RE) ?? [])];
+/** 모델 모양 토큰: 영문+숫자가 섞인 4자 이상(하이픈 포함 가능). 예 SL-K3250NR, NT301E5C-S55M, MFC-L5700DN (11/18 dev: 다른 모델 페이지 3번 제안) */
+export const modelsIn = (s: string) => [...new Set((s.toUpperCase().match(/[A-Z0-9]+(?:-[A-Z0-9]+)*/g) ?? [])
+  .filter((t) => t.replace(/-/g, '').length >= 4 && /[A-Z]/.test(t) && /\d/.test(t)))];
+/** 웹 제안 페이지가 문서의 모델과 맞나: 결과 경로·제목에 모델 토큰이 있으면 문서 모델 집합에 있어야 채택. 경로가 /model/ 류면 일치 필수. 토큰이 없으면(모델 무관 페이지) 통과 */
 export function sameModelPage(docText: string, hit: { url: string; title: string }) {
-  const want = modelsIn(docText); if (!want.length) return true;
-  const got = modelsIn(`${decodeURIComponent(hit.url)} ${hit.title}`);
-  return !got.length || got.some((m) => want.includes(m));
+  const want = new Set(modelsIn(docText));
+  let path = hit.url; try { const u = new URL(hit.url); path = decodeURIComponent(u.pathname + u.search); } catch { /* 주소가 아니면 그대로 */ }
+  const got = modelsIn(`${path} ${hit.title}`);
+  if (/\/(model|models|product|products)\//i.test(path) && !got.some((m) => want.has(m))) return false;
+  return got.every((m) => want.has(m));
 }
 
 /** 웹 검색 대상 → 기존 참조 확인 후보 모양 */
