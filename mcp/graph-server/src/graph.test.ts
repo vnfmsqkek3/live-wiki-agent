@@ -180,3 +180,29 @@ test("규정 게시가 Trusted Registry 원본 해시를 덮어쓰지 않음 (11
   assert.equal(r.content_hash, "sha256:registry-text");
   assert.equal(r.doc_id, "doc_pub", "게시 문서 연결은 갱신");
 });
+
+test("개정 시 바뀐 조문에 근거를 둔 주장만 REVIEW_REQUIRED (interfaces 10.2, 사용자 결정 11/17 얇은 주장 단위)", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const putLaw = async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l);
+  const store = Object.assign(clauses, { putLaw });
+  // F-001(11/1) 주장 3개: 바뀐 제10조②·제12조①, 안 바뀐 제11조
+  const old = "SYN-LOAN-001@2026-11-01";
+  const claimRows = [
+    { claim_id: "K-001#1", provision_id: `${old}/ARTICLE:10/PARAGRAPH:2` },
+    { claim_id: "K-003#1", provision_id: `${old}/ARTICLE:12` },
+    { claim_id: "K-003#2", provision_id: `${old}/ARTICLE:11` },
+  ];
+  const marked: [string, string][] = [];
+  const claims = { claimsCiting: async (p: string) => claimRows.filter((c) => c.provision_id.startsWith(p)), markClaimReview: async (id: string, r: string) => { marked.push([id, r]); } };
+  const vers = [["F-001", "2026-11-01", 20261101, 20261130, undefined], ["F-002", "2026-12-01", 20261201, 99991231, "2026-11-01"]] as const;
+  for (const [doc, rev, from, to, prev] of vers) {
+    const out = await graphUpsertStep({ ...base, doc_id: doc, version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: from, effective_to: to,
+      content: read(`documents/${doc}.txt`), law: { ...LAW, revision_id: rev, previous_revision_id: prev } }, graph, store, claims);
+    assert.equal(out.status, "OK", doc);
+  }
+  assert.deepEqual(marked.sort(), [
+    ["K-001#1", "provision_revised:SYN-LOAN-001@2026-12-01/ARTICLE:10/PARAGRAPH:2"],
+    ["K-003#1", "provision_revised:SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1"],
+  ]);
+});

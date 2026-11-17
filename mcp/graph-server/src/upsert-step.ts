@@ -1,11 +1,13 @@
 // 단계 13 GraphUpsert: 승인된 문서의 관계만 Neptune에 게시. 법령은 구조화 저장소(Regulations)에도 적재.
-import { parseLaw } from "@hanaeum/legal-parser";
+import { diffLaws, parseLaw } from "@hanaeum/legal-parser";
 import { newId, stepFailure } from "@hanaeum/schemas";
-import type { AuthorityStatus, Finding, StepInput, StepOutput } from "@hanaeum/schemas";
+import type { AuthorityStatus, Finding, ParsedLaw, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ClauseStore, RevisionRecord } from "@hanaeum/regulation-server";
 import { lawGraph, wikiGraph } from "./model.ts";
 import type { Citation } from "./model.ts";
 import type { GraphStore } from "./store.ts";
+import { overlaps } from "./store.ts";
+import { loadLaw } from "./tools.ts";
 
 export interface GraphUpsertInput extends StepInput {
   document_type: "REGULATION" | "KNOWHOW" | "MANUAL";
@@ -35,7 +37,34 @@ const ISSUE_TEXT: Record<string, string> = {
   REF_TO_DELETED: "삭제된 조문을 인용하고 있습니다",
 };
 
-export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore, clauses: WritableClauseStore): Promise<StepOutput> {
+/** 주장 상태 갱신 (interfaces 10.2). Records(PgRecords)의 선택 메서드 */
+export interface ClaimStore {
+  claimsCiting?(lawRevPrefix: string): Promise<{ claim_id: string; provision_id: string }[]>;
+  markClaimReview?(claimId: string, reason: string): Promise<void>;
+}
+
+/** 새 버전이 시행되면 직전 버전에서 바뀐 조문(부칙 제외)에 근거를 둔 주장을 REVIEW_REQUIRED로 (Change Impact와 같은 diff, 겹치는 경로 포함).
+ *  status_reason = "provision_revised:{새 버전 조문 ID}" (삭제된 조문도 같은 형식, 새 버전에 없을 수 있음). 돌려주는 값은 바꾼 주장 수 */
+export async function markRevisedClaims(law: ParsedLaw, clauses: WritableClauseStore, claims: ClaimStore): Promise<number> {
+  if (!claims.claimsCiting || !claims.markClaimReview) return 0;
+  const prev = (await clauses.revisions(law.law_id)).filter((r) => r.revision_id !== law.revision_id && r.effective_from < law.effective_from)
+    .sort((a, b) => b.effective_from - a.effective_from)[0];
+  if (!prev) return 0;
+  const changes = diffLaws(await loadLaw(clauses, law.law_id, prev.revision_id), law).filter((c) => !c.path.startsWith("SUPPLEMENTARY:"));
+  if (!changes.length) return 0;
+  const prefix = `${law.law_id}@${prev.revision_id}/`;
+  let n = 0;
+  for (const c of await claims.claimsCiting(prefix)) {
+    const path = c.provision_id.slice(prefix.length);
+    const hit = changes.find((x) => overlaps(path, x.path));
+    if (!hit) continue;
+    await claims.markClaimReview(c.claim_id, `provision_revised:${law.law_id}@${law.revision_id}/${hit.path}`);
+    n++;
+  }
+  return n;
+}
+
+export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore, clauses: WritableClauseStore, claims: ClaimStore = {}): Promise<StepOutput> {
   if (input.document_type === "REGULATION") {
     if (!input.law) throw stepFailure("RegulationNotInRegistry", "공식 규정으로 분류됐지만 규정 정보(법령 ID·시행 버전)가 없어 조문 구조를 저장할 수 없습니다.", "공식 원본 PDF인지 확인하거나 분류를 '노하우'로 바꿔 다시 게시 요청해 주세요.");
     const law = parseLaw(input.content, { ...input.law, effective_from: input.effective_from });
@@ -68,6 +97,8 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
       }
     }
     await graph.upsert(lawGraph(law, { doc_id: input.doc_id, effective_from: input.effective_from, effective_to: input.effective_to, previous_revision_id: input.law.previous_revision_id }));
+    // 개정본이면 바뀐 조문에 근거를 둔 노하우 주장을 재검토로 (사용자 결정 11/17 얇은 주장 단위, 요청기록 20261117-2300)
+    if (rec.authority_status === "VERIFIED") await markRevisedClaims({ ...law, effective_from: input.effective_from }, clauses, claims);
     return { status: "OK", findings };
   }
   // 노하우·매뉴얼: 존재하는 조문 인용만 게시, 없는 조문은 Finding

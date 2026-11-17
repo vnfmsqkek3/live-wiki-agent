@@ -61,5 +61,5 @@ export const graphUpsertHandler = async (event: unknown) => {
   const records = recordsFromEnv();
   const input = StepInput.parse(event); // action은 공통 입력 밖의 값이라 parse가 지움 → 원본 event에서 읽는다
   if ((event as { action?: unknown }).action === "delete") return graphDeleteStep(input.doc_id, records, d.graph);
-  return graphUpsertStep(await buildUpsertInput(input, records, new S3ObjectStore(), d.clauses, e["BUCKET_PUBLISHED"]!), d.graph, d.clauses);
+  return graphUpsertStep(await buildUpsertInput(input, records, new S3ObjectStore(), d.clauses, e["BUCKET_PUBLISHED"]!), d.graph, d.clauses, records);
 };
