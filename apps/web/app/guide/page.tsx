@@ -1,4 +1,5 @@
 'use client';
+import { PageHeader } from '../page-header';
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
@@ -32,10 +33,11 @@ function GuideView() {
 
   return (
     <>
-      <h1 className="title">업무 가이드</h1>
-      <form onSubmit={(e) => { e.preventDefault(); if (input.trim()) router.push(`/guide?q=${encodeURIComponent(input.trim())}`); }}>
+      <PageHeader title="업무 가이드" description="업무 상황을 질문하시면 승인된 문서를 근거로 절차를 안내합니다." action={<button className="btn solid" type="submit" form="guide-form">가이드 만들기</button>} />
+      <div className="layout-a guide-layout"><div className="primary"><form id="guide-form" onSubmit={(e) => { e.preventDefault(); if (input.trim()) router.push(`/guide?q=${encodeURIComponent(input.trim())}`); }}>
         <input className="field lg" type="search" aria-label="질문" placeholder="예: 담보 4억원 기업여신은 누가 승인하나요?" value={input} onChange={(e) => setInput(e.target.value)} maxLength={1000} />
         <p className="note" style={{ marginTop: 8 }}>개인정보는 입력하지 마세요. 입력하더라도 AI에 전달하기 전에 가립니다.</p>
+
       </form>
       {busy && (
         <ol className="live-steps" aria-live="polite">
@@ -45,7 +47,7 @@ function GuideView() {
       {err && <p className="error" role="alert">{err}</p>}
       {g && (
         <>
-          <p className="notice" style={{ borderLeftColor: 'var(--ledger)', color: 'var(--ink)' }}>
+          <p className="notice" style={{ color: 'var(--ink)' }}>
             검증된 문서 {docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.
           </p>
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}
@@ -68,9 +70,10 @@ function GuideView() {
             <button className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}`)}>근거 문서 보기</button>
             <button className="btn" onClick={useful} disabled={thanks || docs.length === 0}>{thanks ? '의견을 남겼습니다' : '도움이 됐어요'}</button>
           </div>
-          <p className="meta" style={{ marginTop: 16 }}>작성 모델: {g.model}</p>
+          <p className="meta" style={{ marginTop: 16 }}>AI 생성 안내입니다. 근거 문서를 확인해 주세요.</p>
         </>
       )}
+      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id}><a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a><p className="note">{d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
     </>
   );
 }

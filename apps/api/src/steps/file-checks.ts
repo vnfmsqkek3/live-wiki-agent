@@ -32,8 +32,9 @@ export function typeDetection(ext: string, head: Uint8Array): StepOutput & { kin
 /** 메타데이터·임베디드 스크립트·후행 데이터 검사 (A-002). */
 export function fileStructureCheck(kind: FileKind, body: Uint8Array): StepOutput {
   const findings: Finding[] = [];
+  // message는 운영 기록용(바이트·청크). 사람이 읽는 문장은 user_message·fix_hint (사용자 지적 11/17)
   const add = (sev: Finding['severity'], code: string, msg: string, ref: string) =>
-    findings.push(f('FILE_STRUCTURE', sev, code, msg, ref));
+    findings.push(f('FILE_STRUCTURE', sev, code, msg, ref, PLAIN[code] ?? {}));
 
   if (kind === 'png') {
     for (const c of pngChunks(body)) {
@@ -181,4 +182,11 @@ export function pdfObjects(s: string, re: RegExp): number[] {
   }
   return [...out].slice(0, 5);
 }
+const FIX_IMAGE = '이미지 편집 프로그램(그림판 등)에서 열어 PNG·JPG로 다시 저장한 뒤 올려 주세요.';
+const PLAIN: Record<string, { user_message: string; fix_hint: string }> = {
+  PNG_METADATA_INJECTION: { user_message: '이미지 파일의 숨은 설명 정보에 AI에게 지시하거나 프로그램을 실행하는 형태의 글이 들어 있어 보안상 등록할 수 없습니다.', fix_hint: FIX_IMAGE },
+  JPG_METADATA_INJECTION: { user_message: '사진 파일의 숨은 설명 정보(촬영 정보 등)에 AI에게 지시하거나 프로그램을 실행하는 형태의 글이 들어 있어 보안상 등록할 수 없습니다.', fix_hint: FIX_IMAGE },
+  PNG_LARGE_METADATA: { user_message: '이미지 파일 안에 그림과 관계없는 설명 정보가 크게 들어 있습니다. 관리자가 확인합니다.', fix_hint: FIX_IMAGE },
+  TRAILING_DATA: { user_message: '이미지 파일 끝에 그림이 아닌 데이터가 덧붙어 있어 보안상 등록할 수 없습니다(숨긴 파일이나 코드일 수 있음).', fix_hint: FIX_IMAGE },
+};
 const FIX_PDF = "Acrobat 등에서 '인쇄 → PDF로 저장'(또는 '다른 이름으로 저장 → 최적화된 PDF')으로 새로 만든 PDF를 올려 주세요.";

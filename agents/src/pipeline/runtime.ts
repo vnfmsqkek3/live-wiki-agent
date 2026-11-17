@@ -1,8 +1,8 @@
 // 문서 처리 오케스트레이터 Runtime 진입점 (AgentCore Runtime HTTP 계약: GET /ping, POST /invocations, 8080).
-// IAM 인증 Runtime. 호출자: type-detection(start), 승인 API(resume). 비동기: 즉시 202, 백그라운드 실행 중엔 /ping = HealthyBusy
+// IAM 인증 Runtime. 호출자: type-detection(start), 승인 API(resume), 삭제 API(delete). 비동기: 즉시 202, 백그라운드 실행 중엔 /ping = HealthyBusy
 import { createServer, type IncomingMessage } from 'node:http';
 import { awsDeps } from './aws.ts';
-import { ingestGraph, publishGraph, run, type StepInput } from './orchestrator.ts';
+import { deleteGraph, ingestGraph, publishGraph, run, type StepInput } from './orchestrator.ts';
 
 let busy = 0;
 process.on('unhandledRejection', (e) => console.error(JSON.stringify({ unhandled: (e as Error)?.name }))); // 세션 유지
@@ -22,11 +22,12 @@ createServer(async (req, res) => {
     const i = b.input as StepInput | undefined;
     if (!i || !ID.test(i.workflow_id) || !ID.test(i.doc_id)) return send(400, { error: 'input.workflow_id·doc_id 필요' });
     const graph = b.action === 'start' ? ingestGraph(awsDeps, i)
+      : b.action === 'delete' ? deleteGraph(awsDeps, i)
       : b.action === 'resume' && ['APPROVE', 'REJECT', 'REVALIDATE'].includes(String(b.decision)) ? publishGraph(awsDeps, i, b.decision as 'APPROVE')
       : undefined;
-    if (!graph) return send(400, { error: 'action: start | resume(decision)' });
+    if (!graph) return send(400, { error: 'action: start | resume(decision) | delete' });
     // 같은 문서의 같은 단계 묶음은 한 번만 (업로드 이벤트·analyze 중복 start, 승인 resume 재시도)
-    const phase = b.action === 'start' ? 'ingest' : `publish-${String(b.decision)}`;
+    const phase = b.action === 'start' ? 'ingest' : b.action === 'delete' ? 'delete' : `publish-${String(b.decision)}`;
     if (awsDeps.claim && !(await awsDeps.claim(i.workflow_id, phase))) {
       console.log(JSON.stringify({ workflow_id: i.workflow_id, action: b.action, duplicate: true }));
       return send(202, { accepted: false, duplicate: true, workflow_id: i.workflow_id, action: b.action });
