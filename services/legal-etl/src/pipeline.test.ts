@@ -395,6 +395,9 @@ test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEX
   // 3-1) 쪽 전체 image 영역 안 줄은 label이 image여도 본문 (재리뷰 HIGH-A)
   const imgLines = lines.map((x) => ({ ...x, label: "image" }));
   assert.equal(ocrPageText(imgLines, [], [{ label: "image", bbox: [0, 0, 400, 300] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n은행 업무를 정한다");
+  // 3-1b) 제목(본문 줄) + 쪽 대부분을 덮는 화면 캡처는 그림으로 분리 (과천 매뉴얼 실측)
+  const slide = [b("02. 드라이버 설치", 5, "doc_title"), b("Wivdoms7/8/83", 120, "image", 0.4), b("V1o Pivivg", 160, "image", 0.4)];
+  assert.equal(ocrPageText(slide, [], [{ label: "image", bbox: [0, 30, 400, 300] }], 1, { width: 400, height: 300 }), "02. 드라이버 설치\n[그림 1]\n⟦그림 p1⟧ 그림 1 속 글자: Wivdoms7/8/83 V1o Pivivg");
   // 3-2) 표 bbox 안 줄(table_id 없음)은 마크다운 표로 한 번만 (재리뷰 MEDIUM-B)
   const tl = [b("구분", 60, "text"), b("기준", 60, "text"), b("표 아래", 200)];
   assert.equal(ocrPageText(tl, [{ table_id: "t0", bbox: [0, 50, 400, 100], html: "<tr><td>구분</td><td>기준</td></tr>" }]), "| 구분 | 기준 |\n| --- | --- |\n\n표 아래");

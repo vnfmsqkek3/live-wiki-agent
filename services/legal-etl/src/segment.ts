@@ -74,13 +74,17 @@ export const onlyPlaceholders = (t: string) => !t.replace(/^\[그림 \d+\]$/gmu,
 /** 쪽의 표·그림 나누기 (본문 만들기와 저신뢰 판정이 같은 기준을 쓰도록 한 곳에서, PR #33 리뷰).
  *  - 표: 변환된 표의 줄(table_id 또는 표 bbox 안)은 본문 줄에서 뺀다 (마크다운 표로 한 번만 들어감)
  *  - 그림: label이 그림(image·figure·chart)이거나, 옛 형식 줄이 그림 bbox 안이면 그림 줄
- *  - 쪽을 60% 넘게 덮는 그림 영역은 그림이 아니다. 그 안의 줄은 label이 image여도 본문 (쪽 전체 스캔 오인 방지)
+ *  - 쪽을 60% 넘게 덮는 그림 영역은, 그 밖에 본문 줄이 없으면 그림이 아니다(쪽 전체 스캔 오인 방지). 그 안의 줄은 label이 image여도 본문
  *  - bbox로만 묶인 그림이 쪽 글자 줄의 절반을 넘게 가져가면 분리하지 않는다 */
 export function splitPage(blocks: OcrBlock[], tables: OcrTable[] = [], figures0: OcrFigure[] = [], size?: { width: number; height: number }) {
   const area = size ? size.width * size.height : 0;
   const big = (f: OcrFigure) => !!area && f.bbox?.length === 4 && ((f.bbox[2]! - f.bbox[0]!) * (f.bbox[3]! - f.bbox[1]!)) / area > FIGURE_MAX_AREA;
-  const pageWide = figures0.filter((f) => FIGURE_LABELS.has(f.label) && big(f));
-  const figures = figures0.filter((f) => FIGURE_LABELS.has(f.label) && !big(f));
+  // 쪽을 크게 덮는 그림: 그 밖에 본문 줄(그림 아닌 label)이 하나도 없으면 쪽 전체 스캔으로 보고 본문으로 둔다.
+  // 본문 줄이 따로 있으면(제목 + 큰 화면 캡처인 매뉴얼 쪽, 과천 실측) 진짜 그림
+  const bigs = figures0.filter((f) => FIGURE_LABELS.has(f.label) && big(f));
+  const bodyOutside = blocks.some((b) => b.text.trim() && !FIGURE_LABELS.has(b.label) && b.label !== "paragraph" && !bigs.some((f) => inBox(b.bbox, f.bbox)));
+  const pageWide = bodyOutside ? [] : bigs;
+  const figures = figures0.filter((f) => FIGURE_LABELS.has(f.label) && !pageWide.includes(f));
   const md = new Map(tables.map((t) => [t.table_id, tableToMarkdown(t.html)] as const));
   const ids = new Set([...md].filter(([, v]) => v).map(([k]) => k));
   const inTable = (b: OcrBlock) => (!!b.table_id && ids.has(b.table_id)) || tables.some((t) => ids.has(t.table_id) && inBox(b.bbox, t.bbox ?? []));
