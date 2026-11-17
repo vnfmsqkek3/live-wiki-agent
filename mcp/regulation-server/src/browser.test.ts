@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { fixtureClauseStore } from "./fixtures.ts";
 import { regulationTools } from "./tools.ts";
 import { lawUrl, parseHeader } from "./browser.ts";
+import { checkUrl } from "./browser.ts";
 import type { LawPageFetcher } from "./browser.ts";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
@@ -65,4 +66,13 @@ test("fetch_official_law: 가지 조문·호·목 표현도 공용 clausePath로
   const t = regulationTools(fixtureClauseStore(), { fetcher });
   assert.match((await t.fetch_official_law({ law_name: "은행법", clause: "제12조의2제1항제1호가목" })).clause!.text, /^가\. 세부$/u);
   assert.equal((await t.fetch_official_law({ law_name: "은행법", clause: "승인 기준" })).clause, null, "해석 불가 표현은 null");
+});
+
+test("readPage 주소 검사: http(s)만, 내부 주소 거부, 허용 목록 (PR #40 리뷰)", () => {
+  assert.equal(checkUrl("https://www.samsung.com/sec/support/").host, "www.samsung.com");
+  for (const bad of ["file:///etc/passwd", "javascript:alert(1)", "http://localhost:8080", "http://169.254.169.254/latest", "http://10.0.0.1", "http://[::1]/", "http://intranet/", "http://svc.internal/", "not a url"]) {
+    assert.throws(() => checkUrl(bad), { name: "BlockedUrl" }, bad);
+  }
+  assert.equal(checkUrl("https://www.law.go.kr/법령/은행법", ["www.law.go.kr"]).hostname, "www.law.go.kr");
+  assert.throws(() => checkUrl("https://evil.example.com", ["www.law.go.kr"]), { name: "BlockedUrl" });
 });
