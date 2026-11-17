@@ -9,6 +9,7 @@ export interface Db {
 export function db(cfg?: { resourceArn?: string; secretArn?: string; database?: string; client?: Pick<RDSDataClient, "send">; sleep?: (ms: number) => Promise<void> }): Db;
 export function toParam(name: string, v: unknown): SqlParameter;
 export function fromColumn(typeName: string | undefined, v: unknown): unknown;
+export function fieldValue(f: unknown): unknown;
 export function pgCode(e: unknown): string | undefined;
 
 export const DOC_COLUMNS: readonly string[];
