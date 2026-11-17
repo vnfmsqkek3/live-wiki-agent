@@ -100,6 +100,8 @@ resource "terraform_data" "build" {
   provisioner "local-exec" {
     command = "${path.module}/../../scripts/codebuild-wait.sh ${aws_codebuild_project.lambda.name} COMPONENT=${each.key} REF=${each.value}"
   }
+  # 새 환경 첫 apply: Role 정책(로그 권한)이 붙기 전에 빌드가 시작되면 CLIENT_ERROR (prod 11/17 실측)
+  depends_on = [aws_iam_role_policy.build]
 }
 
 # 구성 요소 → S3 키 접두사. 빌드가 끝난 뒤에만 쓰이도록 terraform_data 에 묶는다
