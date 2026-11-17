@@ -1,28 +1,30 @@
 import type { Metadata, Viewport } from 'next';
-import { Gowun_Batang, IBM_Plex_Sans_KR } from 'next/font/google';
 import './globals.css';
-import { Gate, SessionBar, Tabs } from './tabs';
+import { Gate, Tabs } from './tabs';
 
-// 한글 폰트는 서브셋이 커서 preload하지 않는다
-const batang = Gowun_Batang({ weight: ['400', '700'], subsets: ['latin'], variable: '--font-batang', preload: false, display: 'swap' });
-const plex = IBM_Plex_Sans_KR({ weight: ['400', '500', '600', '700'], subsets: ['latin'], variable: '--font-plex', preload: false, display: 'swap' });
-
-export const metadata: Metadata = { title: 'Living Wiki', description: '하나은행(가상 데이터) 지식의 근거와 유효성을 확인하는 Wiki' };
+export const metadata: Metadata = { title: 'Hanaeum Wiki', description: 'Hanaeum Wiki — 근거 조문과 검증 상태로 확인하는 사내 업무 지식. 하나은행 가상 데이터 시연 서비스입니다.' };
 export const viewport: Viewport = {
   width: 'device-width', initialScale: 1,
-  themeColor: [{ media: '(prefers-color-scheme: light)', color: '#eef1ec' }, { media: '(prefers-color-scheme: dark)', color: '#142030' }],
+  themeColor: '#ffffff',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="ko" className={`${batang.variable} ${plex.variable}`}>
+    <html lang="ko">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+KR:wght@600;700&amp;display=swap" />
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@500;600&amp;text=0123456789&amp;display=swap" />
+        <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css" />
+      </head>
       <body>
-        <main>
-          <SessionBar />
-          <Gate>{children}</Gate>
-          <p className="meta" style={{ marginTop: 40 }}>여기 있는 모든 문서는 시연용 하나은행 가상 데이터(SYNTHETIC)이며, 실제 하나은행의 규정·자료가 아닙니다.</p>
-        </main>
+        <a className="skip-link" href="#content">본문으로 건너뛰기</a>
         <Tabs />
+        <main id="content">
+          <Gate>{children}</Gate>
+          <p className="synthetic-footer">여기 있는 모든 문서는 시연용 하나은행 가상 데이터(SYNTHETIC)이며, 실제 하나은행의 규정·자료가 아닙니다.</p>
+        </main>
       </body>
     </html>
   );

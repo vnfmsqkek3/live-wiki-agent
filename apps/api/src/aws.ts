@@ -4,6 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { DocumentRecord } from './contracts.ts';
 import { memoryStore, type Store } from './store.ts';
 import { dynamoStore } from './store-dynamo.ts';
+import { postgresStore } from './store-postgres.ts';
 
 export const env = (k: string) => {
   const v = process.env[k];
@@ -20,10 +21,18 @@ export const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d
 
 export function storeFromEnv(): Store {
   const e = process.env;
+  // 거버넌스 저장소 전환 (사용자 결정 11/17): GOV_STORE=postgres면 Aurora(Data API, DB_CLUSTER_ARN·DB_SECRET_ARN·DB_NAME)
+  if (e.GOV_STORE === 'postgres') return postgresStore();
   if (!e.TABLE_DOCUMENTS) return memoryStore(); // ponytail: 로컬 단독 실행용
   return dynamoStore({ documents: env('TABLE_DOCUMENTS'), approvals: env('TABLE_APPROVALS'), feedback: env('TABLE_FEEDBACK'), audit: env('TABLE_AUDIT_EVENTS') });
 }
 
+/** 원본 내려받기 (사용자 요청 11/17): 승인된 버전 그대로, 60초, 첨부로 저장. URL은 로그·감사에 남기지 않는다 */
+export const presignGet = (key: string, versionId: string | undefined, filename: string) =>
+  getSignedUrl(s3(), new GetObjectCommand({
+    Bucket: env('BUCKET_QUARANTINE'), Key: key, ...(versionId ? { VersionId: versionId } : {}),
+    ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  }), { expiresIn: 60 });
 export const presignPut = (key: string, len: number) =>
   getSignedUrl(s3(), new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ContentLength: len }), { expiresIn: 300 });
 
@@ -61,6 +70,11 @@ export async function invokePipeline(payload: Record<string, unknown>, workflow_
 /** 문서 처리 시작: AgentCore 오케스트레이터 start (실행 세션마다 새 ID, 상태는 DynamoDB) */
 export async function startWorkflow(d: DocumentRecord) {
   await invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
+}
+
+/** 사용자 삭제 정리 (interfaces 6.0): 새 workflow_id로 오케스트레이터 delete 실행 */
+export async function deleteWorkflow(d: DocumentRecord) {
+  await invokePipeline({ action: 'delete', input: { ...stepInput(d), workflow_id: d.delete_workflow_id! } }, d.delete_workflow_id!);
 }
 
 /** 사람 결정 후 재개: AgentCore 오케스트레이터 resume. 이전 SFN task token은 무시한다 */
@@ -150,6 +164,30 @@ export async function pages(doc_id: string) {
   return segs.map((s) => ({ page: s.page_index, text: s.text }));
 }
 
+/** 관리 > Agent 실행 기록: WORKFLOWS 전체를 실행 단위로 묶는다 (EXECUTION·STEP#·LOCK#). 오류는 이름만
+ *  ponytail: Scan — 실행 수천 건 전까지. 늘면 gsi1(최근순) Query로 */
+export async function workflowRuns() {
+  const { DynamoDBClient, ScanCommand } = await import('@aws-sdk/client-dynamodb');
+  const c = new DynamoDBClient({ region: region() });
+  const by = new Map<string, { workflow_id: string; doc_id?: string; status?: string; ended_at?: string; kind?: string; steps: { step: string; status: string; ended_at: string; error?: string }[] }>();
+  let ExclusiveStartKey: Record<string, import('@aws-sdk/client-dynamodb').AttributeValue> | undefined;
+  do {
+    const r = await c.send(new ScanCommand({ TableName: env('TABLE_WORKFLOWS'), ExclusiveStartKey }));
+    for (const i of r.Items ?? []) {
+      const id = i.pk?.S?.replace(/^WF#/, ''); const sk = i.sk?.S ?? '';
+      if (!id) continue;
+      const run = by.get(id) ?? { workflow_id: id, steps: [] };
+      run.doc_id ??= i.doc_id?.S;
+      if (sk === 'EXECUTION') { run.status = i.status?.S; run.ended_at = i.ended_at?.S; }
+      else if (sk.startsWith('LOCK#')) run.kind = sk.slice(5);
+      else if (sk.startsWith('STEP#')) run.steps.push({ step: sk.slice(5), status: i.status?.S ?? '', ended_at: i.ended_at?.S ?? '', ...(i.error?.S ? { error: i.error.S } : {}) });
+      by.set(id, run);
+    }
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return [...by.values()];
+}
+
 /** WORKFLOWS 단계 기록 (업로드 진행바). 상태·종료 시각만, 오류는 이름만 */
 export async function workflowSteps(workflow_id: string) {
   const { DynamoDBClient, QueryCommand } = await import('@aws-sdk/client-dynamodb');
@@ -169,6 +207,12 @@ export async function pageImage(doc_id: string, page_index: number) {
 }
 export async function pageImageList(doc_id: string) {
   return (await listKeys(`${doc_id}/masked/pages/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n));
+}
+/** AI로 다시 배치한 쪽 본문 (Classify, masked/structured/{nnnn}.json). page_index → markdown */
+export async function structuredPages(doc_id: string) {
+  const keys = (await listKeys(`${doc_id}/masked/structured/`)).filter((k) => k.endsWith('.json'));
+  const rows = await Promise.all(keys.map((k) => getJson<{ page_index: number; markdown: string }>(k).catch(() => undefined)));
+  return new Map(rows.filter((r): r is { page_index: number; markdown: string } => !!r).map((r) => [r.page_index, r.markdown]));
 }
 export async function pageSummary(doc_id: string) {
   return getJson<{ pages?: import('./app.ts').PageMeta[] }>(`${doc_id}/masked/summary.json`);

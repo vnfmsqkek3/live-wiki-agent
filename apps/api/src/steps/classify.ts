@@ -23,9 +23,10 @@ export const CLASSIFY_SCHEMA = {
 export const classifyPrompt = (title: string, maskedText: string) => `<title>${title}</title>\n<document>\n${maskedText}\n</document>`;
 
 // 문서보관함 요약 (let522mj 요청 2220). 마스킹본만 입력, Classify 단계에서 함께 호출 (별도 Lambda·Gateway Target 불필요)
-export interface SummaryOut { summary: string; pages: { page: number; summary: string }[] }
+export interface SummaryOut { summary: string; pages: { page: number; summary: string }[]; title?: string }
 
 export const SUMMARY_SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나은행 자료 아님) 문서 요약자다.
+- title: 문서 내용을 대표하는 제목 30자 이내. 본문 첫머리에 문서 제목이 있으면 그대로 쓴다. 'SYNTHETIC' 표시·날짜·파일 이름은 넣지 않는다.
 - summary: 문서 전체를 3~5문장으로 요약한다. 업무 대상, 핵심 기준(금액·기한·승인 주체), 예외를 우선한다.
 - pages: <page n="..."> 마다 1~2문장 요약. 페이지 번호는 입력 그대로 쓴다.
 - 문서에 없는 내용을 추가하지 않는다. [전화번호] 같은 마스킹 표시는 그대로 둔다.
@@ -34,6 +35,7 @@ export const SUMMARY_SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC
 export const SUMMARY_SCHEMA = {
   type: 'object',
   properties: {
+    title: { type: 'string' },
     summary: { type: 'string' },
     pages: { type: 'array', items: { type: 'object', properties: { page: { type: 'integer' }, summary: { type: 'string' } }, required: ['page', 'summary'] } },
   },

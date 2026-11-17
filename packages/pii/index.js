@@ -1,12 +1,12 @@
 // @ts-check
 // 개인정보 탐지·마스킹 순수 함수 (의존성 없음). API 단계 6, Agent 질의 검사, ImageDescribe(yoyo0704)가 함께 쓴다.
 // Lambda zip의 node_modules에서도 실행되도록 빌드 없는 JS + 타입 선언(index.d.ts).
-/** @typedef {'RRN' | 'FOREIGNER_NO' | 'PASSPORT' | 'DRIVER_LICENSE' | 'PHONE' | 'EMAIL' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO'} PiiType */
+/** @typedef {'RRN' | 'FOREIGNER_NO' | 'PASSPORT' | 'DRIVER_LICENSE' | 'PHONE' | 'EMAIL' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO' | 'IP_ADDRESS'} PiiType */
 /** @typedef {{ type: PiiType; start: number; end: number; certain: boolean }} PiiSpan */
 
 /** 화면·Finding 메시지용 한글 이름 */
 /** @type {Record<PiiType, string>} */
-export const PII_NAME = { RRN: '주민등록번호', FOREIGNER_NO: '외국인등록번호', PASSPORT: '여권번호', DRIVER_LICENSE: '운전면허번호', PHONE: '전화번호', EMAIL: '이메일', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호' };
+export const PII_NAME = { RRN: '주민등록번호', FOREIGNER_NO: '외국인등록번호', PASSPORT: '여권번호', DRIVER_LICENSE: '운전면허번호', PHONE: '전화번호', EMAIL: '이메일', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호', IP_ADDRESS: 'IP 주소' };
 
 /** @type {Record<PiiType, string>} */
 const LABEL = {
@@ -19,6 +19,7 @@ const LABEL = {
   CARD: '[카드번호]',
   ACCOUNT: '[계좌번호]',
   CUSTOMER_NO: '[고객번호]',
+  IP_ADDRESS: '[IP 주소]',
 };
 
 /** 주민등록번호(외국인등록번호 포함) 체크섬. 2020-10 이후 발급분은 체크섬이 없어 실패할 수 있다. */
@@ -49,6 +50,9 @@ export function luhnOk(d) {
 
 /** @type {{ type: PiiType; re: RegExp; judge?: (digits: string) => boolean | 'uncertain' }[]} */
 const RULES = [
+  // IPv4 (사용자 결정 11/17): 값은 가리되 '[IP 주소]' 자리 표시로 남겨 가이드가 "이 칸에 장비 IP를 넣는다"를 알 수 있게.
+  // 검게 칠하거나 {IP_ADDRESS}로 지우지 않는다. 버전 번호(1.2.3)·날짜(2026.11.17)와 겹치지 않게 네 마디·0~255만
+  { type: 'IP_ADDRESS', re: /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?!\d|\.\d)/g }, // 뒤 '.'은 다음 마디(숫자)가 올 때만 막음: 문장 끝 마침표 허용
   // 운전면허번호: 지역번호(11~28) 또는 지역명 - 2 - 6 - 2. 계좌 형태 규칙보다 먼저
   { type: 'DRIVER_LICENSE', re: /(?<![\d-])(?:1[1-9]|2[0-8]|서울|부산|경기|강원|충북|충남|전북|전남|경북|경남|제주|대구|인천|광주|대전|울산)[- ]?\d{2}-\d{6}-\d{2}(?![\d-])/g },
   // 여권번호: 영문 1자 + 숫자 8자리(구) 또는 영문 1 + 숫자 3 + 영문 1 + 숫자 4(2021~). "여권" 문맥이 있으면 확실, 없으면 불확실(사람 검토)

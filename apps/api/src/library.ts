@@ -1,5 +1,6 @@
 // 문서보관함 (let522mj 요청 2220, 데이터 계약 v0). 카드·연관성은 저장된 결과만으로 조합한다 (모델 호출 없음).
 // 밑줄(marks)은 let522mj buildMarks(@hanaeum/regulation-server)가 페이지·글자 위치로 바꾼다 (Deps.marks). 없으면 빈 목록.
+import { docDates, primaryDate, type DocDate } from '@hanaeum/legal-parser';
 import type { DocumentRecord } from './contracts.ts';
 
 export type Relation = 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR';
@@ -54,29 +55,49 @@ export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[]
 
 export function card(d: DocumentRecord, visible: DocumentRecord[]) {
   return {
-    doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle,
+    doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle, dept: d.dept,
     business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
     uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null,
     mark_count: markCount(d), related: related(d, visible),
+    doc_dates: d.doc_dates ?? [], version_no: d.version_no ?? null, superseded_by: d.superseded_by ?? null,
   };
 }
 
-export function matches(d: DocumentRecord, f: { type?: string; business?: string; tag?: string; q?: string }) {
+/** 검색·보관함 세부 필터 (사용자 요청 11/17). search_wiki 인자와 같은 이름 */
+export interface DetailFilter { business?: string; dept?: string; date_from?: string; date_to?: string; authority_status?: string; freshness?: string }
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+/** 쿼리 문자열 → 검증된 세부 필터. 형식이 틀린 값은 버린다 */
+export function detailFilter(get: (k: string) => string | undefined): DetailFilter {
+  const v = (k: string, ok: (x: string) => boolean) => { const x = get(k)?.trim().slice(0, 40); return x && ok(x) ? x : undefined; };
+  const f: DetailFilter = {
+    business: v('business', () => true), dept: v('dept', () => true),
+    date_from: v('date_from', (x) => YMD.test(x)), date_to: v('date_to', (x) => YMD.test(x)),
+    authority_status: v('authority_status', (x) => ['VERIFIED', 'UNVERIFIED'].includes(x)), freshness: v('freshness', (x) => ['CURRENT', 'REVIEW_REQUIRED'].includes(x)),
+  };
+  return Object.fromEntries(Object.entries(f).filter(([, x]) => x)) as DetailFilter;
+}
+
+export function matches(d: DocumentRecord, f: { type?: string; tag?: string; q?: string } & DetailFilter) {
   const c = d.classification;
+  const date = d.doc_date?.date;
   return (!f.type || (d.document_type ?? c?.document_type) === f.type)
-    && (!f.business || (c?.business_path ?? []).includes(f.business))
+    && (!f.dept || d.dept === f.dept)
+    && (!f.authority_status || d.authority_status === f.authority_status)
+    && (!f.freshness || d.freshness === f.freshness)
+    && (!f.date_from || (!!date && date >= f.date_from))
+    && (!f.date_to || (!!date && date <= f.date_to))
+    && (!f.business || (c?.business_path ?? [])[0] === f.business || (c?.business_path ?? []).includes(f.business))
     && (!f.tag || (c?.tags ?? []).includes(f.tag))
     && (!f.q || `${d.title} ${d.summary ?? ''}`.toLowerCase().includes(f.q.toLowerCase()));
 }
 
-/** 본문에 적힌 문서 자체 일자 (개정일·시행일·작성일·제정일). 업로드 시각과 다르다 */
-export function docDate(pages: Page[]): { label: string; date: string } | null {
-  for (const p of pages) {
-    const m = /(개정일|시행일|작성일|제정일|발행일)[^\d\n]{0,20}(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(p.text);
-    if (m) return { label: m[1]!, date: `${m[2]}-${m[3]!.padStart(2, '0')}-${m[4]!.padStart(2, '0')}` };
-  }
-  return null;
+/** 본문에 적힌 문서 자체 일자 (시행·개정·제정·작성·발행·기준, legal-parser). 업로드 시각과 다르다.
+ *  Classify가 저장한 doc_dates가 없으면(이전 문서) 쪽 본문에서 바로 찾는다. 대표 일자는 시행 > 개정 > … 순 */
+export function docDatesOf(d: DocumentRecord, pages: Page[]) {
+  const dates = d.doc_dates ?? docDates(pages.map((p) => p.text)).map((x) => ({ ...x, page: pages[x.page]?.page ?? x.page }));
+  const main = d.doc_date ?? primaryDate(dates as DocDate[]);
+  return { doc_dates: dates, doc_date: main ? { label: `${main.kind}일`, date: main.date } : null };
 }
 
 /** 상세 '검증 정보': 누가·언제 승인했는지, 무엇과 비교해 검증했는지 */
@@ -130,4 +151,50 @@ export function keywordItem(d: DocumentRecord) {
     basis: undefined, tags: d.classification?.tags ?? [], business_path: d.classification?.business_path ?? [],
     search_status: 'FOUND', reason: '제목·요약에 검색어가 들어 있습니다',
   };
+}
+
+// ---- 한 문서 = 한 묶음 (사용자 지적 11/17 "공식규정이 여러 문서로 쪼개져 보인다", let522mj 요청) ----
+const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
+/** 묶음 키: 작성자가 연결한 series_id, 공식 규정은 Registry law_id(공식 근거라 자동), 그 밖은 문서 자신 */
+export const seriesKey = (d: DocumentRecord) => d.series_id ?? (typeOf(d) === 'REGULATION' && d.law_id ? `LAW#${d.law_id}` : d.doc_id);
+const day = (s?: string) => (s ? String(s).slice(0, 10) : '');
+/** 묶음 안 버전 순서(오래된 것 → 새것): 규정은 시행일·개정 ID, 그 밖은 version_no·등록일. version_no가 없으면 순서대로 매긴다 */
+export function orderVersions(series: DocumentRecord[]) {
+  const key = (d: DocumentRecord) => typeOf(d) === 'REGULATION' ? `${day(d.effective_from) || day(d.revision_id)}|${d.revision_id ?? ''}` : `${String(d.version_no ?? 1).padStart(4, '0')}|${d.created_at}`;
+  return [...series].sort((a, b) => key(a).localeCompare(key(b))).map((d, i) => ({ d, version_no: d.version_no ?? i + 1 }));
+}
+/** 대표 버전: 오늘 시행 중인 게시본(시행일 ≤ 오늘, 대체·종료 안 됨). 없으면 가장 새 게시본, 그것도 없으면 가장 새 것 */
+export function representative(series: DocumentRecord[], today = new Date().toISOString().slice(0, 10)) {
+  const ord = orderVersions(series).map((x) => x.d);
+  const pub = ord.filter((d) => d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED');
+  // 시행일이 없으면 개정 ID(날짜 형식)를 시행일로 본다 (Registry revision_id = 'YYYY-MM-DD')
+  const from = (d: DocumentRecord) => day(d.effective_from) || (/^\d{4}-\d{2}-\d{2}/.test(d.revision_id ?? '') ? day(d.revision_id) : '');
+  const inForce = pub.filter((d) => (!from(d) || from(d) <= today) && (!d.effective_to || day(d.effective_to) >= today));
+  return inForce.at(-1) ?? pub.at(-1) ?? ord.at(-1)!;
+}
+export function groupSeries(docs: DocumentRecord[]) {
+  const by = new Map<string, DocumentRecord[]>();
+  for (const d of docs) (by.get(seriesKey(d)) ?? by.set(seriesKey(d), []).get(seriesKey(d))!).push(d);
+  return by;
+}
+
+/** 인용 조문을 어느 규정·법의 조문인지와 묶는다 (사용자 지적 11/17: '제1조'만으로는 어느 규정인지 모르고 검색하면 아무 규정이나 나옴).
+ *  규정 문서는 자기 규정 이름. 그 밖에는 조문 바로 앞에 붙은 등록 규정 이름('하나은행 ' 생략형 포함) 또는 「…」. 못 찾으면 law=null */
+export function clauseGroups(refs: string[], pageText: string, ownLaw?: string, known: string[] = []) {
+  const names = [...new Set(known)].flatMap((n) => [n, n.replace(/^하나은행\s+/u, '')].map((alias) => ({ alias, name: n })));
+  const by = new Map<string, string[]>();
+  for (const c of refs) {
+    let law = ownLaw;
+    const at = pageText.indexOf(c);
+    if (!law && at > 0) {
+      const win = pageText.slice(Math.max(0, at - 60), at);
+      // 이름이 조문 바로 앞(공백·'의'만 사이)에 있을 때만 묶는다. 떨어져 있는 '제3조'는 어느 규정인지 추정하지 않는다
+      const adjacent = (end: number) => /^\s*(?:의\s*)?$/u.test(win.slice(end));
+      for (const { alias, name } of names) { const k = win.lastIndexOf(alias); if (k >= 0 && adjacent(k + alias.length)) { law = name; break; } }
+      const q = /「([^」]{2,40})」(\s*(?:의\s*)?)$/u.exec(win);
+      if (!law && q) law = q[1];
+    }
+    by.set(law ?? '', [...(by.get(law ?? '') ?? []), c]);
+  }
+  return [...by].map(([law, clauses]) => ({ law: law || null, clauses }));
 }

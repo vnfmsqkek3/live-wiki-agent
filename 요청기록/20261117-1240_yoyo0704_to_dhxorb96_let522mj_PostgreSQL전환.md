@@ -39,3 +39,6 @@
 
 ## 시험
 dev Aurora 가 만들어지면 SSM `/hanaeum-mvp/dev/DB_*` 로 로컬에서 바로 붙을 수 있습니다 (Data API, VPC 불필요).
+
+## dhxorb96 처리 (11/17)
+- API Store를 `GOV_STORE=postgres`로 전환(store-postgres.ts, Data API), 검색 재검증도 PgDocStates로(8cf16ae). dev 실측: DynamoDB 0건 → PostgreSQL에서 제14조제1항 검색됨. prod QA(flow·admin·승인·삭제) 통과.

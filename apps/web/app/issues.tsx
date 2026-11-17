@@ -1,7 +1,8 @@
 'use client';
 // 올린 사람에게 "몇 쪽 어디가 왜, 어떻게 고치는지" (사용자 지시 11/17). 쪽 이미지는 개인정보를 가린 마스킹본만 보여 준다
+import { Icon } from './icons';
 import { useEffect, useState } from 'react';
-import { api, apiBlobUrl, type Explanation, type Issue, type Issues } from './lib/api';
+import { api, ApiError, apiBlobUrl, type DocChange, type Explanation, type Issue, type Issues, type VersionCandidates, type VersionDiff } from './lib/api';
 
 const SEV: Record<Issue['severity'], string> = { HIGH: '등록 불가·수정 필요', MEDIUM: '확인 필요', LOW: '참고' };
 
@@ -25,7 +26,7 @@ function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Iss
           );
         })}
       </ul>
-      {e.next_action && <p><strong>다음에 할 일</strong> {e.next_action}</p>}
+      {e.next_action && <p><strong><Icon name="arrow" /> 다음에 할 일</strong> {e.next_action}</p>}
       <p className="meta">AI가 검사 결과를 설명한 내용입니다. 등록 가능 여부 판정은 검사 규칙이 정하며, 설명이 판정을 바꾸지 않습니다.</p>
     </div>
   );
@@ -65,7 +66,7 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
   const info = d.items.filter((i) => i.severity === 'LOW');
   return (
     <section aria-labelledby="issues-h" className="issues">
-      <h2 className="section" id="issues-h">확인할 내용 {shown.length > 0 && <span className="danger-text">{shown.length}건</span>}</h2>
+      <h2 className="section" id="issues-h"><Icon name="alert" /> 확인할 내용 {shown.length > 0 && <span className="danger-text">{shown.length}건</span>}</h2>
       {d.explanation && <ExplainView e={d.explanation} issues={d.items} pages={d.page_images} onPage={setOpen} />}
       {shown.length === 0 && <p className="note">고쳐야 할 내용이 없습니다.</p>}
       {d.explanation && shown.length > 0 && <h3 className="section" style={{ fontSize: '.9rem' }}>검사 항목별 결과</h3>}
@@ -94,13 +95,94 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
 }
 
 /** 쪽 성격·핵심어·본문 속 조문 표기 (PageSummarize) */
-export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: string[]; page_type?: string } }) {
+export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: string[]; clause_groups?: { law: string | null; clauses: string[] }[]; page_type?: string } }) {
   if (!m.page_type && !m.keywords?.length && !m.clause_refs?.length) return null;
+  // 규정 이름과 묶어서 보여 주고, 누르면 '규정 이름 + 조문'으로 찾는다 ('제1조'만으로 찾으면 아무 규정이나 나옴)
+  const groups = m.clause_groups ?? [{ law: null, clauses: m.clause_refs ?? [] }];
   return (
     <dl className="meta-grid">
       {m.page_type && <><dt>쪽 성격</dt><dd>{m.page_type}</dd></>}
-      {!!m.keywords?.length && <><dt>핵심어</dt><dd>{m.keywords.join(', ')}</dd></>}
-      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd>{m.clause_refs.join(', ')}</dd></>}
+      {!!m.keywords?.length && <><dt>핵심어</dt><dd><span className="keyword">{m.keywords.join(', ')}</span></dd></>}
+      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd className="clause-groups">{groups.map((g) => (
+        <p key={g.law ?? '-'}><strong>{g.law ?? '규정 이름 표기 없음'}</strong>{' '}
+          {g.clauses.map((c, i) => <span key={c}>{i > 0 && ', '}{g.law ? <a href={`/search?q=${encodeURIComponent(`${g.law} ${c}`)}`}>{c}</a> : c}</span>)}
+        </p>
+      ))}</dd></>}
     </dl>
+  );
+}
+
+const CHANGE_KIND = { ADDED: '추가', REMOVED: '삭제', CHANGED: '변경' } as const;
+
+/** 이전 버전과 바뀐 곳: 위치·종류·이전 → 새 문구. 숫자가 바뀌면 따로 표시 */
+export function Changes({ diff }: { diff: VersionDiff }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? diff.changes : diff.changes.slice(0, 10);
+  return (
+    <section aria-labelledby="chg-h">
+      <h3 className="section" id="chg-h">v{diff.previous.version_no}과 바뀐 곳 <span className="note">{diff.count}건</span></h3>
+      {diff.count === 0 ? <p className="note">내용이 바뀐 곳이 없습니다.</p>
+        : !diff.changes.length ? <p className="note">이전 버전을 볼 권한이 없어 바뀐 내용은 표시하지 않습니다.</p> : (
+        <ul className="fixes">
+          {shown.map((c: DocChange, n) => (
+            <li key={n} className={`fix chg-${c.kind}`}>
+              <p className="fix-head">{c.where} · {CHANGE_KIND[c.kind]}</p>
+              {c.numbers_changed && <p className="danger-text" style={{ margin: 0 }}>숫자 변경: {c.numbers_changed.old.join(', ')} → {c.numbers_changed.new.join(', ')}</p>}
+              <dl className="trio">
+                {c.kind !== 'ADDED' && <><dt>이전</dt><dd><del>{c.old_text}</del></dd></>}
+                {c.kind !== 'REMOVED' && <><dt>새 버전</dt><dd><ins>{c.new_text}</ins></dd></>}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+      {diff.changes.length > 10 && !all && <button type="button" className="linklike" onClick={() => setAll(true)}>바뀐 곳 모두 보기 ({diff.changes.length}건)</button>}
+    </section>
+  );
+}
+
+/** 업로드 검토: 이전 버전 후보를 보여 주고 작성자가 확인하면 연결 (자동 연결 안 함) */
+export function VersionLink({ docId, canEdit }: { docId: string; canEdit: boolean }) {
+  const [v, setV] = useState<VersionCandidates | null>(null);
+  const [diff, setDiff] = useState<VersionDiff | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [msg, setMsg] = useState('');
+  const load = () => api<VersionCandidates>('GET', `/v1/documents/${encodeURIComponent(docId)}/version-candidates`).then(setV).catch(() => setV({ linked: null, items: [] }));
+  useEffect(() => { void load(); }, [docId]);
+  useEffect(() => {
+    if (!v?.linked) { setDiff(null); return; }
+    api<{ diff: VersionDiff | null }>('GET', `/v1/library/${encodeURIComponent(docId)}/versions`).then((r) => setDiff(r.diff)).catch(() => setDiff(null));
+  }, [v?.linked, docId]);
+  async function link(id: string | null) {
+    try { await api('POST', `/v1/documents/${encodeURIComponent(docId)}/previous`, { previous_doc_id: id }); setMsg(id ? '이전 버전과 연결했습니다. 승인되면 이전 버전은 검색에서 빠집니다.' : '연결을 끊었습니다.'); await load(); }
+    catch (e) { setMsg((e as ApiError).message); }
+  }
+  if (!v) return null;
+  if (v.linked) return (
+    <section aria-labelledby="ver-h">
+      <h2 className="section" id="ver-h">버전</h2>
+      <p>이 문서는 「{v.linked.title}」 v{v.linked.version_no}의 새 버전(v{v.version_no ?? v.linked.version_no + 1})입니다.
+        {canEdit && <> <button type="button" className="linklike" onClick={() => link(null)}>연결 끊기</button></>}</p>
+      {diff && <Changes diff={diff} />}
+      {msg && <p className="note" aria-live="polite">{msg}</p>}
+    </section>
+  );
+  if (!v.items.length || dismissed || !canEdit) return null;
+  return (
+    <section aria-labelledby="ver-h" className="notice" style={{ display: 'block' }}>
+      <h2 className="section" id="ver-h" style={{ marginTop: 0 }}>이미 게시된 문서의 새 버전인가요?</h2>
+      <p className="note">새 버전으로 연결하면 바뀐 곳을 비교해 보여 주고, 승인되면 이전 버전은 '대체됨'으로 바뀌어 검색에서 빠집니다.</p>
+      <ul className="fixes">
+        {v.items.map((c) => (
+          <li key={c.doc_id} className="fix">
+            <p className="fix-head">{c.title}</p>
+            <p className="note" style={{ margin: 0 }}>{c.reason}</p>
+            <div className="actions"><button className="btn solid" onClick={() => link(c.doc_id)}>이 문서의 새 버전으로 연결</button></div>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="btn" onClick={() => setDismissed(true)}>새 문서입니다</button>
+      {msg && <p className="note" aria-live="polite">{msg}</p>}
+    </section>
   );
 }

@@ -38,3 +38,8 @@ let522mj의 TextLayerExtract 변경과 yoyo0704의 PageRender(모든 쪽) 변경
 
 ## 완료 후 재측정 (let522mj)
 규정 19건 게시·인용 문구, 노하우 6건, 위조 4·공격 5 차단, 영향 탐지 5/5, 검색 실측. 사진 PDF·섞인 PDF(디지털 글자 + 글자 사진) 샘플 추가, 쪽당 OCR 시간
+
+## dhxorb96 처리 (11/17)
+- 오케스트레이터 `convert_to_pdf` 노드: file_structure_check → convert_to_pdf → (text_layer_extract ∥ page_render). 동기 호출(callTool 900초, Gateway 15분). 변환 BLOCKED면 뒤 단계 건너뜀(테스트). 진행 표시 '문서 변환'. 8d25284.
+- 미리보기: 쪽 이미지는 PageRender가 document.pdf로 만든 masked/pages를 이미 사용. '원본 다운로드'는 Registry 해시 대상인 원본 그대로 유지(변경 없음).
+- dev 업로드 QA(PDF·DOCX·PNG): 세 문서 모두 ConvertToPdf OK·게시까지 진행. 첫 OCR GPU 콜드 스타트 10분 47초 → qa-flow 대기 15분(67dd469). OCR 표 행·열 뒤집힘 발견 → yoyo0704 6b52ef3.

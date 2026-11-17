@@ -1,11 +1,12 @@
 // API 실행 진입점 (ECS Fargate / 로컬). 값은 환경변수(SSM)로만 받는다.
+import { db } from '@hanaeum/db';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
 import { searchVia, type SearchWiki } from './search.ts';
-import { env, explanation, pageSummary, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
+import { deleteWorkflow, presignGet, env, explanation, pageSummary, structuredPages, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowRuns, workflowSteps } from './aws.ts';
 
 // 문서보관함 밑줄: let522mj buildMarks (PR #8). 패키지에 없으면 밑줄 없이 동작
 type BuildMarks = (pages: string[], src: Record<string, unknown>, store: unknown) => Promise<Mark[]>;
@@ -22,9 +23,10 @@ async function marks(pages: Page[], d: DocumentRecord): Promise<Mark[]> {
 async function searchWiki() {
   const e = process.env;
   if (!e.KB_ID || !e.TABLE_REGULATIONS) return async () => ({ items: [] });
-  const { BedrockRetriever, DynamoDocStates, searchTools } = await import('@hanaeum/search-server');
+  const { BedrockRetriever, BedrockRewriter, DynamoDocStates, PgDocStates, searchTools } = await import('@hanaeum/search-server');
   const { DynamoClauseStore, regulationTools } = await import('@hanaeum/regulation-server');
-  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)) });
+  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: e.GOV_STORE === 'postgres' ? new PgDocStates(db().query) : new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)),
+    ...(e.MODEL_HAIKU ? { rewriter: new BedrockRewriter(e.MODEL_HAIKU) } : {}) }); // 질의 재구성 (let522mj PR #24). 없으면 규칙만
   return t.search_wiki as unknown as SearchWiki;
 }
 
@@ -47,16 +49,21 @@ const app = createApp({
   headObject,
   startWorkflow,
   resume,
+  deleteWorkflow,
+  presignGet,
   guide: (q, t) => invokeAgent(q, t),
   guideStream: invokeAgentStream,
   workflowFailure,
   workflowSteps,
+  workflowRuns,
+  ...(process.env.USER_GATEWAY_URL ? { traceImpact: (a: { law: string }, t: string) => userTool('graph___trace_impact', a, t) } : {}),
   pages,
   marks,
   pageImage,
   pageImageList,
   explanation,
   pageSummary,
+  structuredPages,
   externalLaws,
   ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),

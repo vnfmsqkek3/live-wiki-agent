@@ -70,6 +70,19 @@ export interface DocumentRecord {
   version: number;
   owner: string; // author sub
   title: string;
+  /** AUTO: 업로드 때 비워 두어 분석(Classify)이 채움 / USER: 작성자가 입력·수정 (사용자 요청 11/17) */
+  title_source?: 'AUTO' | 'USER';
+  title_history?: { from: string; to: string; by: string; at: string }[];
+  /** 올린 파일 이름 (제목 후보용, 경로 없음) */
+  filename?: string;
+  /** 본문에 적힌 일자 (legal-parser docDates). doc_date는 대표 일자(시행 > 개정 > 제정 > 작성 …) */
+  doc_date?: { kind: string; date: string; page: number };
+  doc_dates?: { kind: string; date: string; page: number }[];
+  /** 버전 관리: series_id = 첫 버전 doc_id, 작성자가 확인한 경우에만 연결. 새 버전 게시 시 이전 버전 freshness=SUPERSEDED·superseded_by */
+  series_id?: string;
+  version_no?: number;
+  previous_doc_id?: string;
+  superseded_by?: string;
   dept: string;
   acl_groups: string[];
   ext: string;
@@ -97,10 +110,14 @@ export interface DocumentRecord {
   /** 노하우 검증 결과 (TrustGate가 KNOWHOW 문서에 기록) */
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
   /** 근거 규정 개정·시행으로 재검토가 필요해진 이유 (freshness=REVIEW_REQUIRED). 자동 수정 없음 */
-  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string };
+  /** deleted_doc: 근거 규정 문서가 삭제됨(문서 삭제 흐름, interfaces 6.0) */
+  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string };
   deleted_reason?: string;
-  /** 검증 실패·반려 문서의 파일 삭제 기록 (원본·work 즉시, masked는 보관 기간 뒤) */
-  purge?: { original_at?: string; masked_at?: string; objects: number };
+  deleted_by?: string;
+  /** 사용자 삭제 정리 실행 (purge_document → kb_ingest → graph_upsert → finalize). 정리가 끝나면 purge.deleted_at */
+  delete_workflow_id?: string;
+  /** 검증 실패·반려 문서의 파일 삭제 기록 (원본·work 즉시, masked는 보관 기간 뒤). 사용자 삭제는 deleted_at·review_required(근거를 잃은 노하우) */
+  purge?: { original_at?: string; masked_at?: string; objects: number; deleted_at?: string; review_required?: string[] };
   /** 출처 불일치 처리 결과 */
   source_review?: { decision: 'REJECT'; by: string; reason: string; at: string };
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
@@ -154,7 +171,7 @@ export const MAX_UPLOAD_BYTES = 50 * 1024 * 1024; // ponytail: 50MB 고정, 필�
 export const UploadUrlBody = z.object({
   filename: z.string().min(1).max(200),
   size: z.number().int().positive().max(MAX_UPLOAD_BYTES),
-  title: z.string().min(1).max(200),
+  title: z.string().trim().max(200).optional(), // 비우면 분석 후 자동 제목
   dept: z.string().min(1).max(50),
   acl_groups: z.array(z.string().min(1).max(50)).min(1).max(20),
 });
@@ -176,6 +193,9 @@ export const ClassificationBody = z.object({
 });
 
 /** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
+export const TitleBody = z.object({ title: z.string().trim().min(1).max(200) });
+export const PreviousBody = z.object({ previous_doc_id: z.string().min(1).max(40).nullable() });
+export const DeleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 
 export const GuideBody = z.object({ question: z.string().trim().min(1).max(1000) });
