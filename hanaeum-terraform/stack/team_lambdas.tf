@@ -82,7 +82,7 @@ locals {
     }
     # 참조 확인 (사용자 결정 11/18, 계약 6.4): 주소 없는 링크·모순 → AgentCore Browser 공개 웹 검색, 게시 비차단. 검색어 1개 ~15초 × 최대 5
     reference-check = {
-      zip = local.dz, handler = "handlers.referenceCheck", memory = 512, timeout = 300, model_caller = true
+      zip = local.dz, handler = "handlers.referenceCheck", memory = 512, timeout = 400, model_caller = true
       env = merge(local.d_env, { REFERENCE_CHECK = "on", MODEL_HAIKU = var.models["MODEL_HAIKU"] })
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn, Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*"] } } },
