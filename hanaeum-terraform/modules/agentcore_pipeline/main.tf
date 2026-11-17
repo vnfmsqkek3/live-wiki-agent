@@ -162,12 +162,18 @@ resource "aws_bedrockagentcore_gateway_target" "step" {
               property {
                 name        = "outcome"
                 type        = "string"
-                description = "finalize 전용: PUBLISHED | BLOCKED | REJECTED"
+                description = "finalize 전용: PUBLISHED | BLOCKED | REJECTED | DELETED"
               }
               property {
                 name        = "action"
                 type        = "string"
-                description = "graph_upsert 전용: delete 면 문서 노드·관계 삭제 (문서 삭제 흐름)"
+                description = "삭제 흐름: delete 면 kb_ingest 재색인·graph_upsert 노드 삭제"
+              }
+              property {
+                name        = "affected_doc_ids"
+                type        = "array"
+                description = "finalize(DELETED) 전용: 삭제된 규정 조문을 인용하던 노하우 doc_id (재검토 대상)"
+                items_json  = jsonencode({ type = "string" })
               }
             }
           }
