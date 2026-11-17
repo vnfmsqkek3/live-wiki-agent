@@ -1,6 +1,5 @@
 // 결재함 → 문서 상세 QA (A1~A3, let522mj 요청 1056). 입력·실행은 qa-flow.mjs와 같다: QA_SCRIPT=qa-admin.mjs tests/e2e/qa-run.sh
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { basename, resolve } from 'node:path';
 
 const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
 const OUT = process.env.QA_OUT ?? './qa-out';
@@ -27,11 +26,8 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const ev = async (x) => (await send('Runtime.evaluate', { expression: x, awaitPromise: true, returnByValue: true })).result?.value;
 const go = async (p, ms = 3500) => { await send('Page.navigate', { url: BASE + p }); await sleep(ms); };
 const shot = async (name) => { const s = await send('Page.captureScreenshot', { format: 'png', captureBeyondViewport: true }); const f = `${OUT}/${name}.png`; writeFileSync(f, Buffer.from(s.data, 'base64')); return f; };
-const text = () => ev('document.body.innerText');
 const until = async (fn, ms, step = 3000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await sleep(step); } };
 const setInput = (sel, v) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); const set = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-const click = (label, scope = 'document') => ev(`(() => { const b = [...${scope}.querySelectorAll('button,a')].find((x) => x.textContent.trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
-const api = (path) => ev(`(async () => { const s = JSON.parse(sessionStorage.getItem('hanaeum.session') || 'null'); const r = await fetch(${JSON.stringify(path)}, { headers: s ? { authorization: 'Bearer ' + s.token } : {} }); return { status: r.status, body: await r.json().catch(() => null) }; })()`);
 
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 1200, deviceScaleFactor: 1, mobile: false });
