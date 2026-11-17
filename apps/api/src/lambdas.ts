@@ -24,6 +24,8 @@ export interface LambdaDeps {
   startWorkflow(d: DocumentRecord): Promise<void>;
   /** 노하우 검증 의존성 (regulation·search Tool). 없으면 KNOWHOW 문서는 검증 대기로 사람 검토 */
   knowhow?: KnowhowDeps & { maskedText(d: DocumentRecord): Promise<string> };
+  /** 주장 저장 (interfaces.md 10.2, PostgreSQL). 노하우 검증 items 그대로. 없으면 생략 */
+  saveClaims?(doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (statement: string) => number | null): Promise<unknown>;
   /** Trusted Registry 대조 (let522mj registryMatch). text 없이 부르면 해시만 대조 */
   registry?(content_hash: string, text?: string): Promise<{ registry?: RegistryEntry & { law_name?: string; effective_to?: string; registry_doc_no?: string }; claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> } }>;
   maskedText?(d: DocumentRecord): Promise<string>;
@@ -256,6 +258,14 @@ export function makeTrustGate(deps: LambdaDeps) {
     } : {};
     if (deps.maskedPages && findings.some((f) => f.location?.excerpt && !f.location.page)) findings = withPages(findings, await deps.maskedPages(d));
     await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
+    // 주장 저장: 실패해도 검증 결과(문서 기록)는 남는다. 쪽은 마스킹본에서 문장 앞부분으로 찾는다
+    const kv = extra.knowhow_validation;
+    if (kv && deps.saveClaims) {
+      const pages = deps.maskedPages ? await deps.maskedPages(d).catch(() => []) : [];
+      const squash = (t: string) => t.replace(/\s/g, '');
+      const pageOf = (st: string) => { const k = squash(st).slice(0, 30); const i = pages.findIndex((p) => squash(p.text).includes(k)); return i >= 0 ? (pages[i]!.page ?? i) + 1 : null; };
+      await deps.saveClaims(d.doc_id, kv.items, pageOf).catch((e: Error) => console.warn(JSON.stringify({ msg: 'claims failed', doc_id: d.doc_id, err: e.name })));
+    }
     return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };
 }

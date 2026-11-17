@@ -422,3 +422,18 @@ test('업무 분류: 트리 수는 볼 수 있는 게시 문서(하위 포함), 
   assert.deepEqual(calls[0], ['rename', 'cat_corp', '기업 대출', 'u-approver']);
   assert.equal((await t.call('approver', 'POST', '/v1/categories/cat_loan/merge', { into: 'cat_hr' })).status, 409);
 });
+
+test('주장: 상세에 문서 주장 + 같은 조문 게시 주장의 지지·충돌 수, 지식 부채는 결재자만', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
+  t.deps.claims = {
+    list: async () => [{ claim_id: 'doc_K#1', seq: 1, statement: '감정평가서는 6개월 이내', page: 1, provision_id: 'P1', relation: 'SUPPORTS', reason: 'r', quote: 'q', verified: true, status: 'CURRENT', status_reason: null }],
+    counts: async () => new Map([['P1', { SUPPORTS: 2, SUPPLEMENTS: 1, CONFLICTS: 1 }]]),
+    debt: async () => ({ conflicts: 1, review_required: 0, unverified: 2, healthy: 3, docs_needing_attention: 1 }),
+  };
+  const d = (await (await t.call('user', 'GET', '/v1/library/doc_K')).json()) as { claims: { on_provision: unknown }[] };
+  assert.deepEqual(d.claims[0]!.on_provision, { supports: 3, conflicts: 1, unclear: 0 });
+  assert.equal((await t.call('user', 'GET', '/v1/admin/knowledge-debt')).status, 403);
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/knowledge-debt')).json()) as { healthy: number }).healthy, 3);
+});

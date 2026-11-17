@@ -15,6 +15,20 @@ interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
 
+/** 지식 부채 (게시 문서 주장 기준, interfaces 10.2): 지금 손봐야 할 지식이 얼마나 쌓였나 */
+function KnowledgeDebt() {
+  const [k, setK] = useState<Record<string, number> | null>(null);
+  useEffect(() => { api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null)); }, []);
+  if (!k) return null;
+  const rows: [string, string, string][] = [['conflicts', '규정과 어긋난 주장', 'bad'], ['review_required', '근거 개정으로 재검토', 'bad'], ['unverified', '근거 확인 필요', 'wait'], ['healthy', '근거 확인된 주장', 'ok'], ['docs_needing_attention', '손봐야 할 문서', 'bad']];
+  return (
+    <section aria-labelledby="debt-h" className="debt">
+      <h2 className="section" id="debt-h">지식 상태</h2>
+      <dl className="debt-grid">{rows.map(([key, label, tone]) => <div key={key} className={`debt-cell ${tone}`}><dt>{label}</dt><dd className="num">{k[key] ?? 0}</dd></div>)}</dl>
+    </section>
+  );
+}
+
 /** 결재 진행: 공통 결재란. 승인하면 승인 칸에 도장이 찍힌다(한 번의 서명 동작) */
 function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
   return <Seal size="full" stampedNow={!!approved} i={{ authority_status: approved ? 'VERIFIED' : 'UNVERIFIED', document_type: 'KNOWHOW', lifecycle: approved ? 'PUBLISHED' : 'PENDING_APPROVAL' }} />;
@@ -135,6 +149,7 @@ export default function Admin() {
         </div>
       </div>
 
+      <KnowledgeDebt />
       <h2 className="section">운영 도구</h2>
       <div className="actions" style={{ marginTop: 0 }}>
         <Link className="btn" href="/admin/runs">Agent 실행 기록</Link>

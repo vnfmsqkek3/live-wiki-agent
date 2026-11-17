@@ -56,7 +56,13 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
   })()
   : undefined;
 
-const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow, purge: purgePrefix };
+const deps: LambdaDeps = {
+  store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow, purge: purgePrefix,
+  ...(process.env.GOV_STORE === 'postgres' ? { saveClaims: async (doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (s: string) => number | null) => {
+    const [{ db }, c] = await Promise.all([import('@hanaeum/db'), import('./claims.ts')]);
+    return c.saveClaims(db().tx, doc_id, items, pageOf);
+  } } : {}),
+};
 const seg: SegmentDeps = {
   store, listKeys, getJson, putJson, guardrail: applyGuardrail,
   getBytes: (k) => getObjectBytes(k), putBytes, // PiiScan 페이지 이미지 마스킹 (steps Role). 모델 Role은 masked/만 읽음

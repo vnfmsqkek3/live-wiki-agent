@@ -45,6 +45,7 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
 function CardLabel({ title, filled }: { title: string; filled: boolean }) {
   return <>{title}{filled && <span className="card-state">내용 있음</span>}</>;
 }
+const CLAIM_REL: Record<string, string> = { SUPPORTS: '규정과 일치', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', INSUFFICIENT: '관련 조문 확인 필요', UNRELATED: '관련 없음' };
 type Basis = { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string };
 /** 비교한 대상: 같은 조문은 한 묶음으로, 그 아래에 비교한 문서 문장마다 판정 (사용자 지적 11/17: 같은 조문이 반복돼 무엇이 다른지 모름) */
 function groupBasis(basis: Basis[]) {
@@ -427,6 +428,21 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <dt>검증 방법</dt><dd>{d.verification.method}</dd>
           </dl>
         </section></DetailCard>
+      )}
+      {(d.claims?.length ?? 0) > 0 && (
+        <DetailCard title="이 문서의 주장">
+          <p className="note">이 문서의 문장마다 근거 조문과 판정, 그리고 같은 조문을 근거로 쓴 다른 게시 문서들이 어떻게 판정됐는지입니다.</p>
+          <ol className="claims">{d.claims!.map((c) => (
+            <li key={c.claim_id}>
+              <p className="stmt">“{c.statement}”{c.page && <span className="note"> · {c.page}쪽</span>}</p>
+              <p><span className={`verdict ${c.relation === 'CONFLICTS' ? 'bad' : c.relation === 'INSUFFICIENT' ? 'wait' : 'ok'}`}>{CLAIM_REL[c.relation] ?? c.relation}</span>
+                {c.label && <span className="note"> · {c.label}</span>}{!c.verified && <span className="note"> · 인용 원문 확인 안 됨</span>}{c.status === 'REVIEW_REQUIRED' && <span className="danger-text"> · 근거 조문 개정으로 재검토</span>}</p>
+              {c.on_provision && (c.on_provision.supports + c.on_provision.conflicts + c.on_provision.unclear) > 0 && (
+                <p className="note">이 조문을 근거로 쓴 게시 문서 주장: 지지 {c.on_provision.supports} · 충돌 {c.on_provision.conflicts}{c.on_provision.unclear ? ` · 확인 필요 ${c.on_provision.unclear}` : ''}</p>
+              )}
+            </li>
+          ))}</ol>
+        </DetailCard>
       )}
       {d.verification && d.verification.basis.length > 0 && (
         <DetailCard title="비교한 대상">

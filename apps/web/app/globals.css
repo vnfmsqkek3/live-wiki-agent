@@ -721,3 +721,12 @@ main { padding-inline: var(--gutter); }
 .compare-rows .stmt { margin:0 0 2px; color:var(--navy-900); }
 .verdict { font-weight:600; }
 .verdict.ok { color:var(--green-700); } .verdict.bad { color:var(--coral-700); } .verdict.wait { color:var(--ink-700); }
+/* 이 문서의 주장 · 지식 상태 */
+.claims { margin:10px 0 0; padding-left:20px; display:grid; gap:12px; }
+.claims .stmt { margin:0 0 2px; color:var(--navy-900); }
+.debt { margin:0 0 var(--gap); }
+.debt-grid { display:grid; grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)); gap:12px; margin:0; }
+.debt-cell { border:1px solid var(--navy-050); border-radius:12px; padding:12px 14px; background:#fff; }
+.debt-cell dt { font-size:var(--fs-small); color:var(--ink-700); }
+.debt-cell dd { margin:4px 0 0; font-size:var(--fs-h2); font-weight:700; color:var(--navy-900); }
+.debt-cell.bad dd { color:var(--coral-700); } .debt-cell.ok dd { color:var(--green-700); }

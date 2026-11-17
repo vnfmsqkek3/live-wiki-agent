@@ -40,6 +40,12 @@ export interface Deps {
   guideStream?(question: string, accessToken: string): Promise<ReadableStream<Uint8Array>>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string; message?: string } | undefined>;
+  /** 주장 단위 지식 (interfaces.md 10.2, PostgreSQL). 없으면 생략 */
+  claims?: {
+    list(doc_id: string): Promise<import('./claims.ts').ClaimRow[]>;
+    counts(provision_ids: string[]): Promise<Map<string, Record<string, number>>>;
+    debt(): Promise<Record<string, number>>;
+  };
   /** 업무 분류 (interfaces.md 10.1, PostgreSQL). 없으면 분류 기능 생략 */
   categories?: {
     list(): Promise<import('./categories.ts').Category[]>;
@@ -324,6 +330,24 @@ export function createApp(deps: Deps) {
     return c.json({ document_type: b.document_type });
   });
 
+  // ---- 주장 (얇은 버전, interfaces 10.2): 문서 주장 + 같은 조문을 근거로 한 게시 문서 주장의 지지·충돌 수 ----
+  async function docClaimsView(d: DocumentRecord) {
+    if (!deps.claims) return [];
+    const rows = await deps.claims.list(d.doc_id).catch(() => []);
+    const counts = await deps.claims.counts([...new Set(rows.map((r) => r.provision_id).filter((x): x is string => !!x))]).catch(() => new Map<string, Record<string, number>>());
+    const labels = new Map((d.knowhow_validation?.items ?? []).map((it) => [it.provision_id, it.label]));
+    return rows.map((r) => {
+      const c = r.provision_id ? counts.get(r.provision_id) ?? {} : {};
+      return { ...r, label: (r.provision_id && labels.get(r.provision_id)) || r.provision_id,
+        on_provision: r.provision_id ? { supports: (c.SUPPORTS ?? 0) + (c.SUPPLEMENTS ?? 0), conflicts: c.CONFLICTS ?? 0, unclear: c.INSUFFICIENT ?? 0 } : null };
+    });
+  }
+  // 관리자: 지식 부채 (게시 문서 주장 기준). knowledge_debt 뷰 그대로
+  app.get('/v1/admin/knowledge-debt', async (c) => {
+    need(c, APPROVERS);
+    return c.json(deps.claims ? await deps.claims.debt() : { conflicts: 0, review_required: 0, unverified: 0, healthy: 0, docs_needing_attention: 0 });
+  });
+
   // ---- 업무 분류 (사용자 결정 11/17 A: AI 가 배정·생성·병합, 관리자는 선택적 이름 수정·병합) ----
   async function categoryView() {
     const [list, docs] = deps.categories ? await Promise.all([deps.categories.list(), deps.categories.docMap()]).catch(() => [[], new Map<string, string>()] as const) : [[], new Map<string, string>()] as const;
@@ -594,6 +618,7 @@ export function createApp(deps: Deps) {
     return c.json({
       ...base,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
+      claims: await docClaimsView(d),
       can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {

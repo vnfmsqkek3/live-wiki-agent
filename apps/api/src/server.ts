@@ -56,6 +56,11 @@ const app = createApp({
   workflowFailure,
   workflowSteps,
   workflowRuns,
+  ...(process.env.GOV_STORE === 'postgres' ? { claims: await (async () => {
+    const c = await import('./claims.ts');
+    const d = db();
+    return { list: (id: string) => c.docClaims(d.query, id), counts: (ids: string[]) => c.provisionCounts(d.query, ids), debt: () => c.knowledgeDebt(d.query) };
+  })() } : {}),
   ...(process.env.GOV_STORE === 'postgres' ? { categories: await (async () => {
     const c = await import('./categories.ts');
     const d = db();
