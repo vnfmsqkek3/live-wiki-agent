@@ -9,7 +9,11 @@ import type { Actor } from "@hanaeum/mcp-kit";
 import type { regulationTools } from "@hanaeum/regulation-server";
 
 // ── 필터 ───────────────────────────────────────────────
-export interface FilterOpts { asOf: number; indexGroups?: IndexGroup[]; includeHistory?: boolean; docIds?: string[]; business?: string; tags?: string[] }
+export interface FilterOpts {
+  asOf: number; indexGroups?: IndexGroup[]; includeHistory?: boolean; docIds?: string[]; business?: string; tags?: string[];
+  /** 세부 필터 (사용자 요청 11/17): 부서, 문서 일자 기간(YYYYMMDD, 본문 대표 일자), 검증 상태·최신성(Documents 현재 상태로 거름) */
+  dept?: string; dateFrom?: number; dateTo?: number; authority?: "VERIFIED" | "UNVERIFIED"; freshness?: "CURRENT" | "REVIEW_REQUIRED";
+}
 
 export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   const keys = aclKeys(actor);
@@ -32,6 +36,9 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   if (o.docIds?.length) conds.push({ in: { key: "doc_id", value: o.docIds } });
   // 업무 분류(1단계 일치)·태그(하나라도 일치)
   if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
+  if (o.dept) conds.push({ equals: { key: "dept", value: o.dept } });
+  if (o.dateFrom) conds.push({ greaterThanOrEquals: { key: "doc_date", value: o.dateFrom } });
+  if (o.dateTo) conds.push({ lessThanOrEquals: { key: "doc_date", value: o.dateTo } });
   if (o.tags?.length) conds.push(o.tags.length === 1 ? { listContains: { key: "tags", value: o.tags[0]! } } : { orAll: o.tags.map((t) => ({ listContains: { key: "tags", value: t } })) });
   return { andAll: conds };
 }
@@ -140,6 +147,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       && st.authority_status !== "REJECTED"
       && st.acl_groups.some((g) => keys.includes(g))
       && st.published_content_hash === m["content_hash"] // KB 동기화 지연으로 남은 옛 버전 청크 차단
+      && (!o.authority || st.authority_status === o.authority) && (!o.freshness || st.freshness === o.freshness) // 승인 후 바뀌는 값이라 KB가 아니라 현재 상태로
       && (o.includeHistory || (current(st, m, o.asOf) && m["provision_status"] !== "DELETED"));
     if (!ok) continue;
     const hist = m["provision_status"] === "DELETED" || !current(st, m, o.asOf);
@@ -173,7 +181,12 @@ const groupsArg = (args: Record<string, unknown>): IndexGroup[] | undefined => {
 const classArgs = (args: Record<string, unknown>) => {
   const business = str(args, "business", false);
   const tags = Array.isArray(args["tags"]) ? (args["tags"] as unknown[]).filter((t): t is string => typeof t === "string" && !!t.trim()).slice(0, 8) : [];
-  return { ...(business ? { business } : {}), ...(tags.length ? { tags } : {}) };
+  const day = (k: string) => { const v = str(args, k, false); if (!v) return undefined; if (!/^\d{4}-\d{2}-\d{2}$/u.test(v)) throw new ToolError("INVALID_ARGUMENT", `${k}: YYYY-MM-DD`); return Number(v.replaceAll("-", "")); };
+  const pick = <T extends string>(k: string, ok: readonly T[]) => { const v = str(args, k, false); if (!v) return undefined; if (!ok.includes(v as T)) throw new ToolError("INVALID_ARGUMENT", `${k}: ${ok.join("|")}`); return v as T; };
+  const dept = str(args, "dept", false), dateFrom = day("date_from"), dateTo = day("date_to");
+  const authority = pick("authority_status", ["VERIFIED", "UNVERIFIED"] as const), freshness = pick("freshness", ["CURRENT", "REVIEW_REQUIRED"] as const);
+  return { ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
+    ...(authority ? { authority } : {}), ...(freshness ? { freshness } : {}) };
 };
 const topK = (args: Record<string, unknown>) => Math.min(Math.max(Number(args["top_k"] ?? 5) || 5, 1), RERANKED);
 const CLAUSE_IN_QUERY = /(?:「([^」]+)」|([가-힣A-Za-z0-9·\s]+?))\s*((?:부칙\s*)?제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?(?:\s*제\s*\d+\s*호(?:\s*의\s*\d+)?)?(?:\s*[가-하]\s*목)?)/u;
