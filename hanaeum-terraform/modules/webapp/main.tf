@@ -18,6 +18,10 @@ variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "runtime_arn_patterns" { type = list(string) } # API 가 호출하는 AgentCore Runtime (파이프라인·가이드)
 # API 검색(/v1/search: KB Retrieve·Rerank)용 KB ARN
 variable "kb_arn" { type = string }
+variable "extra_api_statements" {
+  type    = list(any)
+  default = []
+}
 # 같은 CodeBuild 로 빌드하는 Agent 이미지의 ECR (파이프라인·가이드 Runtime)
 variable "extra_ecr_arns" {
   type    = list(string)
@@ -196,7 +200,7 @@ resource "aws_iam_role_policy" "api" {
   role = aws_iam_role.api.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat(var.extra_api_statements, [
       {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchGetItem"]
@@ -220,7 +224,7 @@ resource "aws_iam_role_policy" "api" {
       # 검색 화면 /v1/search (let522mj search_wiki 를 API 가 직접 사용): KB Retrieve + Cohere Rerank
       { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = var.kb_arn },
       { Effect = "Allow", Action = ["bedrock:Rerank", "bedrock:InvokeModel"], Resource = "*" },
-    ]
+    ])
   })
 }
 

@@ -10,10 +10,12 @@ resource "aws_bedrockagentcore_policy_engine" "pipeline" {
 }
 
 resource "aws_bedrockagentcore_policy" "orchestrator_only" {
-  name             = "orchestrator_steps_only"
+  # 이름은 계정 단위로 유일해야 함 (Engine 이 달라도 충돌, prod 11/17 실측) → 환경 포함. 교체 시 새 것 먼저(ENFORCE 공백 방지)
+  name             = "${replace(var.n.prefix, "-", "_")}_pipeline_steps${replace(var.n.suffix, "-", "_")}"
   description      = "오케스트레이터 Role 만 단계 Tool 호출 허용 (그 외 기본 거부)"
   policy_engine_id = aws_bedrockagentcore_policy_engine.pipeline.policy_engine_id
   validation_mode  = "FAIL_ON_ANY_FINDINGS"
+  lifecycle { create_before_destroy = true }
   definition {
     cedar {
       statement = <<-CEDAR

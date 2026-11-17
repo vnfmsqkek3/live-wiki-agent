@@ -136,10 +136,12 @@ resource "aws_bedrockagentcore_gateway_target" "t" {
 }
 
 resource "aws_bedrockagentcore_policy" "user_tools" {
-  name             = "user_tools_only"
+  # 이름은 계정 단위로 유일 (prod 11/17 실측) → 환경 포함. 교체 시 새 것 먼저
+  name             = "${replace(var.n.prefix, "-", "_")}_user_tools${replace(var.n.suffix, "-", "_")}"
   description      = "인증된 사용자: 조회·검토 요청 Target 만 (그 외 기본 거부)"
   policy_engine_id = aws_bedrockagentcore_policy_engine.user.policy_engine_id
   validation_mode  = "FAIL_ON_ANY_FINDINGS"
+  lifecycle { create_before_destroy = true }
   definition {
     cedar {
       statement = <<-CEDAR

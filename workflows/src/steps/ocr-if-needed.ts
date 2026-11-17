@@ -6,10 +6,8 @@
 //   {doc}/work/ocr/result.json               병합 결과 (있으면 완료)
 import { CopyObjectCommand, DeleteObjectCommand, GetObjectCommand, HeadObjectCommand, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { InvokeEndpointAsyncCommand, SageMakerRuntimeClient } from "@aws-sdk/client-sagemaker-runtime";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { finding, type Finding, type StepInput, type StepOutput } from "./common.js";
-import { dynamoFindingsStore, type FindingsStore } from "./findings-store.js";
+import { findingsStore, type FindingsStore } from "./findings-store.js";
 import type { OcrTargets } from "./page-render.js";
 
 const STEP = "OcrIfNeeded";
@@ -127,5 +125,5 @@ export const handler = makeHandler({
     }));
     return { output: r.OutputLocation!, failure: r.FailureLocation! };
   },
-  saveFindings: dynamoFindingsStore(DynamoDBDocumentClient.from(new DynamoDBClient({})), process.env.TABLE_DOCUMENTS ?? ""),
+  saveFindings: findingsStore(),
 });
