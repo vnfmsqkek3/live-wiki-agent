@@ -17,6 +17,7 @@ export function evalFilter(f: RetrievalFilter, m: Meta): boolean {
     case "greaterThanOrEquals": return Number(v) >= Number(value);
     case "in": return (value as unknown[]).includes(v);
     case "listContains": return Array.isArray(v) && v.includes(value);
+    case "startsWith": return typeof v === "string" && v.startsWith(String(value));
     default: throw new Error(`미지원 필터 ${op}`);
   }
 }

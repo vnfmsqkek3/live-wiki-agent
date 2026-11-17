@@ -85,6 +85,8 @@ export interface Records {
   setPublishedHash(docId: string, hash: string, at?: string): Promise<void>;
   /** 단계 Finding 교체 저장 (그 단계 것만 지우고 새로). 텍스트 추출·본문 정리의 차단·확인 사유가 화면에 나오려면 필요 (11/17 실측: 저장 안 돼 사유가 비어 보임) */
   saveFindings(docId: string, step: string, findings: Finding[]): Promise<void>;
+  /** 업무 분류 경로 (interfaces 10.1, PostgreSQL만). 미배정·저장소 미지원이면 undefined */
+  categoryPath?(docId: string): Promise<string | undefined>;
 }
 
 /** 승인 API(dhxorb96)가 쓴 Documents 항목을 Promote 입력으로: 문서 유형은 최상위 또는 classification(Classify·사람 수정),

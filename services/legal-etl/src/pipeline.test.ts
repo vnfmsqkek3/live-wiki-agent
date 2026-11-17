@@ -103,11 +103,21 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   await assert.rejects(promoteStep(pin, s, r), { name: "ApprovalBindingError" }); // 해시 불일치
   assert.equal((await s.list(P, "")).length, 0, "실패 시 published에 아무것도 없음");
 
+  // 업무 분류 경로(interfaces 10.1)는 사이드카에 들어감
+  (r as unknown as { categoryPath: (d: string) => Promise<string | undefined> }).categoryPath = async () => "여신/기업여신";
   const out = await promoteStep({ ...pin, approval_id: "apr_1" }, s, r);
   assert.equal(out.output_key, `legal/${DOC}/content.txt`);
+  assert.equal(JSON.parse((await s.get(P, `legal/${DOC}/content.txt.metadata.json`)).toString()).metadataAttributes.category_path, "여신/기업여신");
+  // 분류 조회가 실패해도(스키마 배포 전 등) 게시는 계속, 경로만 생략
+  (r as unknown as { categoryPath: (d: string) => Promise<string | undefined> }).categoryPath = async () => { throw Object.assign(new Error('ERROR: relation "categories" does not exist; SQLState: 42P01'), { name: "DatabaseErrorException" }); };
   assert.equal(r.approvals.get("apr_1")!.status, "USED");
   // 같은 워크플로 재시도는 허용(멱등), 다른 워크플로의 재사용은 차단
   assert.equal((await promoteStep({ ...pin, approval_id: "apr_1" }, s, r)).status, "OK");
+  assert.equal(JSON.parse((await s.get(P, `legal/${DOC}/content.txt.metadata.json`)).toString()).metadataAttributes.category_path, undefined);
+  // 그 밖의 조회 오류는 던져 재시도 (스로틀·SQL 버그를 묻지 않음)
+  (r as unknown as { categoryPath: (d: string) => Promise<string | undefined> }).categoryPath = async () => { throw Object.assign(new Error("Rate exceeded"), { name: "ThrottlingException" }); };
+  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_1" }, s, r), { name: "ThrottlingException" });
+  (r as unknown as { categoryPath?: unknown }).categoryPath = undefined;
   await assert.rejects(promoteStep({ ...pin, workflow_id: "wf_other", approval_id: "apr_1" }, s, r), /재사용/u);
   assert.match(out.content_hash!, /^sha256:/u);
   // 이전 실행의 잔여 마스킹 페이지가 섞이면 실패
