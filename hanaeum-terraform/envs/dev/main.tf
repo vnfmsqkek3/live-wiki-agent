@@ -30,7 +30,7 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "2443244" # workflows·auth-triggers·services/ocr
+    yoyo0704 = "9244d28" # workflows·auth-triggers·services/ocr
     dhxorb96 = "b426a9a" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "dc1ba61" # PR #12 병합 (실무 보완 밑줄·색인 실패 문장)
   }
