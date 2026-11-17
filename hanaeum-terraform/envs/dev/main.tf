@@ -33,7 +33,7 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "2d53d78" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "500c4c7" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    dhxorb96 = "1377d9c" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "437ef44" # PR #20 GraphUpsert Registry 해시 보존 (+#19 PostgreSQL)
   }
 
@@ -45,8 +45,8 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "500c4c7" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
-  agents_source_ref = "500c4c7" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "1377d9c" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  agents_source_ref = "1377d9c" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
