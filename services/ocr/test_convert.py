@@ -1,6 +1,6 @@
 import unittest
 
-from convert import to_page, to_structure_page
+from convert import normalize_table_html, to_page, to_structure_page
 
 
 class ToPageTest(unittest.TestCase):
@@ -55,6 +55,32 @@ class StructureTest(unittest.TestCase):
         p = to_structure_page(0, 1, 1, {"overall_ocr_res": self.RES["overall_ocr_res"]})
         self.assertEqual(p["blocks"][0]["label"], "paragraph")
         self.assertNotIn("tables", p)
+
+
+class TableOrderTest(unittest.TestCase):
+    # 11/17 dev 실측 재현: pred_html 이 행·열 모두 뒤집힘, cell_box_list 는 같은 (뒤집힌) 순서로 셀 좌표
+    REVERSED = ('<table><tr><td colspan="3">한도 초과 시 기록</td></tr>'
+                '<tr><td>지점장</td><td>1,000만원</td><td>VIP 창구</td></tr>'
+                '<tr><td>승인자</td><td>1회 한도</td><td>구분</td></tr></table>')
+    BOXES = [[430, 700, 1700, 740],
+             [1531, 640, 1700, 680], [900, 640, 1100, 680], [430, 640, 600, 680],
+             [1531, 575, 1700, 615], [900, 575, 1100, 615], [430, 575, 600, 615]]
+
+    def test_reorders_by_coordinates_keeps_colspan(self):
+        out = normalize_table_html(self.REVERSED, self.BOXES)
+        self.assertEqual(out, '<table><tr><td>구분</td><td>1회 한도</td><td>승인자</td></tr>'
+                              '<tr><td>VIP 창구</td><td>1,000만원</td><td>지점장</td></tr>'
+                              '<tr><td colspan="3">한도 초과 시 기록</td></tr></table>')
+
+    def test_boxes_in_natural_order_are_paired_by_ocr_text(self):
+        boxes = list(reversed(self.BOXES))  # 좌표 목록은 정상 순서, HTML 만 뒤집힌 경우
+        lines = [("구분", [440, 580, 500, 610]), ("1회 한도", [910, 580, 1000, 610]), ("승인자", [1540, 580, 1600, 610]),
+                 ("VIP 창구", [440, 645, 560, 675]), ("1,000만원", [910, 645, 1050, 675]), ("지점장", [1540, 645, 1600, 675]),
+                 ("한도 초과 시 기록", [440, 705, 900, 735])]
+        self.assertEqual(normalize_table_html(self.REVERSED, boxes, lines), normalize_table_html(self.REVERSED, self.BOXES))
+
+    def test_count_mismatch_keeps_original(self):
+        self.assertEqual(normalize_table_html(self.REVERSED, self.BOXES[:2]), self.REVERSED)
 
 
 if __name__ == "__main__":

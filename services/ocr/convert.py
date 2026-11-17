@@ -31,6 +31,61 @@ TABLE = "table"
 FIGURE_LABELS = {"image", "figure", "chart", "seal"}
 
 
+import re
+
+_TR = re.compile(r"<tr[^>]*>(.*?)</tr>", re.S | re.I)
+_TD = re.compile(r"<(td|th)([^>]*)>(.*?)</\1>", re.S | re.I)
+
+
+def _plain(t):
+    return re.sub(r"\s+", "", re.sub(r"<[^>]+>", "", t))
+
+
+def _agreement(pairs, lines):
+    """셀 글자가 그 셀 좌표 안 OCR 줄 글자와 맞는 개수 (짝짓기 검증용)"""
+    n = 0
+    for box, (_, _, c) in pairs:
+        want = _plain(c)
+        got = "".join(_plain(t) for t, b in lines if _inside(b, box))
+        if want and want in got:
+            n += 1
+    return n
+
+
+def normalize_table_html(html, cell_boxes, lines=None):
+    """표 HTML 셀 순서를 셀 좌표 기준(위→아래, 왼→오른)으로 다시 세운다.
+    11/17 dev 실측(let522mj): PP-StructureV3 pred_html 이 행·열 모두 뒤집혀 나옴(셀 좌표는 정상).
+    셀 수와 좌표 수가 같으면 좌표로 행을 묶어 재정렬, 다르면 원본 그대로 (글자를 잃지 않게)."""
+    if not html or not cell_boxes:
+        return html
+    cells = [(m.group(1), m.group(2), m.group(3)) for tr in _TR.findall(html) for m in _TD.finditer(tr)]
+    boxes = [list(map(float, b[:4])) for b in cell_boxes]
+    if len(cells) != len(boxes) or not cells:
+        return html
+    pairs = list(zip(boxes, cells))
+    if lines:
+        # 셀 좌표 목록이 HTML 셀과 반대 순서일 수도 있어 OCR 줄 글자와 더 잘 맞는 짝짓기를 쓴다
+        rev = list(zip(boxes, list(reversed(cells))))
+        if _agreement(rev, lines) > _agreement(pairs, lines):
+            pairs = rev
+    items = sorted(pairs, key=lambda t: ((t[0][1] + t[0][3]) / 2, t[0][0]))
+    heights = sorted(b[3] - b[1] for b, _ in items)
+    tol = max(heights[len(heights) // 2] / 2, 1.0)  # 행 묶음 허용 오차 = 셀 높이 중앙값의 절반
+    rows, cur, cur_y = [], [], None
+    for box, cell in items:
+        cy = (box[1] + box[3]) / 2
+        if cur and abs(cy - cur_y) > tol:
+            rows.append(cur)
+            cur = []
+        if not cur:
+            cur_y = cy
+        cur.append((box, cell))
+    if cur:
+        rows.append(cur)
+    body = "".join("<tr>" + "".join(f"<{t}{a}>{c}</{t}>" for _, (t, a, c) in sorted(row, key=lambda x: x[0][0])) + "</tr>" for row in rows)
+    return f"<table>{body}</table>"
+
+
 def _inside(box, region):
     """줄 상자 중심이 영역 안이면 True. box·region = [x0, y0, x1, y1]"""
     cx, cy = (box[0] + box[2]) / 2, (box[1] + box[3]) / 2
@@ -55,7 +110,9 @@ def to_structure_page(page_index, width, height, res):
 
     ordered = sorted(enumerate(regions), key=order_key)
     tables, figures, region_meta = [], [], {}
-    html_by_order = [t.get("pred_html", "") for t in (res.get("table_res_list") or [])]
+    table_res = list(res.get("table_res_list") or [])
+    html_by_order = [t.get("pred_html", "") for t in table_res]
+    boxes_by_order = [t.get("cell_box_list") or [] for t in table_res]
     for rank, (i, r) in enumerate(ordered):
         label = str(r.get("block_label") or "text")
         bbox = [int(v) for v in (r.get("block_bbox") or [0, 0, 0, 0])]
@@ -63,7 +120,9 @@ def to_structure_page(page_index, width, height, res):
         if label == TABLE:
             table_id = f"p{page_index}-t{len(tables)}"
             content = str(r.get("block_content") or "")
-            html = content if content.lstrip().startswith("<") else (html_by_order[len(tables)] if len(tables) < len(html_by_order) else "")
+            k = len(tables)
+            html = content if content.lstrip().startswith("<") else (html_by_order[k] if k < len(html_by_order) else "")
+            html = normalize_table_html(html, boxes_by_order[k] if k < len(boxes_by_order) else [], list(zip(texts, boxes)))
             tables.append({"table_id": table_id, "bbox": bbox, "html": html})
         elif label in FIGURE_LABELS:
             figures.append({"label": label, "bbox": bbox})
