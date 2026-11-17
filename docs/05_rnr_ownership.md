@@ -48,7 +48,7 @@
 | 1. MalwareCheck | yoyo0704 | S3 객체 | GuardDuty 결과 |
 | 2. FileStructureCheck | dhxorb96 | original | Findings |
 | 2.5 ConvertToPdf (11/17 신규) | yoyo0704 | original | `work/document.pdf` |
-| 3a. TextLayerExtract | let522mj | original·document.pdf | `work/text_layer.json` (쪽 수, 모든 쪽 OCR 대상. TXT·MD만 글자) |
+| 3a. TextLayerExtract | let522mj | original·document.pdf | `work/text_layer.json` (document.pdf가 있으면 쪽 수·모든 쪽 OCR 대상. TXT·MD만 글자) |
 | 3b. PageRender | yoyo0704 | document.pdf | `work/pages/{n}.png` (모든 쪽) |
 | 4. OcrIfNeeded | yoyo0704 | 페이지 이미지 | `work/ocr/result.json` (모든 쪽) |
 | 5. SegmentBuild | let522mj | ocr (TXT·MD는 text_layer) | `work/segments/{n}.json` |

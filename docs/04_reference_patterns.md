@@ -40,7 +40,7 @@ Step Functions
  2. FileStructureCheck PNG/PDF 메타데이터·임베디드 스크립트 검사 (A-002)
  3. ParallelPreprocess (Parallel)
       (앞) ConvertToPdf     원본 → work/document.pdf. PDF 복사, PNG·JPG 1장=1쪽, DOCX LibreOffice(HWPX는 변환 시험 통과 시). TXT·MD는 변환 안 함
-      a. TextLayerExtract  쪽 수만 기록, 모든 쪽 OCR 대상 (TXT·MD만 글자 그대로). 디지털 글자는 추출하지 않음
+      a. TextLayerExtract  document.pdf가 있으면 쪽 수만 기록, 모든 쪽 OCR 대상 (TXT·MD만 글자 그대로). 디지털 글자는 추출하지 않음. 없으면(배포 전) 기존 판정
       b. PageRender        document.pdf 모든 쪽 → PNG (가로 2000px)
  4. OcrIfNeeded         모든 쪽 OCR (2장)
  5. SegmentBuild       쪽별 OCR 결과 → S3 segments/{page:04d}.json (숨은 글자 비교 없음: OCR 본문엔 안 보이는 글자가 들어오지 않음)
