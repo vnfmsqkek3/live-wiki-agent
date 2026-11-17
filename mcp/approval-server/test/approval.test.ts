@@ -49,10 +49,10 @@ test('draft_change: 게시 문서만, 근거 필수, PII 가림, DRAFT로만 저
   const t = await setup('PUBLISHED');
   const ap = { sub: 'u-approver', groups: ['REG_APPROVER'] };
   assert.equal((await t.call('draft_change', { doc_id: t.d.doc_id, proposed_text: 'x', basis: [], __actor: ap })).error?.code, 'VALIDATION');
-  const r = await t.call('draft_change', { doc_id: t.d.doc_id, proposed_text: '담보 3억원 이상 본부 승인. 문의 010-1234-5678', basis: ['SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2'], __actor: ap });
+  const r = await t.call('draft_change', { doc_id: t.d.doc_id, proposed_text: '담보 3억원 이상 본부 승인. 고객 900101-1234568, 문의 010-1234-5678', basis: ['SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2'], __actor: ap });
   assert.equal(r.status, 'DRAFT');
   const [dr] = await t.store.listDrafts(t.d.doc_id);
-  assert.equal(dr!.proposed_text, '담보 3억원 이상 본부 승인. 문의 [전화번호]');
+  assert.equal(dr!.proposed_text, '담보 3억원 이상 본부 승인. 고객 [주민등록번호], 문의 010-1234-5678'); // 전화는 그대로 (사용자 결정 11/17 22시)
   assert.equal((await t.store.getDoc(t.d.doc_id))!.lifecycle, 'PUBLISHED'); // 문서 자체는 그대로
 
   const u = await setup('IN_REVIEW');
