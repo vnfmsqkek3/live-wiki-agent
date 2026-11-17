@@ -12,7 +12,7 @@ import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
-import { findPrompt, pageMatches, unsafeQuery } from './steps/reference-check.ts';
+import { bestHit, findPrompt, unsafeQuery } from './steps/reference-check.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -149,6 +149,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       }
       const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
       const cands = ((await deps.findRefs(findPrompt(d.title, pages))).value.refs ?? []).slice(0, 5);
+      console.log(JSON.stringify({ msg: 'refcheck candidates', doc_id: d.doc_id, n: cands.length, reasons: cands.map((c) => c.reason) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const safe = cands.filter((c) => { const why = unsafeQuery(c.query, internal); if (why) console.warn(JSON.stringify({ msg: 'refcheck query skipped', doc_id: d.doc_id, why })); return !why; });
       const hits = await deps.web.search([...new Set(safe.map((c) => c.query.trim()))]);
@@ -157,15 +158,18 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
         detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
       for (const c of safe) {
-        const h = (hits.get(c.query.trim()) ?? []).find((x) => pageMatches(c, x));
-        if (!h) continue;
+        const got = hits.get(c.query.trim()) ?? [];
+        const h = bestHit(c, got);
+        // 탈락 사유는 원문 없이 남긴다 (검색어·제목·본문은 쓰지 않음)
+        if (!h) { console.log(JSON.stringify({ msg: 'refcheck drop', doc_id: d.doc_id, reason: got.length ? 'no_match' : 'no_results', results: got.length, text_lens: got.map((x) => x.text.length) })); continue; }
         findings.push({ finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: 'LOW', /* 계약상 INFO: Severity·DB CHECK 에 INFO 가 없어 LOW(게시 비차단) */ code: 'REFERENCE_SUGGESTION', message: `참조 확인: ${c.reason}`, evidence_ref: h.url,
           location: { ...(c.page ? { page: c.page } : {}), excerpt: c.item.slice(0, 120) },
           user_message: `${c.item}: 공개 웹에서 확인한 주소가 있습니다 — ${h.title} (${h.url})`,
           fix_hint: '맞으면 "정리본에 넣기"로 이 주소를 문서에 넣으세요. 웹에서 찾은 정보라 근거로 인용하지 않습니다.',
           details: { item: c.item, reason: c.reason, query: c.query, url: h.url, title: h.title, checked_at } });
       }
-      if (findings.length) await deps.store.putDoc(addFindings(d, findings));
+      if (findings.length) await deps.store.putDoc(addFindings(await mustDoc(deps.store, i.doc_id), findings)); // 검색 중 다른 단계가 바꾼 문서 위에 더함
+      console.log(JSON.stringify({ msg: 'refcheck done', doc_id: d.doc_id, searched: hits.size, suggestions: findings.length }));
       return { status: 'OK', findings };
     } catch (e) {
       console.warn(JSON.stringify({ msg: 'refcheck failed', doc_id: d.doc_id, err: (e as Error).name }));

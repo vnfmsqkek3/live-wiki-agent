@@ -39,12 +39,13 @@ export function unsafeQuery(q: string, internalDomains: string[] = []): string |
   return undefined;
 }
 
-/** 열어 본 페이지가 대상과 맞는가: 대상·검색어의 낱말(2자 이상) 절반 이상이 제목·본문에 있음 */
-export function pageMatches(c: RefCandidate, page: { title: string; text: string }) {
-  const words = [...new Set(`${c.item} ${c.query}`.toLowerCase().split(/[^0-9a-z가-힣]+/u).filter((w) => w.length >= 2))];
+/** 열어 본 페이지가 대상과 맞는가: 검색어 낱말(2자 이상) 40% 이상이 주소·제목·본문에 있음.
+ *  대상(item)의 '링크·버튼' 같은 일반 낱말은 쓰지 않는다(11/18 dev 실측: 정답 페이지가 이 낱말 때문에 탈락). 본문을 못 읽은 쪽(SPA)은 주소·제목만 */
+export function pageMatches(c: RefCandidate, page: { url?: string; title: string; text: string }) {
+  const words = [...new Set(c.query.toLowerCase().split(/[^0-9a-z가-힣]+/u).filter((w) => w.length >= 2))];
   if (!words.length) return false;
-  const hay = `${page.title} ${page.text}`.toLowerCase();
-  return words.filter((w) => hay.includes(w)).length / words.length >= 0.5;
+  const hay = `${page.url ?? ''} ${page.title} ${page.text}`.toLowerCase();
+  return words.filter((w) => hay.includes(w)).length / words.length >= 0.4;
 }
 
 /** 검색 결과 링크에서 실제 주소. Bing 은 /ck/a?u=a1{base64url} 로 감싸 준다. 광고·검색 엔진 자신은 버린다
@@ -63,3 +64,9 @@ export function resultUrl(href: string): string | undefined {
     return r.toString();
   } catch { return undefined; }
 }
+
+/** 블로그·영상·커뮤니티는 공식 사이트 뒤로 (제안은 공식 출처가 먼저 보이게) */
+export const isCommunity = (url: string) => { try { return /(^|\.)(blog\.naver\.com|cafe\.naver\.com|tistory\.com|youtube\.com|youtu\.be|velog\.io|medium\.com|brunch\.co\.kr|namu\.wiki|wikipedia\.org|dcinside\.com|clien\.net)$/.test(new URL(url).hostname); } catch { return true; } };
+/** 일치하는 결과 중 공식 사이트 우선 */
+export const bestHit = <T extends { url: string; title: string; text: string }>(c: RefCandidate, hits: T[]) =>
+  hits.filter((h) => pageMatches(c, h)).sort((a, b) => Number(isCommunity(a.url)) - Number(isCommunity(b.url)))[0];

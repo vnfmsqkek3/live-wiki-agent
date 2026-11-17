@@ -28,7 +28,7 @@ export class AgentCoreWebSearcher implements WebSearcher {
   private readonly region: string;
   private readonly identifier: string | undefined;
   private readonly perQuery: number;
-  constructor(region = process.env.AWS_REGION ?? 'us-east-1', identifier = process.env.BROWSER_ID, perQuery = 2) { this.region = region; this.identifier = identifier; this.perQuery = perQuery; }
+  constructor(region = process.env.AWS_REGION ?? 'us-east-1', identifier = process.env.BROWSER_ID, perQuery = 3) { this.region = region; this.identifier = identifier; this.perQuery = perQuery; }
   async search(queries: string[]) {
     const out = new Map<string, WebHit[]>();
     if (!queries.length) return out;
@@ -59,8 +59,14 @@ export class AgentCoreWebSearcher implements WebSearcher {
         for (const { href: u, text: linkText } of links) {
           if (hits.length >= this.perQuery) break;
           try {
-            await open(u, 3500);
-            const v = JSON.parse(await read(`JSON.stringify({ t: document.title, b: (document.body?.innerText ?? '').slice(0, 4000), u: location.href })`) || '{}') as { t?: string; b?: string; u?: string };
+            await open(u, 2500);
+            // 본문이 그려질 때까지 1초 간격 최대 6초 더 (SPA·블로그는 처음엔 비어 있음)
+            let v: { t?: string; b?: string; u?: string } = {};
+            for (let k = 0; k < 7; k++) {
+              v = JSON.parse(await read(`JSON.stringify({ t: document.title, b: (document.body?.innerText ?? '').slice(0, 4000), u: location.href })`) || '{}') as typeof v;
+              if ((v.b ?? '').length > 200) break;
+              await sleep(1000);
+            }
             const final = new URL(v.u || u);
             if (!/^https?:$/.test(final.protocol) || /(^|\.)(google\.[a-z.]+|bing\.com|msn\.com)$/.test(final.hostname)) continue; // 도착이 검색 엔진이면 버림
             // 자동 접속을 막는 사이트(예: 'Access Denied')는 검색 결과 제목·요약으로 대신한다 (주소는 맞음)

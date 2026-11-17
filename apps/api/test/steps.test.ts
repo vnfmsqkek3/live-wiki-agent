@@ -243,7 +243,7 @@ test('위키 수정분 검수: 바뀐 문장·지운 문장 구분, 지운 중�
 });
 
 test('참조 확인: 검색어 검사(IP·이메일·가림 자리·개인정보·사내 도메인·사람 이름은 검색 안 함), 페이지 일치, 검색 결과 주소', async () => {
-  const { unsafeQuery, pageMatches, resultUrl } = await import('../src/steps/reference-check.ts');
+  const { unsafeQuery, pageMatches, resultUrl, bestHit } = await import('../src/steps/reference-check.ts');
   assert.equal(unsafeQuery('삼성 SL-K3250NR 드라이버 다운로드'), undefined);
   assert.equal(unsafeQuery('복합기 10.20.30.41 설정'), 'ipv4');
   assert.equal(unsafeQuery('문의 hong@corp.example'), 'email');
@@ -254,6 +254,9 @@ test('참조 확인: 검색어 검사(IP·이메일·가림 자리·개인정보
   const c = { item: '삼성전자 다운로드 자료실 링크', reason: 'MISSING_LINK' as const, query: '삼성전자 프린터 드라이버 다운로드 자료실' };
   assert.equal(pageMatches(c, { title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }), true);
   assert.equal(pageMatches(c, { title: '날씨', text: '오늘 맑음' }), false);
+  assert.equal(bestHit(c, [{ url: 'https://blog.naver.com/x/1', title: '삼성전자 프린터 드라이버 다운로드 자료실', text: '' }, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자서비스', text: '프린터 드라이버' }])?.url, 'https://www.samsungsvc.co.kr/download'); // 공식 사이트 우선
+  // dev 실측: 본문을 못 읽어도 주소·제목으로 (대상의 '링크' 같은 일반 낱말은 안 봄)
+  assert.equal(pageMatches({ item: '다운로드 링크 버튼', reason: 'MISSING_LINK', query: '삼성전자 다운로드 자료실 복합기 드라이버' }, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자서비스', text: '' }), true);
   const b64 = Buffer.from('https://www.samsungsvc.co.kr/download').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
   assert.equal(resultUrl(`https://www.bing.com/ck/a?!&&p=x&u=a1${b64}&ntb=1`), 'https://www.samsungsvc.co.kr/download');
   assert.equal(resultUrl('https://www.samsung.com/sec/support/'), 'https://www.samsung.com/sec/support/');
