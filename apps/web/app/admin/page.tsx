@@ -1,4 +1,5 @@
 'use client';
+import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
@@ -64,7 +65,7 @@ export default function Admin() {
   const blocked = mismatch.filter((m) => m.kind === 'BLOCKED');
   return (
     <>
-      <h1 className="title">결재함</h1><p className="page-description">출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요.</p>
+      <PageHeader title="결재함" description="출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요." action={<Link className="btn" href="/library">문서보관함</Link>} />
       {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
       <div className="counts">
@@ -72,66 +73,71 @@ export default function Admin() {
         <div><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></div>
       </div>
 
-      {source.length > 0 && <h2 className="section">출처 확인이 먼저 필요한 문서</h2>}
-      <ul className="ledger">
-        {source.map((i) => (
-          <li className="entry" key={i.doc_id} style={{ paddingRight: 16, borderLeftColor: 'var(--danger)' }}>
-            <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
-            {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
-            <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. 제목을 누르면 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
-            {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
-          </li>
-        ))}
-      </ul>
-
-      <h2 className="section">게시 승인 대기</h2>
-      {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
-      <ul className="ledger">
-        {pending.map((i) => (
-          <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-            <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
-            <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
-            {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
-            <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
-            {!done[i.approval_id] && (
-              <div className="actions">
-                <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
-                <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
-              </div>
-            )}
-          </li>
-        ))}
-      </ul>
-      <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
-
-      {blocked.length > 0 && (
-        <>
-          <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
-          <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
-          <ul className="ledger">
-            {blocked.map((i) => (
-              <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
+      {/* 작업판: 왼쪽 = 결재할 일, 오른쪽 = 진행·참고 (넓은 화면 2열, 좁으면 위아래) */}
+      <div className="board">
+        <div className="board-col" aria-label="결재할 일">
+          {source.length > 0 && <h2 className="section">출처 확인이 먼저 필요한 문서</h2>}
+          <ul className="ledger stack">
+            {source.map((i) => (
+              <li className="entry" key={i.doc_id} style={{ paddingRight: 16, borderLeftColor: 'var(--danger)' }}>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
-                {i.findings.slice(0, 3).map((f, n) => <p key={n} className="quote">{f.user_message ?? f.message}</p>)}
+                {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
+                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. 제목을 누르면 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
+                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
               </li>
             ))}
           </ul>
-        </>
-      )}
 
-      <h2 className="section">승인 뒤 게시 진행</h2>
-      {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
-        <ul className="ledger">
-          {after.map((i) => (
-            <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-              <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
-              {i.workflow_failure
-                ? <p className="error">게시 처리에 실패했습니다. 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
-                : <p className="note">게시 중입니다. 색인이 끝나면 검색과 보관함에 나타납니다(보통 수 분).</p>}
-            </li>
-          ))}
-        </ul>
-      )}
+          <h2 className="section">게시 승인 대기</h2>
+          {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
+          <ul className="ledger stack">
+            {pending.map((i) => (
+              <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
+                <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
+                <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
+                {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
+                <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
+                {!done[i.approval_id] && (
+                  <div className="actions">
+                    <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
+                    <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+          <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
+        </div>
+        <div className="board-col" aria-label="진행·참고">
+          <h2 className="section">승인 뒤 게시 진행</h2>
+          {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
+            <ul className="ledger stack">
+              {after.map((i) => (
+                <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
+                  <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
+                  {i.workflow_failure
+                    ? <p className="error">게시 처리에 실패했습니다. 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
+                    : <p className="note">게시 중입니다. 색인이 끝나면 검색과 보관함에 나타납니다(보통 수 분).</p>}
+                </li>
+              ))}
+            </ul>
+          )}
+          {blocked.length > 0 && (
+            <>
+              <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
+              <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
+              <ul className="ledger stack">
+                {blocked.map((i) => (
+                  <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
+                    <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
+                    {i.findings.slice(0, 3).map((f, n) => <p key={n} className="quote">{f.user_message ?? f.message}</p>)}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
+      </div>
 
       <h2 className="section">운영 도구</h2>
       <div className="actions" style={{ marginTop: 0 }}>
