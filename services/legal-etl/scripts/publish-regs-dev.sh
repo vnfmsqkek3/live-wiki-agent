@@ -18,7 +18,7 @@ token() { local p; p=$(python3 -c 'import json,sys; v=json.loads(sys.argv[1])[sy
   aws cognito-idp initiate-auth --client-id "$CLIENT" --auth-flow USER_PASSWORD_AUTH --auth-parameters "USERNAME=$1,PASSWORD=$p" --query AuthenticationResult.AccessToken --output text; }
 call() { curl -sS -X "$2" "$API$3" -H "authorization: Bearer $1" -H 'content-type: application/json' ${4:+-d "$4"} -w '\n%{http_code}'; }
 code() { tail -1 <<<"$1"; }; bodyof() { sed '$d' <<<"$1"; }
-pdf() { case "$1" in G-*) echo "tests/fixtures/golden/pdf/$1.pdf";; A-002) echo "tests/fixtures/documents/A-002.png";; *) echo "tests/fixtures/documents/pdf/$1.pdf";; esac; }
+pdf() { [ -f "$1" ] && { echo "$1"; return; }; case "$1" in G-*) echo "tests/fixtures/golden/pdf/$1.pdf";; A-002) echo "tests/fixtures/documents/A-002.png";; *) echo "tests/fixtures/documents/pdf/$1.pdf";; esac; }
 kind() { case "$1" in K-*|G-K*|G-INJ-*|A-*) echo KNOWLEDGE;; *) echo REGULATION;; esac; }  # 공격 샘플은 노하우 형식
 title() { [ "$(kind "$1")" = KNOWLEDGE ] || [ "${EXPECT:-}" = block ] && { python3 -c 'import sys,re
 for f in ["tests/fixtures/golden/"+sys.argv[1]+".md","tests/fixtures/documents/"+sys.argv[1]+".md"]:

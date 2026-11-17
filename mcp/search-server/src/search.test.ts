@@ -177,7 +177,8 @@ test("Rerank 관련도: 1위 게이트(0.30) + 1위 대비 40% (실측 보정)",
   const fake = (scores: number[]) => ({ send: async () => ({ retrievalResults: scores.map((score, i) => ({ content: { text: `t${i}` }, score, metadata: {} })) }) }) as unknown as ConstructorParameters<typeof BedrockRetriever>[2];
   const r = (s: number[]) => new BedrockRetriever("KB", "cohere.rerank-v3-5:0", fake(s)).retrieve("q");
   assert.deepEqual((await r([0.536, 0.233, 0.125])).map((h) => h.score), [0.536, 0.233], "개인정보 수집: 정의 조문은 남고 잡음은 빠짐");
-  assert.deepEqual(await r([0.248, 0.2]), [], "무관 질문 최고 0.248 → 근거 없음");
+  assert.ok((await r([0.248, 0.2])).every((h) => h.weak), "1위 0.30 미만 → 근거 아님(weak, related로만)");
+  assert.deepEqual(await r([0.094, 0.06]), [], "1위 0.10 미만 → 관련 문서도 없음 (무관 질의 실측 0.017~0.094)");
   assert.equal((await new BedrockRetriever("KB", undefined, fake([0.01])).retrieve("q")).length, 1, "Rerank 없으면 미적용");
 });
 
@@ -191,4 +192,14 @@ test("세부 필터(11/17): 부서·문서 일자 기간은 KB 필터, 잘못된
   await assert.rejects(t.search_wiki({ query: "q", freshness: "OLD" }, { sub: "x", groups: ["USER"] }), { message: /freshness/u });
   await assert.rejects(t.search_wiki({ query: "q", date_from: "2026-13-45" }, { sub: "x", groups: ["USER"] }), { message: /date_from/u });
   await assert.rejects(t.search_wiki({ query: "q", date_from: "2026-12-01", date_to: "2026-01-01" }, { sub: "x", groups: ["USER"] }), { message: /늦음/u });
+});
+
+test("근거 기준 미달(weak) 결과는 UNVERIFIED + related(참고)로만 — 단정하지 않되 버리지도 않음 (11/17 '개인정보 수집' 실측)", async () => {
+  const { retriever, states } = setup();
+  const weak = { retrieve: async (q: string, f?: Parameters<typeof retriever.retrieve>[1]) => (await retriever.retrieve(q, f)).map((h) => ({ ...h, weak: true })) };
+  const t = searchTools({ retriever: weak, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "본부 여신심사위원회 승인 기준 금액", as_of: "2026-12-15" }, user) as { search_status: string; items: unknown[]; related?: { doc_id: string }[] };
+  assert.equal(r.search_status, "UNVERIFIED");
+  assert.equal(r.items.length, 0, "근거(items)로는 쓰지 않음");
+  assert.ok(r.related && r.related.length > 0, "관련 가능 문서로는 보여 줌");
 });

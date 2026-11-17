@@ -3,7 +3,7 @@ import { S3Client, GetObjectCommand, PutObjectCommand, ListObjectsV2Command } fr
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, GetCommand, QueryCommand, UpdateCommand } from "@aws-sdk/lib-dynamodb";
 import { ymd } from "@hanaeum/schemas";
-import type { AuthorityStatus, DocumentType } from "@hanaeum/schemas";
+import type { AuthorityStatus, DocumentType, Finding } from "@hanaeum/schemas";
 
 export interface ObjectStore {
   get(bucket: string, key: string): Promise<Buffer>;
@@ -83,6 +83,8 @@ export interface Records {
   /** 게시본 해시 기록 (검색 재검증 기준). Documents의 content_hash(원본 해시)와 별도 필드 */
   /** 게시 시각 published_at은 처음 게시할 때만 기록 (같은 workflow 재시도로 바뀌지 않음) */
   setPublishedHash(docId: string, hash: string, at?: string): Promise<void>;
+  /** 단계 Finding 교체 저장 (그 단계 것만 지우고 새로). 텍스트 추출·본문 정리의 차단·확인 사유가 화면에 나오려면 필요 (11/17 실측: 저장 안 돼 사유가 비어 보임) */
+  saveFindings(docId: string, step: string, findings: Finding[]): Promise<void>;
 }
 
 /** 승인 API(dhxorb96)가 쓴 Documents 항목을 Promote 입력으로: 문서 유형은 최상위 또는 classification(Classify·사람 수정),
@@ -118,6 +120,8 @@ export class MemoryRecords implements Records {
     return { ...r };
   }
   async setPublishedHash(id: string, hash: string, at = new Date().toISOString()) { const d = this.documents.get(id); if (d) { d.published_content_hash = hash; d.published_at ??= at; } }
+  readonly findings = new Map<string, Finding[]>();
+  async saveFindings(id: string, step: string, f: Finding[]) { this.findings.set(id, [...(this.findings.get(id) ?? []).filter((x) => x.step !== step), ...f]); }
 }
 
 /** DynamoDB 키 규칙 — 테이블 Owner dhxorb96 확정본 (apps/api/src/store-dynamo.ts, 11/16)
@@ -183,5 +187,20 @@ export class DynamoRecords implements Records {
       UpdateExpression: "SET published_content_hash = :h, published_at = if_not_exists(published_at, :t)", ConditionExpression: "attribute_exists(pk)",
       ExpressionAttributeValues: { ":h": hash, ":t": at },
     }));
+  }
+  async saveFindings(docId: string, step: string, findings: Finding[]) {
+    // 병렬 단계가 같은 문서를 고칠 수 있어 updated_at 조건부 쓰기 + 재시도 (workflows findings-store와 같은 방식)
+    const Key = KEYS.document(docId);
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const doc = (await this.db.send(new GetCommand({ TableName: this.tables.documents, Key, ConsistentRead: true }))).Item;
+      if (!doc) throw new Error(`Documents 레코드 없음: ${docId}`);
+      const next = [...((doc["findings"] as Finding[] | undefined) ?? []).filter((f) => f.step !== step), ...findings];
+      try {
+        await this.db.send(new UpdateCommand({ TableName: this.tables.documents, Key, UpdateExpression: "SET findings = :f, updated_at = :now",
+          ConditionExpression: "updated_at = :prev", ExpressionAttributeValues: { ":f": next, ":now": new Date().toISOString(), ":prev": doc["updated_at"] } }));
+        return;
+      } catch (e) { if ((e as Error).name !== "ConditionalCheckFailedException") throw e; }
+    }
+    throw new Error(`Finding 저장 충돌 재시도 초과: ${docId}`);
   }
 }

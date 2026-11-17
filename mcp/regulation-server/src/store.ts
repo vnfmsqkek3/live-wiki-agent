@@ -41,7 +41,9 @@ export class MemoryClauseStore implements ClauseStore {
   readonly revs: RevisionRecord[] = [];
   readonly provs = new Map<string, Provision[]>();
   put(rec: RevisionRecord, law?: ParsedLaw) {
-    this.revs.push(rec);
+    // DynamoDB putLaw와 같게: 같은 법령·개정본은 덮어쓴다
+    const i = this.revs.findIndex((r) => r.law_id === rec.law_id && r.revision_id === rec.revision_id);
+    if (i >= 0) this.revs[i] = rec; else this.revs.push(rec);
     if (law) this.provs.set(`${rec.law_id}@${rec.revision_id}`, law.provisions);
   }
   async lawIdByName(n: string) {

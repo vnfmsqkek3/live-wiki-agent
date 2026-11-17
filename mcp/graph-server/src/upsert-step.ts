@@ -49,10 +49,14 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
     });
     // 파싱 이슈가 있으면 사람 검토 전에는 구조 저장소·그래프에 쓰지 않는다 (docs/01 13.5 자동 게시 금지)
     if (findings.length && !input.parse_reviewed) return { status: "REVIEW_REQUIRED", findings };
+    // Trusted Registry 원본 해시(content_hash·pdf_content_hash)는 덮어쓰지 않는다. 덮어쓰면 같은 공식 원본을 다시 올릴 때
+    // 해시 대조가 실패해 "공식 원본과 다름"으로 막힌다 (11/17 재업로드 실측: F-000·F-001 출처 불일치)
+    const prev = (await clauses.revisions(law.law_id)).find((r) => r.revision_id === law.revision_id);
     const rec: RevisionRecord = {
-      law_id: law.law_id, law_name: law.law_name, revision_id: law.revision_id, registry_doc_no: input.law.registry_doc_no,
+      law_id: law.law_id, law_name: law.law_name, revision_id: law.revision_id, registry_doc_no: input.law.registry_doc_no ?? prev?.registry_doc_no,
       effective_from: input.effective_from, effective_to: input.effective_to, authority_status: input.authority_status,
-      doc_id: input.doc_id, content_hash: input.content_hash, acl_groups: input.acl_groups, parse_ok: law.issues.length === 0,
+      doc_id: input.doc_id, content_hash: prev?.content_hash || input.content_hash, ...(prev?.pdf_content_hash ? { pdf_content_hash: prev.pdf_content_hash } : {}),
+      acl_groups: input.acl_groups, parse_ok: law.issues.length === 0,
     };
     if (clauses.putLaw) await clauses.putLaw(rec, law);
     // 새 VERIFIED 버전이 시행되면 겹치는 이전 버전의 종료일을 닫는다 (이전 버전이 현행으로 남지 않게)
