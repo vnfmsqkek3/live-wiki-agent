@@ -1,5 +1,5 @@
 // 단계 5 SegmentBuild: 쪽별 세그먼트 (docs/04 1.1, 2.1). 본문은 OCR 결과 (TXT·MD와 변환 단계 배포 전 DOCX·HWPX만 text_layer)
-import { ocrRows, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
+import { ocrRows, ocrRowsY, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
 import { detectPii, mask } from "@hanaeum/pii";
 import { newId } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
@@ -7,7 +7,34 @@ import type { ObjectStore } from "./store.ts";
 import type { TextLayer } from "./text-layer.ts";
 
 export interface OcrBlock { block_id: string; label: string; text: string; confidence: number; bbox: number[]; reading_order: number; table_id: string | null }
-export interface OcrResult { doc_id: string; model: string; model_version: string; page_count: number; pages: { page_index: number; width: number; height: number; source: string; blocks: OcrBlock[] }[] }
+/** tables: PP-StructureV3 표 (요청기록 20261117-2120). 없으면 줄 나열 (하위 호환) */
+export interface OcrTable { table_id: string; bbox: number[]; html: string }
+export interface OcrResult { doc_id: string; model: string; model_version: string; page_count: number; pages: { page_index: number; width: number; height: number; source: string; blocks: OcrBlock[]; tables?: OcrTable[] }[] }
+
+const cellText = (h: string) => h.replace(/<br\s*\/?>/giu, " ").replace(/<[^>]+>/gu, "").replace(/&nbsp;/gu, " ").replace(/&lt;/gu, "<").replace(/&gt;/gu, ">").replace(/&amp;/gu, "&").replace(/\s+/gu, " ").trim().replace(/\|/gu, "\\|");
+/** 표 HTML → 마크다운 표. colspan은 빈 칸으로 채움. ponytail: rowspan은 첫 행에만 값 (병합 칸 복원이 필요하면 그때) */
+export function tableToMarkdown(html: string): string {
+  const rows = [...html.matchAll(/<tr[^>]*>([\s\S]*?)<\/tr>/giu)].map((r) =>
+    [...r[1]!.matchAll(/<t([dh])([^>]*)>([\s\S]*?)<\/t\1>/giu)].flatMap((c) => {
+      const span = Number(/colspan\s*=\s*["']?(\d+)/iu.exec(c[2]!)?.[1] ?? 1);
+      return [cellText(c[3]!), ...Array<string>(Math.max(0, Math.min(span, 50) - 1)).fill("")];
+    }));
+  if (!rows.length) return cellText(html);
+  const w = Math.max(...rows.map((r) => r.length));
+  const line = (r: string[]) => `| ${[...r, ...Array<string>(w - r.length).fill("")].join(" | ")} |`;
+  return [line(rows[0]!), `| ${Array<string>(w).fill("---").join(" | ")} |`, ...rows.slice(1).map(line)].join("\n");
+}
+
+/** OCR 블록 → 본문. 표 영역 줄은 빼고 그 자리(세로 위치)에 마크다운 표를 한 번 넣는다 */
+export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = []): string {
+  const hasBox = blocks.every((b) => b.bbox?.length === 4);
+  const ids = new Set(tables.map((t) => t.table_id));
+  if (!ids.size) return (hasBox ? ocrRows(blocks) : blocks.map((b) => b.text)).join("\n");
+  const plain = blocks.filter((b) => !b.table_id || !ids.has(b.table_id));
+  const rows = hasBox ? ocrRowsY(plain) : plain.map((b, i) => ({ yc: i, text: b.text }));
+  const tabs = tables.map((t, i) => ({ yc: hasBox && t.bbox?.length === 4 ? t.bbox[1]! : Number.MAX_SAFE_INTEGER - tables.length + i, text: tableToMarkdown(t.html) }));
+  return [...rows, ...tabs].sort((a, b) => a.yc - b.yc).map((r) => r.text).join("\n");
+}
 
 export interface Segment {
   doc_id: string; page_index: number; source: "text_layer" | "ocr";
@@ -37,7 +64,7 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     return {
       // 같은 높이 블록을 한 줄로 묶고, 숫자로 읽힌 항 번호(①→1)를 순서 근거가 있을 때만 되돌린다 (13항 12번 실측)
       doc_id: layer.doc_id, page_index: p.page_index, source: "ocr",
-      text: restoreCircled((blocks.every((b) => b.bbox?.length === 4) ? ocrRows(blocks) : blocks.map((b) => b.text)).join("\n")),
+      text: restoreCircled(ocrPageText(blocks, op.tables)),
       blocks, avg_confidence: avg, low_confidence: !blocks.length || avg < PAGE_AVG_MIN || blocks.some((b) => b.confidence < BLOCK_MIN),
     } satisfies Segment;
   });

@@ -307,3 +307,14 @@ test("단계 Finding 저장: MemoryRecords.saveFindings는 같은 단계 것만 
   await r.saveFindings(DOC, "SegmentBuild", [f("SegmentBuild", "NO_TEXT2")]);
   assert.deepEqual(r.findings.get(DOC)!.map((x) => x.code), ["A", "NO_TEXT2"]);
 });
+
+test("표(PP-StructureV3): 표 영역 줄 대신 제자리에 마크다운 표, tables 없으면 줄 나열 그대로", async () => {
+  const { ocrPageText, tableToMarkdown } = await import("./segment.ts");
+  assert.equal(tableToMarkdown("<table><tr><td>구분</td><td>기준</td></tr><tr><td>금고 열쇠</td><td>보라색확인절차 서명 | 필수</td></tr><tr><td colspan=2>예외는 영업점장 보고</td></tr></table>"),
+    "| 구분 | 기준 |\n| --- | --- |\n| 금고 열쇠 | 보라색확인절차 서명 \\| 필수 |\n| 예외는 영업점장 보고 |  |");
+  const b = (text: string, y: number, table_id: string | null = null) => ({ block_id: text, label: table_id ? "table" : "text", text, confidence: 0.99, bbox: [0, y, 100, y + 10], reading_order: y, table_id });
+  const blocks = [b("영업점 마감 노하우", 0), b("구분", 50, "p0-t0"), b("기준", 50, "p0-t0"), b("표 아래 문장", 200)];
+  assert.equal(ocrPageText(blocks), "영업점 마감 노하우\n구분 기준\n표 아래 문장");
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "<tr><td>구분</td><td>기준</td></tr>" }]),
+    "영업점 마감 노하우\n| 구분 | 기준 |\n| --- | --- |\n표 아래 문장");
+});
