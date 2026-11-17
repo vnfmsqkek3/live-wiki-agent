@@ -180,3 +180,65 @@ test("규정 게시가 Trusted Registry 원본 해시를 덮어쓰지 않음 (11
   assert.equal(r.content_hash, "sha256:registry-text");
   assert.equal(r.doc_id, "doc_pub", "게시 문서 연결은 갱신");
 });
+
+test("개정 시 바뀐 조문에 근거를 둔 주장만 REVIEW_REQUIRED (interfaces 10.2, 사용자 결정 11/17 얇은 주장 단위)", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const putLaw = async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l);
+  const store = Object.assign(clauses, { putLaw });
+  // F-001(11/1) 주장 3개: 바뀐 제10조②·제12조①, 안 바뀐 제11조
+  const old = "SYN-LOAN-001@2026-11-01";
+  const claimRows = [
+    { claim_id: "K-001#1", provision_id: `${old}/ARTICLE:10/PARAGRAPH:2` },
+    { claim_id: "K-003#1", provision_id: `${old}/ARTICLE:12` },
+    { claim_id: "K-003#2", provision_id: `${old}/ARTICLE:11` },
+  ];
+  const marked: [string, string][] = [];
+  const claims = { claimsCiting: async (p: string) => claimRows.filter((c) => c.provision_id.startsWith(p)), markClaimReview: async (id: string, r: string) => { marked.push([id, r]); } };
+  const vers = [["F-001", "2026-11-01", 20261101, 20261130, undefined], ["F-002", "2026-12-01", 20261201, 99991231, "2026-11-01"]] as const;
+  for (const [doc, rev, from, to, prev] of vers) {
+    const out = await graphUpsertStep({ ...base, doc_id: doc, version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: from, effective_to: to,
+      content: read(`documents/${doc}.txt`), law: { ...LAW, revision_id: rev, previous_revision_id: prev } }, graph, store, claims);
+    assert.equal(out.status, "OK", doc);
+  }
+  assert.deepEqual(marked.sort(), [
+    ["K-001#1", "provision_revised:SYN-LOAN-001@2026-12-01/ARTICLE:10/PARAGRAPH:2"],
+    ["K-003#1", "provision_revised:SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1"],
+  ]);
+});
+
+test("주장 재검토 (PR #36 리뷰): 더 오래된 버전 인용도 직접 비교, 공백·문장부호 차이는 무시, 대량 변경이면 보류, 주장 테이블 없으면 게시 계속", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const putLaw = async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l);
+  const store = Object.assign(clauses, { putLaw });
+  const rows = [{ claim_id: "OLD#1", provision_id: "SYN-LOAN-001@2025-01-01/ARTICLE:12" }, { claim_id: "OLD#2", provision_id: "SYN-LOAN-001@2025-01-01/ARTICLE:1" }];
+  const marked: string[] = [];
+  const claims = { claimsCiting: async (p: string) => rows.filter((c) => c.provision_id.startsWith(p)), markClaimReview: async (id: string) => { marked.push(id); } };
+  const vers = [["F-000", "2025-01-01", 20250101, 20261031, undefined], ["F-001", "2026-11-01", 20261101, 20261130, "2025-01-01"], ["F-002", "2026-12-01", 20261201, 99991231, "2026-11-01"]] as const;
+  for (const [doc, rev, from, to, prev] of vers) {
+    await graphUpsertStep({ ...base, doc_id: doc, version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: from, effective_to: to,
+      content: read(`documents/${doc}.txt`), law: { ...LAW, revision_id: rev, previous_revision_id: prev } }, graph, store, claims);
+  }
+  // 2025-01-01 판 제12조를 인용한 주장은 12/1 판에서 5억→3억으로 바뀌어 재검토 (중간 11/1 판을 거쳐도)
+  assert.ok(marked.includes("OLD#1"));
+  assert.ok(!marked.includes("OLD#2"));
+  // 공백·문장부호만 다른 새 본문 → 표시 없음
+  const sameish = read("documents/F-002.txt").replace(/\. /gu, ".  ").replace(/,/gu, " ,");
+  const marked2: string[] = [];
+  const claims2 = { claimsCiting: async () => [{ claim_id: "X#1", provision_id: "SYN-LOAN-001@2026-12-01/ARTICLE:12" }], markClaimReview: async (id: string) => { marked2.push(id); } };
+  await graphUpsertStep({ ...base, doc_id: "F-002b", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270101, effective_to: 99991231,
+    content: sameish, law: { ...LAW, revision_id: "2027-01-01", previous_revision_id: "2026-12-01" } }, graph, store, claims2);
+  assert.deepEqual(marked2, []);
+  // 대량 변경(본문 인식 이상 의심) → 표시 보류 + LOW 안내, 게시는 OK
+  const garbled = read("documents/F-002.txt").split("\n").map((l) => (l.trim() ? `${l} 인식오류` : l)).join("\n"); // 모든 조문 본문이 달라짐
+  const out = await graphUpsertStep({ ...base, doc_id: "F-002c", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270201, effective_to: 99991231,
+    content: garbled, parse_reviewed: true, law: { ...LAW, revision_id: "2027-02-01", previous_revision_id: "2027-01-01" } }, graph, store, claims2);
+  assert.equal(out.status, "OK");
+  assert.ok(out.findings?.some((f) => f.code === "CLAIM_REVIEW_HELD"));
+  // 주장 테이블 없음(스키마 배포 전) → 게시 계속
+  const missing = { claimsCiting: async () => { throw new Error('relation "claims" does not exist'); }, markClaimReview: async () => {} };
+  const out2 = await graphUpsertStep({ ...base, doc_id: "F-002d", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270301, effective_to: 99991231,
+    content: read("documents/F-002.txt"), law: { ...LAW, revision_id: "2027-03-01", previous_revision_id: "2027-02-01" } }, graph, store, missing);
+  assert.equal(out2.status, "OK");
+});

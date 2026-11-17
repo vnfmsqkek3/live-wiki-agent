@@ -48,6 +48,14 @@ export class PgRecords implements Records {
        LEFT JOIN categories m ON m.category_id = c.merged_into WHERE d.doc_id = :id`, { id: docId });
     return row?.path;
   }
+  async claimsCiting(prefix: string) {
+    // prefix = "{law_id}@{revision_id}/" (법령 ID에 %·_가 없음, Trusted Registry 형식)
+    return this.q<{ claim_id: string; provision_id: string }>(
+      "SELECT claim_id, provision_id FROM claims WHERE status = 'CURRENT' AND provision_id LIKE :p", { p: `${prefix}%` });
+  }
+  async markClaimReview(claimId: string, reason: string) {
+    await this.q("UPDATE claims SET status = 'REVIEW_REQUIRED', status_reason = :r, updated_at = now() WHERE claim_id = :id AND status = 'CURRENT'", { id: claimId, r: reason });
+  }
   async setPublishedHash(docId: string, hash: string, at = new Date().toISOString()) {
     // published_at은 attrs(jsonb). 처음 게시할 때만 기록
     const rows = await this.q(
