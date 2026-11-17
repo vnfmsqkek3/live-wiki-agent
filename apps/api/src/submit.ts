@@ -13,6 +13,8 @@ export async function submitForApproval(store: Store, d: DocumentRecord, actorSu
   if (!d.s3_version_id || !d.content_hash) throw new ApiError('CONFLICT', 'no analyzed version');
   // 공식 원본과 다른 문서는 '위조 확정'은 아니지만 출처가 확인될 때까지 게시 요청을 막는다 (docs/02 위조 5건 게시 차단 + docs/01 4.4)
   if (hasSourceMismatch(d)) throw new ApiError('CONFLICT', 'source mismatch: 공식 원본과 내용이 다릅니다. 출처 확인 전에는 게시를 요청할 수 없습니다');
+  // 분류 전 문서는 게시 단계(Promote)가 UnclassifiedDocument로 실패한다 → 요청 단계에서 막는다
+  if (!(d.document_type ?? d.classification?.document_type)) throw new ApiError('CONFLICT', 'unclassified: 문서 분류가 끝나지 않아 게시를 요청할 수 없습니다. 분석을 다시 실행하세요');
   const now = new Date().toISOString();
   const apr: ApprovalRecord = {
     approval_id: newId.apr(), doc_id: d.doc_id, version: d.version, s3_version_id: d.s3_version_id, content_hash: d.content_hash,

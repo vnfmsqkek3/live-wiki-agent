@@ -16,12 +16,19 @@ const KEY = 'hanaeum.session';
 export function getSession(): Session | undefined {
   try { const s = sessionStorage.getItem(KEY); return s ? (JSON.parse(s) as Session) : undefined; } catch { return undefined; }
 }
+/** 토큰 만료·무효: 세션을 지우고 로그인 화면으로 (돌아올 주소 포함) */
+function expired() {
+  logout();
+  if (typeof window !== 'undefined' && window.location.pathname !== '/login')
+    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+}
 export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 시 무시 */ } }
 
 export async function login(username: string, password: string): Promise<Session> {
   let s: Session;
   if (MOCK || !CLIENT_ID) {
-    const groups: Role[] = username.includes('approver') ? ['REG_APPROVER'] : username.includes('author') ? ['AUTHOR'] : ['USER'];
+    // 데모 계정 2종: admin(전 그룹) / user(직원 + 작성자)
+    const groups: Role[] = username.includes('admin') ? ['USER', 'AUTHOR', 'REG_APPROVER', 'SECURITY_REVIEWER', 'PLATFORM_OPERATOR'] : ['USER', 'AUTHOR'];
     s = { token: 'mock', groups, username };
   } else {
     const r = await fetch(`https://cognito-idp.${REGION}.amazonaws.com/`, {
@@ -53,13 +60,14 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
     body: body === undefined ? undefined : JSON.stringify(body),
   });
   const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
+  if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
   return j as T;
 }
 
-// ---------- 합성 mock (한빛은행 · SYNTHETIC) ----------
+// ---------- 합성 mock (하나은행 가상 데이터 · SYNTHETIC) ----------
 export interface SearchItem {
-  doc_id: string; title: string; snippet: string; team: string; updated: string; stars: number;
+  doc_id: string; title: string; snippet: string; team?: string; updated?: string; stars?: number; business_path?: string[];
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
@@ -76,6 +84,8 @@ function mock(method: string, path: string, body?: unknown): unknown {
     const tag = u.searchParams.get('tags');
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
+  if (/\/v1\/library\/.+\/similar/.test(path)) return { items: [] };
+  if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
   if (path.startsWith('/v1/library/')) {
     const d = MOCK_LIBRARY.find((x) => x.doc_id === decodeURIComponent(path.slice('/v1/library/'.length)));
     if (!d) throw new ApiError(404, 'document not found');
@@ -88,6 +98,8 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: MOCK_LIBRARY.filter((d) => (!type || d.document_type === type) && (!business || d.business_path.includes(business))) };
   }
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
+  if (path === '/v1/approvals?status=APPROVED' || path === '/v1/approvals?status=USED')
+    return { items: path.endsWith('APPROVED') ? [{ approval_id: 'apr_STUCK', doc_id: 'doc_STUCK', title: '보안 테스트 문서', lifecycle: 'PENDING_APPROVAL', workflow_failure: { step: 'Promote', error: 'UnclassifiedDocument' } }] : [] };
   if (path === '/v1/approvals?status=PENDING')
     return { items: [
       { approval_id: 'apr_K001', doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },
@@ -98,6 +110,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (/\/v1\/approvals\/.+\/decision/.test(path)) return { status: (body as { decision: string }).decision === 'APPROVE' ? 'APPROVED' : 'REJECTED' };
   if (/\/v1\/documents\/.+\/analyze/.test(path)) { mockTick = 0; return { workflow_id: 'wf_MOCK' }; }
   if (/\/v1\/documents\/.+\/progress/.test(path)) return mockProgress();
+  if (/\/v1\/documents\/.+\/issues/.test(path)) return MOCK_ISSUES;
   if (/\/v1\/documents\/.+\/review/.test(path)) return MOCK_REVIEW;
   if (/\/v1\/documents\/.+\/classification/.test(path)) return { document_type: (body as { document_type: string }).document_type };
   if (/\/v1\/documents\/.+\/submit/.test(path)) return { approval_id: 'apr_MOCK' };
@@ -119,7 +132,7 @@ export function uploadFile(url: string, file: File, onProgress?: (ratio: number)
   });
 }
 
-export interface Progress { lifecycle: string; total: number; done: number; finished: boolean; halted: boolean; steps: { key: string; label: string; state: 'done' | 'running' | 'pending' | 'failed' | 'blocked' | 'skipped' }[] }
+export interface Progress { lifecycle: string; total: number; done: number; finished: boolean; halted: boolean; blocked_reasons?: string[]; steps: { key: string; label: string; state: 'done' | 'running' | 'pending' | 'failed' | 'blocked' | 'skipped' }[] }
 let mockTick = 0;
 function mockProgress(): Progress {
   const labels = ['악성코드 검사', '파일 구조 검사', '텍스트 추출', '페이지 이미지', '문자 인식', '본문 정리', '개인정보 가림', '지시문 검사', '분류·요약', '출처·근거 검증', '검토 준비'];
@@ -129,18 +142,21 @@ function mockProgress(): Progress {
 }
 
 // ---------- 05 검토 · 03 가이드 ----------
+/** PageSummarize 쪽 메타데이터 (masked/summary.json) */
+export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; page_type?: string }
 export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
 export interface Review {
   doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
   authority_status: string;
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
   findings: Finding[]; masked_preview?: string;
+  page_summaries?: ({ page_index: number } & PageMeta)[];
   knowhow_validation?: KnowhowValidation;
   workflow_failure?: { step: string; error: string };
 }
 export interface KnowhowValidation {
   verdict: 'SUPPORTED' | 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT';
-  items: { statement: string; provision_id: string; label: string; relation: 'SUPPORTS' | 'CONFLICTS' | 'UNRELATED' | 'INSUFFICIENT'; reason: string; quote: string; verified_quote: boolean }[];
+  items: { statement: string; provision_id: string; label: string; relation: 'SUPPORTS' | 'SUPPLEMENTS' | 'CONFLICTS' | 'UNRELATED' | 'INSUFFICIENT'; reason: string; quote: string; verified_quote: boolean }[];
   outdated: { cited: string; current: string; label: string }[];
   model?: string;
 }
@@ -177,7 +193,9 @@ const MOCK_GUIDE: Guide = {
 // ---------- 문서보관함 (let522mj 요청 2220) ----------
 export interface Mark {
   page: number | null; start: number | null; end: number | null; severity: 'HIGH' | 'MEDIUM' | 'LOW';
-  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
+  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION' | 'CONFIRMED' | 'SUPPLEMENT';
+  /** let522mj buildMarks 표시 이름 (있으면 그대로 쓴다) */
+  label?: string;
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from?: string }; fix?: string;
 }
 export interface LibraryCard {
@@ -185,9 +203,21 @@ export interface LibraryCard {
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string } | null;
-  related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string }[];
+  related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string; document_type?: string }[];
 }
-export interface LibraryDoc extends LibraryCard { doc_marks: Mark[]; pages: { page: number; text: string; summary: string | null; marks: Mark[] }[] }
+export interface Verification {
+  method: string; basis: { what: string; label: string; result: string; quote?: string; effective_from?: string }[];
+  checks: { trust_gate: string | null; verdict: string | null; checked_at: string | null };
+  approved_by: string | null; approved_at: string | null; approval_reason: string | null;
+}
+export interface ExternalLaw { law_name: string; clause?: string; error?: string;
+  result?: { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null } | null }
+/** 결재 대상 문서를 관리자가 열었을 때 (GET /v1/library/:id). 쪽 본문이 없으면 findings로 이유를 보여 준다 */
+export interface ReviewInfo {
+  lifecycle: string; approval_id?: string; source_mismatch: boolean;
+  findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number }[];
+}
+export interface LibraryDoc extends LibraryCard { review?: ReviewInfo; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [
@@ -227,6 +257,7 @@ export async function streamGuide(question: string, onProgress: (text: string) =
     headers: { 'content-type': 'application/json', accept: 'text/event-stream', ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
     body: JSON.stringify({ question }),
   });
+  if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
   if (!r.headers.get('content-type')?.includes('text/event-stream') || !r.body) return (await r.json()) as Guide;
   const reader = r.body.pipeThrough(new TextDecoderStream()).getReader();
@@ -246,4 +277,28 @@ export async function streamGuide(question: string, onProgress: (text: string) =
     }
   }
   throw new ApiError(502, '응답이 중간에 끊겼습니다');
+}
+
+// ---------- 올린 사람용 사유 목록 (사용자 지시 11/17) ----------
+export interface Issue { finding_id?: string; step: string; step_label: string; severity: 'HIGH' | 'MEDIUM' | 'LOW'; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
+/** AgentCore explain_findings 결과 (yoyo0704). 판정은 바꾸지 않고 사실을 설명만 한다 */
+export interface Explanation { summary: string; items: { finding_id: string; page?: number; where: string; problem: string; reason: string; risk: '높음' | '중간' | '낮음'; fix: string }[]; next_action?: string; model?: string; generated_at?: string }
+export interface Issues { doc_id: string; lifecycle: string; items: Issue[]; page_images: number[]; explanation?: Explanation | null }
+export const MOCK_ISSUES: Issues = { doc_id: 'doc_MOCK', lifecycle: 'BLOCKED', page_images: [],
+  explanation: { summary: 'PDF 안에 콘텐츠 출처 서명(C2PA) 첨부가 있어 보안 검사에서 차단되었습니다. 문서 작성 도구가 자동으로 넣은 것으로 보이며 위험은 낮지만, 첨부를 뺀 PDF로 다시 올려야 등록됩니다.',
+    items: [{ finding_id: 'f1', where: '파일 전체(PDF 첨부)', problem: '첨부 파일 1개(Content Credentials, application/c2pa, 2KB)', reason: '첨부 파일은 내용을 검사할 수 없어 보안 정책상 등록하지 않습니다.', risk: '낮음', fix: "PDF 뷰어에서 '인쇄 → PDF로 저장'으로 다시 저장해 올려 주세요." }],
+    next_action: '다시 저장한 PDF를 새로 등록하세요.', model: 'mock' },
+  items: [
+  { step: 'FILE_STRUCTURE', step_label: '파일 구조 검사', severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', user_message: 'PDF 안에 첨부 파일 1개(대출내역.xlsx)가 들어 있어 보안상 등록할 수 없습니다.', fix_hint: "첨부 파일을 지운 뒤 '인쇄 → PDF로 저장'으로 새로 만든 PDF를 올려 주세요." },
+  { step: 'PII_SCAN', step_label: '개인정보 가림', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', user_message: '2쪽에서 계좌번호 1건을 가렸습니다. 그중 1건은 실제 계좌번호인지 확인이 필요합니다.', fix_hint: '계좌번호가 아니라면 검토 화면에서 확인해 주세요.', location: { page: 2, excerpt: '…참조번호 [계좌번호]로 접수한다…' } },
+] };
+
+/** 인증이 필요한 이미지(마스킹된 쪽) → blob URL */
+export async function apiBlobUrl(path: string): Promise<string> {
+  if (MOCK) throw new ApiError(404, 'mock 이미지 없음');
+  const s = getSession();
+  const r = await fetch(`${API}${path}`, { headers: s ? { authorization: `Bearer ${s.token}` } : {} });
+  if (r.status === 401) expired();
+  if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
+  return URL.createObjectURL(await r.blob());
 }

@@ -2,6 +2,7 @@
 // 04 문서 등록: 서식 기입란 형태. 업로드 → 격리 저장 → 분석 시작
 import { useEffect, useState } from 'react';
 import { api, ApiError, uploadFile, type Progress } from '../lib/api';
+import { IssueList } from '../issues';
 
 const ACCEPT = '.pdf,.docx,.hwpx,.png,.jpg,.jpeg';
 const MAX = 50 * 1024 * 1024;
@@ -56,7 +57,7 @@ export default function Upload() {
   return (
     <>
       <h1 className="title">문서 등록</h1>
-      <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 한빛은행 합성 문서만 등록할 수 있습니다.</p>
+      <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
       <form onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
         <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />
@@ -82,10 +83,16 @@ export default function Upload() {
             <ol className="prog-steps">
               {prog.steps.map((s) => <li key={s.key} className={s.state}>{s.label}{s.state === 'running' && ' 중'}{s.state === 'failed' && ' 실패'}{s.state === 'blocked' && ' 차단'}</li>)}
             </ol>
-            {prog.lifecycle === 'BLOCKED' && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 차단 사유는 검토 화면에서 확인하세요.</p>}
+            {prog.lifecycle === 'BLOCKED' && (
+              <div className="notice" role="alert">
+                <p style={{ margin: 0 }}>보안 검사에서 차단되어 등록할 수 없습니다.</p>
+                {(prog.blocked_reasons ?? []).length > 0 && <ul style={{ margin: '6px 0 0', paddingLeft: '1.2em' }}>{prog.blocked_reasons!.map((r) => <li key={r}>{r}</li>)}</ul>}
+              </div>
+            )}
           </section>
         )}
-        {state.doc_id && (prog?.finished || prog?.halted) && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
+        {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
+        {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </form>
     </>
   );

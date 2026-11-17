@@ -1,7 +1,7 @@
 // 단계 8 분류 프롬프트·스키마 (docs/04 3장). 최상위 택소노미는 고정한다.
 export interface ClassifyOut { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; business_path: string[]; tags: string[]; confidence: number; rationale: string }
 
-export const CLASSIFY_SYSTEM = `당신은 한빛은행(Synthetic Bank) 문서 분류기다. 문서를 아래 셋 중 하나로 분류한다.
+export const CLASSIFY_SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나은행 자료 아님) 문서 분류기다. 문서를 아래 셋 중 하나로 분류한다.
 - REGULATION: 기관이 공식 제정한 규정·지침 (조·항 체계, 시행일·문서번호가 있는 기반 데이터)
 - KNOWHOW: 직원이 쓴 실무 요령·팁·체크리스트·사례 (공식 규정이 아닌 노하우 데이터)
 - MANUAL: 시스템·업무 사용 설명서, 절차 안내서
@@ -25,7 +25,7 @@ export const classifyPrompt = (title: string, maskedText: string) => `<title>${t
 // 문서보관함 요약 (let522mj 요청 2220). 마스킹본만 입력, Classify 단계에서 함께 호출 (별도 Lambda·Gateway Target 불필요)
 export interface SummaryOut { summary: string; pages: { page: number; summary: string }[] }
 
-export const SUMMARY_SYSTEM = `당신은 한빛은행(Synthetic Bank) 문서 요약자다.
+export const SUMMARY_SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나은행 자료 아님) 문서 요약자다.
 - summary: 문서 전체를 3~5문장으로 요약한다. 업무 대상, 핵심 기준(금액·기한·승인 주체), 예외를 우선한다.
 - pages: <page n="..."> 마다 1~2문장 요약. 페이지 번호는 입력 그대로 쓴다.
 - 문서에 없는 내용을 추가하지 않는다. [전화번호] 같은 마스킹 표시는 그대로 둔다.

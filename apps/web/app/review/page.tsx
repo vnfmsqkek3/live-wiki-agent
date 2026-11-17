@@ -3,6 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type Finding, type Review } from '../lib/api';
+import { IssueList, PageFacts } from '../issues';
 
 const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
 const VERDICT: Record<string, [string, string]> = {
@@ -11,7 +12,7 @@ const VERDICT: Record<string, [string, string]> = {
   OUTDATED: ['개정 전 규정을 근거로 하고 있습니다', 'var(--ochre)'],
   INSUFFICIENT: ['근거 규정을 확인하지 못했습니다', 'var(--ink-2)'],
 };
-const REL: Record<string, string> = { SUPPORTS: '근거와 일치', CONFLICTS: '충돌', UNRELATED: '관련 조문 없음', INSUFFICIENT: '판단 근거 부족' };
+const REL: Record<string, string> = { SUPPORTS: '근거 확인됨', SUPPLEMENTS: '실무 보완(규정 범위 안)', CONFLICTS: '규정과 어긋남', UNRELATED: '관련 없음', INSUFFICIENT: '관련 조문 확인 필요' };
 const TYPES = [['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 const GROUPS: [string, string, (f: Finding) => boolean][] = [
   ['개인정보', '마스킹한 구간입니다. 불확실한 구간은 원문과 대조해 확인하세요.', (f) => f.step === 'PII_SCAN'],
@@ -69,8 +70,9 @@ function ReviewView() {
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
-      {r.workflow_failure && <p className="notice" role="alert">자동 분석이 {r.workflow_failure.step} 단계에서 멈췄습니다 (오류: {r.workflow_failure.error}). 파일이 손상되었거나 지원하지 않는 형식일 수 있습니다. 파일을 확인해 다시 등록하세요.</p>}
-      {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 보안 검토자에게 확인을 요청하세요.</p>}
+      {r.workflow_failure && <p className="notice" role="alert">{r.workflow_failure.step} 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
+      {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
+      <IssueList docId={r.doc_id} />
       {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 
       <h2 className="section">문서 종류</h2>
@@ -134,6 +136,21 @@ function ReviewView() {
           </section>
         );
       })}
+
+      {!!r.page_summaries?.length && (
+        <section aria-labelledby="ps">
+          <h2 className="section" id="ps">쪽별 요약</h2>
+          <p className="note">마스킹된 본문만 AI가 읽고 요약했습니다. 원문과 다르면 검토 의견에 적어 주세요.</p>
+          <ol className="ledger">
+            {r.page_summaries.map((p) => (
+              <li key={p.page_index} className="entry" style={{ paddingRight: 16 }}>
+                <p style={{ margin: 0 }}><strong>{p.page_index + 1}쪽</strong> {p.summary}</p>
+                <PageFacts m={p} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {r.masked_preview && (
         <>

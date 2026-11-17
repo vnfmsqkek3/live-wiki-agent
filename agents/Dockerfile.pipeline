@@ -4,7 +4,9 @@ FROM node:24-slim
 WORKDIR /app/agents
 ENV NODE_ENV=production
 COPY agents/package.json ./
-RUN npm install --omit=dev --no-audit --no-fund
+# 워크스페이스 패키지(@hanaeum/pii)는 레지스트리에서 받지 않는다 (E404·같은 이름 공급망 위험). 소스를 직접 넣는다
+RUN npm pkg delete "dependencies.@hanaeum/pii" && npm install --omit=dev --no-audit --no-fund
+COPY packages/pii ./node_modules/@hanaeum/pii
 COPY agents/src ./src
 USER node
 EXPOSE 8080

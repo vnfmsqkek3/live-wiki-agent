@@ -12,7 +12,7 @@ async function setup(lifecycle: DocumentRecord['lifecycle'] = 'IN_REVIEW') {
   const store = memoryStore();
   const d: DocumentRecord = {
     doc_id: newId.doc(), version: 1, owner: 'u-author', title: '[SYNTHETIC] t', dept: 'loan', acl_groups: ['ALL'], ext: 'pdf', lifecycle,
-    authority_status: 'UNVERIFIED', freshness: 'CURRENT', trust_gate_result: 'PASS', s3_version_id: 'v1', content_hash: 'h1', findings: [], created_at: '', updated_at: '',
+    authority_status: 'UNVERIFIED', freshness: 'CURRENT', trust_gate_result: 'PASS', document_type: 'KNOWHOW', s3_version_id: 'v1', content_hash: 'h1', findings: [], created_at: '', updated_at: '',
   };
   await store.putDoc(d);
   const h = makeHandler(store);

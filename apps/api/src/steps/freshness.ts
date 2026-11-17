@@ -27,7 +27,7 @@ export function staleKnowhow(docs: DocumentRecord[], today = ymd(new Date()), la
   for (const d of docs) {
     if (d.lifecycle !== 'PUBLISHED' || typeOf(d) === 'REGULATION' || d.freshness !== 'CURRENT') continue;
     const cited = [
-      ...(d.knowhow_validation?.items ?? []).filter((j) => j.verified_quote && (j.relation === 'SUPPORTS' || j.relation === 'CONFLICTS')).map((j) => j.provision_id),
+      ...(d.knowhow_validation?.items ?? []).filter((j) => j.verified_quote && (j.relation === 'SUPPORTS' || j.relation === 'SUPPLEMENTS' || j.relation === 'CONFLICTS')).map((j) => j.provision_id),
       ...(d.citations ?? []).map((c) => c.provision_id),
     ];
     const changed = cited.filter((pid) => {
