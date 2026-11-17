@@ -138,3 +138,19 @@ test('매뉴얼 그림·화면 정리본은 그림 기준 근거로 인용(표�
   assert.equal(r.steps[0]!.sources[0]!.figure, true);
   assert.equal(r.dropped_steps, 1);
 });
+
+test('여러 번 찾기: 1차 근거의 항목마다 2차 검색(같은 문서 우선), 못 찾은 항목은 불확실 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = (doc: string, id: string, snippet: string) => ({ doc_id: doc, provision_id: id, title: '과천 매뉴얼', snippet, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const });
+  const calls: string[] = [];
+  let prompt = '';
+  const r = await guide('4층 프린터 연결', { model: 'm',
+    search: async (q) => { calls.push(q); return q.startsWith('브라더') ? [E('doc_X', 'doc_X#1', '다른 문서'), E('doc_M', 'doc_M#p14', '브라더 드라이버 설치: setup.exe 실행')] : q.startsWith('삼성') ? [] : [E('doc_M', 'doc_M#p8', '4층: ⑤ 브라더, ⑧ 삼성')]; },
+    expand: async () => ['브라더', '삼성'],
+    draft: async (p) => { prompt = p; return { steps: [{ text: '[브라더] setup.exe 실행', sources: ['doc_M#p14'] }], uncertainty: '' }; } });
+  assert.deepEqual(calls.map((c) => c.split(' ')[0]), ['4층', '브라더', '삼성']);
+  assert.ok(prompt.indexOf('doc_M#p14') < prompt.indexOf('doc_X#1'), '같은 문서 조각 우선');
+  assert.match(prompt, /<items[^>]*>\["브라더","삼성"\]<\/items>/);
+  assert.equal(r.steps.length, 1);
+  assert.match(r.uncertainty, /삼성 절차는 근거에서 더 찾지 못했습니다/);
+});

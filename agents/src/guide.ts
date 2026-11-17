@@ -94,6 +94,8 @@ export interface GuideDeps {
   /** 초안 작성. Tool을 쓴 경우 추가로 얻은 인용 가능 근거와 호출 기록을 함께 돌려준다 */
   draft(prompt: string): Promise<GuideDraft & { evidence?: Evidence[]; tool_calls?: ToolCall[] }>;
   model: string;
+  /** 여러 번 찾기(11/18 결정): 1차 근거에서 질문에 걸린 핵심 항목(제조사·모델·시스템명 등, 최대 3개)을 뽑는다. 없으면 1회 검색 */
+  expand?(query: string, evidence: { id: string; title: string; text: string }[]): Promise<string[]>;
   /** 스트리밍 진행 문구 (사용자 확인 13항 10·11번). 원문·근거 본문은 보내지 않는다 */
   progress?(text: string): void;
 }
@@ -140,6 +142,25 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   say(PROGRESS.search);
   const all = await deps.search(q);
   const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && (e.quotable !== false || figureCitable(e))).map(asCitable);
+  // 여러 번 찾기: 표의 항목마다 2차 검색(같은 문서 조각 우선)으로 다른 쪽·장의 절차를 모은다. 검색 총 4회·항목당 15초 상한
+  const missing: string[] = [];
+  let hopItems: string[] = [];
+  if (deps.expand && evidence.length) {
+    say('표에 나온 항목별로 절차를 더 찾는 중입니다');
+    const within = <T,>(p: Promise<T>, ms: number, d: T) => Promise.race([p.catch(() => d), new Promise<T>((r) => setTimeout(() => r(d), ms))]);
+    hopItems = [...new Set((await within(deps.expand(q, evidence.slice(0, 8).map((e) => ({ id: evidenceKey(e), title: e.title, text: e.snippet.slice(0, 1200) }))), 10_000, [] as string[]))
+      .map((x) => mask(String(x).trim(), detectPii(String(x))).slice(0, 40)).filter(Boolean))].slice(0, 3);
+    const docs = new Set(evidence.map((e) => e.doc_id));
+    const seen = new Set(evidence.map(evidenceKey));
+    const found = await Promise.all(hopItems.map((it) => within(deps.search(`${it} ${q}`.slice(0, 200)), 15_000, [] as Evidence[])));
+    hopItems.forEach((it, n) => {
+      const ok = found[n]!.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && (e.quotable !== false || figureCitable(e)))
+        .map(asCitable).sort((a, b) => Number(!docs.has(a.doc_id)) - Number(!docs.has(b.doc_id)))
+        .filter((e) => !seen.has(evidenceKey(e))).slice(0, 4);
+      if (!ok.length) missing.push(it);
+      for (const e of ok) { seen.add(evidenceKey(e)); evidence.push(e); }
+    });
+  }
   const historical = evidence.filter((e) => e.search_status === 'HISTORICAL').length;
   const base = { query_masked: spans.length > 0, model: deps.model, evidence };
   if (evidence.length === 0) return { ...base, status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: '열람 가능한 승인 문서에서 근거를 찾지 못했습니다.' };
@@ -150,7 +171,8 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   const context = all.filter((e) => e.quotable === false && !figureCitable(e) && e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED')
     .slice(0, 5).map((e) => ({ doc_id: e.doc_id, title: e.title, text: e.snippet.slice(0, 1500) }));
   const ctx = context.length ? `\n\n<context note="그림·쪽 맥락. 출처로 쓰지 않는다">\n${JSON.stringify(context, null, 1)}\n</context>` : '';
-  const draft = await deps.draft(`질문: ${q}\n\n<evidence>\n${JSON.stringify(ev, null, 1)}\n</evidence>${ctx}`);
+  const items = hopItems.length ? `\n\n<items note="질문에 걸린 항목. 단계를 항목별로 묶어 단계 문장 앞에 [항목 이름]을 붙인다">${JSON.stringify(hopItems)}</items>` : '';
+  const draft = await deps.draft(`질문: ${q}\n\n<evidence>\n${JSON.stringify(ev, null, 1)}\n</evidence>${ctx}${items}`);
 
   say(PROGRESS.verify);
   // 첫 검색 근거 + Agent가 Tool로 더 찾은 근거(인용 가능분만). 출처는 이 안에 있어야 한다
@@ -170,7 +192,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
     const text = figOnly && !s.text.includes('그림 기준') ? `(그림 기준${pg ? ` · ${pg}쪽` : ''}) ${s.text}` : s.text;
     steps.push({ text: mask(text, detectPii(text)), sources });
   }
-  const uncertainty = [draft.uncertainty, dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
+  const uncertainty = [draft.uncertainty, missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
   return { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)), tool_calls: draft.tool_calls ?? [] };
 }
