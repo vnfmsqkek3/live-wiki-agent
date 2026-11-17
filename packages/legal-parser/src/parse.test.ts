@@ -109,3 +109,11 @@ test("타법개정 부칙 머리(법령명 괄호)도 부칙으로 인식 — �
   assert.deepEqual(law.issues.filter((i) => i.code === "NUMBER_REGRESSION"), []);
   assert.ok(law.provisions.some((p) => p.provision_id === "X@2026-01-01/SUPPLEMENTARY:1/ARTICLE:2"));
 });
+
+test("OCR 공백 누락: '제2장심사 절차'도 장 제목, '제2장에 따른'은 본문 (11/17 실측)", () => {
+  const meta = { law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" };
+  const l = parseLaw("제1조(목적) 이 규정은 목적을 정한다.\n제2장심사 절차\n제2조(심사) 심사역은 제2장에 따른 서류를 확인한다.", meta);
+  assert.equal(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:1"))!.normalized_text.includes("제2장"), false);
+  assert.match(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2"))!.heading_path.join(), /심사 절차/u);
+  assert.ok(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2"))!.normalized_text.includes("제2장에 따른"));
+});

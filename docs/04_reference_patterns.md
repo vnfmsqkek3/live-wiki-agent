@@ -13,7 +13,7 @@
 |---|---|---|
 | 업로드 | Presigned URL(SigV4·리전 엔드포인트) → Quarantine S3 → EventBridge → SQS(+DLQ) → Step Functions | dhxorb96(API) · yoyo0704(인프라) |
 | 악성·PII | GuardDuty Malware Protection for S3 + 파일 구조 검사 + Guardrails/정규식 PII | dhxorb96 · yoyo0704 |
-| 디지털/스캔 분기 | 텍스트 레이어 충분하면 OCR 생략, 부족한 페이지만 OCR | yoyo0704(OCR) · dhxorb96(라우터) |
+| 변환·OCR (사용자 결정 11/17) | 모든 형식을 PDF로 변환(ConvertToPdf) → 모든 쪽 OCR. 디지털 글자는 본문에 쓰지 않음. TXT·MD만 글자 그대로 | yoyo0704(변환·OCR) · let522mj(본문) · dhxorb96(라우터) |
 | OCR | PaddleOCR on SageMaker **Async** 엔드포인트, 10페이지 단위 병렬, S3 마커 병합, **confidence 보존** | yoyo0704 |
 | 분류 | 고정 택소노미 + `temperature 0` + 구조화 출력, 실패 시 `REVIEW_REQUIRED` | dhxorb96 |
 | 승인 | Step Functions `waitForTaskToken`, 사람 승인 API가 토큰 반환 | dhxorb96 |
@@ -39,10 +39,11 @@ Step Functions
  1. MalwareCheck      GuardDuty S3 스캔 결과 태그 확인 (Wait→Check 폴링) ─ 탐지 시 QUARANTINED 종료
  2. FileStructureCheck PNG/PDF 메타데이터·임베디드 스크립트 검사 (A-002)
  3. ParallelPreprocess (Parallel)
-      a. TextLayerExtract  디지털 텍스트 추출 (페이지별 글자 수 기록)
-      b. PageRender        PDF → PNG (가로 2000px), 텍스트 부족 페이지 목록 산출
- 4. OcrIfNeeded (Choice) 텍스트 부족 페이지가 있을 때만 OCR (2장)
- 5. SegmentBuild       페이지별 {text_layer, ocr, image_uri} 병합 → S3 segments/{page:04d}.json
+      (앞) ConvertToPdf     원본 → work/document.pdf. PDF 복사, PNG·JPG 1장=1쪽, DOCX LibreOffice(HWPX는 변환 시험 통과 시). TXT·MD는 변환 안 함
+      a. TextLayerExtract  쪽 수만 기록, 모든 쪽 OCR 대상 (TXT·MD만 글자 그대로). 디지털 글자는 추출하지 않음
+      b. PageRender        document.pdf 모든 쪽 → PNG (가로 2000px)
+ 4. OcrIfNeeded         모든 쪽 OCR (2장)
+ 5. SegmentBuild       쪽별 OCR 결과 → S3 segments/{page:04d}.json (숨은 글자 비교 없음: OCR 본문엔 안 보이는 글자가 들어오지 않음)
  6. PiiScan            ① 정규식·체크섬·금융 사전 → ② Guardrails ApplyGuardrail(모델 추론 아님) → 마스킹
                       → 불확실 구간이 남으면 REVIEW_REQUIRED (사람 검토), 원문은 모델에 보내지 않음
                       → ③ LLM 문맥 검토는 **마스킹된 텍스트에만** (01 §4.3 3차를 팀 결정으로 순서 조정)
@@ -72,7 +73,7 @@ Step Functions
 
 | 참고 구현 | Living Wiki |
 |---|---|
-| 디지털/스캔 무조건 OCR + 페이지 전체 Vision LLM 분석 (비용 큼) | 텍스트 레이어 충분하면 OCR·Vision 생략. 기준: 페이지당 추출 글자 수 < 50 또는 깨진 문자 비율 > 20%면 OCR 대상 (실측 후 조정) |
+| 디지털/스캔 무조건 OCR + 페이지 전체 Vision LLM 분석 (비용 큼) | 모든 쪽 OCR은 같음(사용자 결정 11/17: 디지털 글자가 깨지거나 다른 글자로 바뀐 PDF, 섞인 쪽의 사진 속 글자, 숨긴 글자를 한 번에 해결). Vision LLM 분석은 그림 쪽만(선택). 참고: megazone-idp는 DOCX를 LibreOffice로 PDF 변환, 디지털 글자·OCR·이미지를 모두 모델에 넣음 |
 | 격리·악성·PII·승인 단계 없음 | 1.1의 2·6·7·9·10단계 신설 |
 | 분류 실패 시 "미분류"로 계속 진행 | 분류 실패·저신뢰는 `REVIEW_REQUIRED`로 사람 검토 (P0 데이터 분류) |
 | 엔티티 추출 실패 시 빈 리스트 반환 (조용한 누락) | 실패는 Findings에 기록하고 단계 상태 FAILED |

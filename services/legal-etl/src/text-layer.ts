@@ -1,5 +1,8 @@
-// 단계 3a TextLayerExtract: 디지털 텍스트 추출 + 페이지별 OCR 필요 여부 (docs/04 1.1·1.3)
-import { extractText, getDocumentProxy } from "unpdf";
+// 단계 3a TextLayerExtract: 쪽 수와 쪽별 OCR 여부 (docs/04 1.1·1.3)
+// 사용자 결정 11/17: PDF·이미지·DOCX·HWPX는 디지털 글자를 추출하지 않고 모든 쪽을 OCR한다
+// (디지털 글자는 깨지거나 다른 글자로 바뀌어 있을 수 있고, 섞인 쪽의 사진 속 글자·숨긴 글자 문제도 OCR 본문이면 생기지 않음).
+// ConvertToPdf(yoyo0704)가 만든 {doc}/work/document.pdf가 있으면 그 쪽 수를 쓴다. TXT·MD만 글자를 그대로 읽는다.
+import { getDocumentProxy } from "unpdf";
 import { newId } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore } from "./store.ts";
@@ -26,25 +29,28 @@ export function page(page_index: number, text: string, forceOcr = false): TextLa
   return { page_index, text, char_count, broken_ratio, needs_ocr: forceOcr || char_count < MIN_CHARS || broken_ratio > MAX_BROKEN };
 }
 
-export async function extractTextLayer(body: Buffer, ext: string, doc_id: string): Promise<TextLayer> {
+/** 모든 쪽 OCR 대상 (글자는 비움) */
+const ocrPages = (n: number): TextLayerPage[] => Array.from({ length: n }, (_, i) => page(i, "", true));
+const pdfPageCount = async (b: Buffer) => (await getDocumentProxy(new Uint8Array(b))).numPages;
+
+/** converted: ConvertToPdf 결과(document.pdf). DOCX·HWPX는 이것이 없을 때만(변환 단계 배포 전) 지금처럼 XML 글자를 쓴다 */
+export async function extractTextLayer(body: Buffer, ext: string, doc_id: string, converted?: Buffer): Promise<TextLayer> {
   let pages: TextLayerPage[];
   switch (ext) {
     case "txt": case "md":
       pages = [page(0, body.toString("utf8"))];
       pages[0]!.needs_ocr = false; // 텍스트 파일은 OCR 대상 아님 (짧아도)
       break;
-    case "pdf": {
-      const pdf = await getDocumentProxy(new Uint8Array(body));
-      const { text } = await extractText(pdf, { mergePages: false });
-      pages = text.map((t, i) => page(i, t));
+    case "pdf":
+      pages = ocrPages(await pdfPageCount(converted ?? body)); // 원본 PDF도 열어 본다 (암호·손상은 여기서 사유와 함께 차단)
       break;
-    }
     case "docx": case "hwpx":
-      // 디지털 문서라 OCR 대상 아님. 문서 속 그림은 텍스트가 없으므로 페이지 이미지 파이프라인에서 다룬다
+      if (converted) { pages = ocrPages(await pdfPageCount(converted)); break; }
+      // ponytail: ConvertToPdf 배포 전 호환 경로. 배포되면 지운다
       pages = (ext === "docx" ? docxPages(body) : hwpxPages(body)).map((t, i) => ({ ...page(i, t), needs_ocr: false }));
       break;
     case "png": case "jpg": case "jpeg":
-      pages = [page(0, "", true)];
+      pages = converted ? ocrPages(await pdfPageCount(converted)) : ocrPages(1);
       break;
     default:
       // 허용 목록 밖 형식: 조용히 빈 결과를 내지 않고 실패시킨다
@@ -75,15 +81,12 @@ export async function textLayerStep(input: StepInput, store: ObjectStore): Promi
   const keys = await store.list(input.bucket, `${input.doc_id}/original.`);
   if (keys.length !== 1) throw new Error(`original 객체가 1개가 아님: ${keys.length}`);
   const ext = keys[0]!.split(".").pop()!.toLowerCase();
+  const convKey = `${input.doc_id}/work/document.pdf`;
+  const converted = (await store.list(input.bucket, convKey)).includes(convKey) ? await store.get(input.bucket, convKey) : undefined;
   let layer: TextLayer;
-  try { layer = await extractTextLayer(await store.get(input.bucket, keys[0]!), ext, input.doc_id); }
+  try { layer = await extractTextLayer(await store.get(input.bucket, keys[0]!), ext, input.doc_id, converted); }
   catch (e) { const p = fileProblem(e, ext, keys[0]!); if (p) return p; throw e; }
   const output_key = `${input.doc_id}/work/text_layer.json`;
   await store.put(input.bucket, output_key, JSON.stringify(layer));
-  // 스캔 쪽 안내 (디지털 글자 없음 → OCR). PDF에서만: 이미지 파일은 전부 OCR이 당연
-  const scanned = ext === "pdf" ? layer.pages.filter((p) => p.needs_ocr) : [];
-  const findings = scanned.slice(0, 10).map((p) => finding("SCANNED_PAGE", "LOW",
-    `${p.page_index + 1}쪽은 글자 정보가 없는 이미지(스캔)라 문자 인식(OCR)으로 읽습니다. 인식 오류가 있을 수 있습니다.`,
-    "가능하면 원본 문서를 'PDF로 저장'해 글자가 선택되는 PDF로 올려 주세요.", output_key, p.page_index + 1));
-  return { status: "OK", output_key, ...(findings.length ? { findings } : {}) };
+  return { status: "OK", output_key };
 }

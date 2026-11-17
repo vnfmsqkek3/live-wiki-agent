@@ -1,4 +1,4 @@
-// 단계 5 SegmentBuild: text_layer + OCR 결과를 페이지별 세그먼트로 병합 (docs/04 1.1, 2.1)
+// 단계 5 SegmentBuild: 쪽별 세그먼트 (docs/04 1.1, 2.1). 본문은 OCR 결과 (TXT·MD와 변환 단계 배포 전 DOCX·HWPX만 text_layer)
 import { ocrRows, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
 import { detectPii, mask } from "@hanaeum/pii";
 import { newId } from "@hanaeum/schemas";
@@ -67,7 +67,7 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
     return {
       finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE", message: msg,
       evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, location: { page: s.page_index + 1 },
-      user_message: msg, fix_hint: "300dpi 이상으로 선명하게 다시 스캔하거나, 원본을 'PDF로 저장'해 글자가 선택되는 PDF로 올려 주세요.",
+      user_message: msg, fix_hint: "글자가 흐리거나 작으면 300dpi 이상으로 선명하게 다시 스캔하거나, 원본 프로그램에서 'PDF로 저장'해 올려 주세요.",
     };
   });
   findings.push(...structureFindings(segments, work));

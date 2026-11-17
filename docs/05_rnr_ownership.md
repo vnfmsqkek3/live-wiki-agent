@@ -47,10 +47,11 @@
 | 0. 업로드 URL·type-detection | dhxorb96 | 업로드 요청 | `quarantine/{doc_id}/original.*` |
 | 1. MalwareCheck | yoyo0704 | S3 객체 | GuardDuty 결과 |
 | 2. FileStructureCheck | dhxorb96 | original | Findings |
-| 3a. TextLayerExtract | let522mj | original | `work/text_layer.json` |
-| 3b. PageRender | yoyo0704 | original | `work/pages/{n}.png`, OCR 대상 목록 |
-| 4. OcrIfNeeded | yoyo0704 | 페이지 이미지 | `work/ocr/result.json` |
-| 5. SegmentBuild | let522mj | text_layer + ocr | `work/segments/{n}.json` |
+| 2.5 ConvertToPdf (11/17 신규) | yoyo0704 | original | `work/document.pdf` |
+| 3a. TextLayerExtract | let522mj | original·document.pdf | `work/text_layer.json` (쪽 수, 모든 쪽 OCR 대상. TXT·MD만 글자) |
+| 3b. PageRender | yoyo0704 | document.pdf | `work/pages/{n}.png` (모든 쪽) |
+| 4. OcrIfNeeded | yoyo0704 | 페이지 이미지 | `work/ocr/result.json` (모든 쪽) |
+| 5. SegmentBuild | let522mj | ocr (TXT·MD는 text_layer) | `work/segments/{n}.json` |
 | 6. PiiScan·마스킹 | dhxorb96 | segments | `masked/` + Findings |
 | 7. InjectionScan | dhxorb96 | masked | Findings |
 | 8. Classify | dhxorb96 | masked | Documents.classification |

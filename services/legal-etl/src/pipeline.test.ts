@@ -33,11 +33,18 @@ function tinyPdf(pages: string[]): Buffer {
   return Buffer.from(out, "latin1");
 }
 
-test("3a: PDF 페이지별 글자 수로 OCR 대상 판정, 미지원 형식은 실패", async () => {
-  const layer = await extractTextLayer(tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]), "pdf", DOC);
+test("3a: PDF는 디지털 글자가 있어도 추출하지 않고 모든 쪽 OCR (사용자 결정 11/17), 변환 PDF가 있으면 그 쪽 수, 미지원 형식은 실패", async () => {
+  const two = tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]);
+  const layer = await extractTextLayer(two, "pdf", DOC);
   assert.equal(layer.page_count, 2);
-  assert.equal(layer.pages[0]!.needs_ocr, false);
-  assert.equal(layer.pages[1]!.needs_ocr, true);
+  assert.ok(layer.pages.every((p) => p.needs_ocr && p.text === ""));
+  // DOCX·이미지: ConvertToPdf 결과(document.pdf)의 쪽 수, 전부 OCR
+  assert.deepEqual((await extractTextLayer(Buffer.from("zip 아님"), "docx", DOC, two)).pages.map((p) => p.needs_ocr), [true, true]);
+  assert.equal((await extractTextLayer(Buffer.from("png"), "png", DOC, two)).page_count, 2);
+  // TXT는 글자 그대로
+  const t = await extractTextLayer(Buffer.from("SYNTHETIC 짧은 메모"), "txt", DOC);
+  assert.equal(t.pages[0]!.needs_ocr, false);
+  assert.equal(t.pages[0]!.text, "SYNTHETIC 짧은 메모");
   await assert.rejects(extractTextLayer(Buffer.from("x"), "docx", DOC)); // 깨진 DOCX(ZIP 아님)는 실패
   await assert.rejects(extractTextLayer(Buffer.from("x"), "xlsx", DOC), /지원하지 않는 형식/u);
 });
@@ -232,12 +239,14 @@ test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔
   const s3 = new MemoryObjectStore();
   await s3.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
   assert.equal((await textLayerStep(input, s3)).findings![0]!.code, "CORRUPT_OFFICE");
-  // 2쪽 PDF(2쪽은 빈 쪽) → 2쪽 스캔 안내, 처리는 계속(OK)
+  // 모든 쪽 OCR이 기본이라 스캔 쪽 안내는 없음. document.pdf가 있으면 그 쪽 수
   const s4 = new MemoryObjectStore();
-  await s4.put(Q, `${DOC}/original.pdf`, tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]));
+  await s4.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
+  await s4.put(Q, `${DOC}/work/document.pdf`, tinyPdf(["a", "b", "c"]));
   const ok = await textLayerStep(input, s4);
   assert.equal(ok.status, "OK");
-  assert.deepEqual(ok.findings!.map((f) => [f.code, f.severity, f.location?.page]), [["SCANNED_PAGE", "LOW", 2]]);
+  assert.equal(ok.findings, undefined);
+  assert.equal(JSON.parse((await s4.get(Q, `${DOC}/work/text_layer.json`)).toString()).page_count, 3);
 });
 
 test("조문 구조 이상은 쪽·문장 위치로 안내, 문장 일부는 개인정보를 가린 뒤 담음, 부칙은 제외", async () => {

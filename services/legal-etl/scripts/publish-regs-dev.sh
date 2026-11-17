@@ -10,7 +10,8 @@ cd "$(dirname "$0")/../../.."
 API=${API:-http://localhost:8080}
 # HANAEUM_ENV=prod 이면 prod (SSM /hanaeum-mvp/prod/, Secret hanaeum-mvp/demo-users). 기본 dev
 ENV_NAME=${HANAEUM_ENV:-dev}
-case "$ENV_NAME" in dev|prod) ;; *) echo "HANAEUM_ENV: dev|prod" >&2; exit 1;; esac
+# .env.local 의 개인 dev(dev-{닉네임})는 공유 dev로 본다. 허용: dev*, prod
+case "$ENV_NAME" in prod) ;; dev*) ENV_NAME=dev;; *) echo "HANAEUM_ENV: dev|prod" >&2; exit 1;; esac
 ssm() { aws ssm get-parameter --name "/hanaeum-mvp/$ENV_NAME/$1" --query Parameter.Value --output text; }
 CLIENT=$(ssm COGNITO_CLIENT_ID)
 j() { python3 -c 'import json,sys; d=json.load(sys.stdin)
