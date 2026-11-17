@@ -142,3 +142,13 @@ test("노하우·매뉴얼 조각: 제목 없는 OCR 본문도 쪽·길이로 �
   const cs3 = kh(big);
   assert.ok(cs3.length > 1 && cs3.every((c) => c.metadata.original_text.startsWith("| 구분 | 값 |\n| --- | --- |")));
 });
+
+test("조각 상한 (PR #41 리뷰): 아주 긴 한 줄은 낱말 경계로 나눔, 구분행 없는 큰 표는 첫 줄만 머리행", () => {
+  const kh = (t: string) => chunkDocument(t, meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const cs = kh("가나다라 ".repeat(1000));
+  assert.ok(cs.length > 1 && cs.every((c) => c.metadata.original_text.length <= MAX_CHUNK_CHARS));
+  const big = ["| 머리 | 값 |", ...Array.from({ length: 200 }, (_, i) => `| 행${i} | ${"값".repeat(20)} |`)].join("\n");
+  const cs2 = kh(big);
+  assert.ok(cs2.length > 1 && cs2.every((c) => c.metadata.original_text.startsWith("| 머리 | 값 |\n| 행")));
+  assert.equal(cs2.filter((c) => c.metadata.original_text.includes("| 행0 |")).length, 1);
+});

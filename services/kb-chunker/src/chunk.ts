@@ -124,16 +124,28 @@ export function chunkKnowledge(text: string, meta: DocumentMetadata, pageOfLine:
 function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
   // 단위: 표 블록(연속 | 줄) 또는 한 줄
   const units: L[][] = [];
+  // 상한을 넘는 한 줄은 낱말 경계에서 여러 줄로 (PR #41 리뷰)
+  const wrap = (l: L): L[] => {
+    if (l.t.length <= MAX_CHUNK_CHARS) return [l];
+    const out: L[] = []; let rest = l.t;
+    while (rest.length > MAX_CHUNK_CHARS) { const cut = rest.slice(0, MAX_CHUNK_CHARS).replace(/\S*$/u, "") || rest.slice(0, MAX_CHUNK_CHARS); out.push({ ...l, t: cut.trimEnd() }); rest = rest.slice(cut.length).trimStart(); }
+    if (rest) out.push({ ...l, t: rest });
+    return out;
+  };
   for (let i = 0; i < lines.length; i++) {
-    if (!lines[i]!.t.trimStart().startsWith("|")) { units.push([lines[i]!]); continue; }
+    if (!lines[i]!.t.trimStart().startsWith("|")) { for (const w of wrap(lines[i]!)) units.push([w]); continue; }
     let j = i; while (j < lines.length && lines[j]!.t.trimStart().startsWith("|")) j++;
     const table = lines.slice(i, j);
     const size = (u: L[]) => u.reduce((n, l) => n + l.t.length + 1, 0);
-    if (size(table) <= MAX_CHUNK_CHARS || table.length <= 3) units.push(table);
-    else { // 머리행·구분행 반복
-      const head = table.slice(0, 2); let part: L[] = [...head];
-      for (const row of table.slice(2)) { if (size(part) + row.t.length + 1 > MAX_CHUNK_CHARS && part.length > 2) { units.push(part); part = [...head]; } part.push(row); }
-      if (part.length > 2) units.push(part);
+    if (size(table) <= MAX_CHUNK_CHARS) units.push(table);
+    else { // 머리행(구분행이 있으면 함께) 반복, 행 단위
+      const sep = /^\s*\|\s*:?-{3,}/u.test(table[1]?.t ?? "");
+      const head = table.slice(0, sep ? 2 : 1); let part: L[] = [...head];
+      for (const row of table.slice(head.length)) {
+        if (size(part) + row.t.length + 1 > MAX_CHUNK_CHARS && part.length > head.length) { units.push(part); part = [...head]; }
+        part.push(row);
+      }
+      if (part.length > head.length) units.push(part);
     }
     i = j - 1;
   }
