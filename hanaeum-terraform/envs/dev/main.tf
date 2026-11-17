@@ -45,7 +45,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "63c6f2d" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  webapp_source_ref = "d32fe89" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
   agents_source_ref = "3b5539c" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
