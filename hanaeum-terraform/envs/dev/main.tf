@@ -33,11 +33,11 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "1f07fa6" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "6fab736" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "5dbba80" # PR #27 표 마크다운 + #26 전부 OCR (+이전)
+    dhxorb96 = "67dd469" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    let522mj = "de538bc" # PR #28 OCR 조문 번호 보정 (+#27 표·#26 전부 OCR)
   }
 
-  ocr_source_ref = "25f42de" # PP-StructureV3 표·레이아웃 + figures (11/17)
+  ocr_source_ref = "6b52ef3" # PP-StructureV3 표·레이아웃 + figures (11/17)
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   # null: webapp_source_ref 커밋으로 오케스트레이터 이미지를 CodeBuild 빌드. 지정하면 그 태그 고정(빌드 안 함)
@@ -45,7 +45,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "8d25284" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  webapp_source_ref = "67dd469" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
   agents_source_ref = "8d25284" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
