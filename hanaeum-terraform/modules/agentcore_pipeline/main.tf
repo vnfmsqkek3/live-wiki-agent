@@ -173,7 +173,9 @@ resource "aws_bedrockagentcore_gateway_target" "step" {
                 name        = "affected_doc_ids"
                 type        = "array"
                 description = "finalize(DELETED) 전용: 삭제된 규정 조문을 인용하던 노하우 doc_id (재검토 대상)"
-                items_json  = jsonencode({ type = "string" })
+                items {
+                  type = "string"
+                }
               }
             }
           }
