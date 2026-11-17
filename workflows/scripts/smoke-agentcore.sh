@@ -3,6 +3,7 @@
 #   업로드 → EventBridge → SQS → type-detection → InvokeAgentRuntime(오케스트레이터) → Gateway Tool(단계 Lambda)
 #   → Documents lifecycle=IN_REVIEW 와 단계 기록(WF#/STEP#)을 확인하면 PASS. 승인 resume 은 승인 API(dhxorb96) 경로.
 # 사용: set -a; . ./.env.local; set +a; workflows/scripts/smoke-agentcore.sh [env=dev]
+#   FILE=합성문서.docx 를 주면 생성 PDF 대신 그 파일을 올린다 (확장자 그대로). KEEP=1 이면 정리하지 않음
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ENV=${1:-dev}; APPROVE=${2:-}
@@ -31,14 +32,16 @@ s += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EO
 require("fs").writeFileSync(process.argv[1], s);
 ' "$TMP/doc.pdf"
 
+EXT=pdf; SRC="$TMP/doc.pdf"
+if [[ -n "${FILE:-}" ]]; then SRC=$FILE; EXT=$(echo "${FILE##*.}" | tr A-Z a-z); fi
 aws dynamodb put-item --table-name "$DOCS" --item "$(cat <<JSON
 {"pk":{"S":"DOC#$DOC"},"sk":{"S":"META"},"doc_id":{"S":"$DOC"},"version":{"N":"1"},"owner":{"S":"smoke-author"},
- "title":{"S":"SYNTHETIC smoke 담보평가 노하우"},"dept":{"S":"여신"},"acl_groups":{"L":[{"S":"ALL"}]},"ext":{"S":"pdf"},
+ "title":{"S":"SYNTHETIC smoke 담보평가 노하우"},"dept":{"S":"여신"},"acl_groups":{"L":[{"S":"ALL"}]},"ext":{"S":"$EXT"},
  "workflow_id":{"S":"$WF0"},"lifecycle":{"S":"QUARANTINED"},"authority_status":{"S":"UNVERIFIED"},"freshness":{"S":"CURRENT"},"findings":{"L":[]},
  "created_at":{"S":"$NOW"},"updated_at":{"S":"$NOW"}}
 JSON
 )"
-aws s3 cp "$TMP/doc.pdf" "s3://$BUCKET/$DOC/original.pdf" --sse aws:kms >/dev/null
+aws s3 cp "$SRC" "s3://$BUCKET/$DOC/original.$EXT" --sse aws:kms >/dev/null
 echo "uploaded $DOC"
 
 [ "$(p PIPELINE_RUNTIME_ARN)" != pending ] || { echo "FAIL Runtime 없음 (SSM PIPELINE_RUNTIME_ARN=pending)"; exit 1; }
