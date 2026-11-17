@@ -70,11 +70,14 @@ describe("ImageDescribe", () => {
 });
 
 describe("shared PII rules (@hanaeum/pii)", () => {
-  it("masks a phone number in a figure description", async () => {
+  // 사용자 결정 11/17: 전화번호·이메일은 가리지 않음, 주민번호 등 식별번호는 가림
+  it("masks a resident registration number but keeps phone and email in a figure description", async () => {
     const { detectPii, mask: m } = await import("@hanaeum/pii");
-    const r = await sanitize({ figures: [{ kind: "photo", description: "명함 사진, 연락처 010-1234-5678" }] },
+    const r = await sanitize({ figures: [{ kind: "photo", description: "신분증 사진 900101-1234568, 담당 02-3456-7890 hana@example.com" }] },
       (t) => { const s = detectPii(t); return { text: s.length ? m(t, s) : t, found: s.length }; });
     expect(r.pii).toBe(1);
-    expect(r.figures[0]!.description).not.toContain("1234-5678");
+    expect(r.figures[0]!.description).not.toContain("1234568");
+    expect(r.figures[0]!.description).toContain("02-3456-7890");
+    expect(r.figures[0]!.description).toContain("hana@example.com");
   });
 });
