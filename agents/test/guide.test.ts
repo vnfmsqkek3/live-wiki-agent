@@ -113,3 +113,16 @@ test('같은 규정의 여러 조문: 출처는 조문 ID로 정확히 대조, �
   assert.equal(r.steps[0]!.sources[0]!.provision, '기업여신 심사규정 제12조');
   assert.equal(r.dropped_steps, 1);
 });
+
+test('그림·쪽 맥락(quotable=false)은 <context>로만 전달하고 출처로는 못 씀 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  let prompt = '';
+  const fig = { doc_id: 'doc_M', title: '과천 매뉴얼', snippet: '[그림] 4층 배치도: ⑤ 브라더', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, quotable: false };
+  const body = { doc_id: 'doc_M', provision_id: 'doc_M#p8', title: '과천 매뉴얼', snippet: '⑤ 브라더 HL-L6400 IP 10.0.4.15', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const };
+  const r = await guide('4층 프린터 연결', { model: 'm', search: async () => [fig, body],
+    draft: async (p) => { prompt = p; return { steps: [{ text: '(그림 기준) 4층 ⑤ 브라더 IP 확인', sources: ['doc_M#p8'] }, { text: '그림만 근거', sources: ['doc_M#fig1'] }], uncertainty: '' }; } });
+  assert.match(prompt, /<context [^>]*>[\s\S]*4층 배치도[\s\S]*<\/context>/);
+  assert.doesNotMatch(prompt.split('<context')[0]!, /4층 배치도/);
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.evidence.length, 1);
+});
