@@ -9,8 +9,6 @@ import { api, ApiError, dateLine, type Finding, type Fix, type Review } from '..
 import { WikiEditor } from '../wiki-editor';
 import { RefSuggestions, withReference } from '../ref-suggestions';
 import { IssueList, PageFacts, VersionLink } from '../issues';
-
-const STAGES = ['올리기·고치기', 'AI 검사', '고칠 것 확인', '게시 요청'];
 const VERDICT: Record<string, [string, string]> = {
   SUPPORTED: ['근거 규정과 맞습니다', 'var(--verified)'],
   CONFLICT: ['규정과 충돌하는 내용이 있습니다', 'var(--danger)'],
@@ -89,20 +87,16 @@ function ReviewView() {
     catch (e) { setMsg((e as ApiError).message || '지금 상태에서는 게시를 요청할 수 없습니다.'); }
   }
 
-  const stage = submitted ? 4 : 3;
   return (
     <>
       <PageHeader title={r.title ?? '문서 검토'} description="분석 결과를 확인하고 문서 종류와 제목을 정리하세요." action={<a className="btn" href={`/library?id=${encodeURIComponent(id)}`}>문서 보기</a>} />
-      <ol className="stages" aria-label="등록 진행 단계">
-        {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
-      </ol>
 
       {/* 주 행동을 위로 고정 (Fable 11/18): 단계 → 고칠 것 N건 → 게시 요청 */}
       <div className="submit-bar" role="region" aria-label="게시 요청">
         <ol className="steps-line" aria-label="진행 단계">
           <li className="done">올리기</li>
-          <li className={r.lifecycle === 'QUARANTINED' ? 'now' : 'done'}>AI 검사</li>
-          <li className={r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : r.lifecycle === 'QUARANTINED' ? '' : 'done'}>고칠 것{open.length > 0 && <b className="num"> {open.length}</b>}</li>
+          <li className={blocked ? 'bad' : r.lifecycle === 'QUARANTINED' ? 'now' : 'done'}>AI 검사{blocked && ' · 차단'}</li>
+          <li className={blocked || r.lifecycle === 'QUARANTINED' ? '' : r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : 'done'}>고칠 것{open.length > 0 && <b className="num"> {open.length}</b>}</li>
           <li className={submitted || r.lifecycle === 'PENDING_APPROVAL' ? 'now' : ''}>게시 요청</li>
         </ol>
         <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `고칠 것 ${open.length}건 남음` : '검토 마치고 게시 요청'}</button>
@@ -116,8 +110,8 @@ function ReviewView() {
           <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.new_page ?? c.old_page ?? ''}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
         ))}{r.version.count > 30 && <li className="note">외 {r.version.count - 30}곳</li>}</ol>}
       </section>}
-      {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
-      {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
+      {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
+      {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {r.lifecycle === 'QUARANTINED' && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} onCancel={() => setEditInit(null)} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && (

@@ -14,7 +14,7 @@ export default function Home() {
   const [q, setQ] = useState('');
   const [items, setItems] = useState<LibraryCard[]>([]);
   const [mine, setMine] = useState<LibraryCard[]>([]);
-  const [todo, setTodo] = useState<{ approvals: number; mismatch: number } | null>(null);
+  const [todo, setTodo] = useState<{ approvals: number | null; mismatch: number | null } | null>(null);
   const [s, setS] = useState<Session | undefined>();
   const [fail, setFail] = useState(false);
   useEffect(() => {
@@ -29,8 +29,8 @@ export default function Home() {
     }).catch(() => { setItems([]); setFail(true); });
     if (isAdmin(g)) {
       Promise.all([
-        api<{ items: unknown[] }>('GET', '/v1/approvals?status=PENDING').then((r) => r.items.length).catch(() => 0),
-        api<{ items: unknown[] }>('GET', '/v1/review-queue').then((r) => r.items.length).catch(() => 0),
+        api<{ items: unknown[] }>('GET', '/v1/approvals?status=PENDING').then((r) => r.items.length).catch(() => null),
+        api<{ items: unknown[] }>('GET', '/v1/review-queue').then((r) => r.items.length).catch(() => null),
       ]).then(([approvals, mismatch]) => setTodo({ approvals, mismatch }));
     }
   }, []);
@@ -54,9 +54,9 @@ export default function Home() {
         <h2 className="section">내 할 일</h2>
         {/* 큰 숫자 칸 (Fable 재배치안 11/18): 누르면 그 화면으로. 실제 건수만 쓴다 */}
         <div className="todo-tiles">
-          {todo && <Link className="todo-tile" href="/admin"><b className="num">{todo.approvals}</b><span>결재 대기</span></Link>}
-          {todo && <Link className="todo-tile" href="/admin"><b className="num">{todo.mismatch}</b><span>출처 확인 필요</span></Link>}
-          {isAuthor && mine.length > 0 && <a className="todo-tile" href="#mine"><b className="num">{mine.length}</b><span>내 문서 진행 중</span></a>}
+          {todo && <Link className="todo-tile" href="/admin#pending-h"><b className="num">{todo.approvals ?? '–'}</b><span>결재 대기</span></Link>}
+          {todo && <Link className="todo-tile" href="/admin#source-h"><b className="num">{todo.mismatch ?? '–'}</b><span>출처 확인 필요</span></Link>}
+          {isAuthor && mine.length > 0 && <a className="todo-tile" href="#mine" onClick={() => { const el = document.getElementById('mine') as HTMLDetailsElement | null; if (el) el.open = true; }}><b className="num">{mine.length}</b><span>내 문서 진행 중</span></a>}
           {isAuthor && <Link className="todo-tile add" href="/upload"><Icon name="upload" /><span>새 문서 올리기</span></Link>}
         </div>
         {isAuthor && mine.length > 0 && <details className="mine-summary" id="mine"><summary>내가 올린 문서 <b className="num">{mine.length}</b>건 진행 중</summary><PaginatedList label="내가 올린 문서" pageKey="mine_page" className="mine-list">{mine.map((i) => <li key={i.doc_id}><Link href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link> · {STATE[i.lifecycle] ?? '상태 확인 필요'} · <span className="num">{i.uploaded_at.slice(0, 10)}</span></li>)}</PaginatedList></details>}

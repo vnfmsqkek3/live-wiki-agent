@@ -84,8 +84,8 @@ export default function Admin() {
       </div>
 
       {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
-      <div className="actions ops-row" aria-label="운영 도구">
-        <Link className="btn" href="/admin/impact"><Icon name="alert" />규정 변경 영향</Link>
+      <div className="actions ops-row" role="group" aria-label="운영 도구">
+        <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
         <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
       </div>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}

@@ -84,7 +84,7 @@ export default function Upload() {
               {prog.steps.map((s) => <li key={s.key} className={s.state}>{s.label}{s.state === 'running' && ' 중'}{s.state === 'failed' && ' 실패'}{s.state === 'blocked' && ' 차단'}</li>)}
             </ol>
             {prog.lifecycle === 'BLOCKED' && (
-              <div className="notice" role="alert">
+              <div className="error" role="alert">
                 <p style={{ margin: 0 }}>보안 검사에서 차단되어 등록할 수 없습니다.</p>
                 {(prog.blocked_reasons ?? []).length > 0 && <ul style={{ margin: '6px 0 0', paddingLeft: '1.2em' }}>{prog.blocked_reasons!.map((r) => <li key={r}>{r}</li>)}</ul>}
               </div>
@@ -96,7 +96,7 @@ export default function Upload() {
         {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
         {/* 실행이 실패해 분석이 끝나지 않은 문서(QUARANTINED)는 검토할 결과가 없다 → 실패 단계와 다음 행동만 */}
         {state.doc_id && prog?.halted && prog.lifecycle === 'QUARANTINED' && (
-          <p className="notice" role="alert">{prog.steps.find((x) => x.state === 'failed')?.label ?? '처리'} 단계에서 분석이 멈춰 검토할 결과가 없습니다. 위 '확인할 내용'의 사유를 보고 파일을 고쳐 다시 올려 주세요. 반복되면 관리자에게 알려 주세요.</p>
+          <p className="error" role="alert">{prog.steps.find((x) => x.state === 'failed')?.label ?? '처리'} 단계에서 분석이 멈춰 검토할 결과가 없습니다. 위 '확인할 내용'의 사유를 보고 파일을 고쳐 다시 올려 주세요. 반복되면 관리자에게 알려 주세요.</p>
         )}
         {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && prog?.lifecycle !== 'QUARANTINED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </div></div><aside className="support-panel"><h2 className="section">등록 절차</h2>      <div className="upload-overview"><div><Icon name="upload" /><strong>1. 문서 등록</strong><span>파일과 열람 범위를 정합니다.</span></div><div><Icon name="shield" /><strong>2. 자동 검사</strong><span>보안·개인정보·근거를 확인합니다.</span></div><div><Icon name="approval" /><strong>3. 검토와 승인</strong><span>사람이 확인해야 게시됩니다.</span></div></div>

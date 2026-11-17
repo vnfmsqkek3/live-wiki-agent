@@ -44,9 +44,9 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
   </dialog>;
 }
 /** filled: 내용이 있는 카드(사용자 요청: 초록 테두리 + '내용 있음' 글자, 색만으로 구분하지 않음) */
-function CardLabel({ title, filled, count }: { title: string; filled: boolean; count?: number }) {
+function CardLabel({ title, filled, count, warn, lazy }: { title: string; filled: boolean; count?: number; warn?: boolean; lazy?: boolean }) {
   // 건수가 있으면 건수, 없으면 '내용 있음' (판단용 카드는 건수를 크게, Fable 재배치안 11/18)
-  return <>{title}{count !== undefined ? <span className="card-count num">{count}건</span> : <span className={`card-state${filled ? '' : ' empty'}`}>{filled ? '내용 있음' : '없음'}</span>}</>;
+  return <>{title}{count !== undefined ? <span className={`card-count num${warn && count ? ' warn' : ''}`}>{count}건</span> : <span className={`card-state${filled ? '' : ' empty'}`}>{filled ? '내용 있음' : lazy ? '열어서 확인' : '없음'}</span>}</>;
 }
 const CLAIM_REL: Record<string, string> = { SUPPORTS: '규정과 일치', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', INSUFFICIENT: '관련 조문 확인 필요', UNRELATED: '관련 없음' };
 type Basis = { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string };
@@ -102,9 +102,9 @@ function ZoomDialog({ url, onClose }: { url: string | null; onClose: () => void 
   );
 }
 
-function DetailCard({ title, children, filled = true, group = 'ref', count }: { title: string; children: ReactNode; filled?: boolean; group?: 'judge' | 'ref'; count?: number }) {
+function DetailCard({ title, children, filled = true, group = 'ref', count, lazy }: { title: string; children: ReactNode; filled?: boolean; group?: 'judge' | 'ref'; count?: number; lazy?: boolean }) {
   const [open, setOpen] = useState(false);
-  return <><button type="button" className={`detail-card ${group}${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} count={count} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
+  return <><button type="button" className={`detail-card ${group}${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} count={count} lazy={lazy} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
 }
 
 function List() {
@@ -167,7 +167,6 @@ function List() {
                 {d.lifecycle !== 'PUBLISHED' && <><dt>상태</dt><dd>게시 전 (내 문서)</dd></>}
               </dl>
               <p className="card-summary">{d.summary ?? '요약이 아직 없습니다.'}</p>
-              <Link href={`/library?id=${encodeURIComponent(d.doc_id)}`}>문서 보기 →</Link>
             </li>
           ))}
         </PaginatedList>
@@ -485,13 +484,39 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 
       </div><div className="document-more">
       <div className="detail-cards" aria-label="문서 상세 항목">
-      <p className="cards-head judge">판단할 것</p><p className="cards-head ref">참고</p>
-      {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
-      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled count={numbered.length + d.doc_marks.length} /></button>}
+      <p className="cards-head judge">판단할 것</p>
+      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled warn count={d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length} /></button>}
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
-      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완" count={notes.length}><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
-      {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
+      {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled warn count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
         onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); } : undefined} /></DetailPopup></>}
+      {d.verification && d.verification.basis.length > 0 && (
+        <DetailCard title="비교한 대상" group="judge" count={groupBasis(d.verification.basis).length}>
+          {d.verification.basis.length > 0 && (
+            <>
+              <p className="note" style={{ margin: '10px 0 4px' }}>이 문서의 문장을 어느 조문과 비교했고 결과가 어땠는지입니다. 같은 조문은 한 번만 보여 줍니다.</p>
+              <ul className="fixes">
+                {groupBasis(d.verification.basis).map((g) => (
+                  <li key={g.key} className="fix">
+                    <p className="fix-head">{g.what} · {g.label}{g.effective_from && ` · ${g.effective_from} 시행`}</p>
+                    {g.quote && <blockquote className="basis"><p>{g.quote}</p></blockquote>}
+                    {g.rows.some((r) => r.statement) ? (
+                      <ol className="compare-rows">{g.rows.map((r, i) => (
+                        <li key={i}>
+                          <p className="stmt">“{r.statement}”</p>
+                          <p><span className={`verdict ${r.relation === 'CONFLICTS' ? 'bad' : r.relation === 'INSUFFICIENT' ? 'wait' : 'ok'}`}>{r.result}</span>{r.reason && <span className="note"> — {r.reason}</span>}</p>
+                        </li>
+                      ))}</ol>
+                    ) : <p>{g.rows.map((r) => r.result).join(' · ')}</p>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </DetailCard>
+      )}
+      <p className="cards-head ref">참고</p>
+      {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
+      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완" count={notes.length}><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
       <Versions id={d.doc_id} />      {d.verification && (
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
@@ -518,31 +543,6 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           ))}</ol>
         </DetailCard>
       )}
-      {d.verification && d.verification.basis.length > 0 && (
-        <DetailCard title="비교한 대상" group="judge" count={groupBasis(d.verification.basis).length}>
-          {d.verification.basis.length > 0 && (
-            <>
-              <p className="note" style={{ margin: '10px 0 4px' }}>이 문서의 문장을 어느 조문과 비교했고 결과가 어땠는지입니다. 같은 조문은 한 번만 보여 줍니다.</p>
-              <ul className="fixes">
-                {groupBasis(d.verification.basis).map((g) => (
-                  <li key={g.key} className="fix">
-                    <p className="fix-head">{g.what} · {g.label}{g.effective_from && ` · ${g.effective_from} 시행`}</p>
-                    {g.quote && <blockquote className="basis"><p>{g.quote}</p></blockquote>}
-                    {g.rows.some((r) => r.statement) ? (
-                      <ol className="compare-rows">{g.rows.map((r, i) => (
-                        <li key={i}>
-                          <p className="stmt">“{r.statement}”</p>
-                          <p><span className={`verdict ${r.relation === 'CONFLICTS' ? 'bad' : r.relation === 'INSUFFICIENT' ? 'wait' : 'ok'}`}>{r.result}</span>{r.reason && <span className="note"> — {r.reason}</span>}</p>
-                        </li>
-                      ))}</ol>
-                    ) : <p>{g.rows.map((r) => r.result).join(' · ')}</p>}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
-        </DetailCard>
-      )}
 
       {d.related.length > 0 && (
         <DetailCard title="관련 문서"><section aria-labelledby="rel-h">
@@ -564,7 +564,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
-      <DetailCard title="외부 법령 참고" filled={false}><ExternalLaws id={d.doc_id} /></DetailCard>
+      <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
       </div>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
 <DeleteDoc d={d} /></div></div>

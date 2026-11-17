@@ -36,7 +36,7 @@ export function sealLabel(d: Doc) {
 export function summaryStamp(d: Doc): Stamp & { text: string } {
   const [, check, approve] = kyulStamps(d);
   const reg = d.document_type === 'REGULATION';
-  if (check!.tone === 'bad') return { ...check!, text: check!.mark === '차단' ? '차단됨' : '고칠 곳 있음' };
+  if (check!.tone === 'bad') return { ...check!, text: check!.mark === '차단' ? '차단됨' : d.freshness === 'REVIEW_REQUIRED' && !(d.mark_count ?? 0) ? '재검토 필요' : '고칠 곳 있음' };
   if (approve!.tone === 'bad') return { ...approve!, text: approve!.mark === '반려' ? '반려됨' : '차단됨' };
   if (check!.tone === 'wait') return { ...check!, text: 'AI 검사 중' };
   if (approve!.tone === 'wait') return { ...approve!, text: approve!.mark === '대기' ? '승인 대기' : '작성자 검토 중' };

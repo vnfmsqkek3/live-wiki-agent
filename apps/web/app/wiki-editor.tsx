@@ -2,13 +2,13 @@
 // 위키 수정 (사용자 결정 11/17 규칙 1): 정리본 마크다운을 고쳐 저장하면 AI 가 다시 검사한다.
 // 게시 문서 → 새 버전, 내 검토 중 문서 → 그 자리에서 다시 분석. 저장 뒤 '고칠 것' 화면으로 간다.
 // 11/18 사용자 요청: 넣은 줄로 바로 이동·강조(focus), 저장 전에 바뀐 줄을 보여 준다
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { api, ApiError } from './lib/api';
 
 /** 줄 단위 차이 (LCS). ponytail: O(n·m), 정리본은 수백~수천 줄이라 충분 — 더 커지면 Myers 로 */
-export function lineDiff(a: string, b: string): { kind: 'add' | 'del'; text: string; line: number }[] {
+export function lineDiff(a: string, b: string): { kind: 'add' | 'del'; text: string; line: number }[] | null {
   const x = a.split('\n'), y = b.split('\n');
-  if (x.length * y.length > 4_000_000) return [];
+  if (x.length * y.length > 4_000_000) return null; // 너무 큼: 생략
   const L = Array.from({ length: x.length + 1 }, () => new Uint32Array(y.length + 1));
   for (let i = x.length - 1; i >= 0; i--) for (let j = y.length - 1; j >= 0; j--) L[i]![j] = x[i] === y[j] ? L[i + 1]![j + 1]! + 1 : Math.max(L[i + 1]![j]!, L[i]![j + 1]!);
   const out: { kind: 'add' | 'del'; text: string; line: number }[] = [];
@@ -27,7 +27,8 @@ export function WikiEditor({ docId, initial, base, focus, onCancel, note }: { do
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const ta = useRef<HTMLTextAreaElement>(null);
-  const diff = useMemo(() => lineDiff(orig, text), [orig, text]);
+  const later = useDeferredValue(text); // 입력이 끊기지 않게 계산은 뒤로
+  const diff = useMemo(() => lineDiff(orig, later), [orig, later]);
   // 넣은 줄로 이동: 그 줄을 선택하고 편집기 안·화면을 그 위치로 스크롤
   useEffect(() => {
     const el = ta.current; if (!el || !focus) return;
@@ -52,8 +53,8 @@ export function WikiEditor({ docId, initial, base, focus, onCancel, note }: { do
       <label className="lbl" htmlFor="wiki-md">본문 (마크다운)</label>
       <textarea ref={ta} id="wiki-md" className="field wiki-md" value={text} onChange={(e) => setText(e.target.value)} rows={18} spellCheck={false} />
       <section className="edit-diff" aria-labelledby="edit-diff-h">
-        <h3 className="lbl" id="edit-diff-h">바뀐 부분 {diff.length ? <b className="num">{diff.length}줄</b> : '없음'}</h3>
-        {diff.length > 0 && <ol className="diff-lines">{diff.slice(0, 30).map((c, n) => (
+        <h3 className="lbl" id="edit-diff-h">바뀐 부분 {diff === null ? '(문서가 커서 표시 생략)' : diff.length ? <b className="num">{diff.length}줄</b> : '없음'}</h3>
+        {diff && diff.length > 0 && <ol className="diff-lines">{diff.slice(0, 30).map((c, n) => (
           <li key={n} className={c.kind}><span className="num">{c.line}</span>{c.kind === 'add' ? <ins>{c.text}</ins> : <del>{c.text}</del>}</li>
         ))}{diff.length > 30 && <li className="note">외 {diff.length - 30}줄</li>}</ol>}
       </section>

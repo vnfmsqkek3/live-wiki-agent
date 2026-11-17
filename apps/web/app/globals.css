@@ -843,3 +843,15 @@ details[open] > summary::after { content:" ▴"; }
 .diff-lines li.del { background:var(--coral-050); } .diff-lines li.del del { color:var(--coral-700); }
 .wiki-md::selection { background:#FFE58A; color:var(--navy-900); }
 .diff-lines li.chg ins { text-decoration:none; background:var(--green-050); } .diff-lines li.chg del { color:var(--coral-700); }
+/* Fable 수정본 검토 반영 (11/18) */
+.detail-cards > .cards-head { min-height:0 !important; padding:0 !important; border:0; }
+.detail-cards > .detail-card { padding-right:36px !important; }
+.detail-card .card-count { color:var(--navy-900); }
+.detail-card .card-count.warn { color:var(--coral-700); }
+.detail-card.judge.filled { border-color:var(--line); }
+.steps-line .bad { color:var(--coral-700); }
+.edit-diff h3.lbl { font:600 var(--fs-body)/1.4 var(--font-display); margin:0; }
+details > summary { list-style:none; } details > summary::-webkit-details-marker { display:none; }
+@media (max-width:1023px) { .submit-bar { top:52px; } }
+@media (max-width:640px) { .submit-bar { position:static; } }
+html:has(.submit-bar) { scroll-padding-top:120px; }
