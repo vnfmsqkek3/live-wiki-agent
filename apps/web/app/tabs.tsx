@@ -1,5 +1,6 @@
 'use client';
 import Link from 'next/link';
+import { Icon } from './icons';
 import { usePathname, useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { getSession, logout, type Session } from './lib/api';
@@ -40,19 +41,19 @@ export function SessionBar() {
   if (!s) return <p className="session-bar"><Link href="/login">로그인</Link></p>;
   return (
     <p className="session-bar">
-      <span>{s.username} · {accountLabel(s.groups)}</span>
+      <span><Icon name="user" /> {s.username} · {accountLabel(s.groups)}</span>
       <button type="button" onClick={() => { logout(); setS(undefined); router.push('/login'); }}>로그아웃</button>
     </p>
   );
 }
 
-const I = (d: string) => <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d={d} /></svg>;
 const TABS = [
-  { href: '/', label: '홈', icon: I('M4 10.5 12 4l8 6.5V20h-5v-6H9v6H4z') },
-  { href: '/search', label: '검색', icon: I('M10.5 4a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13zM20 20l-4.5-4.5') },
-  { href: '/library', label: '보관함', icon: I('M4 5h16v4H4zM5 9v10h14V9M10 13h4') },
-  { href: '/upload', label: '등록', icon: I('M6 3h9l4 4v14H6zM15 3v4h4M12.5 17v-6M9.5 14l3-3 3 3') },
-  { href: '/admin', label: '관리', icon: I('M5 4h14v16H5zM8 9h8M8 13h8M8 17h5') },
+  { href: '/', label: '홈', icon: <Icon name="home" /> },
+  { href: '/search', label: '검색', icon: <Icon name="search" /> },
+  { href: '/library', label: '보관함', icon: <Icon name="library" /> },
+  { href: '/guide', label: '가이드', icon: <Icon name="guide" /> },
+  { href: '/upload', label: '등록', icon: <Icon name="upload" /> },
+  { href: '/admin', label: '관리', icon: <Icon name="approval" /> },
 ];
 
 export function Tabs() {
@@ -63,7 +64,7 @@ export function Tabs() {
   const tabs = TABS.filter((t) => can(s.groups, t.href));
   return (
     <nav className="tabs" aria-label="주요 메뉴" style={{ ['--tab-n' as string]: tabs.length }}>
-      <span className="wordmark">Living<br />Wiki</span>
+      <span className="wordmark"><span className="brand-symbol"><Icon name="guide" /></span><span>Hanaeum Wiki<small>근거로 연결하는 업무 지식</small></span></span>
       {tabs.map((t) => (
         <Link key={t.href} href={t.href} aria-current={(t.href === '/' ? path === '/' : path.startsWith(t.href)) ? 'page' : undefined}>
           {t.icon}{t.label}

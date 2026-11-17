@@ -1,5 +1,6 @@
 'use client';
 // 05 OCR·PII 검토: 작성자가 자동 분석 결과를 확인·수정하고 게시를 요청한다.
+import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, dateLine, type Finding, type Review } from '../lib/api';
@@ -73,6 +74,7 @@ function ReviewView() {
   const stage = submitted ? 4 : 3;
   return (
     <>
+      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
       {editTitle === null ? (
         <>
           <h1 className="title" style={{ marginBottom: 4 }}>{r.title ?? '문서 검토'}</h1>
@@ -93,7 +95,7 @@ function ReviewView() {
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
-      {r.workflow_failure && <p className="notice" role="alert">{r.workflow_failure.step} 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
+      {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       <IssueList docId={r.doc_id} />
       <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />

@@ -32,10 +32,11 @@ function GuideView() {
 
   return (
     <>
-      <h1 className="title">업무 가이드</h1>
+      <h1 className="title">업무 가이드</h1><p className="page-description">업무 상황을 질문하시면 승인된 문서를 근거로 절차를 안내합니다.</p>
       <form onSubmit={(e) => { e.preventDefault(); if (input.trim()) router.push(`/guide?q=${encodeURIComponent(input.trim())}`); }}>
         <input className="field lg" type="search" aria-label="질문" placeholder="예: 담보 4억원 기업여신은 누가 승인하나요?" value={input} onChange={(e) => setInput(e.target.value)} maxLength={1000} />
         <p className="note" style={{ marginTop: 8 }}>개인정보는 입력하지 마세요. 입력하더라도 AI에 전달하기 전에 가립니다.</p>
+        <div className="actions"><button className="btn solid" type="submit">가이드 만들기</button></div>
       </form>
       {busy && (
         <ol className="live-steps" aria-live="polite">
@@ -68,7 +69,7 @@ function GuideView() {
             <button className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}`)}>근거 문서 보기</button>
             <button className="btn" onClick={useful} disabled={thanks || docs.length === 0}>{thanks ? '의견을 남겼습니다' : '도움이 됐어요'}</button>
           </div>
-          <p className="meta" style={{ marginTop: 16 }}>작성 모델: {g.model}</p>
+          <p className="meta" style={{ marginTop: 16 }}>AI 생성 안내입니다. 근거 문서를 확인해 주세요.</p>
         </>
       )}
     </>

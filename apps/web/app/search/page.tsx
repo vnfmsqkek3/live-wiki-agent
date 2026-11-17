@@ -76,6 +76,7 @@ function Results() {
       <form role="search" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), type); }}>
         <input className="field lg" type="search" aria-label="검색어" placeholder="찾을 기준이나 업무 (비우면 전체 문서)" value={input}
           onChange={(e) => { setInput(e.target.value); if (!e.target.value.trim() && q) router.replace(`/search?${type ? `type=${type}` : ''}${dq}`); }} />
+        <div className="actions"><button className="btn solid" type="submit">검색</button></div>
       </form>
       <div className="filter" role="group" aria-label="문서 종류">
         {FILTERS.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => nav(q, v)}>{l}</button>)}
@@ -91,6 +92,7 @@ function Results() {
                 <li className="entry" key={i.doc_id}>
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
                   <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
+                  <FreshnessFlag freshness={i.freshness} />
                   {i.summary && <p className="note" style={{ margin: 0 }}>{i.summary}</p>}
                 </li>
               ))}
@@ -128,5 +130,5 @@ function Results() {
 }
 
 export default function SearchPage() {
-  return <><h1 className="title">검색</h1><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
+  return <><h1 className="title">검색</h1><p className="page-description">필요한 기준을 찾고, 근거와 시행일을 함께 확인하세요.</p><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
 }
