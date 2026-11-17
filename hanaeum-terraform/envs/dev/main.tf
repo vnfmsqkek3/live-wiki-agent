@@ -27,11 +27,11 @@ module "stack" {
   # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
-    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "interceptor", "mcp-privacy", "mcp-approval",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
     yoyo0704 = "2443244" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "2d2a1a2" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    dhxorb96 = "b426a9a" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "dc1ba61" # PR #12 병합 (실무 보완 밑줄·색인 실패 문장)
   }
 
@@ -43,7 +43,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "2d2a1a2" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  webapp_source_ref = "b426a9a" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
   agents_source_ref = "2d2a1a2" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 

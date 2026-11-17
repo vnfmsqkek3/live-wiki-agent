@@ -18,8 +18,10 @@
   "dependencies": {
     "@aws-sdk/credential-provider-node": "3.972.97",
     "@hanaeum/pii": "*",
+    "@napi-rs/canvas": "1.1.1",
     "@smithy/hash-node": "4.5.2",
     "@smithy/signature-v4": "5.7.5",
+    "fflate": "0.8.3",
     "pdfjs-dist": "6.5.438"
   }
 }

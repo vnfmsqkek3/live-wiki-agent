@@ -34,7 +34,7 @@ resource "aws_cognito_user_pool" "this" {
   username_configuration { case_sensitive = false }
   admin_create_user_config { allow_admin_create_user_only = true }
   password_policy {
-    minimum_length    = var.n.suffix == "" ? 12 : 8 # dev 는 데모 공통 비밀번호(10자) 허용, prod 12자
+    minimum_length    = var.n.suffix == "" ? 10 : 8 # 데모 공통 비밀번호(10자, 사용자 지시 dev·prod 통일). 대소문자·숫자·기호 정책은 유지
     require_lowercase = true
     require_uppercase = true
     require_numbers   = true
