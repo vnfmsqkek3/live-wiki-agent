@@ -100,8 +100,8 @@ export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: strin
   return (
     <dl className="meta-grid">
       {m.page_type && <><dt>쪽 성격</dt><dd>{m.page_type}</dd></>}
-      {!!m.keywords?.length && <><dt>핵심어</dt><dd>{m.keywords.join(', ')}</dd></>}
-      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd>{m.clause_refs.join(', ')}</dd></>}
+      {!!m.keywords?.length && <><dt>핵심어</dt><dd><span className="keyword">{m.keywords.join(', ')}</span></dd></>}
+      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd><span className="keyword">{m.clause_refs.join(', ')}</span></dd></>}
     </dl>
   );
 }

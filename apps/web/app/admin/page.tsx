@@ -6,6 +6,7 @@ import Link from 'next/link';
 import { api, ApiError, getSession, type Role } from '../lib/api';
 import { decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
+import { Icon } from '../icons';
 import { Seal } from '../seal';
 
 interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number } }
@@ -80,6 +81,7 @@ export default function Admin() {
           <ul className="ledger stack">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16, borderLeftColor: 'var(--danger)' }}>
+                <span className="flag"><Icon name="alert" />검토 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                 {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
                 <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. 제목을 누르면 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
@@ -93,6 +95,7 @@ export default function Admin() {
           <ul className="ledger stack">
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
+                <span className="flag"><Icon name="alert" />승인 대기</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
                 <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
                 {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
@@ -114,6 +117,7 @@ export default function Admin() {
             <ul className="ledger stack">
               {after.map((i) => (
                 <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
+                  <span className="seal official"><Icon name="clock" />게시 진행</span>
                   <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
                   {i.workflow_failure
                     ? <p className="error">게시 처리에 실패했습니다. 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
@@ -129,7 +133,8 @@ export default function Admin() {
               <ul className="ledger stack">
                 {blocked.map((i) => (
                   <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
-                    <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
+                    <span className="flag"><Icon name="alert" />검토 필요</span>
+                <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                     {i.findings.slice(0, 3).map((f, n) => <p key={n} className="quote">{f.user_message ?? f.message}</p>)}
                   </li>
                 ))}

@@ -1,4 +1,5 @@
 'use client';
+import { DocText } from '../doc-text';
 import { PageHeader } from '../page-header';
 // 05 OCR·PII 검토: 작성자가 자동 분석 결과를 확인·수정하고 게시를 요청한다.
 import { Icon } from '../icons';
@@ -23,11 +24,6 @@ const GROUPS: [string, string, (f: Finding) => boolean][] = [
   ['출처 확인', '공식 원본과의 대조 결과입니다.', (f) => f.step === 'TRUST_GATE'],
   // KNOWHOW_VALIDATION Finding은 위 '노하우 검증' 구역에서 근거와 함께 보여준다
 ];
-
-/** [전화번호] 같은 마스킹 표시를 눈에 띄게 */
-function Masked({ text }: { text: string }) {
-  return <>{text.split(/(\[[^\]\n]{2,8}\])/).map((p, i) => (/^\[.+\]$/.test(p) ? <mark key={i} className="pii">{p}</mark> : p))}</>;
-}
 
 function ReviewView() {
   const id = useSearchParams().get('id') ?? '';
@@ -80,7 +76,7 @@ function ReviewView() {
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
-      <div className="layout-a"><div className="primary">
+      <div className="layout-a review-layout"><div className="primary">
       {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       <IssueList docId={r.doc_id} />
@@ -146,7 +142,7 @@ function ReviewView() {
         <>
           <h2 className="section">마스킹 후 미리보기</h2>
           <p className="note">검색과 AI에는 이 내용만 전달됩니다. 이미지 속 개인정보도 같은 위치를 가린 뒤 다시 인식해 확인합니다.</p>
-          <div className="sheet quote" style={{ whiteSpace: 'pre-line' }}><Masked text={r.masked_preview} /></div>
+          <div className="sheet"><DocText text={r.masked_preview} /></div>
         </>
       )}
 

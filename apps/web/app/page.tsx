@@ -38,7 +38,9 @@ export default function Home() {
   return (
     <div className="home-layout">
       <section className="home-search" aria-labelledby="home-title">
-        <h1 className="title" id="home-title">업무 지식 검색</h1>
+        <span className="eyebrow">Hanaeum Wiki · 업무 지식</span>
+        <h1 className="title" id="home-title">업무의 기준을 찾는 곳</h1>
+        <p className="home-description">규정과 실무 노하우를, 확인된 근거와 함께.</p>
         <form className="hero-search" role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
           <input className="field lg" type="search" aria-label="검색어" placeholder="예: 담보 3억원 이상 승인 절차" value={q} onChange={(e) => setQ(e.target.value)} />
           <button className="btn solid" type="submit"><Icon name="search" />검색</button>
