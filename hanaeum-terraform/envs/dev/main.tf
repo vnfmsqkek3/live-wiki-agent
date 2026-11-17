@@ -33,7 +33,7 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "b782529" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "2016120" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
+    dhxorb96 = "c23862f" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
     let522mj = "cc9e8ca" # main: #43 장 section·expand + #42 #41
   }
 
@@ -45,7 +45,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "2016120" # 이유 카드에 참고 주소, (그림 n) 숨김
+  webapp_source_ref = "c23862f" # 이유 카드에 참고 주소, (그림 n) 숨김
   agents_source_ref = "a6b6ddb" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
