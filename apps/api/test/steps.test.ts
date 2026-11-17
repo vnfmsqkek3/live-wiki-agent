@@ -289,4 +289,9 @@ test('정리본 대체(TEXT): 반복 머리글 줄 제외, 장 제목은 ##, 빈
   assert.equal(fb.get(1), '## 01. 층별 복합기 정보\n\n4층 복합기는 SL-K3250NR 이다.');
   assert.equal(fb.get(2), '(빈 쪽)');
   assert.equal(fb.get(3), '## 02. 드라이버 설치');
+  // 쪽 수 비율과 무관(39쪽 중 3쪽만 있어도), 본문 가운데 반복 문구는 남김
+  const many = [...Array(39).keys()].map((i) => ({ page_index: i, text: i < 3 ? `본문 첫 줄 ${i}\n가운데 줄\n가운데 줄 둘\n공통 안내 문구\n가운데 셋\n가운데 넷\n끝 줄 ${i}\nMEGAZONE / ALLIANCE` : `다른 쪽 ${i}` }));
+  const fb2 = textFallback(many);
+  assert.ok(!fb2.get(0)!.includes('MEGAZONE'));
+  assert.ok(fb2.get(0)!.includes('공통 안내 문구')); // 가장자리 3줄 밖은 반복돼도 유지
 });

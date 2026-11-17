@@ -67,14 +67,17 @@ export function faithful(original: string, markdown: string, figures: PageFigure
 }
 
 /** AI 재구성을 건너뛰었거나 탈락한 쪽도 정리본 탭에 글로 나오게 (사용자 지적 11/18: 표지·목차·장 구분 쪽이 이미지로 바뀜).
- *  마스킹 본문 그대로 + ① 여러 쪽에 반복되는 짧은 줄(머리글·로고, 30자 이하·3쪽 이상·쪽 수 30% 이상) 제외 ② 첫 줄이 '01. 층별 복합기 정보' 같은 장 제목이면 ## ③ 빈 쪽은 '(빈 쪽)'
+ *  마스킹 본문 그대로 + ① 머리말·꼬리말 줄(각 쪽 첫·마지막 3줄 안의 30자 이하 줄이 3쪽 이상 반복) 제외 — 그림 쪽은 로고가 그림으로 빠져 쪽 수 비율은 쓰지 않음(11/18 실측 10/39쪽) ② 첫 줄이 '01. 층별 복합기 정보' 같은 장 제목이면 ## ③ 빈 쪽은 '(빈 쪽)'
  *  그림 줄(⟦그림 pN⟧)은 뺀다. 결과는 source 'TEXT' (원문 그대로라 대조 불필요) */
 export function textFallback(segs: { page_index: number; text: string }[]) {
   const linesOf = (t: string) => splitPage(t).body.split('\n').map((l) => l.trim()).filter(Boolean);
   const seen = new Map<string, number>();
-  for (const s of segs) for (const l of new Set(linesOf(s.text))) if (l.length <= 30) seen.set(l, (seen.get(l) ?? 0) + 1);
-  const minPages = Math.max(3, Math.ceil(segs.length * 0.3));
-  const repeated = new Set([...seen].filter(([, n]) => n >= minPages).map(([l]) => l));
+  for (const s of segs) {
+    const ls = linesOf(s.text);
+    const edge = new Set([...ls.slice(0, 3), ...ls.slice(-3)].filter((l) => l.length <= 30)); // 머리말·꼬리말 자리
+    for (const l of edge) seen.set(l, (seen.get(l) ?? 0) + 1);
+  }
+  const repeated = new Set([...seen].filter(([, n]) => n >= 3).map(([l]) => l));
   return new Map(segs.map((s) => {
     const lines = linesOf(s.text).filter((l) => !repeated.has(l));
     if (!lines.length) return [s.page_index, '(빈 쪽)'] as const;
