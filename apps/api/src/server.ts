@@ -23,9 +23,10 @@ async function marks(pages: Page[], d: DocumentRecord): Promise<Mark[]> {
 async function searchWiki() {
   const e = process.env;
   if (!e.KB_ID || !e.TABLE_REGULATIONS) return async () => ({ items: [] });
-  const { BedrockRetriever, DynamoDocStates, PgDocStates, searchTools } = await import('@hanaeum/search-server');
+  const { BedrockRetriever, BedrockRewriter, DynamoDocStates, PgDocStates, searchTools } = await import('@hanaeum/search-server');
   const { DynamoClauseStore, regulationTools } = await import('@hanaeum/regulation-server');
-  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: e.GOV_STORE === 'postgres' ? new PgDocStates(db().query) : new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)) });
+  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: e.GOV_STORE === 'postgres' ? new PgDocStates(db().query) : new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)),
+    ...(e.MODEL_HAIKU ? { rewriter: new BedrockRewriter(e.MODEL_HAIKU) } : {}) }); // 질의 재구성 (let522mj PR #24). 없으면 규칙만
   return t.search_wiki as unknown as SearchWiki;
 }
 
