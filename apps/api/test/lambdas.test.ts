@@ -304,3 +304,15 @@ test('Clarify 보정(11/18 dev): 표 빈 칸은 LOW, 빈 양식 행은 항목 �
   assert.equal(sameModelPage(text, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실' }), true);
   assert.equal(sameModelPage(text, { url: 'https://x.com/SL-K3250NR', title: '드라이버' }), true);
 });
+
+test('Clarify 보정(11/18 dev): 줄 경계에서 자르고 표시, 미완성 주장은 원문으로 확인', async () => {
+  const { cutAtLine, keepCandidates, reallyIncomplete } = await import('../src/steps/clarify.ts');
+  const long = '첫 줄 문장이다.\n' + '가'.repeat(2000) + '\n등록된 자신에게 전송한다.';
+  const cut = cutAtLine(long, 2015);
+  assert.ok(cut.endsWith('미완성이 아님)') && !cut.includes('전송한'));
+  const text = '4. 메인 메뉴로 돌아와 스캔을 터치하여 등록된 자신에게 전송한다. (그림 4)';
+  assert.equal(reallyIncomplete('4. 메인 메뉴로 돌아와 스캔을 터치하여 등록된 자신에게 전송한', text), false); // 같은 줄에서 이어짐
+  assert.equal(reallyIncomplete('설정 화면에서', '설정 화면에서\n다음 줄'), true);
+  const c = { kind: 'MISSING_VALUE' as const, item: '미완성 문장', before: '4. 메인 메뉴로 돌아와 스캔을 터치하여 등록된 자신에게 전송한', question: '문장이 미완성입니다', in_procedure: true, query: 'q', page: 35 };
+  assert.equal(keepCandidates([c], text, () => text).length, 0);
+});

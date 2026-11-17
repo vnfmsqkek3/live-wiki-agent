@@ -159,7 +159,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       const all = pages.map((p) => p.text).join('\n\n');
       // 1) 찾기 (최대 5건, 계약 6.5)
       const found = await deps.findClarify(clarifyPrompt(d.title, pages));
-      const cands = keepCandidates(found.value.items ?? [], all);
+      const cands = keepCandidates(found.value.items ?? [], all, (n) => pages.find((p) => p.page === n)?.text);
       console.log(JSON.stringify({ msg: 'clarify candidates', doc_id: d.doc_id, n: cands.length, kinds: cands.map((c) => c.kind) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const sugg = new Map<number, ClarifySuggestion[]>(cands.map((_, n) => [n, []]));
