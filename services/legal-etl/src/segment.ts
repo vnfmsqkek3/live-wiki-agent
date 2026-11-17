@@ -185,7 +185,9 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
       // 같은 높이 블록을 한 줄로 묶고, 숫자로 읽힌 항 번호(①→1)를 순서 근거가 있을 때만 되돌린다 (13항 12번 실측)
       doc_id: layer.doc_id, page_index: p.page_index, source: "ocr",
       text: (() => { const st = { last: lastPara, lastArticle: 0 }; const t = restoreCircled(ocrPageText(blocks, op.tables, figs, p.page_index, size), st); lastPara = st.last; return t; })(),
-      blocks, avg_confidence: conf.length ? avg : null, low_confidence: !blocks.length || (conf.length > 0 && (avg < PAGE_AVG_MIN || conf.some((b) => b.confidence < BLOCK_MIN))),
+      blocks, avg_confidence: conf.length ? avg : null, low_confidence: !blocks.length || (conf.length > 0 && (avg < PAGE_AVG_MIN || conf.some((b) => b.confidence < BLOCK_MIN)))
+        // 쪽 글자가 모두 그림 속 글자로 분류된 쪽: 흐린 스캔을 캡처로 오인했을 수 있어 사람 확인 (PR #33 재리뷰 MEDIUM-F)
+        || (conf.length === 0 && [...fig.keys()].some((b) => b.text.trim())),
     } satisfies Segment;
   });
 }
@@ -212,7 +214,9 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
   }
   const low = segments.filter((s) => s.low_confidence);
   const findings: Finding[] = low.map((s) => {
-    const msg = `${s.page_index + 1}쪽 글자 인식(OCR) 신뢰도가 낮아(평균 ${Math.round((s.avg_confidence ?? 0) * 100)}%) 일부 글자가 틀렸을 수 있습니다.`;
+    const msg = s.avg_confidence === null
+      ? `${s.page_index + 1}쪽 글자가 모두 그림(화면 캡처 등) 속 글자로 분류됐습니다. 원본이 화면 캡처가 아니라 문서를 스캔한 것이면 확인해 주세요.`
+      : `${s.page_index + 1}쪽 글자 인식(OCR) 신뢰도가 낮아(평균 ${Math.round(s.avg_confidence * 100)}%) 일부 글자가 틀렸을 수 있습니다.`;
     return {
       finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE", message: msg,
       evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, location: { page: s.page_index + 1 },
