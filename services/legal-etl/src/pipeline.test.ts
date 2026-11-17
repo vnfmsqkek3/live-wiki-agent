@@ -317,6 +317,9 @@ test("표(PP-StructureV3): 표 영역 줄 대신 제자리에 마크다운 표, 
   // 닫는 태그 누락·엔티티
   assert.equal(tableToMarkdown("<tr><td>a<td>b&quot;&#39;</tr>"), "| a | b\"' |\n| --- | --- |");
   assert.equal(tableToMarkdown("<table></table>"), "");
+  // 행이 rowspan 열 전에 끝나도 다음 행이 밀리지 않음 (재리뷰)
+  assert.equal(tableToMarkdown("<tr><td>a</td><td rowspan=3>R</td></tr><tr><td>b</td></tr><tr><td>c</td></tr><tr><td>d</td><td>e</td></tr>"),
+    "| a | R |\n| --- | --- |\n| b |  |\n| c |  |\n| d | e |");
   const b = (text: string, y: number, table_id: string | null = null) => ({ block_id: text, label: table_id ? "table" : "text", text, confidence: 0.99, bbox: [0, y, 100, y + 10], reading_order: y, table_id });
   const blocks = [b("영업점 마감 노하우", 0), b("구분", 50, "p0-t0"), b("기준", 50, "p0-t0"), b("표 아래 문장", 200)];
   assert.equal(ocrPageText(blocks), "영업점 마감 노하우\n구분 기준\n표 아래 문장");
@@ -327,4 +330,6 @@ test("표(PP-StructureV3): 표 영역 줄 대신 제자리에 마크다운 표, 
   // bbox 없는 블록이 섞이면 원래 순서에서 표 첫 줄 자리에
   const nb = blocks.map((x, i) => (i === 0 ? { ...x, bbox: [] } : x));
   assert.equal(ocrPageText(nb, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
+  // 표에만 bbox가 없으면 표 첫 줄의 세로 위치 (재리뷰)
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
 });

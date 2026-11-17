@@ -36,7 +36,8 @@ export function tableToMarkdown(html: string): string {
       const cs = attr(attrs, "colspan"), rs = attr(attrs, "rowspan");
       for (let i = 0; i < cs; i++) { out.push(i ? "" : cellText(body)); if (rs > 1) carry[col] = rs - 1; col++; }
     }
-    fill();
+    // 행이 rowspan 열에 닿기 전에 끝나도 그 rowspan은 이 행에서 소비 (다음 행이 밀리지 않게)
+    for (; col < carry.length; col++) { if ((carry[col] ?? 0) > 0) carry[col]!--; out.push(""); }
     return out;
   }).filter((r) => r.some((c) => c));
   if (!rows.length) return "";
@@ -59,7 +60,9 @@ export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = []): string
   const tabs = [...ids].map((id, k) => {
     const t = tables.find((x) => x.table_id === id)!;
     const first = blocks.findIndex((b) => b.table_id === id);
-    const yc = hasBox && t.bbox?.length === 4 ? t.bbox[1]! : first >= 0 ? first - 0.5 : Number.MAX_SAFE_INTEGER - ids.size + k;
+    const fb = blocks[first]?.bbox;
+    const yc = hasBox ? (t.bbox?.length === 4 ? t.bbox[1]! : fb?.length === 4 ? (fb[1]! + fb[3]!) / 2 : Number.MAX_SAFE_INTEGER - ids.size + k)
+      : first >= 0 ? first - 0.5 : Number.MAX_SAFE_INTEGER - ids.size + k;
     return { yc, text: `\n${md.get(id)!}\n` };
   });
   return [...rows, ...tabs].sort((a, b) => a.yc - b.yc).map((r) => r.text).join("\n").replace(/\n{3,}/gu, "\n\n").trim();
