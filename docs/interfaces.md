@@ -215,6 +215,17 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 - 조회: 보관함·결재함·노하우 점검의 전체 Scan → `WHERE owner=…` / `WHERE lifecycle IN (…)` 인덱스 조회.
 - 오류: `pgCode(e)` 로 SQLState 판별 (23505 중복, 23503 FK, 23514 CHECK → API 409/400).
 
+
+### 10.1 업무 분류 자동화 (사용자 결정 11/17 "A: 완전 자동", 스키마 `db/migrations/006_categories.sql`)
+
+| 항목 | 계약 |
+|---|---|
+| 테이블 | `categories(category_id, parent_id, name, path, level 1~3, description, embedding vector(1024), origin SEED·AI·ADMIN, merged_into, doc_count)`, `category_events`(추가만: CREATE·MERGE·RENAME·ASSIGN·REASSIGN), `documents.category_id` |
+| 문서 배정 (Classify, dhxorb96) | ① 문서 요약+제목 임베딩(Titan v2) ② `SELECT … ORDER BY embedding <=> :v LIMIT 5` 후보(merged_into IS NULL, 임베딩 NULL 칸은 이름+설명으로 먼저 채움) ③ Haiku 가 후보 중 고르거나 "새 칸"(부모 + 이름 + 설명) ④ 새 칸이면 기존 칸과 코사인 유사도 ≥ 0.85 면 기존 칸 사용, 아니면 `origin=AI` 로 생성 ⑤ `documents.category_id`·`doc_count`·`category_events(ASSIGN/CREATE)` 를 한 트랜잭션 |
+| 주기 정리 (yoyo0704, 매일) | 유사도 ≥ 0.9 칸 병합(작은 칸 → 큰 칸, `merged_into`, 문서 이동), 문서 0건 AI 칸 정리, '기타' 문서 묶음 → 새 칸 제안·생성. 모든 변경 `category_events` |
+| 조회 (API·검색) | 보관함 트리 = `merged_into IS NULL` 칸 계층 + `doc_count`. 검색 필터 `category`(하위 포함). 색인 메타데이터 `category_path` (let522mj) |
+| 관리자 | 선택: 이름 수정·병합(`origin=ADMIN`, 기록 남음). 승인 절차 없음 |
+
 ## 변경 이력
 
 | 날짜 | 작성자 | 섹션 | 변경 |
