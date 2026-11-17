@@ -153,6 +153,10 @@ export interface Result {
   category_path?: string;
   /** 근거 조각이 있는 쪽 (1부터). 화면 쪽 썸네일용 */
   page?: number;
+  /** "FIGURE" = 그림 기준(AI 정리) 근거. 인용 가능하되 그렇게 표시해야 함 */
+  evidence_kind?: "FIGURE";
+  /** 같은 쪽 그림 제목 (OCR로 확인된 것만, AI 정리 기준). 인용 원문 아님 */
+  page_context?: string;
   quotable: boolean; // false = 그림 묘사 등 원문이 아닌 결과. 근거 인용 금지
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
@@ -186,8 +190,12 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
     const pathLabel = String(m["provision_path"] ?? "");
     kept.push({
       doc_id: st.doc_id, title: String(m["title"] ?? ""),
-      snippet: m["has_figure"] === true ? `[그림 설명 · 원문 아님] ${h.text.replace(/^\[[^\]]*\]\n/u, "")}` : String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
-      quotable: m["has_figure"] !== true,
+      // 인용은 원문만 (보강 헤더 인용 금지). 그림 기준 근거(매뉴얼·노하우 쪽 정리본)는 인용 가능하되 머리표로 구분
+      snippet: m["evidence_kind"] === "FIGURE" ? `[그림 기준 · AI 정리] ${String(m["original_text"] ?? "")}`
+        : m["has_figure"] === true ? `[그림 설명 · 원문 아님] ${h.text.replace(/^\[[^\]]*\]\n/u, "")}` : String(m["original_text"] ?? h.text),
+      quotable: m["has_figure"] !== true || m["evidence_kind"] === "FIGURE",
+      ...(m["evidence_kind"] === "FIGURE" ? { evidence_kind: "FIGURE" as const } : {}),
+      ...(typeof m["page_context"] === "string" && m["page_context"] ? { page_context: m["page_context"] } : {}),
       ...(isReg && pathLabel ? { provision: `${String(m["law_name"] ?? m["title"] ?? "")} ${pathLabel}`.trim() } : {}),
       effective_from: isoDate(st.effective_from ?? Number(m["effective_from"])),
       authority_status: st.authority_status, freshness: st.freshness,

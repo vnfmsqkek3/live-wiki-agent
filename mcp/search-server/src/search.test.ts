@@ -267,3 +267,15 @@ test("결과 항목 page: 근거 조각의 쪽 (1부터, 청크 source_page + 1)
   const f2 = [...r.items, ...(r.related ?? [])].filter((x) => x.doc_id === "F-002");
   assert.ok(f2.length && f2.every((x) => x.page === 3));
 });
+
+test("그림 기준 근거(evidence_kind FIGURE)는 인용 가능·머리표, page_context 전달", async () => {
+  const { tools, retriever } = setup();
+  const c0 = retriever.chunks.find((c) => c.metadata["doc_id"] === "K-001")!;
+  retriever.add("[부동산 담보평가 실무 노하우 · 그림 (2쪽)]\n감정평가 현장 실사 화면 절차", { ...c0.metadata, provision_id: "K-001#fig0", has_figure: true, evidence_kind: "FIGURE", original_text: "감정평가 현장 실사 화면 절차", page_context: "01 실사 › 그림 1: 현장", source_page: 1 });
+  const r = await tools.search_wiki({ query: "감정평가 현장 실사 화면 절차", as_of: "2026-12-15", rewrite: false }, user);
+  const f = [...r.items, ...(r.related ?? [])].find((x) => x.provision_id === "K-001#fig0")!;
+  assert.equal(f.quotable, true);
+  assert.equal(f.evidence_kind, "FIGURE");
+  assert.match(f.snippet, /^\[그림 기준 · AI 정리\] 감정평가/u);
+  assert.equal(f.page_context, "01 실사 › 그림 1: 현장");
+});

@@ -152,3 +152,19 @@ test("조각 상한 (PR #41 리뷰): 아주 긴 한 줄은 낱말 경계로 나�
   assert.ok(cs2.length > 1 && cs2.every((c) => c.metadata.original_text.startsWith("| 머리 | 값 |\n| 행")));
   assert.equal(cs2.filter((c) => c.metadata.original_text.includes("| 행0 |")).length, 1);
 });
+
+test("쪽 맥락은 본문 조각 검색 머리·page_context로만, 쪽 정리본은 매뉴얼·노하우에서 그림 기준 근거(인용 가능), 규정은 그대로", () => {
+  const text = "4층 복합기 표\n| 위치 | 모델 |\n⟦그림 p0⟧ 쪽 맥락(AI, 그림 기준): 01 층별 복합기 정보 › 그림 1: 4층\n⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 1. **다운로드** 접속\n⟦그림 p0⟧ 그림 1 속 글자: 4층 10 7";
+  const cs = chunkDocument(text, meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const body = cs.find((c) => !c.metadata.has_figure)!;
+  assert.equal(body.metadata.page_context, "01 층별 복합기 정보 › 그림 1: 4층");
+  assert.match(body.augmented_search_text.split("\n")[1]!, /^\[쪽 맥락 · 그림 기준\(AI\)\] 01 층별/u);
+  assert.ok(!body.metadata.original_text.includes("쪽 맥락"));
+  assert.ok(!cs.some((c) => c.augmented_search_text.includes("⟦")));
+  const summary = cs.find((c) => c.metadata.evidence_kind === "FIGURE")!;
+  assert.equal(summary.metadata.original_text, "1. **다운로드** 접속");
+  const inner = cs.find((c) => c.metadata.has_figure && !c.metadata.evidence_kind)!;
+  assert.equal(inner.metadata.original_text, "");
+  const reg = chunkDocument("제1조(목적) 이 규정은 정한다.\n⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 요약", meta({ document_type: "REGULATION", law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" }));
+  assert.ok(reg.every((c) => !c.metadata.evidence_kind));
+});

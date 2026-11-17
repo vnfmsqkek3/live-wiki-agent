@@ -445,3 +445,11 @@ test("figure_boxes: 그림으로 분리한 영역을 쪽 대비 0~1000 정수로
   const noFig = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 1000, source: "ocr", blocks: [b("본문", 20)] }] })[0]!;
   assert.equal(noFig.figure_boxes, undefined);
 });
+
+test("쪽 맥락: 정리본 제목은 OCR로 확인된 것만, 그림 라벨은 정리본과 맞을 때만, 숫자 낱말은 반드시 일치 (과천 8쪽)", async () => {
+  const { pageContext } = await import("./promote.ts");
+  const md = "## 01 층별 복합기 정보\n\n_(그림 1)_ 아래는 4층 평면도에 표시된 복합기 위치\n\n## 5층 회의실 안내\n## " + "긴".repeat(41);
+  const ocr = "01 층별 복합기 정보\n| 위치 | 모델 |\n⟦그림 p7⟧ 그림 1 속 글자: 4층 10 7 1\n⟦그림 p7⟧ 그림 2 속 글자: Wivdoms7/8/83 V1o";
+  assert.equal(pageContext(md, ocr), "01 층별 복합기 정보 › 그림 1: 4층"); // "5층 회의실"은 OCR에 5층 없음 → 버림, 41자 제목 버림, UI 잡음 버림
+  assert.equal(pageContext("", ocr), ""); // 정리본 없으면 없음
+});

@@ -11,7 +11,11 @@ export interface Chunk {
   metadata: DocumentMetadata & {
     provision_id: string; provision_path: string; provision_status: ProvisionStatus;
     parent_id: string; source_page: number; original_text: string;
-    has_figure?: boolean; // 그림 묘사 청크 (인용 불가)
+    has_figure?: boolean; // 그림 청크
+    /** 그림 기준 근거 (매뉴얼·노하우의 쪽 정리본만, 인용 가능하되 "그림 기준(AI 정리)"로 표시) */
+    evidence_kind?: "FIGURE";
+    /** 같은 쪽 그림 제목 (OCR로 확인된 것만). 검색 머리·화면 표시용, 인용 원문 아님 */
+    page_context?: string;
   };
 }
 
@@ -165,10 +169,19 @@ function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
 }
 
 
+/** Promote가 내는 그림 줄 접두 (services/legal-etl promote.ts와 같은 문구) */
+const CONTEXT_PREFIX = "쪽 맥락(AI, 그림 기준)";
+const SUMMARY_RE = /^쪽 정리\(AI, 그림 기준\)(?: \(이어서 \d+\))?: /u;
+
 /** 본문 끝의 그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. original_text는 비워 인용 금지 (그림 묘사는 원문이 아님) */
 export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
-  const body: string[] = []; const figs: { page: number; text: string }[] = [];
-  for (const line of text.split("\n")) { const m = FIGURE_RE.exec(line); if (m) figs.push({ page: Number(m[1]), text: m[2]! }); else body.push(line); }
+  const body: string[] = []; const figs: { page: number; text: string }[] = []; const ctx = new Map<number, string>();
+  for (const line of text.split("\n")) {
+    const m = FIGURE_RE.exec(line);
+    if (!m) { body.push(line); continue; }
+    if (m[2]!.startsWith(`${CONTEXT_PREFIX}: `)) ctx.set(Number(m[1]), m[2]!.slice(CONTEXT_PREFIX.length + 2)); // 쪽 맥락은 조각이 아니라 본문 조각의 머리로
+    else figs.push({ page: Number(m[1]), text: m[2]! });
+  }
   // 쪽 번호: Promote가 넣은 쪽 경계(\f 한 줄). \f만 지우고 줄 수는 그대로 두어, 조문·절이 시작하는 줄의 쪽을 쓴다
   // (반복되는 머리말·목차와 글자가 같아도 위치로 정하므로 앞쪽에 잘못 붙지 않음, PR #37 리뷰)
   const pageAt: number[] = [];
@@ -176,10 +189,23 @@ export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   for (const l of body) { pageAt.push(pg); if (l.includes("\f")) pg++; }
   const pageOfLine = (ln: number) => pageAt[Math.min(Math.max(ln - 1, 0), pageAt.length - 1)] ?? 0;
   const clean = body.join("\n").replace(/\f/gu, "");
-  const main = meta.document_type === "REGULATION" ? chunkLegal(clean, meta, pageOfLine) : chunkKnowledge(clean, meta, pageOfLine);
-  return [...main, ...figs.map((f, i) => ({
-    augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,
-    metadata: { ...meta, provision_id: `${meta.doc_id}#fig${i}`, provision_path: `그림 (${f.page + 1}쪽)`, provision_status: "ACTIVE" as const,
-      parent_id: meta.doc_id, source_page: f.page, original_text: "", has_figure: true },
-  }))];
+  const reg = meta.document_type === "REGULATION";
+  const main0 = reg ? chunkLegal(clean, meta, pageOfLine) : chunkKnowledge(clean, meta, pageOfLine);
+  // 본문 조각에 같은 쪽 맥락을 검색 머리(두 번째 줄)와 page_context로 붙임. original_text(인용)는 그대로
+  const main = reg ? main0 : main0.map((c) => {
+    const pc = ctx.get(c.metadata.source_page);
+    if (!pc) return c;
+    const [head, ...rest] = c.augmented_search_text.split("\n");
+    return { augmented_search_text: [head, `[쪽 맥락 · 그림 기준(AI)] ${pc}`, ...rest].join("\n"), metadata: { ...c.metadata, page_context: pc } };
+  });
+  return [...main, ...figs.map((f, i) => {
+    // 매뉴얼·노하우의 쪽 정리본은 그림 기준 근거로 인용 가능 (사용자 요구: 화면 캡처 절차까지, yoyo0704 결정 11/18). 규정·그림 속 글자는 인용 불가
+    const summary = !reg && SUMMARY_RE.test(f.text);
+    return {
+      augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,
+      metadata: { ...meta, provision_id: `${meta.doc_id}#fig${i}`, provision_path: `그림 (${f.page + 1}쪽)`, provision_status: "ACTIVE" as const,
+        parent_id: meta.doc_id, source_page: f.page, original_text: summary ? f.text.replace(SUMMARY_RE, "") : "", has_figure: true,
+        ...(summary ? { evidence_kind: "FIGURE" as const } : {}), ...(ctx.get(f.page) ? { page_context: ctx.get(f.page)! } : {}) },
+    };
+  })];
 }
