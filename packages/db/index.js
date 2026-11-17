@@ -10,6 +10,21 @@ export function toParam(name, v) {
   return { name, value: { stringValue: JSON.stringify(v) }, typeHint: "JSON" };
 }
 
+/** Data API Field → JS 값 */
+export function fieldValue(f) {
+  if (!f || f.isNull) return null;
+  if ("stringValue" in f) return f.stringValue;
+  if ("longValue" in f) return Number(f.longValue);
+  if ("doubleValue" in f) return f.doubleValue;
+  if ("booleanValue" in f) return f.booleanValue;
+  if ("arrayValue" in f) {
+    const a = f.arrayValue;
+    return a.stringValues ?? a.longValues?.map(Number) ?? a.doubleValues ?? a.booleanValues ?? (a.arrayValues ?? []).map((x) => fieldValue({ arrayValue: x }));
+  }
+  if ("blobValue" in f) return f.blobValue;
+  return null;
+}
+
 const PG_ARRAY = /^\{(.*)\}$/s;
 /** PostgreSQL 배열 리터럴 {a,"b c"} → JS 배열 (Data API 가 문자열로 줄 때) */
 function pgArray(s) {
@@ -56,14 +71,14 @@ export function db(cfg = {}) {
   }
 
   async function query(sql, params = {}, transactionId) {
+    // formatRecordsAs JSON 은 열 타입(columnMetadata)을 주지 않는다 (11/17 실측) → 타입이 있는 기본 레코드 형식
     const r = await send(new ExecuteStatementCommand({
       resourceArn, secretArn, database, sql, transactionId,
       parameters: Object.entries(params).map(([k, v]) => toParam(k, v)),
-      formatRecordsAs: "JSON", includeResultMetadata: true,
+      includeResultMetadata: true,
     }));
-    if (!r.formattedRecords) return [];
-    const types = Object.fromEntries((r.columnMetadata ?? []).map((c) => [c.label ?? c.name, c.typeName]));
-    return JSON.parse(r.formattedRecords).map((row) => Object.fromEntries(Object.entries(row).map(([k, v]) => [k, fromColumn(types[k], v)])));
+    const cols = (r.columnMetadata ?? []).map((c) => [c.label || c.name, c.typeName]);
+    return (r.records ?? []).map((rec) => Object.fromEntries(rec.map((f, i) => [cols[i][0], fromColumn(cols[i][1], fieldValue(f))])));
   }
 
   /** 트랜잭션: fn 이 throw 하면 롤백. fn 안에서는 받은 q 만 쓴다 */
@@ -98,6 +113,7 @@ export function toDocumentRow(doc) {
     if (DROP.has(k) || v === undefined) continue;
     if (DOC_COLUMNS.includes(k)) row[k] = v; else attrs[k] = v;
   }
+  for (const c of DOC_COLUMNS) if (!(c in row)) row[c] = null; // UPSERT_DOCUMENT_SQL 이 모든 열 파라미터를 요구 (11/17 실측: Cannot find parameter)
   row.acl_groups = row.acl_groups ?? [];
   return { ...row, attrs };
 }

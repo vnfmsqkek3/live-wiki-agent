@@ -207,7 +207,8 @@ resource "aws_iam_role_policy" "api" {
         Resource = flatten([for k in ["documents", "approvals", "feedback", "audit_events", "workflows"] : [var.tables[k].arn, "${var.tables[k].arn}/index/*"]])
       },
       { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
-      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
+      # 원본 다운로드(사용자 요청 11/17, dhxorb96 efe5463): 승인된 s3_version_id 로 60초 presigned GET → 버전 지정 읽기
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/segments/*" },
       # 실패·검토 사유 위치 표시: PII 를 칠한 페이지 이미지 위에 bbox 강조 (요청기록 20261117-0106)

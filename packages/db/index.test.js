@@ -21,16 +21,17 @@ test("fromColumn normalizes timestamptz, jsonb, arrays", () => {
   assert.equal(fromColumn("text", null), null);
 });
 
-test("query: parses formattedRecords with metadata; retries while DB resumes", async () => {
+test("query: parses typed records with metadata; retries while DB resumes", async () => {
   let calls = 0;
   const client = { send: async (cmd) => {
     calls++;
     if (calls === 1) throw Object.assign(new Error("resuming"), { name: "DatabaseResumingException" });
     assert.equal(cmd.input.sql, "SELECT 1");
-    return { formattedRecords: '[{"doc_id":"doc_1","attrs":"{\\"k\\":1}","updated_at":"2026-11-17 00:00:00"}]', columnMetadata: [{ name: "doc_id", typeName: "text" }, { name: "attrs", typeName: "jsonb" }, { name: "updated_at", typeName: "timestamptz" }] };
+    return { records: [[{ stringValue: "doc_1" }, { stringValue: '{"k":1}' }, { stringValue: "2026-11-17 00:00:00" }, { arrayValue: { stringValues: ["ALL"] } }, { isNull: true }]],
+      columnMetadata: [{ name: "doc_id", typeName: "text" }, { name: "attrs", typeName: "jsonb" }, { name: "updated_at", typeName: "timestamptz" }, { name: "acl_groups", typeName: "_text" }, { name: "law_id", typeName: "text" }] };
   } };
   const d = db({ resourceArn: "arn", secretArn: "s", database: "d", client, sleep: async () => {} });
-  assert.deepEqual(await d.query("SELECT 1"), [{ doc_id: "doc_1", attrs: { k: 1 }, updated_at: "2026-11-17T00:00:00.000Z" }]);
+  assert.deepEqual(await d.query("SELECT 1"), [{ doc_id: "doc_1", attrs: { k: 1 }, updated_at: "2026-11-17T00:00:00.000Z", acl_groups: ["ALL"], law_id: null }]);
   assert.equal(calls, 2);
 });
 
@@ -56,6 +57,7 @@ test("documents row mapping round-trips a DynamoDB item", () => {
     classification: { document_type: "KNOWHOW" }, summary: "요약", findings: [{ finding_id: "fnd_1", step: "PiiScan", severity: "LOW", code: "X", message: "m", evidence_ref: "e" }] };
   const row = toDocumentRow(item);
   assert.equal(row.pk, undefined); assert.equal(row.findings, undefined);
+  assert.equal(row.document_type, null); // 모든 열 파라미터가 있어야 UPSERT 가능
   assert.deepEqual(row.attrs, { classification: { document_type: "KNOWHOW" }, summary: "요약" });
   const back = fromDocumentRow({ ...row, document_type: null }, [{ finding_id: "fnd_1", step: "PiiScan", severity: "LOW", code: "X", data: { message: "m", evidence_ref: "e" } }]);
   const { pk, sk, ...expected } = item; void pk; void sk;

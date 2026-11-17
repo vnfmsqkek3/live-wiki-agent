@@ -4,13 +4,13 @@
 // 사용: set -a; . ./.env.local; set +a; node hanaeum-terraform/scripts/db-copy-from-dynamo.mjs dev [--apply]   (기본은 건수만 출력)
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, ScanCommand } from "@aws-sdk/lib-dynamodb";
-import { GetParameterCommand, SSMClient } from "@aws-sdk/client-ssm";
+import { execFileSync } from "node:child_process";
 import { db, replaceStepFindings, toDocumentRow, UPSERT_DOCUMENT_SQL } from "@hanaeum/db";
 
 const env = process.argv[2] ?? "dev";
 const apply = process.argv.includes("--apply");
-const ssm = new SSMClient({});
-const p = async (n) => (await ssm.send(new GetParameterCommand({ Name: `/hanaeum-mvp/${env}/${n}` }))).Parameter.Value;
+// SSM 은 aws CLI 로 (저장소에 client-ssm 의존성 없음)
+const p = async (n) => execFileSync("aws", ["ssm", "get-parameter", "--name", `/hanaeum-mvp/${env}/${n}`, "--query", "Parameter.Value", "--output", "text"]).toString().trim();
 const ddb = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 async function scan(TableName) {
   const out = []; let ExclusiveStartKey;
@@ -52,11 +52,11 @@ for (const x of drafts.filter((x) => ids.has(x.doc_id)))
 let skipped = 0;
 for (const a of approvals) {
   if (!ids.has(a.doc_id)) { skipped++; continue; } // 문서가 없는 승인(시험 잔여)은 FK 위반 → 건너뜀
-  await d.query(`INSERT INTO approvals (approval_id, doc_id, version, s3_version_id, content_hash, author_sub, approver_sub, status, reason, decided_at, created_at)
-    VALUES (:approval_id, :doc_id, :version, :s3_version_id, :content_hash, :author_sub, :approver_sub, :status, :reason, :decided_at::timestamptz, :created_at::timestamptz)
-    ON CONFLICT (approval_id) DO UPDATE SET status = EXCLUDED.status, approver_sub = EXCLUDED.approver_sub, reason = EXCLUDED.reason, decided_at = EXCLUDED.decided_at`,
+  await d.query(`INSERT INTO approvals (approval_id, doc_id, version, s3_version_id, content_hash, author_sub, approver_sub, status, reason, decided_at, created_at, used_by, used_at)
+    VALUES (:approval_id, :doc_id, :version, :s3_version_id, :content_hash, :author_sub, :approver_sub, :status, :reason, :decided_at::timestamptz, :created_at::timestamptz, :used_by, :used_at::timestamptz)
+    ON CONFLICT (approval_id) DO UPDATE SET status = EXCLUDED.status, approver_sub = EXCLUDED.approver_sub, reason = EXCLUDED.reason, decided_at = EXCLUDED.decided_at, used_by = EXCLUDED.used_by, used_at = EXCLUDED.used_at`,
     { approval_id: a.approval_id, doc_id: a.doc_id, version: a.version, s3_version_id: a.s3_version_id ?? "", content_hash: a.content_hash ?? "", author_sub: a.author_sub,
-      approver_sub: a.approver_sub ?? null, status: a.status, reason: a.reason ?? null, decided_at: a.status === "PENDING" ? null : (a.decided_at ?? a.created_at), created_at: a.created_at });
+      approver_sub: a.approver_sub ?? null, status: a.status, reason: a.reason ?? null, decided_at: a.status === "PENDING" ? null : (a.decided_at ?? a.created_at), created_at: a.created_at, used_by: a.used_by ?? null, used_at: a.used_at ?? null });
 }
 for (const f of feedback.filter((f) => ids.has(f.doc_id)))
   await d.query("INSERT INTO feedback (doc_id, user_sub, stars, useful, updated_at) VALUES (:doc_id, :user_sub, :stars, :useful, :updated_at::timestamptz) ON CONFLICT (doc_id, user_sub) DO UPDATE SET stars = EXCLUDED.stars, useful = EXCLUDED.useful, updated_at = EXCLUDED.updated_at",
