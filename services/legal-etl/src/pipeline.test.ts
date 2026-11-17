@@ -232,11 +232,11 @@ test("Promote: 마스킹 세그먼트의 figures를 본문 끝에 페이지 표�
   await s.put(Q, `${DOC}/original.md`, original);
   await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 2 }));
   await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: "1쪽 본문" }));
-  await s.put(Q, `${DOC}/masked/segments/0001.json`, JSON.stringify({ text: "2쪽 본문", figures: [{ kind: "사진", description: "현장 실사 사진", intent: "실사 예시" }, { kind: "아이콘", description: " " }] }));
+  await s.put(Q, `${DOC}/masked/segments/0001.json`, JSON.stringify({ text: "2쪽 본문", figures: [{ kind: "사진", description: "현장 실사 사진", intent: "실사 예시" }, { kind: "아이콘", description: " " }], page_markdown: "1. **다운로드** 자료실 접속 _(그림 1)_\n2. 모델명 입력" }));
   r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
   r.approvals.set("apr_f", { approval_id: "apr_f", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
   const out = await promoteStep({ ...input, published_bucket: P }, s, r);
-  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n\f\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시");
+  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n\f\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시\n⟦그림 p1⟧ 쪽 정리(AI, 그림 기준): 1. **다운로드** 자료실 접속 _(그림 1)_ 2. 모델명 입력");
 });
 
 test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔 쪽은 쪽 번호와 함께 (사용자 지시 11/17)", async () => {

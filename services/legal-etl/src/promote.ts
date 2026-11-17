@@ -7,6 +7,8 @@ import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
 
 /** 게시 본문의 쪽 경계 (빈 줄로 취급되므로 파서·인용에는 영향 없음) */
 export const PAGE_BREAK = "\f";
+// ponytail: 쪽 정리본 한 조각의 글자 상한 (임베딩 입력 한도 여유). 넘으면 낱말 경계에서 자름
+const PAGE_MD_MAX = 4000;
 export const sha256 = (b: Buffer | string) => "sha256:" + createHash("sha256").update(b).digest("hex");
 
 /** 승인 레코드 해시와 원본 해시 비교. 승인 API가 S3 ChecksumSHA256(base64)을 저장해도, `sha256:{hex}`나 hex를 저장해도 같은 바이트면 일치 */
@@ -78,9 +80,12 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   }
   const texts: string[] = []; const figs: string[] = [];
   for (const [page, k] of segKeys.entries()) {
-    const seg = JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string; figures?: Figure[] };
+    const seg = JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string; figures?: Figure[]; page_markdown?: string };
     texts.push(seg.text.replaceAll(PAGE_BREAK, "")); // 원문 속 폼피드는 쪽 경계와 헷갈리지 않게 제거
     for (const f of seg.figures ?? []) if (f.description?.trim()) figs.push(figureLine(page, f));
+    // 그림 쪽 AI 정리본(interfaces 6.3): 검색에는 쓰되 인용 불가 그림 조각으로만 (⟦그림 pN⟧ 한 줄). 인용·주장 대조는 OCR text 기준 그대로
+    const md = seg.page_markdown?.replace(/\s+/gu, " ").trim();
+    if (md) figs.push(`⟦그림 p${page}⟧ 쪽 정리(AI, 그림 기준): ${md.length > PAGE_MD_MAX ? `${md.slice(0, PAGE_MD_MAX).replace(/\S*$/u, "").trimEnd()}…` : md}`);
   }
   // 쪽 경계는 폼피드(\f) 한 줄로 남긴다 → kb-chunker가 조각마다 쪽 번호(source_page)를 붙임 (검색 결과·가이드 근거의 쪽 썸네일, 사용자 요청 11/17)
   const content = [texts.join(`\n${PAGE_BREAK}\n`), ...figs].join("\n");
