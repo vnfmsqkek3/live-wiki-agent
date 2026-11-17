@@ -1,4 +1,5 @@
 'use client';
+import { PaginatedList } from '../paginated-list';
 import { DocText, parseDocText } from '../doc-text';
 import { PageHeader } from '../page-header';
 // 문서보관함: 카드 목록(요약·연관·태그) → 상세(전체 내용을 한 장씩) → 페이지 하단에 요약과 고칠 곳.
@@ -78,7 +79,7 @@ function List() {
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
-        <ul className="ledger card-grid library-grid">
+        <PaginatedList label="문서보관함" className="ledger card-grid library-grid">
           {items.map((d) => (
             <li className="entry" key={d.doc_id}>
               <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
@@ -98,7 +99,7 @@ function List() {
               <Link href={`/library?id=${encodeURIComponent(d.doc_id)}`}>문서 보기 →</Link>
             </li>
           ))}
-        </ul>
+        </PaginatedList>
       )}
     </>
   );
@@ -423,12 +424,12 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             return (
               <div key={t} style={{ marginBottom: 10 }}>
                 <p className="note" style={{ margin: '6px 0 2px' }}>{TYPE_NAME[t]}</p>
-                <ul className="fixes">{rs.map((r) => (
+                <PaginatedList label={`${TYPE_NAME[t]} 관련 문서`} pageKey={`related_${t}`} className="fixes">{rs.map((r) => (
                   <li key={r.doc_id} className={`fix${r.relation === 'CONFLICTS' ? ' sev-HIGH' : ''}`}>
                     <p style={{ margin: 0 }}><Link href={`/library?id=${encodeURIComponent(r.doc_id)}`}>{r.title}</Link></p>
                     <p className="meta" style={{ margin: 0 }}>{REL[r.relation]} · {r.reason}</p>
                   </li>
-                ))}</ul>
+                ))}</PaginatedList>
               </div>
             );
           })}

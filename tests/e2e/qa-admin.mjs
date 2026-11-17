@@ -29,6 +29,21 @@ const shot = async (name) => { const s = await send('Page.captureScreenshot', { 
 const until = async (fn, ms, step = 3000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await sleep(step); } };
 const setInput = (sel, v) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); const set = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
 
+
+// 각 독립 목록의 다음 쪽을 끝까지 확인한다. API 호출 대신 실제 화면 버튼을 사용한다.
+async function findAcrossPages(expression) {
+  for (;;) {
+    const found = await ev(expression);
+    if (found) return found;
+    const before = await ev('location.href');
+    const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
+    if (!next) return false;
+    const changed = await until(async () => (await ev('location.href')) !== before, 5000, 100);
+    if (!changed) throw new Error('페이지네이션 다음 쪽 이동 실패');
+    await sleep(250);
+  }
+}
+
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 1200, deviceScaleFactor: 1, mobile: false });
 
@@ -46,13 +61,24 @@ async function login(who) {
 }
 await login('admin');
 await go('/admin', 5000);
-const links = await ev("[...document.querySelectorAll('.doc-title a')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
+const collected = new Map();
+for (;;) {
+  const visible = await ev("[...document.querySelectorAll('.doc-title a')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
+  for (const link of visible) collected.set(link[1], link);
+  const before = await ev('location.href');
+  const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
+  if (!next) break;
+  if (!await until(async () => (await ev('location.href')) !== before, 5000, 100)) throw new Error('페이지네이션 다음 쪽 이동 실패');
+  await sleep(250);
+}
+const links = [...collected.values()];
 check('A1', links.length > 0 && links.every(([, h]) => h.includes('from=admin')), `결재함 제목 링크 ${links.length}개`, await shot('A1-admin'));
 // 점검 대상: QA_ADMIN_DOCS(쉼표, doc_id)가 없으면 결재함 목록에 지금 있는 문서 앞에서 3건 (데이터 초기화 뒤에도 동작)
 const targets = process.env.QA_ADMIN_DOCS ? process.env.QA_ADMIN_DOCS.split(',').map((id) => [id.slice(-6), id])
   : links.slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
 for (const [name, id] of targets) {
-  const ok = await ev(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
+  await go('/admin', 4000);
+  const ok = await findAcrossPages(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
   if (!ok) await go(`/library?id=${id}&from=admin`);
   await sleep(5000);
   await ev("[...document.querySelectorAll('button.detail-card')].find((b) => b.textContent.trim() === '확인이 필요한 이유')?.click()");

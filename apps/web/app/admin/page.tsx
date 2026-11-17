@@ -1,4 +1,5 @@
 'use client';
+import { PaginatedList } from '../paginated-list';
 import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
@@ -74,11 +75,11 @@ export default function Admin() {
         <div><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></div>
       </div>
 
-      {/* 작업판: 왼쪽 = 결재할 일, 오른쪽 = 진행·참고 (넓은 화면 2열, 좁으면 위아래) */}
-      <div className="board">
-        <div className="board-col" aria-label="결재할 일">
+      {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
+      <div className="approval-categories">
+        <div className="approval-category-group" aria-label="결재할 일">
           {source.length > 0 && <h2 className="section">출처 확인이 먼저 필요한 문서</h2>}
-          <ul className="ledger stack">
+          <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                 <span className="flag"><Icon name="alert" />검토 필요</span>
@@ -88,11 +89,11 @@ export default function Admin() {
                 {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
               </li>
             ))}
-          </ul>
+          </PaginatedList>
 
           <h2 className="section">게시 승인 대기</h2>
           {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
-          <ul className="ledger stack">
+          <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                 <span className="flag"><Icon name="alert" />승인 대기</span>
@@ -108,13 +109,13 @@ export default function Admin() {
                 )}
               </li>
             ))}
-          </ul>
+          </PaginatedList>
           <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
         </div>
-        <div className="board-col" aria-label="진행·참고">
+        <div className="approval-category-group" aria-label="진행·참고">
           <h2 className="section">승인 뒤 게시 진행</h2>
           {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
-            <ul className="ledger stack">
+            <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger card-grid admin-grid">
               {after.map((i) => (
                 <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                   <span className="seal official"><Icon name="clock" />게시 진행</span>
@@ -124,13 +125,13 @@ export default function Admin() {
                     : <p className="note">게시 중입니다. 색인이 끝나면 검색과 보관함에 나타납니다(보통 수 분).</p>}
                 </li>
               ))}
-            </ul>
+            </PaginatedList>
           )}
           {blocked.length > 0 && (
             <>
               <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
               <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
-              <ul className="ledger stack">
+              <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger card-grid admin-grid">
                 {blocked.map((i) => (
                   <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                     <span className="flag"><Icon name="alert" />검토 필요</span>
@@ -138,7 +139,7 @@ export default function Admin() {
                     {i.findings.slice(0, 3).map((f, n) => <p key={n} className="quote">{f.user_message ?? f.message}</p>)}
                   </li>
                 ))}
-              </ul>
+              </PaginatedList>
             </>
           )}
         </div>

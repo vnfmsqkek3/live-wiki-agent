@@ -46,6 +46,21 @@ const readDetail = async (title) => {
   return content;
 };
 
+
+// 각 독립 목록의 다음 쪽을 끝까지 확인한다. API 호출 대신 실제 화면 버튼을 사용한다.
+async function findAcrossPages(expression) {
+  for (;;) {
+    const found = await ev(expression);
+    if (found) return found;
+    const before = await ev('location.href');
+    const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
+    if (!next) return false;
+    const changed = await until(async () => (await ev('location.href')) !== before, 5000, 100);
+    if (!changed) throw new Error('페이지네이션 다음 쪽 이동 실패');
+    await sleep(250);
+  }
+}
+
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 1200, deviceScaleFactor: 1, mobile: false });
 
@@ -107,7 +122,7 @@ for (const file of FILES) {
   // F5 admin 승인
   const a = await login('admin');
   await go('/admin', 5000);
-  const approved = await ev(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return 'notfound'; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; b.click(); return 'clicked'; })()`);
+  const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; b.click(); return 'clicked'; })()`);
   await sleep(4000);
   const adminMsg = await ev("document.querySelector('p[aria-live]')?.textContent ?? ''");
   check('F5', approved === 'clicked' && /승인했습니다/.test(adminMsg), `admin 탭 ${a.tabs.join('·')} · 결재함 ${approved} · ${adminMsg.slice(0, 80)}`, await shot(`${tag}-F5-admin`));
@@ -120,13 +135,13 @@ for (const file of FILES) {
   // F7 검색 (user)
   await login('user');
   const q = tag === 'K-001' ? '감정평가서 발급일' : title.replace('[SYNTHETIC] ', '').slice(0, 20);
-  const found = await until(async () => { await go(`/search?q=${encodeURIComponent(q)}`, 5000); return ev(`[...document.querySelectorAll('li.entry')].some((x) => x.innerText.includes(${JSON.stringify(title)}))`); }, 3 * 60_000, 15_000);
+  const found = await until(async () => { await go(`/search?q=${encodeURIComponent(q)}`, 5000); return findAcrossPages(`[...document.querySelectorAll('li.entry')].some((x) => x.innerText.includes(${JSON.stringify(title)}))`); }, 3 * 60_000, 15_000);
   check('F7', !!found, `검색 '${q}' → ${found ? '올린 문서 나옴' : '안 나옴'}`, await shot(`${tag}-F7-search`));
 
   // F8 보관함 카드 → 상세
   await go('/library', 5000);
   // 제목이 아니라 카드 빈 곳(왼쪽 아래)을 실제 마우스로 누른다
-  const pos = await ev(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return null; li.scrollIntoView(); const r = li.getBoundingClientRect(); return { x: r.left + 24, y: r.bottom - 8 }; })()`);
+  const pos = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return null; li.scrollIntoView(); const r = li.getBoundingClientRect(); return { x: r.left + 24, y: r.bottom - 8 }; })()`);
   if (pos) for (const type of ['mousePressed', 'mouseReleased']) await send('Input.dispatchMouseEvent', { type, x: pos.x, y: pos.y, button: 'left', clickCount: 1 });
   const clicked = !!pos;
   await sleep(6000);
