@@ -126,3 +126,15 @@ test('그림·쪽 맥락(quotable=false)은 <context>로만 전달하고 출처�
   assert.equal(r.steps.length, 1);
   assert.equal(r.evidence.length, 1);
 });
+
+test('매뉴얼 그림·화면 정리본은 그림 기준 근거로 인용(표시 자동), 규정 그림은 인용 불가 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const shot = { doc_id: 'doc_M', provision_id: 'doc_M#fig3', title: '과천 매뉴얼', snippet: '[그림 설명 · 원문 아님] 설치 창에서 [다음]을 누른다', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, quotable: false, document_type: 'MANUAL', page: 12 };
+  const regFig = { doc_id: 'doc_R', provision_id: 'doc_R#fig1', title: '규정', snippet: '[그림 설명 · 원문 아님] 결재 흐름도', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, quotable: false, document_type: 'REGULATION' };
+  const r = await guide('드라이버 설치', { model: 'm', search: async () => [shot, regFig],
+    draft: async () => ({ steps: [{ text: '설치 창에서 [다음]을 누릅니다', sources: ['doc_M#fig3'] }, { text: '결재 흐름', sources: ['doc_R#fig1'] }], uncertainty: '' }) });
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.steps[0]!.text, '(그림 기준 · 12쪽) 설치 창에서 [다음]을 누릅니다');
+  assert.equal(r.steps[0]!.sources[0]!.figure, true);
+  assert.equal(r.dropped_steps, 1);
+});

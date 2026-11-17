@@ -60,7 +60,7 @@ function GuideView() {
                   {s.sources.map((e) => (
                     <p key={e.doc_id} className="meta" style={{ margin: '4px 0 0' }}>
                       <PageThumb docId={e.doc_id} page={e.page} />
-                      근거: {e.provision ?? e.title}{e.effective_from ? `, ${e.effective_from} 시행` : ''}{e.freshness === 'REVIEW_REQUIRED' ? ' (재검토 중)' : ''}
+                      근거{(e as { figure?: boolean }).figure ? '(그림 기준)' : ''}: {e.provision ?? e.title}{e.effective_from ? `, ${e.effective_from} 시행` : ''}{e.freshness === 'REVIEW_REQUIRED' ? ' (재검토 중)' : ''}
                     </p>
                   ))}
                 </li>
