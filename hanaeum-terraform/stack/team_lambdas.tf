@@ -250,14 +250,15 @@ locals {
 data "aws_caller_identity" "me" {}
 
 module "team" {
-  source               = "../modules/fn"
-  for_each             = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
-  n                    = local.n
-  name                 = each.key
-  s3                   = { bucket = local.lb.bucket, key = each.value.zip }
-  handler              = each.value.handler
-  env                  = each.value.env
-  statements           = each.value.statements
+  source   = "../modules/fn"
+  for_each = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
+  n        = local.n
+  name     = each.key
+  s3       = { bucket = local.lb.bucket, key = each.value.zip }
+  handler  = each.value.handler
+  env      = merge(each.value.env, local.gov_env)
+  # 거버넌스 테이블(documents·approvals·feedback·audit)을 쓰는 Lambda 에만 Data API 권한
+  statements           = concat(each.value.statements, length(regexall("ddb-(documents|approvals|feedback|audit-events)", jsonencode(each.value.statements))) > 0 ? module.aurora.app_statements : [])
   memory               = each.value.memory
   timeout              = each.value.timeout
   model_caller         = each.value.model_caller

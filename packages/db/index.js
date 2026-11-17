@@ -84,3 +84,51 @@ export function db(cfg = {}) {
 
 /** 고유·조건 위반(23505 unique, 23503 FK, 23514 CHECK) 판별: Data API 는 오류 메시지에 SQLState 를 담는다 */
 export const pgCode = (e) => /SQLState: (\w{5})/.exec(String(e?.message))?.[1];
+
+// ---------- documents 행 ↔ DocumentRecord (세 Owner 공통 변환. 스키마 db/migrations/001) ----------
+/** 열로 둔 필드. 나머지는 attrs jsonb (findings 는 별도 테이블) */
+export const DOC_COLUMNS = ["doc_id", "version", "owner", "title", "dept", "acl_groups", "ext", "lifecycle", "document_type", "authority_status", "freshness",
+  "trust_gate_result", "workflow_id", "s3_version_id", "content_hash", "published_content_hash", "law_id", "revision_id", "created_at", "updated_at"];
+const DROP = new Set(["pk", "sk", "gsi1pk", "gsi1sk", "findings"]);
+
+/** DocumentRecord(또는 DynamoDB 항목) → { 열 값, attrs } */
+export function toDocumentRow(doc) {
+  const row = {}; const attrs = {};
+  for (const [k, v] of Object.entries(doc)) {
+    if (DROP.has(k) || v === undefined) continue;
+    if (DOC_COLUMNS.includes(k)) row[k] = v; else attrs[k] = v;
+  }
+  row.acl_groups = row.acl_groups ?? [];
+  return { ...row, attrs };
+}
+
+/** documents 행(+ findings 행) → DocumentRecord. null 열은 키를 만들지 않는다 (DynamoDB 때와 같은 모양) */
+export function fromDocumentRow(row, findingRows = []) {
+  const doc = { ...(row.attrs ?? {}) };
+  for (const k of DOC_COLUMNS) if (row[k] !== null && row[k] !== undefined) doc[k] = row[k];
+  doc.findings = findingRows.map((f) => ({ finding_id: f.finding_id, step: f.step, severity: f.severity, code: f.code, ...(f.data ?? {}) }));
+  return doc;
+}
+
+/** Finding → findings 행 */
+export function toFindingRow(doc_id, f) {
+  const { finding_id, step, severity, code, ...data } = f;
+  return { finding_id, doc_id, step, severity, code, data };
+}
+
+/** documents upsert SQL (전체 열 교체). 파라미터는 toDocumentRow 결과 그대로 */
+export const UPSERT_DOCUMENT_SQL = `INSERT INTO documents (${DOC_COLUMNS.join(", ")}, attrs) VALUES (` +
+  DOC_COLUMNS.map((c) => c === "acl_groups" ? "ARRAY(SELECT jsonb_array_elements_text(:acl_groups::jsonb))" : c.endsWith("_at") ? `:${c}::timestamptz` : `:${c}`).join(", ") +
+  `, :attrs::jsonb) ON CONFLICT (doc_id) DO UPDATE SET ` + [...DOC_COLUMNS.filter((c) => c !== "doc_id"), "attrs"].map((c) => `${c} = EXCLUDED.${c}`).join(", ");
+
+/** 한 단계의 findings 교체 (문서 행 잠금으로 병렬 단계 직렬화). q 는 tx 안의 query */
+export async function replaceStepFindings(q, doc_id, step, findings) {
+  const locked = await q("SELECT doc_id FROM documents WHERE doc_id = :doc_id FOR UPDATE", { doc_id });
+  if (!locked.length) throw new Error(`DocumentNotFound: ${doc_id}`);
+  await q("DELETE FROM findings WHERE doc_id = :doc_id AND step = :step", { doc_id, step });
+  for (const f of findings) {
+    const r = toFindingRow(doc_id, f);
+    await q("INSERT INTO findings (finding_id, doc_id, step, severity, code, data) VALUES (:finding_id, :doc_id, :step, :severity, :code, :data::jsonb) ON CONFLICT (finding_id) DO UPDATE SET step = EXCLUDED.step, severity = EXCLUDED.severity, code = EXCLUDED.code, data = EXCLUDED.data", r);
+  }
+  await q("UPDATE documents SET updated_at = now() WHERE doc_id = :doc_id", { doc_id });
+}

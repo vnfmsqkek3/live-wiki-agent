@@ -8,6 +8,8 @@ variable "table_documents" { type = object({ name = string, arn = string }) }
 variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "step_functions" { type = map(string) }
 variable "ocr_endpoint_name" { type = string }
+variable "gov_env" { type = map(string) }
+variable "gov_statements" { type = list(any) }
 # workflows.zip (lambda_build 모듈이 CodeBuild 로 빌드해 S3 에 올림)
 variable "lambda_s3" { type = object({ bucket = string, key = string }) }
 
@@ -107,14 +109,14 @@ resource "aws_iam_role_policy" "step" {
   role = aws_iam_role.step.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat(var.gov_statements, [
       { Effect = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn },
       # CopyObject 는 원본 태그(GuardDuty 스캔 결과)를 같이 복사하므로 PutObjectTagging 필요 (OcrIfNeeded)
       { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectTagging", "s3:PutObject", "s3:PutObjectTagging", "s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/*" },
       { Effect = "Allow", Action = ["sagemaker:InvokeEndpointAsync"], Resource = "arn:aws:sagemaker:${data.aws_region.this.region}:${data.aws_caller_identity.me.account_id}:endpoint/${var.ocr_endpoint_name}" },
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = var.table_documents.arn },
       { Effect = "Allow", Action = ["kms:Decrypt", "kms:GenerateDataKey"], Resource = var.kms_key_arn },
-    ]
+    ])
   })
 }
 
@@ -137,11 +139,11 @@ resource "aws_lambda_function" "step" {
   timeout       = each.value.timeout
   memory_size   = each.value.memory
   environment {
-    variables = {
+    variables = merge(var.gov_env, {
       TABLE_DOCUMENTS   = var.table_documents.name
       BUCKET_QUARANTINE = var.quarantine_bucket.name
       OCR_ENDPOINT_NAME = var.ocr_endpoint_name
-    }
+    })
   }
   tracing_config { mode = "Active" }
   depends_on = [aws_cloudwatch_log_group.step]

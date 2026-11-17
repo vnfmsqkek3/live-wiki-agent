@@ -13,6 +13,6 @@ const deps = Object.fromEntries(Object.entries(p.dependencies).filter(([n]) => !
 require("fs").writeFileSync(".lambda/package.json", JSON.stringify({ type: "module", private: true, dependencies: deps }, null, 2));
 '
 npm install --prefix .lambda --omit=dev --no-package-lock --no-audit --no-fund --os=linux --cpu=arm64 --libc=glibc >/dev/null
-mkdir -p .lambda/node_modules/@hanaeum/pii && cp ../packages/pii/package.json ../packages/pii/index.js .lambda/node_modules/@hanaeum/pii/
+mkdir -p .lambda/node_modules/@hanaeum/pii .lambda/node_modules/@hanaeum/db && cp ../packages/pii/package.json ../packages/pii/index.js .lambda/node_modules/@hanaeum/pii/ && cp ../packages/db/package.json ../packages/db/index.js .lambda/node_modules/@hanaeum/db/
 ls .lambda/node_modules/@napi-rs/ | grep -q canvas-linux-arm64-gnu || { echo "linux arm64 canvas binary missing" >&2; exit 1; }
 du -sh .lambda | cut -f1

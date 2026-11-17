@@ -15,6 +15,11 @@ variable "runtime_image_tag" {
   type    = string
   default = null # 오케스트레이터 ECR 이미지 태그. null 이면 Runtime 은 만들지 않는다
 }
+# 거버넌스 저장소(Aurora Data API) 권한 등 추가 문 (stack 이 module.aurora.app_statements 전달)
+variable "extra_runtime_statements" {
+  type    = list(any)
+  default = []
+}
 variable "runtime_env" {
   type    = map(string)
   default = {}
@@ -214,7 +219,7 @@ resource "aws_iam_role_policy" "runtime" {
   role = aws_iam_role.runtime.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat(var.extra_runtime_statements, [
       { Sid = "PipelineGatewayOnly", Effect = "Allow", Action = ["bedrock-agentcore:InvokeGateway"], Resource = aws_bedrockagentcore_gateway.pipeline.gateway_arn },
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem", "dynamodb:PutItem"], Resource = var.tables["documents"].arn },
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query"], Resource = var.tables["workflows"].arn },
@@ -224,7 +229,7 @@ resource "aws_iam_role_policy" "runtime" {
       { Effect = "Allow", Action = ["logs:CreateLogGroup", "logs:CreateLogStream", "logs:PutLogEvents", "logs:DescribeLogStreams", "logs:DescribeLogGroups"], Resource = "arn:aws:logs:${local.region}:${local.acct}:log-group:/aws/bedrock-agentcore/*" },
       { Effect = "Allow", Action = ["xray:PutTraceSegments", "xray:PutTelemetryRecords", "xray:GetSamplingRules", "xray:GetSamplingTargets", "cloudwatch:PutMetricData"], Resource = "*" },
       { Effect = "Allow", Action = ["bedrock-agentcore:GetWorkloadAccessToken", "bedrock-agentcore:GetWorkloadAccessTokenForJWT", "bedrock-agentcore:GetWorkloadAccessTokenForUserId"], Resource = "*" },
-    ]
+    ])
   })
 }
 

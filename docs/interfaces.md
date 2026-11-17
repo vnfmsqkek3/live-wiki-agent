@@ -189,6 +189,30 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | Tool 이름 | Agent에 노출되는 이름은 `{target}___{tool}` (예: `search___search_wiki`) |
 | interceptor 장애 | interceptor Lambda 오류 시 Tool은 호출되지 않고 오류 텍스트가 result로 반환됨 |
 
+## 10. 거버넌스 저장소 PostgreSQL (Owner yoyo0704, 사용자 결정 11/17)
+
+문서 메타데이터·검수 결과·승인·피드백·초안·감사를 DynamoDB 에서 Aurora PostgreSQL(Serverless v2)로 옮긴다. 통계·리포트 화면은 보류.
+
+| 항목 | 값 |
+|---|---|
+| 접근 | RDS Data API 만 (`@hanaeum/db`, `packages/db`). VPC·연결 풀 불필요. SSM `DB_CLUSTER_ARN`·`DB_SECRET_ARN`(app 사용자)·`DB_NAME` |
+| 권한 | Terraform `module.aurora.app_statements` (rds-data 5종 + app secret + KMS). master secret 은 마이그레이션 전용 |
+| 스키마 | `hanaeum-terraform/db/migrations/*.sql` (yoyo0704). 바꾸려면 새 번호 파일 PR, 리뷰어 dhxorb96·let522mj |
+| 남는 DynamoDB | `workflows`(단계 기록·잠금), `regulations`(Trusted Registry) |
+| 전환 | 환경변수 `GOV_STORE=dynamo\|postgres` (Terraform `governance_store`). 세 사람 구현이 모두 dev 에 올라간 뒤 dev 전환 → 데이터 복사(`scripts/db-copy-from-dynamo.mjs`) → smoke·QA → prod. 전환 뒤에도 DynamoDB 테이블은 롤백용으로 남김 |
+
+| DynamoDB (이전) | PostgreSQL | 비고 |
+|---|---|---|
+| documents `DOC#{id}`/`META` | `documents` | 주요 열 + 나머지 `attrs jsonb`. 시각 `timestamptz`. `lifecycle` 에 `DELETED` 포함 |
+| META 의 `findings[]` | `findings` | 단계별 교체 = 한 트랜잭션에서 `SELECT … FROM documents WHERE doc_id=:id FOR UPDATE` → `DELETE WHERE doc_id AND step` → `INSERT`. `updated_at` 조건부 재시도 대체 |
+| documents `DRAFT#{id}` | `drafts` | |
+| approvals `APR#{id}` | `approvals` | 자기 승인 금지·결정 시각 CHECK. 결정은 `UPDATE … WHERE status='PENDING' AND author_sub<>:ap AND s3_version_id=:v AND content_hash=:h RETURNING *` (0행 → CONFLICT) |
+| feedback `DOC#`/`USER#` | `feedback` (PK doc_id+user_sub) | upsert `ON CONFLICT DO UPDATE` |
+| audit_events | `audit_events` | 추가만 (UPDATE·DELETE 트리거로 거부, app 권한도 INSERT·SELECT 만) |
+
+- 조회: 보관함·결재함·노하우 점검의 전체 Scan → `WHERE owner=…` / `WHERE lifecycle IN (…)` 인덱스 조회.
+- 오류: `pgCode(e)` 로 SQLState 판별 (23505 중복, 23503 FK, 23514 CHECK → API 409/400).
+
 ## 변경 이력
 
 | 날짜 | 작성자 | 섹션 | 변경 |

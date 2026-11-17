@@ -47,3 +47,28 @@ test("pgCode extracts SQLState", () => {
   assert.equal(pgCode(new Error('ERROR: duplicate key value; SQLState: 23505')), "23505");
   assert.equal(pgCode(new Error("x")), undefined);
 });
+
+import { fromDocumentRow, replaceStepFindings, toDocumentRow, UPSERT_DOCUMENT_SQL } from "./index.js";
+
+test("documents row mapping round-trips a DynamoDB item", () => {
+  const item = { pk: "DOC#doc_1", sk: "META", doc_id: "doc_1", version: 2, owner: "u", title: "t", dept: "여신", acl_groups: ["ALL"], ext: "pdf", lifecycle: "PUBLISHED",
+    authority_status: "VERIFIED", freshness: "CURRENT", created_at: "2026-11-17T00:00:00.000Z", updated_at: "2026-11-17T00:00:00.000Z",
+    classification: { document_type: "KNOWHOW" }, summary: "요약", findings: [{ finding_id: "fnd_1", step: "PiiScan", severity: "LOW", code: "X", message: "m", evidence_ref: "e" }] };
+  const row = toDocumentRow(item);
+  assert.equal(row.pk, undefined); assert.equal(row.findings, undefined);
+  assert.deepEqual(row.attrs, { classification: { document_type: "KNOWHOW" }, summary: "요약" });
+  const back = fromDocumentRow({ ...row, document_type: null }, [{ finding_id: "fnd_1", step: "PiiScan", severity: "LOW", code: "X", data: { message: "m", evidence_ref: "e" } }]);
+  const { pk, sk, ...expected } = item; void pk; void sk;
+  assert.deepEqual(back, expected);
+  assert.ok(!("document_type" in back));
+  assert.match(UPSERT_DOCUMENT_SQL, /ON CONFLICT \(doc_id\) DO UPDATE SET version = EXCLUDED.version/);
+  assert.match(UPSERT_DOCUMENT_SQL, /:created_at::timestamptz/);
+});
+
+test("replaceStepFindings locks, deletes the step, inserts", async () => {
+  const sqls = [];
+  const q = async (sql) => { sqls.push(sql.split(" ").slice(0, 2).join(" ")); return [{ doc_id: "doc_1" }]; };
+  await replaceStepFindings(q, "doc_1", "PageRender", [{ finding_id: "fnd_1", step: "PageRender", severity: "MEDIUM", code: "C", message: "m" }]);
+  assert.deepEqual(sqls, ["SELECT doc_id", "DELETE FROM", "INSERT INTO", "UPDATE documents"]);
+  await assert.rejects(replaceStepFindings(async () => [], "doc_x", "S", []), /DocumentNotFound/);
+});

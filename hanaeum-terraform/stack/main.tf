@@ -59,6 +59,8 @@ module "sfn" {
   ocr_endpoint_name = module.ocr.endpoint_name
   quarantine_bucket = module.s3.buckets["quarantine"]
   step_functions    = merge(local.team_steps, local.lambda_arn)
+  gov_env           = local.gov_env
+  gov_statements    = module.aurora.app_statements
 }
 
 module "kb" {
@@ -92,7 +94,8 @@ module "pipeline" {
   tables                    = module.ddb.tables
   create_runtime            = local.agents_ref != null || var.pipeline_runtime_image_tag != null
   runtime_image_tag         = var.pipeline_runtime_image_tag != null ? var.pipeline_runtime_image_tag : terraform_data.agent_image["pipeline"].output
-  runtime_env               = { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off", PAGE_SUMMARIZE = contains(var.team_lambdas, "page-summarize") ? "on" : "off" }
+  extra_runtime_statements  = module.aurora.app_statements
+  runtime_env               = merge(local.gov_env, { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off", PAGE_SUMMARIZE = contains(var.team_lambdas, "page-summarize") ? "on" : "off" })
   enable_transaction_search = var.enable_transaction_search
 }
 
@@ -113,13 +116,14 @@ module "webapp" {
   runtime_arn_patterns = [module.pipeline.runtime_arn_pattern, module.user.runtime_arn_pattern]
   extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn]
   kb_arn               = local.kb_arn
-  api_env = {
+  extra_api_statements = module.aurora.app_statements
+  api_env = merge(local.gov_env, {
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
     AGENT_RUNTIME_ARN    = module.user.runtime_arn
     USER_GATEWAY_URL     = module.user.gateway_url # 상세 '외부 법령 최신본': 사용자 토큰으로 regulation___fetch_official_law (NAT 경유 HTTPS)
     KB_ID                = module.kb.kb_id         # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
     MODEL_RERANK         = var.models["MODEL_RERANK"]
-  }
+  })
 }
 
 # Agent 이미지 (agents/, dhxorb96): 웹과 같은 CodeBuild(podman)로 AWS 안에서 빌드. 태그 = 커밋
@@ -180,6 +184,11 @@ module "aurora" {
   data_subnet_ids     = module.network.subnet_ids["data"]
   min_acu             = var.env == "prod" ? 0.5 : 0
   deletion_protection = var.env == "prod"
+}
+
+# 거버넌스 저장소 선택·접속 정보 (모든 Lambda·API·오케스트레이터 공통 환경변수)
+locals {
+  gov_env = { GOV_STORE = var.governance_store, DB_CLUSTER_ARN = module.aurora.cluster_arn, DB_SECRET_ARN = module.aurora.app_secret_arn, DB_NAME = module.aurora.db_name }
 }
 
 # 스키마 마이그레이션: db/migrations 가 바뀌면 다시 실행 (적용된 파일은 schema_migrations 로 건너뜀)

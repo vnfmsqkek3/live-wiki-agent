@@ -3,10 +3,9 @@
 //   → GraphUpsert(action=delete, Neptune deleteDoc) → 끝. 문서 기록(Documents)·승인·감사 기록은 감사 목적으로 남긴다.
 // 이 단계: published/{legal|knowledge}/{doc_id}/ 와 quarantine/{doc_id}/ 의 모든 객체·모든 버전·삭제 마커를 지운다.
 // 안전장치: Documents lifecycle 이 DELETED 가 아니면 아무것도 지우지 않고 예외 (Gateway 로 잘못 불려도 게시 문서 보호).
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DeleteObjectsCommand, ListObjectVersionsCommand, S3Client } from "@aws-sdk/client-s3";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
 import type { StepInput, StepOutput } from "./common.js";
+import { getDocument } from "./findings-store.js";
 
 export type Deps = {
   lifecycle: (doc_id: string) => Promise<string | undefined>;
@@ -29,7 +28,6 @@ export function makeHandler(d: Deps) {
 }
 
 const s3 = new S3Client({});
-const db = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 
 export async function purgePrefix(Bucket: string, Prefix: string): Promise<number> {
   let n = 0;
@@ -49,8 +47,7 @@ export async function purgePrefix(Bucket: string, Prefix: string): Promise<numbe
 }
 
 export const handler = makeHandler({
-  lifecycle: async (doc_id) =>
-    (await db.send(new GetCommand({ TableName: process.env.TABLE_DOCUMENTS, Key: { pk: `DOC#${doc_id}`, sk: "META" }, ConsistentRead: true }))).Item?.lifecycle as string | undefined,
+  lifecycle: async (doc_id) => (await getDocument<{ lifecycle?: string }>(doc_id))?.lifecycle,
   purge: purgePrefix,
   buckets: { published: process.env.BUCKET_PUBLISHED ?? "", quarantine: process.env.BUCKET_QUARANTINE ?? "" },
 });
