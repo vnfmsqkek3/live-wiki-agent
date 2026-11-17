@@ -373,3 +373,27 @@ test("그림 속 글자(화면 캡처): 본문 흐름에서 빼고 자리에 [�
   const seg = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr", blocks: [...blocks, b("", 250, "text", 0)], figures }] })[0]!;
   assert.equal(seg.low_confidence, false);
 });
+
+test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEXT, text 라벨 줄은 그림 bbox와 겹쳐도 본문, 쪽 덮는 그림·직인은 분리 안 함, 자르기는 낱말 경계", async () => {
+  const { ocrPageText, segmentStep } = await import("./segment.ts");
+  const b = (text: string, y: number, label = "text", confidence = 0.99) => ({ block_id: text + y, label, text, confidence, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  // 1) 글자 없는 사진만: NO_TEXT 차단
+  const s = new MemoryObjectStore();
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ doc_id: DOC, source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] }));
+  await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify({ doc_id: DOC, model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr", blocks: [], figures: [{ label: "image", bbox: [0, 0, 200, 200] }] }] }));
+  const out = await segmentStep(input, s);
+  assert.equal(out.status, "BLOCKED");
+  assert.equal(out.findings![0]!.code, "NO_TEXT");
+  // 2) 레이아웃이 text로 붙인 줄은 image bbox 안이어도 본문
+  const lines = [b("제1조(목적) 이 규정은", 20), b("은행 업무를 정한다", 40)];
+  assert.equal(ocrPageText(lines, [], [{ label: "image", bbox: [0, 0, 300, 100] }], 0, { width: 400, height: 300 }), "[그림 1]\n제1조(목적) 이 규정은\n은행 업무를 정한다"); // 자리 표시는 그림 위쪽 경계 위치
+  // 3) 쪽을 거의 덮는 그림(옛 형식 줄)은 그림으로 보지 않음
+  const legacy = lines.map((x) => ({ ...x, label: "paragraph" }));
+  assert.equal(ocrPageText(legacy, [], [{ label: "image", bbox: [0, 0, 400, 300] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n은행 업무를 정한다");
+  // 4) 직인(seal) 영역 줄은 본문에 남김
+  assert.equal(ocrPageText([b("은행장 홍길동", 20, "seal")], [], [{ label: "seal", bbox: [0, 0, 100, 100] }]), "은행장 홍길동");
+  // 5) 1,500자 자르기는 낱말 경계 (주민등록번호가 반만 남지 않게)
+  const long = `${"가".repeat(1490)} 900101-1234568 끝`;
+  const t = ocrPageText([b(long, 50, "image", 0.5)], [], [{ label: "image", bbox: [0, 0, 400, 300] }]);
+  assert.ok(!/900101-12/u.test(t) && t.endsWith("…"));
+});
