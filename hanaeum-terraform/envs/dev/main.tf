@@ -32,7 +32,7 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "0d69d1f" # workflows·auth-triggers·services/ocr
+    yoyo0704 = "2d53d78" # workflows·auth-triggers·services/ocr
     dhxorb96 = "a10314f" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "04b365f" # PR #19 PostgreSQL 전환(legal-etl·search·graph)
   }
