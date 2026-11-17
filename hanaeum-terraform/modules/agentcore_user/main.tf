@@ -22,6 +22,7 @@ variable "image_tag" {
   default = null # null 이면 Runtime 은 만들지 않는다
 }
 variable "model_sonnet" { type = string }
+variable "model_haiku" { type = string } # 가이드 여러 번 찾기 항목 뽑기 (11/18)
 
 data "aws_region" "this" {}
 data "aws_caller_identity" "me" {}
@@ -216,6 +217,7 @@ resource "aws_bedrockagentcore_agent_runtime" "guide" {
   environment_variables = {
     GATEWAY_URL  = aws_bedrockagentcore_gateway.user.gateway_url
     MODEL_SONNET = var.model_sonnet
+    MODEL_HAIKU  = var.model_haiku
     AWS_REGION   = local.region
   }
   depends_on = [aws_iam_role_policy.runtime, aws_bedrockagentcore_policy.user_tools]

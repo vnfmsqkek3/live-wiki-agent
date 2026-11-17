@@ -158,6 +158,7 @@ module "user" {
   interceptor_arn      = module.team["interceptor"].arn
   schema_bucket        = { name = module.s3.buckets["artifact"].name, arn = module.s3.buckets["artifact"].arn }
   model_sonnet         = var.models["MODEL_SONNET"]
+  model_haiku          = var.models["MODEL_HAIKU"]
   create_runtime       = local.agents_ref != null
   image_tag            = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
   targets = {
