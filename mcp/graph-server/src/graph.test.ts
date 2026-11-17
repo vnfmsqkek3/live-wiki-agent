@@ -242,3 +242,12 @@ test("주장 재검토 (PR #36 리뷰): 더 오래된 버전 인용도 직접 �
     content: read("documents/F-002.txt"), law: { ...LAW, revision_id: "2027-03-01", previous_revision_id: "2027-02-01" } }, graph, store, missing);
   assert.equal(out2.status, "OK");
 });
+
+test("인용 추출은 그림·AI 쪽 정리 줄(⟦그림 pN⟧)을 근거로 쓰지 않음 (PR #38 리뷰)", async () => {
+  const store = fixtureClauseStore();
+  const body = "하나은행 기업여신 심사규정 제12조제1항에 따라 승인을 받는다.";
+  const ai = "⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 하나은행 기업여신 심사규정 제10조제2항 감정평가서";
+  const cs = await extractCitations(`${body}\n${ai}`, store, 20261215);
+  assert.ok(cs.some((c) => c.provision_id.endsWith("ARTICLE:12/PARAGRAPH:1")));
+  assert.ok(!cs.some((c) => c.provision_id.endsWith("ARTICLE:10/PARAGRAPH:2")));
+});
