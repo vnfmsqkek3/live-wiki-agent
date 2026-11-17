@@ -58,9 +58,9 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
 
 const deps: LambdaDeps = {
   store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow, purge: purgePrefix,
-  ...(process.env.GOV_STORE === 'postgres' ? { saveClaims: async (doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (s: string) => number | null) => {
+  ...(process.env.GOV_STORE === 'postgres' ? { saveClaims: async (doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (s: string) => number | null, revisedTo?: (pid: string) => Promise<string | undefined>) => {
     const [{ db }, c] = await Promise.all([import('@hanaeum/db'), import('./claims.ts')]);
-    return c.saveClaims(db().tx, doc_id, items, pageOf);
+    return c.saveClaims(db().tx, doc_id, items, pageOf, revisedTo);
   } } : {}),
 };
 const seg: SegmentDeps = {

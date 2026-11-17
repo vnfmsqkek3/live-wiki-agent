@@ -12,6 +12,7 @@ import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
+import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
@@ -26,7 +27,7 @@ export interface LambdaDeps {
   /** 노하우 검증 의존성 (regulation·search Tool). 없으면 KNOWHOW 문서는 검증 대기로 사람 검토 */
   knowhow?: KnowhowDeps & { maskedText(d: DocumentRecord): Promise<string> };
   /** 주장 저장 (interfaces.md 10.2, PostgreSQL). 노하우 검증 items 그대로. 없으면 생략 */
-  saveClaims?(doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (statement: string) => number | null): Promise<unknown>;
+  saveClaims?(doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (statement: string) => number | null, revisedTo?: (provision_id: string) => Promise<string | undefined>): Promise<unknown>;
   /** Trusted Registry 대조 (let522mj registryMatch). text 없이 부르면 해시만 대조 */
   registry?(content_hash: string, text?: string): Promise<{ registry?: RegistryEntry & { law_name?: string; effective_to?: string; registry_doc_no?: string }; claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> } }>;
   maskedText?(d: DocumentRecord): Promise<string>;
@@ -275,7 +276,9 @@ export function makeTrustGate(deps: LambdaDeps) {
       const pages = deps.maskedPages ? await deps.maskedPages(d).catch(() => []) : [];
       const squash = (t: string) => t.replace(/\s/g, '');
       const pageOf = (st: string) => { const k = squash(st).slice(0, 30); const i = pages.findIndex((p) => squash(p.text).includes(k)); return i >= 0 ? (pages[i]!.page ?? i) + 1 : null; };
-      await deps.saveClaims(d.doc_id, kv.items, pageOf).catch((e: Error) => console.warn(JSON.stringify({ msg: 'claims failed', doc_id: d.doc_id, err: e.name })));
+      const k = deps.knowhow!;
+      const revisedTo = async (pid: string) => { const cl = await k.getClause(pid); return cl?.newer && (cl.newer.deleted || !sameText(cl.text, cl.newer.text)) ? cl.newer.provision_id : undefined; };
+      await deps.saveClaims(d.doc_id, kv.items, pageOf, revisedTo).catch((e: Error) => console.warn(JSON.stringify({ msg: 'claims failed', doc_id: d.doc_id, err: e.name })));
     }
     return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };

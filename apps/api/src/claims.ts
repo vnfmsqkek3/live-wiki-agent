@@ -5,16 +5,24 @@ import type { KnowhowValidation } from './steps/knowhow.ts';
 
 export interface ClaimRow { claim_id: string; seq: number; statement: string; page: number | null; provision_id: string | null; relation: string; reason: string; quote: string | null; verified: boolean; status: string; status_reason: string | null }
 
+/** 조문 글자 비교용: 공백·문장부호 제거 (let522mj 기준) */
+export const sameText = (a: string, b: string) => { const n = (s: string) => s.replace(/[\s\p{P}\p{S}]/gu, ''); return n(a) === n(b); };
+
 /** 검증 결과로 그 문서의 주장을 교체: 같은 (doc_id, seq) 는 UPSERT(다시 CURRENT), 사라진 seq 는 SUPERSEDED. 한 트랜잭션 */
-export async function saveClaims(tx: <T>(fn: (q: Query) => Promise<T>) => Promise<T>, doc_id: string, items: KnowhowValidation['items'], pageOf: (statement: string) => number | null = () => null) {
+
+export async function saveClaims(tx: <T>(fn: (q: Query) => Promise<T>) => Promise<T>, doc_id: string, items: KnowhowValidation['items'], pageOf: (statement: string) => number | null = () => null,
+  /** 같은 규정에 더 새 VERIFIED 개정본이 있고 그 조문이 다르면 재검토 (미래 시행 개정본을 먼저 게시한 경우, let522mj 요청 11/17) */
+  revisedTo: (provision_id: string) => Promise<string | undefined> = async () => undefined) {
+  const revised = await Promise.all(items.map((it) => (it.provision_id ? revisedTo(it.provision_id).catch(() => undefined) : Promise.resolve(undefined))));
   return tx(async (q) => {
     for (const [i, it] of items.entries()) {
       await q(`INSERT INTO claims (claim_id, doc_id, seq, statement, page, provision_id, relation, reason, quote, verified, status, status_reason, checked_at, updated_at)
-        VALUES (:id, :doc, :seq, :statement, :page, :prov, :relation, :reason, :quote, :verified, 'CURRENT', NULL, now(), now())
+        VALUES (:id, :doc, :seq, :statement, :page, :prov, :relation, :reason, :quote, :verified, :status, :status_reason, now(), now())
         ON CONFLICT (doc_id, seq) DO UPDATE SET statement = EXCLUDED.statement, page = EXCLUDED.page, provision_id = EXCLUDED.provision_id, relation = EXCLUDED.relation,
-          reason = EXCLUDED.reason, quote = EXCLUDED.quote, verified = EXCLUDED.verified, status = 'CURRENT', status_reason = NULL, checked_at = now(), updated_at = now()`,
+          reason = EXCLUDED.reason, quote = EXCLUDED.quote, verified = EXCLUDED.verified, status = EXCLUDED.status, status_reason = EXCLUDED.status_reason, checked_at = now(), updated_at = now()`,
         { id: `${doc_id}#${i + 1}`, doc: doc_id, seq: i + 1, statement: it.statement.slice(0, 2000), page: pageOf(it.statement), prov: it.provision_id || null,
-          relation: it.relation, reason: (it.reason ?? '').slice(0, 1000), quote: it.quote || null, verified: !!it.verified_quote });
+          relation: it.relation, reason: (it.reason ?? '').slice(0, 1000), quote: it.quote || null, verified: !!it.verified_quote,
+          status: revised[i] ? 'REVIEW_REQUIRED' : 'CURRENT', status_reason: revised[i] ? `provision_revised:${revised[i]}` : null });
     }
     await q(`UPDATE claims SET status = 'SUPERSEDED', status_reason = 'not_in_latest_validation', updated_at = now() WHERE doc_id = :doc AND seq > :n AND status <> 'SUPERSEDED'`, { doc: doc_id, n: items.length });
     return items.length;
