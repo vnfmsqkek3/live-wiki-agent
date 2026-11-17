@@ -3,7 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, dateLine, type Finding, type Review } from '../lib/api';
-import { IssueList, PageFacts } from '../issues';
+import { IssueList, PageFacts, VersionLink } from '../issues';
 
 const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
 const VERDICT: Record<string, [string, string]> = {
@@ -96,6 +96,7 @@ function ReviewView() {
       {r.workflow_failure && <p className="notice" role="alert">{r.workflow_failure.step} 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       <IssueList docId={r.doc_id} />
+      <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 
       <h2 className="section">문서 종류</h2>

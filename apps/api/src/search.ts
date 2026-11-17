@@ -1,6 +1,7 @@
 // /v1/search: let522mj search_wiki를 같은 프로세스에서 호출한다 (ACL·현재 상태 재검증은 Tool이 actor로 강제).
 // ponytail: 사용자 Gateway가 생기면 가이드 Agent처럼 사용자 토큰으로 Gateway 호출로 바꿀 수 있다 (계약 동일)
 import type { Actor } from './contracts.ts';
+import type { DetailFilter } from './library.ts';
 
 export interface SearchHit {
   doc_id: string; title: string; snippet: string; provision?: string; effective_from: string;
@@ -19,8 +20,9 @@ export const toItem = (h: SearchHit) => ({
 });
 
 export function searchVia(searchWiki: SearchWiki) {
-  return async (q: string, a: Actor, o: { tags: string[]; as_of?: string; business?: string; index_groups?: string[] }) => {
-    const r = await searchWiki({ query: q, top_k: 10, ...(o.tags.length ? { tags: o.tags } : {}), ...(o.business ? { business: o.business } : {}), ...(o.as_of ? { as_of: o.as_of } : {}), ...(o.index_groups ? { index_groups: o.index_groups } : {}) },
+  return async (q: string, a: Actor, o: { tags: string[]; as_of?: string; index_groups?: string[] } & DetailFilter) => {
+    const { tags, ...rest } = o; // 세부 필터는 search_wiki 인자 이름 그대로 (값이 있는 것만)
+    const r = await searchWiki({ query: q, top_k: 10, ...(tags.length ? { tags } : {}), ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v)) },
       { sub: a.sub, groups: a.groups, ...(a.dept ? { dept: a.dept } : {}) });
     return (r.items ?? []).map(toItem);
   };

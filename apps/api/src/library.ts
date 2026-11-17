@@ -55,7 +55,7 @@ export function related(d: DocumentRecord, visible: DocumentRecord[]): Related[]
 
 export function card(d: DocumentRecord, visible: DocumentRecord[]) {
   return {
-    doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle,
+    doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle, dept: d.dept,
     business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
     uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null,
@@ -64,10 +64,30 @@ export function card(d: DocumentRecord, visible: DocumentRecord[]) {
   };
 }
 
-export function matches(d: DocumentRecord, f: { type?: string; business?: string; tag?: string; q?: string }) {
+/** 검색·보관함 세부 필터 (사용자 요청 11/17). search_wiki 인자와 같은 이름 */
+export interface DetailFilter { business?: string; dept?: string; date_from?: string; date_to?: string; authority_status?: string; freshness?: string }
+const YMD = /^\d{4}-\d{2}-\d{2}$/;
+/** 쿼리 문자열 → 검증된 세부 필터. 형식이 틀린 값은 버린다 */
+export function detailFilter(get: (k: string) => string | undefined): DetailFilter {
+  const v = (k: string, ok: (x: string) => boolean) => { const x = get(k)?.trim().slice(0, 40); return x && ok(x) ? x : undefined; };
+  const f: DetailFilter = {
+    business: v('business', () => true), dept: v('dept', () => true),
+    date_from: v('date_from', (x) => YMD.test(x)), date_to: v('date_to', (x) => YMD.test(x)),
+    authority_status: v('authority_status', (x) => ['VERIFIED', 'UNVERIFIED'].includes(x)), freshness: v('freshness', (x) => ['CURRENT', 'REVIEW_REQUIRED'].includes(x)),
+  };
+  return Object.fromEntries(Object.entries(f).filter(([, x]) => x)) as DetailFilter;
+}
+
+export function matches(d: DocumentRecord, f: { type?: string; tag?: string; q?: string } & DetailFilter) {
   const c = d.classification;
+  const date = d.doc_date?.date;
   return (!f.type || (d.document_type ?? c?.document_type) === f.type)
-    && (!f.business || (c?.business_path ?? []).includes(f.business))
+    && (!f.dept || d.dept === f.dept)
+    && (!f.authority_status || d.authority_status === f.authority_status)
+    && (!f.freshness || d.freshness === f.freshness)
+    && (!f.date_from || (!!date && date >= f.date_from))
+    && (!f.date_to || (!!date && date <= f.date_to))
+    && (!f.business || (c?.business_path ?? [])[0] === f.business || (c?.business_path ?? []).includes(f.business))
     && (!f.tag || (c?.tags ?? []).includes(f.tag))
     && (!f.q || `${d.title} ${d.summary ?? ''}`.toLowerCase().includes(f.q.toLowerCase()));
 }

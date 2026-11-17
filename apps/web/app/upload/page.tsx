@@ -93,7 +93,11 @@ export default function Upload() {
           </section>
         )}
         {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
-        {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
+        {/* 실행이 실패해 분석이 끝나지 않은 문서(QUARANTINED)는 검토할 결과가 없다 → 실패 단계와 다음 행동만 */}
+        {state.doc_id && prog?.halted && prog.lifecycle === 'QUARANTINED' && (
+          <p className="notice" role="alert">{prog.steps.find((x) => x.state === 'failed')?.label ?? '처리'} 단계에서 분석이 멈춰 검토할 결과가 없습니다. 위 '확인할 내용'의 사유를 보고 파일을 고쳐 다시 올려 주세요. 반복되면 관리자에게 알려 주세요.</p>
+        )}
+        {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && prog?.lifecycle !== 'QUARANTINED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </form>
     </>
   );

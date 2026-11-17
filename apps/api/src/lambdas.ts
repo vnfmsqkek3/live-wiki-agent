@@ -250,6 +250,14 @@ export function makeFinalize(deps: LambdaDeps) {
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
     // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
     if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
+    // 새 버전 게시 → 이전 버전은 대체됨(검색은 SUPERSEDED를 내보내지 않음). 보관함에는 버전 목록으로 남는다
+    if (i.outcome === 'PUBLISHED' && next.previous_doc_id) {
+      const prev = await deps.store.getDoc(next.previous_doc_id);
+      if (prev && prev.lifecycle === 'PUBLISHED') {
+        await deps.store.putDoc({ ...prev, freshness: 'SUPERSEDED', superseded_by: next.doc_id, updated_at: now() });
+        await deps.store.audit({ at: now(), actor: 'system:finalize', action: 'VERSION_SUPERSEDED', resource: prev.doc_id, result: 'OK', trace_id: i.workflow_id });
+      }
+    }
     // 검증에서 차단되거나 반려된 문서는 원본·작업 파일을 저장소에서 바로 지운다 (사용자 지시 11/17).
     // 개인정보를 가린 설명·쪽 이미지(masked/)는 올린 사람이 사유를 보도록 MASKED_RETENTION_DAYS 동안 남기고 freshnessSweep이 지운다
     if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && deps.purge) await purgeOriginal(deps, next, i.workflow_id);

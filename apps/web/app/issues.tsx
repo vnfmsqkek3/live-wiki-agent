@@ -1,7 +1,7 @@
 'use client';
 // 올린 사람에게 "몇 쪽 어디가 왜, 어떻게 고치는지" (사용자 지시 11/17). 쪽 이미지는 개인정보를 가린 마스킹본만 보여 준다
 import { useEffect, useState } from 'react';
-import { api, apiBlobUrl, type Explanation, type Issue, type Issues } from './lib/api';
+import { api, ApiError, apiBlobUrl, type DocChange, type Explanation, type Issue, type Issues, type VersionCandidates, type VersionDiff } from './lib/api';
 
 const SEV: Record<Issue['severity'], string> = { HIGH: '등록 불가·수정 필요', MEDIUM: '확인 필요', LOW: '참고' };
 
@@ -102,5 +102,80 @@ export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: strin
       {!!m.keywords?.length && <><dt>핵심어</dt><dd>{m.keywords.join(', ')}</dd></>}
       {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd>{m.clause_refs.join(', ')}</dd></>}
     </dl>
+  );
+}
+
+const CHANGE_KIND = { ADDED: '추가', REMOVED: '삭제', CHANGED: '변경' } as const;
+
+/** 이전 버전과 바뀐 곳: 위치·종류·이전 → 새 문구. 숫자가 바뀌면 따로 표시 */
+export function Changes({ diff }: { diff: VersionDiff }) {
+  const [all, setAll] = useState(false);
+  const shown = all ? diff.changes : diff.changes.slice(0, 10);
+  return (
+    <section aria-labelledby="chg-h">
+      <h3 className="section" id="chg-h">v{diff.previous.version_no}과 바뀐 곳 <span className="note">{diff.count}건</span></h3>
+      {diff.count === 0 ? <p className="note">내용이 바뀐 곳이 없습니다.</p>
+        : !diff.changes.length ? <p className="note">이전 버전을 볼 권한이 없어 바뀐 내용은 표시하지 않습니다.</p> : (
+        <ul className="fixes">
+          {shown.map((c: DocChange, n) => (
+            <li key={n} className={`fix chg-${c.kind}`}>
+              <p className="fix-head">{c.where} · {CHANGE_KIND[c.kind]}</p>
+              {c.numbers_changed && <p className="danger-text" style={{ margin: 0 }}>숫자 변경: {c.numbers_changed.old.join(', ')} → {c.numbers_changed.new.join(', ')}</p>}
+              <dl className="trio">
+                {c.kind !== 'ADDED' && <><dt>이전</dt><dd><del>{c.old_text}</del></dd></>}
+                {c.kind !== 'REMOVED' && <><dt>새 버전</dt><dd><ins>{c.new_text}</ins></dd></>}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      )}
+      {diff.changes.length > 10 && !all && <button type="button" className="linklike" onClick={() => setAll(true)}>바뀐 곳 모두 보기 ({diff.changes.length}건)</button>}
+    </section>
+  );
+}
+
+/** 업로드 검토: 이전 버전 후보를 보여 주고 작성자가 확인하면 연결 (자동 연결 안 함) */
+export function VersionLink({ docId, canEdit }: { docId: string; canEdit: boolean }) {
+  const [v, setV] = useState<VersionCandidates | null>(null);
+  const [diff, setDiff] = useState<VersionDiff | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [msg, setMsg] = useState('');
+  const load = () => api<VersionCandidates>('GET', `/v1/documents/${encodeURIComponent(docId)}/version-candidates`).then(setV).catch(() => setV({ linked: null, items: [] }));
+  useEffect(() => { void load(); }, [docId]);
+  useEffect(() => {
+    if (!v?.linked) { setDiff(null); return; }
+    api<{ diff: VersionDiff | null }>('GET', `/v1/library/${encodeURIComponent(docId)}/versions`).then((r) => setDiff(r.diff)).catch(() => setDiff(null));
+  }, [v?.linked, docId]);
+  async function link(id: string | null) {
+    try { await api('POST', `/v1/documents/${encodeURIComponent(docId)}/previous`, { previous_doc_id: id }); setMsg(id ? '이전 버전과 연결했습니다. 승인되면 이전 버전은 검색에서 빠집니다.' : '연결을 끊었습니다.'); await load(); }
+    catch (e) { setMsg((e as ApiError).message); }
+  }
+  if (!v) return null;
+  if (v.linked) return (
+    <section aria-labelledby="ver-h">
+      <h2 className="section" id="ver-h">버전</h2>
+      <p>이 문서는 「{v.linked.title}」 v{v.linked.version_no}의 새 버전(v{v.version_no ?? v.linked.version_no + 1})입니다.
+        {canEdit && <> <button type="button" className="linklike" onClick={() => link(null)}>연결 끊기</button></>}</p>
+      {diff && <Changes diff={diff} />}
+      {msg && <p className="note" aria-live="polite">{msg}</p>}
+    </section>
+  );
+  if (!v.items.length || dismissed || !canEdit) return null;
+  return (
+    <section aria-labelledby="ver-h" className="notice" style={{ display: 'block' }}>
+      <h2 className="section" id="ver-h" style={{ marginTop: 0 }}>이미 게시된 문서의 새 버전인가요?</h2>
+      <p className="note">새 버전으로 연결하면 바뀐 곳을 비교해 보여 주고, 승인되면 이전 버전은 '대체됨'으로 바뀌어 검색에서 빠집니다.</p>
+      <ul className="fixes">
+        {v.items.map((c) => (
+          <li key={c.doc_id} className="fix">
+            <p className="fix-head">{c.title}</p>
+            <p className="note" style={{ margin: 0 }}>{c.reason}</p>
+            <div className="actions"><button className="btn solid" onClick={() => link(c.doc_id)}>이 문서의 새 버전으로 연결</button></div>
+          </li>
+        ))}
+      </ul>
+      <button type="button" className="btn" onClick={() => setDismissed(true)}>새 문서입니다</button>
+      {msg && <p className="note" aria-live="polite">{msg}</p>}
+    </section>
   );
 }

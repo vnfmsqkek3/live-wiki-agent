@@ -21,6 +21,8 @@ const item = (provision_id: string, relation: 'SUPPORTS' | 'CONFLICTS' | 'INSUFF
 async function setup() {
   const store = memoryStore();
   const deleted: string[] = [];
+  const searched: unknown[] = [];
+  let pagesFn = (id: string): { page: number; text: string }[] => id ? [{ page: 1, text: '둘째 장' }, { page: 0, text: '1억원 이하는 현장 실사를 생략한다.' }] : [];
   await store.putDoc(base({ doc_id: 'REG', title: '기업여신 심사규정', law_id: 'SYN-LOAN-001', revision_id: '2026-11-01', document_type: 'REGULATION', classification: { document_type: 'REGULATION', business_path: ['여신'], tags: ['공식규정'], confidence: 1, rationale: '' } }));
   await store.putDoc(base({ doc_id: 'REG_NEXT', title: '기업여신 심사규정 (12-01 개정)', law_id: 'SYN-LOAN-001', revision_id: '2026-12-01', document_type: 'REGULATION' }));
   await store.putDoc(base({ doc_id: 'SECRET', title: '권한 밖 규정', law_id: 'SYN-HR-001', acl_groups: ['DEPT#hr'] }));
@@ -36,17 +38,18 @@ async function setup() {
   const deps = {
     verify: async (t: string) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'x'); return u; },
     store, presignPut: async () => '', headObject: async () => undefined, startWorkflow: async () => {}, resume: async () => true,
-    search: async () => [], guide: async () => ({}),
+    search: async (_q: string, _a: unknown, o: unknown) => { searched.push(o); return []; }, guide: async () => ({}),
     presignGet: async (key: string, v: string | undefined, name: string) => `https://s3/${key}?v=${v}&n=${name}`,
     deleteWorkflow: async (d: DocumentRecord) => { deleted.push(d.delete_workflow_id!); },
-    pages: async () => [{ page: 1, text: '둘째 장' }, { page: 0, text: '1억원 이하는 현장 실사를 생략한다.' }],
+    pages: async (id: string) => pagesFn(id),
     pageSummary: async (id: string) => id === 'KH' ? { pages: [{ page_index: 1, summary: '둘째 장 요약', keywords: ['현장 실사'], clause_refs: ['제14조'], page_type: '본문' }] } : undefined,
     marks: async () => [{ page: 0, start: 0, end: 5, severity: 'HIGH', kind: 'CONFLICT', reason: '실사 의무' }, { page: null, start: null, end: null, severity: 'HIGH', kind: 'REGISTRY_MISMATCH', reason: '조문 누락' }],
   } as Deps;
   const app = createApp(deps);
   const get = (who: string, path: string) => app.request(path, { headers: { authorization: `Bearer ${who}` } });
   const del = (who: string, path: string, reason = '중복 문서') => app.request(path, { method: 'DELETE', headers: { authorization: `Bearer ${who}`, 'content-type': 'application/json' }, body: JSON.stringify({ reason }) });
-  return { get, del, store, deleted };
+  const post = (who: string, path: string, b: unknown) => app.request(path, { method: 'POST', headers: { authorization: `Bearer ${who}`, 'content-type': 'application/json' }, body: JSON.stringify(b) });
+  return { get, del, post, store, deleted, searched, setPages: (f: typeof pagesFn) => { pagesFn = f; } };
 }
 
 test('목록: 권한 내 게시 문서 + 본인 문서만, 타인 미게시·권한 밖 제외', async () => {
@@ -170,4 +173,44 @@ test('원본 내려받기: 상세를 볼 수 있는 사람만, 승인된 버전�
   assert.equal((await t.get('user', '/v1/library/SECRET/download')).status, 404);
   await t.store.putDoc({ ...(await t.store.getDoc('KH'))!, purge: { objects: 2, original_at: '2026-11-17' } });
   assert.equal((await t.get('user', '/v1/library/KH/download')).status, 404);
+});
+
+test('버전: 작성자가 이전 버전 후보를 보고 연결 → v2, 바뀐 곳(조문 단위), 묶음 버전 목록, 게시 전에만 연결 변경', async () => {
+  const t = await setup();
+  const pagesOf: Record<string, string> = {
+    V1: '여신 금액 처리 요령\n1. 여신 금액이 7억원 이상이면 본부 승인을 받는다.\n2. 감정평가서는 6개월 이내의 것을 쓴다.',
+    V2: '여신 금액 처리 요령\n1. 여신 금액이 5억원 이상이면 본부 승인을 받는다.\n2. 감정평가서는 6개월 이내의 것을 쓴다.\n3. 실사 사진을 첨부한다.',
+  };
+  await t.store.putDoc(base({ doc_id: 'V1', title: '여신 금액 처리 요령', document_type: 'KNOWHOW' }));
+  await t.store.putDoc(base({ doc_id: 'V2', owner: 'u-author', title: '여신 금액 처리 요령', document_type: 'KNOWHOW', lifecycle: 'IN_REVIEW', authority_status: 'UNVERIFIED' }));
+  t.setPages((id) => [{ page: 0, text: pagesOf[id] ?? '' }]);
+  const cands = (await (await t.get('author', '/v1/documents/V2/version-candidates')).json()) as { items: { doc_id: string; reason: string }[] };
+  assert.equal(cands.items[0]!.doc_id, 'V1');
+  assert.match(cands.items[0]!.reason, /제목 같음/);
+  const link = await t.post('author', '/v1/documents/V2/previous', { previous_doc_id: 'V1' });
+  assert.equal(link.status, 200);
+  const v2 = (await t.store.getDoc('V2'))!;
+  assert.deepEqual([v2.series_id, v2.version_no, v2.previous_doc_id], ['V1', 2, 'V1']);
+  const vs = (await (await t.get('author', '/v1/library/V2/versions')).json()) as { items: { doc_id: string; version_no: number }[]; diff: { count: number; changes: { kind: string; new_text: string }[] } };
+  assert.deepEqual(vs.items.map((i) => [i.doc_id, i.version_no]), [['V1', 1], ['V2', 2]]);
+  assert.ok(vs.diff.count >= 2);
+  assert.ok(vs.diff.changes.some((x) => x.kind === 'CHANGED' && x.new_text.includes('5억원')));
+  assert.ok(vs.diff.changes.some((x) => x.kind === 'ADDED' && x.new_text.includes('실사 사진')));
+  assert.equal((await t.post('user', '/v1/documents/V2/previous', { previous_doc_id: null })).status, 404); // 남의 게시 전 문서
+  await t.store.putDoc({ ...(await t.store.getDoc('V2'))!, lifecycle: 'PENDING_APPROVAL' });
+  assert.equal((await t.post('author', '/v1/documents/V2/previous', { previous_doc_id: null })).status, 409);
+});
+
+test('세부 필터: 보관함·검색 모두 업무·부서·문서 일자·검증 상태·최신성, 검색은 search_wiki에 그대로, 틀린 형식은 버림', async () => {
+  const t = await setup();
+  await t.store.putDoc({ ...(await t.store.getDoc('KH'))!, doc_date: { kind: '시행', date: '2026-11-01', page: 0 } });
+  const ids = async (q: string) => ((await (await t.get('user', `/v1/library?${q}`)).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id).sort();
+  assert.deepEqual(await ids('authority_status=UNVERIFIED'), ['KH']);
+  assert.deepEqual(await ids('date_from=2026-10-01&date_to=2026-11-30'), ['KH']);
+  assert.deepEqual(await ids('date_from=2026-11-02'), []);
+  assert.deepEqual(await ids('business=여신&freshness=CURRENT'), ['KH', 'REG']);
+  assert.ok((await ids('date_from=bad')).length > 1); // 형식이 틀리면 필터 없음
+  const r = await t.get('user', `/v1/search?q=${encodeURIComponent('소액 담보')}&dept=loan&date_from=2026-10-01&authority_status=UNVERIFIED&freshness=XX`);
+  assert.deepEqual((await r.json() as { items: { doc_id: string }[] }).items.map((i) => i.doc_id), ['KH']); // 키워드 보완도 같은 조건
+  assert.deepEqual(t.searched.at(-1), { tags: [], as_of: undefined, dept: 'loan', date_from: '2026-10-01', authority_status: 'UNVERIFIED' });
 });

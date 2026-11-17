@@ -217,3 +217,12 @@ test('Finalize DELETED: 삭제된 규정을 근거로 쓰던 게시 노하우만
   await t.store.putDoc({ ...reg, lifecycle: 'PUBLISHED' });
   await assert.rejects(makeFinalize(t.deps)({ ...t.input, outcome: 'DELETED' }), /NotDeleted/);
 });
+
+test('Finalize PUBLISHED: 이전 버전이 있으면 이전 게시본을 SUPERSEDED·superseded_by로', async () => {
+  const t = setup(pdf);
+  await t.store.putDoc({ ...t.doc, doc_id: 'doc_V1', lifecycle: 'PUBLISHED' });
+  await t.store.putDoc({ ...t.doc, lifecycle: 'PENDING_APPROVAL', previous_doc_id: 'doc_V1', series_id: 'doc_V1', version_no: 2 });
+  await makeFinalize(t.deps)({ ...t.input, outcome: 'PUBLISHED' });
+  const v1 = (await t.store.getDoc('doc_V1'))!;
+  assert.deepEqual([v1.lifecycle, v1.freshness, v1.superseded_by], ['PUBLISHED', 'SUPERSEDED', t.doc.doc_id]);
+});

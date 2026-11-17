@@ -196,3 +196,14 @@ mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2p
 .trio dd { margin: 0; white-space: pre-line; }
 .trio cite { display: block; font: 600 .82rem var(--sans); font-style: normal; color: var(--ink-2); }
 .trio .rev { font-weight: 600; color: var(--verified); }
+/* 버전 비교: 삭제는 취소선, 추가는 밑줄 */
+.fix.chg-ADDED { border-left-color: var(--verified); }
+.fix.chg-REMOVED { border-left-color: var(--danger); }
+.fix.chg-CHANGED { border-left-color: var(--ochre); }
+.trio del { color: var(--ink-2); }
+.trio ins { text-decoration: underline; text-decoration-color: var(--verified); text-underline-offset: 3px; }
+/* 검색 세부 필터: 좁은 화면 1열, 넓으면 2열 */
+.detail-filter { margin: 8px 0 12px; }
+.detail-filter summary { cursor: pointer; min-height: 44px; display: flex; align-items: center; font-weight: 600; }
+.filter-grid { display: grid; grid-template-columns: 1fr; gap: 8px 16px; }
+@media (min-width: 560px) { .filter-grid { grid-template-columns: 1fr 1fr; } }

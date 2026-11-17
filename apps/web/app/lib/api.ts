@@ -318,3 +318,9 @@ export function dateLine(ds: DocDate[]): string {
   for (const d of ds) if (!latest.has(d.kind) || d.date > latest.get(d.kind)!) latest.set(d.kind, d.date);
   return order.filter((k) => latest.has(k)).slice(0, 3).map((k) => `${k} ${latest.get(k)}`).join(' · ');
 }
+
+/** 버전 관리 (사용자 요청 11/17). 바뀐 곳은 legal-parser diffDocuments: 규정은 조·항 단위, 그 밖은 줄 단위 */
+export interface DocChange { kind: 'ADDED' | 'REMOVED' | 'CHANGED'; where: string; old_page: number | null; new_page: number | null; old_text: string; new_text: string; numbers_changed?: { old: string[]; new: string[] } }
+export interface VersionDiff { previous: { doc_id: string; title: string; version_no: number }; count: number; changes: DocChange[] }
+export interface VersionItem { doc_id: string; title: string; version_no: number; lifecycle: string; freshness: string; updated_at: string; current: boolean }
+export interface VersionCandidates { linked: { doc_id: string; title: string; version_no: number } | null; version_no?: number; items: { doc_id: string; title: string; score: number; reason: string }[] }

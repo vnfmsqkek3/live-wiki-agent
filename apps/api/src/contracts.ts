@@ -194,7 +194,7 @@ export const ClassificationBody = z.object({
 
 /** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
 export const TitleBody = z.object({ title: z.string().trim().min(1).max(200) });
-export const PreviousBody = z.object({ previous_doc_id: z.string().regex(/^doc_[0-9A-HJKMNP-TV-Z]{26}$/).nullable() });
+export const PreviousBody = z.object({ previous_doc_id: z.string().min(1).max(40).nullable() });
 export const DeleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 

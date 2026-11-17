@@ -4,9 +4,9 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
+import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
-import { PageFacts } from '../issues';
+import { Changes, PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
@@ -219,6 +219,27 @@ function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: str
 }
 
 /** 문서 삭제 (작성자·관리자): 사유 → 확인 → 저장소·검색 색인·관계 그래프 정리 진행 표시 (interfaces 6.0) */
+/** 버전 목록(v1 · v2 …)과 직전 버전과 바뀐 곳 (사용자 요청 11/17). 버전이 하나뿐이면 표시하지 않는다 */
+function Versions({ id }: { id: string }) {
+  const [v, setV] = useState<{ items: VersionItem[]; diff: VersionDiff | null } | null>(null);
+  useEffect(() => { api<{ items: VersionItem[]; diff: VersionDiff | null }>('GET', `/v1/library/${encodeURIComponent(id)}/versions`).then(setV).catch(() => setV(null)); }, [id]);
+  if (!v || (v.items.length < 2 && !v.diff)) return null;
+  return (
+    <section aria-labelledby="vers-h">
+      <h3 className="section" id="vers-h">버전</h3>
+      <div className="filter" role="list">
+        {v.items.map((x) => (
+          <span role="listitem" key={x.doc_id}>
+            {x.doc_id === id ? <strong aria-current="page">v{x.version_no}</strong> : <Link href={`/library?id=${encodeURIComponent(x.doc_id)}`}>v{x.version_no}</Link>}
+            <span className="note"> {x.current ? '현행' : x.freshness === 'SUPERSEDED' ? '대체됨' : x.lifecycle === 'PUBLISHED' ? '' : '게시 전'}</span>
+          </span>
+        ))}
+      </div>
+      {v.diff && <Changes diff={v.diff} />}
+    </section>
+  );
+}
+
 /** 원본 파일 내려받기 (사용자 요청 11/17). 60초짜리 주소를 받아 바로 저장. 주소는 화면·저장소에 남기지 않는다 */
 function Download({ id }: { id: string }) {
   const [msg, setMsg] = useState('');
@@ -306,6 +327,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <div className="actions" style={{ marginTop: 0 }}><Download id={d.doc_id} /></div>
       <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
       <FreshnessFlag freshness={d.freshness} />
+      {d.superseded_by && <p className="notice" role="status">새 버전이 게시되어 이 문서는 대체되었습니다. <Link href={`/library?id=${encodeURIComponent(d.superseded_by)}`}>최신 버전 보기</Link></p>}
       {d.freshness_reason?.deleted_doc ? (
         <p className="notice" role="status">
           근거로 쓰던 「{d.freshness_reason.law_name}」 문서가 삭제되었습니다. 근거 조문을 다시 확인해야 합니다. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
@@ -375,6 +397,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section>
       )}
+      <Versions id={d.doc_id} />
       <ExternalLaws id={d.doc_id} />
 
       {d.doc_marks.length > 0 && (

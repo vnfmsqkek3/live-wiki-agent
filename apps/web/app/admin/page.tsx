@@ -7,7 +7,7 @@ import { decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
 import { Seal } from '../seal';
 
-interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string } }
+interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number } }
 interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_MISMATCH' | 'BLOCKED'; findings: { message: string; user_message?: string; evidence_ref: string }[] }
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
@@ -91,6 +91,7 @@ export default function Admin() {
           <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
             <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? i.doc_id}</Link></h3>
             <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
+            {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
             <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
             {!done[i.approval_id] && (
               <div className="actions">

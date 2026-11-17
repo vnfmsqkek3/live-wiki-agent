@@ -3,7 +3,8 @@ import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
-import { card, docDatesOf, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
+import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/legal-parser';
+import { card, detailFilter, docDatesOf, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
@@ -31,7 +32,7 @@ export interface Deps {
   /** 사용자 삭제 정리 실행 (오케스트레이터 action=delete). 없으면 DELETED 표시만 */
   deleteWorkflow?(doc: DocumentRecord): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
-  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; business?: string; index_groups?: string[] }): Promise<unknown[]>;
+  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; index_groups?: string[] } & import('./library.ts').DetailFilter): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
   guide(question: string, accessToken: string): Promise<unknown>;
   /** 가이드 SSE (progress·result·error 이벤트). 없으면 JSON 응답만 */
@@ -156,6 +157,44 @@ export function createApp(deps: Deps) {
     const d = await loadDoc(c, c.req.param('id'));
     const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // 이전 SFN 문서에 남은 task_token은 숨김
+  });
+
+  // 이 문서의 이전 버전 후보 (작성자 검토 화면). 같은 종류의 게시 문서 중 같은 규정·같은 제목·본문 유사
+  app.get('/v1/documents/:id/version-candidates', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.previous_doc_id) {
+      const prev = await store.getDoc(d.previous_doc_id);
+      return c.json({ linked: prev ? { doc_id: prev.doc_id, title: prev.title, version_no: prev.version_no ?? 1 } : null, version_no: d.version_no, items: [] });
+    }
+    const pool = (await visibleDocs(a)).filter((x) => x.doc_id !== d.doc_id && x.lifecycle === 'PUBLISHED' && x.freshness !== 'SUPERSEDED' && (!typeOf(d) || typeOf(x) === typeOf(d)));
+    // ponytail: 제목 유사도로 8건만 본문 비교 (쪽 읽기 비용). 문서가 많아지면 KB 유사 검색으로 후보를 줄인다
+    const top = pool.map((x) => ({ x, s: (d.law_id && x.law_id === d.law_id) ? 2 : similarity(d.title, x.title) })).sort((p, q) => q.s - p.s).slice(0, 8).map((p) => p.x);
+    const mine = (await texts(d.doc_id)).join('\n');
+    const cands = await Promise.all(top.map(async (x) => ({ doc_id: x.doc_id, title: x.title, law_id: x.law_id, text: (await texts(x.doc_id)).join('\n') })));
+    return c.json({ linked: null, items: previousVersionCandidates({ title: d.title, text: mine, law_id: d.law_id }, cands) });
+  });
+
+  // 이전 버전 연결·해제 (작성자, 게시 요청 전까지). 연결하면 같은 묶음(series)의 다음 번호
+  app.post('/v1/documents/:id/previous', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    if (!['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle)) throw new ApiError('CONFLICT', '게시 요청 뒤에는 버전 연결을 바꿀 수 없습니다');
+    const b = await body(c, PreviousBody);
+    const at = new Date().toISOString();
+    if (!b.previous_doc_id) {
+      await store.putDoc({ ...d, previous_doc_id: undefined, series_id: undefined, version_no: undefined, updated_at: at });
+      await audit(c, 'VERSION_UNLINK', d.doc_id);
+      return c.json({ linked: null });
+    }
+    const prev = (await visibleDocs(a)).find((x) => x.doc_id === b.previous_doc_id && x.lifecycle === 'PUBLISHED' && x.freshness !== 'SUPERSEDED');
+    if (!prev) throw new ApiError('NOT_FOUND', '연결할 게시 문서를 찾을 수 없습니다 (이미 새 버전이 있거나 볼 권한 없음)');
+    const series_id = prev.series_id ?? prev.doc_id;
+    const version_no = (prev.version_no ?? 1) + 1;
+    await store.putDoc({ ...d, previous_doc_id: prev.doc_id, series_id, version_no, updated_at: at });
+    await audit(c, 'VERSION_LINK', d.doc_id);
+    return c.json({ linked: { doc_id: prev.doc_id, title: prev.title, version_no: prev.version_no ?? 1 }, version_no });
   });
 
   // 제목 고치기: 작성자, 게시 요청 전까지. 이력 남김 (자동 제목을 사람이 바로잡는 경우)
@@ -295,7 +334,9 @@ export function createApp(deps: Deps) {
     const items = await Promise.all((await store.listApprovals(status)).map(async (r) => {
       const d = await store.getDoc(r.doc_id);
       const failure = d?.workflow_id && d.lifecycle !== 'PUBLISHED' && status !== 'PENDING' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
-      return { ...r, task_token: undefined, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure };
+      const v = d?.previous_doc_id && status === 'PENDING' ? await versionDiff(c.get('actor'), d).catch(() => null) : null;
+      return { ...r, task_token: undefined, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure,
+        ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
     return c.json({ items: items.filter((i) => i.lifecycle && i.lifecycle !== 'DELETED' && (status !== 'PENDING' || i.lifecycle === 'PENDING_APPROVAL')) });
@@ -343,9 +384,22 @@ export function createApp(deps: Deps) {
     if (auditRead) await audit(c, 'LIBRARY_REVIEW_READ', x.doc_id);
     return x;
   };
+
+  // ---- 버전 관리 (사용자 요청 11/17, let522mj 요청 1211). 연결은 작성자가 확인한 경우에만 ----
+  const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
+  const texts = async (id: string) => (deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page).map((p) => p.text) : []);
+  /** 직전 버전과 바뀐 곳. 직전 버전을 볼 권한이 없으면 내용 없이 개수만 */
+  const versionDiff = async (a: Actor, d: DocumentRecord) => {
+    if (!d.previous_doc_id) return null;
+    const prev = await store.getDoc(d.previous_doc_id);
+    if (!prev) return null;
+    const changes = diffDocuments(await texts(prev.doc_id), await texts(d.doc_id));
+    const canSee = prev.owner === a.sub || hasRole(a, APPROVERS) || canRead(a, prev.acl_groups);
+    return { previous: { doc_id: prev.doc_id, title: prev.title, version_no: prev.version_no ?? 1 }, count: changes.length, changes: canSee ? changes.slice(0, 200) : [] };
+  };
   app.get('/v1/library', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
-    const f = { type: c.req.query('type'), business: c.req.query('business'), tag: c.req.query('tag'), q: c.req.query('q')?.slice(0, 200) };
+    const f = { type: c.req.query('type'), tag: c.req.query('tag'), q: c.req.query('q')?.slice(0, 200), ...detailFilter((k) => c.req.query(k)) };
     const items = vis.filter((d) => d.lifecycle !== 'BLOCKED' && matches(d, f)).sort((x, y) => y.updated_at.localeCompare(x.updated_at)).map((d) => card(d, vis));
     return c.json({ items });
   });
@@ -360,6 +414,19 @@ export function createApp(deps: Deps) {
       catch (e) { return { ...l, error: (e as Error).name }; }
     }));
     return c.json({ items });
+  });
+
+  // 버전: 같은 묶음의 버전 목록 + 직전 버전과 바뀐 곳
+  app.get('/v1/library/:id/versions', async (c) => {
+    const a = c.get('actor');
+    const vis = await visibleDocs(a);
+    const d = await libraryDoc(c, vis);
+    const sid = d.series_id ?? d.doc_id;
+    const series = vis.filter((x) => (x.series_id ?? x.doc_id) === sid || x.doc_id === sid);
+    if (!series.some((x) => x.doc_id === d.doc_id)) series.push(d);
+    const items = series.sort((x, y) => (x.version_no ?? 1) - (y.version_no ?? 1))
+      .map((x) => ({ doc_id: x.doc_id, title: x.title, version_no: x.version_no ?? 1, lifecycle: x.lifecycle, freshness: x.freshness, updated_at: x.updated_at, current: x.lifecycle === 'PUBLISHED' && x.freshness !== 'SUPERSEDED' }));
+    return c.json({ items, diff: await versionDiff(a, d) });
   });
 
   // 원본 내려받기 (사용자 요청 11/17): 상세를 볼 수 있는 사람만, 감사 기록. 차단·반려·삭제로 원본을 지운 문서는 없음
@@ -422,17 +489,17 @@ export function createApp(deps: Deps) {
     const tags = (c.req.query('tags') ?? '').split(',').filter(Boolean);
     const as_of = c.req.query('as_of');
     if (as_of && !/^\d{4}-\d{2}-\d{2}$/.test(as_of)) throw new ApiError('VALIDATION', 'as_of: YYYY-MM-DD');
-    const business = c.req.query('business')?.slice(0, 40) || undefined;
+    const df = detailFilter((k) => c.req.query(k)); // 업무·부서·문서 일자·검증 상태·최신성 (search_wiki가 그대로 받음)
     // 문서 종류 필터 (규정·노하우·매뉴얼). 태그는 AI가 붙인 자유 문구라 화면 필터로 쓰지 않는다
     const type = c.req.query('type');
     if (type && !['REGULATION', 'KNOWHOW', 'MANUAL'].includes(type)) throw new ApiError('VALIDATION', 'type: REGULATION|KNOWHOW|MANUAL');
     const groups = type === 'REGULATION' ? ['legal-clauses'] : type ? ['wiki-knowledge', 'official-manuals'] : undefined;
-    const sem = await deps.search(q, a, { tags, as_of, business, ...(groups ? { index_groups: groups } : {}) }) as { doc_id: string; document_type?: string }[];
+    const sem = await deps.search(q, a, { tags, as_of, ...df, ...(groups ? { index_groups: groups } : {}) }) as { doc_id: string; document_type?: string }[];
     // 의미 검색은 조문 조각 상위 몇 개만 남는다 → 제목·요약·업무·태그에 검색어가 있는 게시 문서를 뒤에 더한다 (짧은 단어 검색 보완)
     const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
     const seen = new Set(sem.map((i) => i.doc_id));
     const kw = (await visibleDocs(a)).filter((d) => d.lifecycle === 'PUBLISHED' && !seen.has(d.doc_id)
-      && (!type || (d.document_type ?? d.classification?.document_type) === type)
+      && matches(d, { type, ...df })
       && words.length > 0 && words.every((w) => `${d.title} ${d.summary ?? ''} ${(d.classification?.business_path ?? []).join(' ')} ${(d.classification?.tags ?? []).join(' ')} ${d.law_name ?? ''}`.toLowerCase().includes(w)))
       .slice(0, 20).map((d) => keywordItem(d));
     const items = [...(type ? sem.filter((i) => i.document_type === type) : sem), ...kw];
