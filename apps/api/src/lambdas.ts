@@ -11,6 +11,8 @@ import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
+import { faithful, structurePrompt } from './steps/structure.ts';
+import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
@@ -40,6 +42,8 @@ export interface SegmentDeps {
   guardrail?: GuardrailCheck;
   classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
+  /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
+  structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
   /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
   getBytes?(key: string): Promise<Uint8Array>;
   putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
@@ -125,6 +129,8 @@ export function makeClassify(deps: SegmentDeps) {
     const dates = docDates(texts).map((x) => ({ ...x, page: segs[x.page]?.page_index ?? x.page }));
     const main = primaryDate(dates);
     const autoTitle = d.title_source === 'AUTO' ? (sum?.value.title?.replace(/^\[?SYNTHETIC\]?\s*/u, '').trim().slice(0, 60) || titleCandidate(texts, d.filename ?? '') || d.title) : undefined;
+    // 쪽 본문 AI 재구성 → masked/structured/{nnnn}.json. 원문과 같은 글이 아니면 저장하지 않는다(화면은 원문). 실패는 게시를 막지 않는다
+    if (deps.structure) await structurePages(deps, i.doc_id, segs);
     await deps.store.putDoc({
       ...addFindings(d, findings),
       ...(autoTitle ? { title: autoTitle } : {}),
@@ -135,6 +141,25 @@ export function makeClassify(deps: SegmentDeps) {
     });
     return { status: findings.length ? 'REVIEW_REQUIRED' : 'OK', findings };
   };
+}
+
+/** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)은 원문 그대로. 원문 대조를 통과한 정리본만 저장 */
+export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
+  const todo = segs.filter((s) => s.text.trim().length >= 80).slice(0, 40);
+  let saved = 0;
+  for (let k = 0; k < todo.length; k += 4) {
+    await Promise.all(todo.slice(k, k + 4).map(async (s) => {
+      try {
+        const r = await deps.structure!(structurePrompt(s.page_index, s.text));
+        const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
+        const f = faithful(s.text, md);
+        if (!f.ok) { console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
+        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
+        saved++;
+      } catch (e) { console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
+    }));
+  }
+  return saved;
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;

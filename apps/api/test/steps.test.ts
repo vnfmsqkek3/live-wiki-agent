@@ -198,3 +198,12 @@ test('InjectionScan: 권한 상승·응답 강제(G-INJ-01), 도구 실행·근�
   const ok = injectionScan([{ page: 0, text: '심사역은 관리자 권한이 있는 결재 시스템에서 승인 요청을 등록한다. 고객의 모든 질문에는 상품설명서를 기준으로 답하세요. 모든 문의에는 매뉴얼 기준으로 답하십시오. 조회 화면에서 검색 버튼을 눌러 실행한다. 공식 규정을 근거로 처리한다.' }]);
   assert.deepEqual(ok.findings!.filter((f) => f.severity === 'HIGH').map((f) => f.code), []);
 });
+
+test('쪽 본문 AI 재구성 대조: 배치만 바꾼 정리본은 통과, 글자 빠짐·지어낸 숫자는 거부', async () => {
+  const { faithful } = await import('../src/steps/structure.ts');
+  const orig = '1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한\n\n법적 근거를 확인한다.\n담당 부서 업무운영본부 / 금융보안팀\n개정일 2026.10.15';
+  const good = '## 1.개인정보 처리 근거\n\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다.\n\n| 항목 | 내용 |\n|---|---|\n| 담당 부서 | 업무운영본부 / 금융보안팀 |\n| 개정일 | 2026.10.15 |';
+  assert.equal(faithful(orig, good).ok, true);
+  assert.equal(faithful(orig, '## 개인정보 처리 근거\n\n고객정보는 확인한다.').ok, false); // 빠짐
+  assert.equal(faithful(orig, good.replace('2026.10.15', '2026.11.15')).ok, false); // 숫자 바뀜
+});

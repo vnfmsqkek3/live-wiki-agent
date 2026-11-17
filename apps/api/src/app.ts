@@ -58,6 +58,8 @@ export interface Deps {
   marks?(pages: Page[], doc: DocumentRecord): Promise<Mark[]>;
   /** PageSummarize(yoyo0704) 결과 masked/summary.json. 없으면 undefined */
   pageSummary?(doc_id: string): Promise<{ pages?: PageMeta[] } | undefined>;
+  /** AI로 다시 배치한 쪽 본문 (page_index → markdown). 원문 대조를 통과한 쪽만 있다 */
+  structuredPages?(doc_id: string): Promise<Map<number, string>>;
 }
 
 /** 쪽별 요약·메타데이터 (docs/interfaces.md 6장 PageSummarize). page_index는 0부터 */
@@ -474,6 +476,7 @@ export function createApp(deps: Deps) {
     const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
+    const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, string>()) : new Map<number, string>();
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
@@ -490,7 +493,7 @@ export function createApp(deps: Deps) {
       ...docDatesOf(d, pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
-      pages: pages.map((p, i) => ({ page: p.page, text: p.text, ...meta.get(p.page), summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
+      pages: pages.map((p, i) => ({ page: p.page, text: p.text, structured: structuredMap.get(p.page) ?? null, ...meta.get(p.page), summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
     });
   });
 

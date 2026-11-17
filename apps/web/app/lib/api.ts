@@ -239,7 +239,7 @@ export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
   findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number }[];
 }
-export interface LibraryDoc extends LibraryCard { review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
+export interface LibraryDoc extends LibraryCard { review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [

@@ -5,6 +5,7 @@ import {
   type LambdaDeps, type SegmentDeps,
 } from './lambdas.ts';
 import { structured } from './model.ts';
+import { STRUCTURE_SCHEMA, STRUCTURE_SYSTEM } from './steps/structure.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
 import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
@@ -61,6 +62,7 @@ const seg: SegmentDeps = {
   getBytes: (k) => getObjectBytes(k), putBytes, // PiiScan 페이지 이미지 마스킹 (steps Role). 모델 Role은 masked/만 읽음
   classify: (tier, prompt) => structured<ClassifyOut>(tier, CLASSIFY_SYSTEM, prompt, 'submit_classification', CLASSIFY_SCHEMA as unknown as Record<string, unknown>),
   summarize: (prompt) => structured<SummaryOut>('HAIKU', SUMMARY_SYSTEM, prompt, 'submit_summary', SUMMARY_SCHEMA as unknown as Record<string, unknown>),
+  structure: (prompt) => structured<{ markdown: string }>('HAIKU', STRUCTURE_SYSTEM, prompt, 'submit_page', STRUCTURE_SCHEMA as unknown as Record<string, unknown>),
 };
 
 export const typeDetection = makeTypeDetection(deps);

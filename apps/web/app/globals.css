@@ -686,3 +686,5 @@ main { padding-inline: var(--gutter); }
 .card-state { font:500 var(--fs-small)/1.3 var(--font-body, var(--sans)); color:var(--green-700); }
 .doc-text .doc-line { margin:0; color:var(--ink-700); }
 .doc-text .doc-line + p:not(.doc-line), .doc-text .doc-line + h3 { margin-top:16px; }
+.view-toggle { display:flex; gap:8px; margin:0 0 12px; }
+.view-toggle .btn[aria-pressed="true"] { background:var(--navy-900); color:#fff; border-color:var(--navy-900); }

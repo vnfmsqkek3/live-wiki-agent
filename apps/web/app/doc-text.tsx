@@ -99,7 +99,7 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
     if (b.kind === 'table') {
       const rows: DocBlock[] = [b];
       while (blocks[i + 1]?.kind === 'table') rows.push(blocks[++i]!);
-      out.push(<div className="doc-table" key={key}><table><tbody>{rows.map((row) => <tr key={row.start}>{row.cells!.map((cell) => <td key={cell.start}>{inline(cell.start, cell.end)}</td>)}</tr>)}</tbody></table></div>);
+      out.push(<div className="doc-table" key={key}><table><tbody>{rows.filter((row) => !/^\s*\|?[\s:|-]+\|?\s*$/.test(text.slice(row.start, row.end))).map((row) => <tr key={row.start}>{row.cells!.map((cell) => <td key={cell.start}>{inline(cell.start, cell.end)}</td>)}</tr>)}</tbody></table></div>);
     } else if (b.kind === 'heading') {
       out.push(b.level === 1 ? <h2 key={key}>{content}</h2> : b.level === 2 ? <h3 key={key}>{content}</h3> : <h4 key={key}>{content}</h4>);
     } else if (b.kind === 'clause') {

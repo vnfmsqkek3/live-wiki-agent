@@ -57,3 +57,9 @@ test('reflow: PDF에서 끊긴 문장은 잇고, 번호 소제목은 제목, →
   assert.ok(text.slice(flow.start, flow.end).endsWith('고객안내'));
   assert.equal(b.find((x) => text.slice(x.start, x.end).startsWith('고객정보')).flow, undefined);
 });
+
+test('마크다운 표 구분선(|---|)은 행으로 그리지 않는다', () => {
+  const html = render('| 항목 | 내용 |\n|------|------|\n| 담당 | 금융보안팀 |');
+  assert.equal((html.match(/<tr/g) || []).length, 2);
+  assert.ok(!html.includes('---'));
+});
