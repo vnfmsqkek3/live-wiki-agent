@@ -174,3 +174,14 @@ endstream endobj\n%%EOF`));
   assert.equal(mixed.status, 'BLOCKED');
   assert.ok(mixed.findings?.some((x) => x.code === 'PDF_EMBEDDED_FILE'));
 });
+
+test('사람이 읽는 문장: 이미지 끝 덧붙은 데이터는 user_message·fix_hint, 화면 문장에 바이트·코드가 나가지 않음 (사용자 지적 11/17)', async () => {
+  const { plainMessage } = await import('../src/progress.ts');
+  const iend = [0, 0, 0, 0, 0x49, 0x45, 0x4e, 0x44, 0xae, 0x42, 0x60, 0x82];
+  const png = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, ...iend, ...new TextEncoder().encode('hidden payload')]);
+  const t = fileStructureCheck('png', png).findings?.find((x) => x.code === 'TRAILING_DATA');
+  assert.match(t!.user_message!, /이미지 파일 끝에 그림이 아닌 데이터/);
+  assert.ok(t!.fix_hint);
+  assert.doesNotMatch(plainMessage(t!), /IEND|\dB/);
+  assert.equal(plainMessage({ severity: 'MEDIUM', code: 'UNKNOWN_X', step: 'S' }), '자동 검사에서 확인이 필요한 내용이 발견되었습니다.');
+});

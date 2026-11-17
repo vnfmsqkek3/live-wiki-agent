@@ -42,6 +42,11 @@ const REASON: Record<string, string> = {
   UNSUPPORTED_TYPE: '지원하지 않는 파일 형식입니다. PDF, DOCX, HWPX, PNG, JPG만 올릴 수 있습니다.',
   SECURITY_POLICY: '보안 검사에서 위험 요소가 발견되어 격리했습니다.',
 };
+/** 화면용 문장: 단계가 만든 user_message → 코드별 안내 → 기본 문장. 내부 message(바이트·조문 ID·코드)는 화면에 내지 않는다 (사용자 지적 11/17) */
+export function plainMessage(f: { severity: string; code: string; step: string; user_message?: string }) {
+  return f.user_message ?? REASON[f.code] ?? (f.step === 'INJECTION_SCAN' ? 'AI에게 지시하는 형태의 문장이 들어 있습니다.' : f.severity === 'HIGH' ? '보안 검사에서 위험 요소가 발견되었습니다.' : '자동 검사에서 확인이 필요한 내용이 발견되었습니다.');
+}
+
 export function blockedReasons(findings: { severity: string; code: string; step: string }[]) {
   const high = findings.filter((f) => f.severity === 'HIGH');
   const out = high.map((f) => REASON[f.code] ?? (f.step === 'INJECTION_SCAN' ? 'AI에게 지시하는 문구가 들어 있어 등록할 수 없습니다. 해당 문구를 지우고 다시 올려 주세요.'
@@ -60,7 +65,7 @@ export function issues(findings: { finding_id?: string; step: string; severity: 
   failure?: { step: string; error: string; message?: string }): Issue[] {
   const out: Issue[] = findings.map((f) => ({
     ...(f.finding_id ? { finding_id: f.finding_id } : {}), step: f.step, step_label: STEP_LABEL[f.step] ?? f.step, severity: f.severity, code: f.code,
-    user_message: f.user_message ?? REASON[f.code] ?? f.message, ...(f.fix_hint ? { fix_hint: f.fix_hint } : {}), ...(f.location ? { location: f.location } : {}),
+    user_message: plainMessage(f), ...(f.fix_hint ? { fix_hint: f.fix_hint } : {}), ...(f.location ? { location: f.location } : {}),
   }));
   if (failure) {
     const publish = ['Promote', 'KbIngest', 'GraphUpsert', 'Finalize'].includes(failure.step);
@@ -68,7 +73,7 @@ export function issues(findings: { finding_id?: string; step: string; severity: 
     const m = failure.message ? /^(.*?)\s*\(조치:\s*(.*)\)\s*$/.exec(failure.message) : null;
     out.unshift({
       step: failure.step, step_label: STEP_LABEL[failure.step] ?? failure.step, severity: 'HIGH', code: failure.error,
-      user_message: m?.[1] ?? failure.message ?? `${STEP_LABEL[failure.step] ?? failure.step} 단계에서 처리가 멈췄습니다 (${failure.error}).`,
+      user_message: m?.[1] ?? failure.message ?? `${STEP_LABEL[failure.step] ?? '처리'} 단계에서 처리가 멈췄습니다.`,
       fix_hint: m?.[2] ?? (publish ? '승인은 유지됩니다. 운영 담당자가 원인을 확인한 뒤 다시 게시합니다.' : '파일을 확인해 다시 올려 주세요. 계속 실패하면 운영 담당자에게 문의하세요.'),
     });
   }

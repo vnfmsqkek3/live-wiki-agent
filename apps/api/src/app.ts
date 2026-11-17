@@ -5,10 +5,10 @@ import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/legal-parser';
 import { card, detailFilter, docDatesOf, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
-import { blockedReasons, issues, progress } from './progress.ts';
+import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
-  type Actor, type ApprovalRecord, type DocumentRecord, type Role,
+  type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
@@ -66,6 +66,9 @@ const pageMetas = async (deps: Deps, doc_id: string) =>
     .map((p) => [p.page_index, { summary: p.summary, keywords: p.keywords ?? [], clause_refs: p.clause_refs ?? [], page_type: p.page_type }] as const));
 
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
+
+/** 화면으로 나가는 Finding: message를 사람이 읽는 문장으로 바꾼다 (원래 message는 감사·운영 기록에만) */
+const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
@@ -237,7 +240,7 @@ export function createApp(deps: Deps) {
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
     return c.json({ workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
-      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
+      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
   app.get('/v1/documents/:id/progress', async (c) => {
@@ -304,11 +307,11 @@ export function createApp(deps: Deps) {
     const docs = await store.listDocs();
     const items = [
       ...docs.filter((d) => d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review)
-        .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'SOURCE_MISMATCH', findings: d.findings.filter((f) => f.code === 'REGISTRY_MISMATCH') })),
+        .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'SOURCE_MISMATCH', findings: d.findings.filter((f) => f.code === 'REGISTRY_MISMATCH').map(plainFinding) })),
       // 보안 검사 자동 차단 (결재 대상은 아니지만 관리자가 이유를 확인). 마스킹본 보관 기간(7일) 안의 것만
       ...docs.filter((d) => d.lifecycle === 'BLOCKED' && !d.source_review && Date.now() - Date.parse(d.updated_at) < 7 * 864e5)
         .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 20)
-        .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'BLOCKED', findings: d.findings.filter((f) => f.severity === 'HIGH') })),
+        .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'BLOCKED', findings: d.findings.filter((f) => f.severity === 'HIGH').map(plainFinding) })),
     ];
     return c.json({ items });
   });
@@ -472,7 +475,7 @@ export function createApp(deps: Deps) {
         lifecycle: d.lifecycle,
         approval_id: pendingApproval?.approval_id,
         source_mismatch: d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review,
-        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: f.user_message ?? f.message, fix_hint: f.fix_hint, page: f.location?.page })),
+        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: plainMessage(f), fix_hint: f.fix_hint, page: f.location?.page })),
       },
       ...docDatesOf(d, pages),
       verification: verification(d, approval),
