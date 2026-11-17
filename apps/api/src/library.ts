@@ -11,7 +11,7 @@ export interface Mark {
   kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from: string }; fix?: string;
 }
-export interface Page { page: number; text: string }
+export interface Page { page: number; text: string; figure_keys?: (string | null)[] }
 
 const lawOf = (provision_id: string) => provision_id.split('@')[0]!;
 const revOf = (provision_id: string) => provision_id.split('@')[1]?.split('/')[0];

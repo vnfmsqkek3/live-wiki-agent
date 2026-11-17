@@ -70,10 +70,14 @@ export function makePiiScan(deps: SegmentDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     const keys = (await deps.listKeys(`${i.doc_id}/work/segments/`)).filter((k) => k.endsWith('.json'));
     if (!keys.length) throw new Error('segments 없음');
-    const segs = await Promise.all(keys.map(async (k) => ({ page: pageOf(k), text: (await deps.getJson<Seg>(k)).text })));
-    const r = await piiScan(segs, deps.guardrail);
-    for (const m of r.masked)
-      await deps.putJson(`${i.doc_id}/masked/segments/${String(m.page).padStart(4, '0')}.json`, { doc_id: i.doc_id, page_index: m.page, text: m.text });
+    const raw = await Promise.all(keys.map(async (k) => ({ page: pageOf(k), seg: await deps.getJson<Seg & { figure_boxes?: number[][] }>(k) })));
+    const r = await piiScan(raw.map((x) => ({ page: x.page, text: x.seg.text })), deps.guardrail);
+    // figure_boxes(그림 영역 좌표 0~1000, let522mj SegmentBuild)는 좌표뿐이라 그대로 넘긴다 → ImageDescribe 가 그림을 자를 때 씀
+    const boxesOf = new Map(raw.map((x) => [x.page, x.seg.figure_boxes]));
+    for (const m of r.masked) {
+      const fb = boxesOf.get(m.page);
+      await deps.putJson(`${i.doc_id}/masked/segments/${String(m.page).padStart(4, '0')}.json`, { doc_id: i.doc_id, page_index: m.page, text: m.text, ...(Array.isArray(fb) && fb.length ? { figure_boxes: fb } : {}) });
+    }
     const img = await maskPageImages(deps, i.doc_id);
     const findings = [...(r.findings ?? []), ...img];
     await deps.store.putDoc(addFindings(d, findings));

@@ -64,7 +64,8 @@ export function parseDocText(text: string): DocBlock[] {
 }
 
 type Numbered = { m: Mark; n: number };
-export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { text: string; marks?: Numbered[]; active?: number; onPick?: (n: number) => void }) {
+/** figures: 그림 k(1부터) → 잘라낸 그림 URL. 있으면 '(그림 k)'가 처음 나온 문단·단계 바로 아래에 그림을 넣는다 (사용자 요청 11/18) */
+export function DocText({ text, marks = [], active = 0, onPick = () => {}, figures }: { text: string; marks?: Numbered[]; active?: number; onPick?: (n: number) => void; figures?: Record<number, string> }) {
   const spans = marks.filter(({ m }) => m.start !== null && m.end !== null).slice().sort((a, b) => a.m.start! - b.m.start!);
   function marked(start: number, end: number): ReactNode {
     const out: ReactNode[] = [];
@@ -96,6 +97,7 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
   }
   const blocks = parseDocText(text);
   const out: ReactNode[] = [];
+  const shownFigs = new Set<number>(); // 같은 그림은 처음 한 번만
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]!, key = b.start;
     const content = inline(b.start, b.end);
@@ -116,6 +118,12 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
     } else if (b.kind === 'quote') out.push(<blockquote key={key}>{content}</blockquote>);
     else if (b.kind === 'blank') out.push(<div className="doc-break" key={key} />);
     else out.push(<p key={key} className={b.flow ? 'doc-flow' : b.short ? 'doc-line' : undefined}>{content}</p>);
+    if (figures) for (const m of text.slice(b.start, blocks[i]!.end).matchAll(/[([]그림\s*(\d+)[)\]]/gu)) {
+      const k = Number(m[1]), url = figures[k];
+      if (!url || shownFigs.has(k)) continue;
+      shownFigs.add(k);
+      out.push(<figure className="inline-fig" key={`fig-${k}`}><button type="button" className="fig-thumb" data-zoom={url} aria-label={`그림 ${k} 크게 보기`}><img src={url} loading="lazy" alt={`그림 ${k} (개인정보는 가림)`} /></button><figcaption className="note">그림 {k}</figcaption></figure>);
+    }
   }
   return <div className="page-text doc-text">{out}</div>;
 }

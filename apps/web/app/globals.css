@@ -760,3 +760,6 @@ details.more > summary { cursor:pointer; color:var(--navy-600); font-weight:600;
 .original-pages { display:grid; gap:var(--gap); max-width:900px; }
 .orig-page { margin:0; display:grid; gap:4px; }
 .orig-page .fig-thumb img { width:100%; height:auto; }
+/* 정리본 인라인 그림: '(그림 k)' 단계 바로 아래, 폭 최대 480px */
+.inline-fig { margin:6px 0 14px 1.5em; max-width:480px; }
+.inline-fig .fig-thumb img { width:100%; height:auto; }

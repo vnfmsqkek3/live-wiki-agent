@@ -687,6 +687,8 @@ export function createApp(deps: Deps) {
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const lawNames = vis.flatMap((x) => (x.law_name ? [x.law_name] : [])); // 인용 조문을 등록 규정 이름과 묶기
+    const figUrls = new Map(await Promise.all(pages.map(async (p) => [p.page, await Promise.all((p.figure_keys ?? []).map(async (key, k) =>
+      ({ k: k + 1, url: key && deps.presignView ? await deps.presignView(key).catch(() => null) : null })))] as const)));
     const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, { markdown: string; source: 'TEXT' | 'VISION' }>()) : new Map<number, { markdown: string; source: 'TEXT' | 'VISION' }>();
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
@@ -709,7 +711,9 @@ export function createApp(deps: Deps) {
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
       pages: pages.map((p, i) => ({ page: p.page, text: p.text, structured: structuredMap.get(p.page)?.markdown ?? null, structured_source: structuredMap.get(p.page)?.source ?? null, ...meta.get(p.page),
-        clause_groups: clauseGroups(meta.get(p.page)?.clause_refs ?? [], p.text, d.law_name, lawNames), summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
+        clause_groups: clauseGroups(meta.get(p.page)?.clause_refs ?? [], p.text, d.law_name, lawNames),
+        // 정리본 '(그림 k)' 아래 인라인 그림 (ImageDescribe 가 잘라낸 masked/figures, presigned 5분). k 는 1부터
+        figures: figUrls.get(p.page) ?? [], summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
     });
   });
 

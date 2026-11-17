@@ -168,8 +168,9 @@ export async function applyGuardrail(text: string) {
 /** 문서보관함: 마스킹본 페이지만 읽는다 (masked/segments). 원본·work는 읽지 않는다 */
 export async function pages(doc_id: string) {
   const keys = (await listKeys(`${doc_id}/masked/segments/`)).filter((k) => k.endsWith('.json'));
-  const segs = await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string }>(k)));
-  return segs.map((s) => ({ page: s.page_index, text: s.text }));
+  const segs = await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string; figures?: { image_key?: string }[] }>(k)));
+  // figure_keys: 그림 k(1부터)의 잘라낸 이미지 키 (ImageDescribe masked/figures, 없으면 null)
+  return segs.map((s) => ({ page: s.page_index, text: s.text, figure_keys: (s.figures ?? []).map((f) => (f.image_key && /\/masked\/figures\//.test(f.image_key) ? f.image_key : null)) }));
 }
 
 /** 관리 > Agent 실행 기록: WORKFLOWS 전체를 실행 단위로 묶는다 (EXECUTION·STEP#·LOCK#). 오류는 이름만
