@@ -9,6 +9,7 @@ import type { Actor, DocumentRecord } from '../src/contracts.ts';
 const USERS: Record<string, Actor> = {
   author: { sub: 'u-author', groups: ['AUTHOR'], dept: 'loan' },
   user: { sub: 'u-user', groups: ['USER'], dept: 'loan' },
+  approver: { sub: 'u-appr', groups: ['REG_APPROVER'], dept: 'loan' },
 };
 const base = (o: Partial<DocumentRecord> & { doc_id: string }): DocumentRecord => ({
   version: 1, owner: 'u-other', title: o.doc_id, dept: 'loan', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED',
@@ -30,6 +31,7 @@ async function setup() {
   }));
   await store.putDoc(base({ doc_id: 'DRAFT', owner: 'u-author', lifecycle: 'IN_REVIEW', authority_status: 'UNVERIFIED' }));
   await store.putDoc(base({ doc_id: 'OTHERS_DRAFT', lifecycle: 'IN_REVIEW' }));
+  await store.putDoc(base({ doc_id: 'BLOCKED_DOC', lifecycle: 'BLOCKED', findings: [{ finding_id: 'f1', step: 'FILE_STRUCTURE', severity: 'HIGH', code: 'PDF_JAVASCRIPT', message: 'js', user_message: '스크립트가 들어 있습니다', fix_hint: '다시 저장', evidence_ref: 'x', location: { page: 2 } }] }));
   const deps = {
     verify: async (t: string) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'x'); return u; },
     store, presignPut: async () => '', headObject: async () => undefined, startWorkflow: async () => {}, resume: async () => true,
@@ -109,4 +111,20 @@ test('상호 보완: 매뉴얼 인용(citations)으로 규정과 연결, 규정 
   assert.deepEqual(related(reg, vis).map((r) => [r.doc_id, r.relation, r.document_type]), [['M', 'CITED_BY', 'MANUAL']]);
   const s = similar(man, [{ doc_id: 'M', title: 'x' }, { doc_id: 'R', title: 'x' }, { doc_id: 'K', title: 'x' }], vis, related(man, vis));
   assert.deepEqual(s.map((r) => [r.doc_id, r.relation, r.reason]), [['K', 'SIMILAR', '내용이 비슷한 노하우']]);
+});
+
+test('결재함에서 연 문서: 관리자는 남의 게시 전·차단 문서 상세와 확인 이유를 본다, 일반 사용자는 404, 목록에는 안 섞임', async () => {
+  const t = await setup();
+  const r = await t.get('approver', '/v1/library/BLOCKED_DOC');
+  assert.equal(r.status, 200);
+  const d = (await r.json()) as { review: { lifecycle: string; findings: { message: string; fix_hint: string; page: number }[] } };
+  assert.equal(d.review.lifecycle, 'BLOCKED');
+  assert.deepEqual(d.review.findings[0], { severity: 'HIGH', code: 'PDF_JAVASCRIPT', step: 'FILE_STRUCTURE', message: '스크립트가 들어 있습니다', fix_hint: '다시 저장', page: 2 });
+  assert.equal((await t.get('approver', '/v1/library/OTHERS_DRAFT')).status, 200);
+  assert.equal((await t.get('user', '/v1/library/BLOCKED_DOC')).status, 404);
+  assert.equal((await t.get('user', '/v1/library/OTHERS_DRAFT')).status, 404);
+  const ids = ((await (await t.get('approver', '/v1/library')).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id);
+  assert.ok(!ids.includes('BLOCKED_DOC') && !ids.includes('OTHERS_DRAFT'));
+  const pub = (await (await t.get('approver', '/v1/library/KH')).json()) as { review?: unknown };
+  assert.equal(pub.review, undefined); // 게시본에는 결재 정보 없음
 });

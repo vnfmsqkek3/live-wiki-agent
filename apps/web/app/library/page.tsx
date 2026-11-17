@@ -7,6 +7,7 @@ import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { PageFacts } from '../issues';
+import { decideApproval, rejectSource } from '../lib/decide';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 /** ISO 시각 → 'YYYY-MM-DD' (한국 시간) */
@@ -139,7 +140,69 @@ function ExternalLaws({ id }: { id: string }) {
   );
 }
 
-function Detail({ id }: { id: string }) {
+const REVIEW_STATE: Record<string, string> = {
+  BLOCKED: '보안 검사에서 자동 차단된 문서입니다. 결재할 필요는 없고, 올린 사람에게 고치는 방법이 안내되었습니다.',
+  PENDING_APPROVAL: '게시 승인을 기다리는 문서입니다. 아래 이유를 확인한 뒤 맨 아래에서 승인하거나 반려하세요.',
+  IN_REVIEW: '작성자 검토 중인 문서입니다.',
+};
+
+/** 결재 대상: 맨 위에 '확인이 필요한 이유'. 누르면 그 쪽·밑줄로 이동 */
+function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) => void }) {
+  const r = d.review!;
+  const located = d.pages.flatMap((pg, pi) => pg.marks.filter((m) => m.severity !== 'LOW').map((m, k) => ({ pi, n: k + 1, m })));
+  const total = located.length + d.doc_marks.length + (d.pages.length ? 0 : r.findings.length);
+  return (
+    <section aria-labelledby="why-h" className="notice" style={{ display: 'block' }}>
+      <h3 className="section" id="why-h" style={{ marginTop: 0 }}>확인이 필요한 이유 <span className="danger-text">{total}건</span></h3>
+      <p className="note">{r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>
+      {total === 0 && <p className="note">자동 검사에서 찾은 문제가 없습니다. 본문을 읽고 판단하세요.</p>}
+      <ul className="fixes">
+        {located.map(({ pi, n, m }) => (
+          <li key={`${pi}-${n}`} className={`fix${m.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
+            <button type="button" className="linklike" onClick={() => jump(pi, n)}>{pi + 1}쪽 {n}번 · {m.label ?? KIND[m.kind]}</button>
+            <p style={{ margin: 0 }}>{m.reason}</p>
+          </li>
+        ))}
+        {d.doc_marks.map((m, i) => (
+          <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p><p style={{ margin: 0 }}>{m.reason}</p></li>
+        ))}
+        {!d.pages.length && r.findings.map((f, i) => (
+          <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
+            <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : '확인 필요'}</p>
+            <p style={{ margin: 0 }}>{f.message}</p>
+            {f.fix_hint && <p style={{ margin: 0 }}><strong>고치는 방법</strong> {f.fix_hint}</p>}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/** 결재 대상 하단 결재 버튼. 출처 불일치는 반려만 */
+function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: string }) {
+  const [msg, setMsg] = useState('');
+  const [done, setDone] = useState(false);
+  const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) setDone(true); };
+  if (!r.source_mismatch && !r.approval_id) return null;
+  return (
+    <section aria-labelledby="decide-h">
+      <h3 className="section" id="decide-h">결재</h3>
+      {!done && (
+        <div className="actions">
+          {r.source_mismatch
+            ? <button className="btn" onClick={() => run(() => rejectSource(docId))}>반려</button>
+            : <>
+                <button className="btn solid" onClick={() => run(() => decideApproval(r.approval_id!, 'APPROVE'))}>승인</button>
+                <button className="btn" onClick={() => run(() => decideApproval(r.approval_id!, 'REJECT'))}>반려</button>
+              </>}
+        </div>
+      )}
+      <p aria-live="polite" className="note">{msg}</p>
+    </section>
+  );
+}
+
+function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
   const [err, setErr] = useState('');
   const [p, setP] = useState(0);
@@ -155,16 +218,18 @@ function Detail({ id }: { id: string }) {
       })
       .catch((e: ApiError) => setErr(e.status === 404 ? '문서를 찾을 수 없거나 볼 권한이 없습니다.' : e.message));
   }, [id]);
-  if (err) return <><p className="error" role="alert">{err}</p><Link href="/library">보관함으로 돌아가기</Link></>;
+  if (err) return <><p className="error" role="alert">{err}</p>{from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함으로 돌아가기</Link>}</>;
   if (!d) return <p className="note">불러오는 중입니다.</p>;
   const page = d.pages[p];
   // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
+  const jump = (i: number, n: number) => { setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0); };
+  const back = from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함</Link>;
   return (
     <>
-      <p><Link href="/library">보관함</Link></p>
+      <p>{back}</p>
       <h2 className="doc-title lg">{d.title}</h2>
       <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
       <FreshnessFlag freshness={d.freshness} />
@@ -185,6 +250,8 @@ function Detail({ id }: { id: string }) {
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
       </dl>
+
+      {d.review && <Reasons d={d} jump={jump} />}
 
       {d.verification && (
         <section aria-labelledby="verify-h">
@@ -265,13 +332,16 @@ function Detail({ id }: { id: string }) {
           )}
         </section>
       )}
+      {d.review && <Decide r={d.review} docId={d.doc_id} />}
+      {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
     </>
   );
 }
 
 function View() {
-  const id = useSearchParams().get('id');
-  return id ? <Detail key={id} id={id} /> : <List />;
+  const sp = useSearchParams();
+  const id = sp.get('id');
+  return id ? <Detail key={id} id={id} from={sp.get('from')} /> : <List />;
 }
 
 export default function LibraryPage() {

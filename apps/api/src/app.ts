@@ -222,9 +222,15 @@ export function createApp(deps: Deps) {
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----
   app.get('/v1/review-queue', async (c) => {
     need(c, APPROVERS);
-    const items = (await store.listDocs())
-      .filter((d) => d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review)
-      .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'SOURCE_MISMATCH', findings: d.findings.filter((f) => f.code === 'REGISTRY_MISMATCH') }));
+    const docs = await store.listDocs();
+    const items = [
+      ...docs.filter((d) => d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review)
+        .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'SOURCE_MISMATCH', findings: d.findings.filter((f) => f.code === 'REGISTRY_MISMATCH') })),
+      // 보안 검사 자동 차단 (결재 대상은 아니지만 관리자가 이유를 확인). 마스킹본 보관 기간(7일) 안의 것만
+      ...docs.filter((d) => d.lifecycle === 'BLOCKED' && !d.source_review && Date.now() - Date.parse(d.updated_at) < 7 * 864e5)
+        .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 20)
+        .map((d) => ({ doc_id: d.doc_id, title: d.title, dept: d.dept, kind: 'BLOCKED', findings: d.findings.filter((f) => f.severity === 'HIGH') })),
+    ];
     return c.json({ items });
   });
 
@@ -325,7 +331,12 @@ export function createApp(deps: Deps) {
   app.get('/v1/library/:id', async (c) => {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
-    const d = vis.find((x) => x.doc_id === c.req.param('id'));
+    let d = vis.find((x) => x.doc_id === c.req.param('id'));
+    // 결재함에서 연 결재 대상(게시 전·차단) 문서: 관리자만, 열람 감사 기록. 보관함 목록에는 섞지 않는다
+    if (!d && hasRole(a, APPROVERS)) {
+      const x = await store.getDoc(c.req.param('id'));
+      if (x && ['IN_REVIEW', 'PENDING_APPROVAL', 'BLOCKED'].includes(x.lifecycle)) { d = x; await audit(c, 'LIBRARY_REVIEW_READ', x.doc_id); }
+    }
     if (!d) throw new ApiError('NOT_FOUND', 'document not found'); // 권한 없음도 404
     const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
     const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
@@ -333,8 +344,16 @@ export function createApp(deps: Deps) {
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
+    const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
     return c.json({
       ...base,
+      // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
+      review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
+        lifecycle: d.lifecycle,
+        approval_id: pendingApproval?.approval_id,
+        source_mismatch: d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review,
+        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: f.user_message ?? f.message, fix_hint: f.fix_hint, page: f.location?.page })),
+      },
       doc_date: docDate(pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
