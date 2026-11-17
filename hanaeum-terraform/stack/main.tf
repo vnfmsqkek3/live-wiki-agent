@@ -171,6 +171,25 @@ module "neptune" {
   data_subnet_ids = module.network.subnet_ids["data"]
 }
 
+# 거버넌스 저장소 Aurora PostgreSQL (사용자 결정 11/17). 접근은 Data API 만 (VPC 밖 Lambda·ECS 그대로)
+module "aurora" {
+  source              = "../modules/aurora"
+  n                   = local.n
+  kms_key_arn         = module.kms.key_arn
+  vpc_id              = module.network.vpc_id
+  data_subnet_ids     = module.network.subnet_ids["data"]
+  min_acu             = var.env == "prod" ? 0.5 : 0
+  deletion_protection = var.env == "prod"
+}
+
+# 스키마 마이그레이션: db/migrations 가 바뀌면 다시 실행 (적용된 파일은 schema_migrations 로 건너뜀)
+resource "terraform_data" "db_migrate" {
+  triggers_replace = [sha1(join("", [for f in sort(fileset("${path.module}/../db/migrations", "*.sql")) : filesha1("${path.module}/../db/migrations/${f}")])), module.aurora.writer_ready]
+  provisioner "local-exec" {
+    command = "${path.module}/../scripts/db-migrate.sh ${module.aurora.cluster_arn} ${module.aurora.master_secret_arn} ${module.aurora.db_name} ${module.aurora.app_secret_arn}"
+  }
+}
+
 # 런타임 설정: SSM /hanaeum-mvp/{env}/{NAME} (interfaces.md 4장)
 locals {
   params = merge(
@@ -186,6 +205,9 @@ locals {
       VPC_ID               = module.network.vpc_id
       KB_ID                = module.kb.kb_id
       NEPTUNE_ENDPOINT     = module.neptune.endpoint
+      DB_CLUSTER_ARN       = module.aurora.cluster_arn
+      DB_SECRET_ARN        = module.aurora.app_secret_arn
+      DB_NAME              = module.aurora.db_name
       USER_GATEWAY_URL     = module.user.gateway_url
       GUARDRAIL_ID         = aws_bedrock_guardrail.pii.guardrail_id
       GUARDRAIL_VERSION    = aws_bedrock_guardrail_version.pii.version
