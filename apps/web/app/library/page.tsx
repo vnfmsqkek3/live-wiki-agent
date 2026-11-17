@@ -389,7 +389,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 
       </div><div className="document-more">
       <div className="detail-cards" aria-label="문서 상세 항목">
-      {page && <DetailCard title="이 쪽 요약" filled={!!page.summary}><h3 className="section">이 쪽 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
+      {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
       {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
       {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}

@@ -177,3 +177,24 @@ export function groupSeries(docs: DocumentRecord[]) {
   for (const d of docs) (by.get(seriesKey(d)) ?? by.set(seriesKey(d), []).get(seriesKey(d))!).push(d);
   return by;
 }
+
+/** 인용 조문을 어느 규정·법의 조문인지와 묶는다 (사용자 지적 11/17: '제1조'만으로는 어느 규정인지 모르고 검색하면 아무 규정이나 나옴).
+ *  규정 문서는 자기 규정 이름. 그 밖에는 조문 바로 앞에 붙은 등록 규정 이름('하나은행 ' 생략형 포함) 또는 「…」. 못 찾으면 law=null */
+export function clauseGroups(refs: string[], pageText: string, ownLaw?: string, known: string[] = []) {
+  const names = [...new Set(known)].flatMap((n) => [n, n.replace(/^하나은행\s+/u, '')].map((alias) => ({ alias, name: n })));
+  const by = new Map<string, string[]>();
+  for (const c of refs) {
+    let law = ownLaw;
+    const at = pageText.indexOf(c);
+    if (!law && at > 0) {
+      const win = pageText.slice(Math.max(0, at - 60), at);
+      // 이름이 조문 바로 앞(공백·'의'만 사이)에 있을 때만 묶는다. 떨어져 있는 '제3조'는 어느 규정인지 추정하지 않는다
+      const adjacent = (end: number) => /^\s*(?:의\s*)?$/u.test(win.slice(end));
+      for (const { alias, name } of names) { const k = win.lastIndexOf(alias); if (k >= 0 && adjacent(k + alias.length)) { law = name; break; } }
+      const q = /「([^」]{2,40})」(\s*(?:의\s*)?)$/u.exec(win);
+      if (!law && q) law = q[1];
+    }
+    by.set(law ?? '', [...(by.get(law ?? '') ?? []), c]);
+  }
+  return [...by].map(([law, clauses]) => ({ law: law || null, clauses }));
+}

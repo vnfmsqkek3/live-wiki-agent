@@ -160,7 +160,7 @@ for (const file of FILES) {
   const renderedSummaries = [];
   for (let pi = 0; pi < (det?.pages?.length ?? 0); pi++) {
     renderedPages.push(await ev("document.querySelector('.sheet.page')?.innerText.trim() ?? ''"));
-    renderedSummaries.push(await readDetail('이 쪽 요약'));
+    renderedSummaries.push(await readDetail('페이지 요약'));
     if (pi + 1 < det.pages.length) { await click('다음 쪽'); await sleep(200); }
   }
   for (let pi = 1; pi < renderedPages.length; pi++) { await click('이전 쪽'); await sleep(100); }

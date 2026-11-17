@@ -705,3 +705,5 @@ main { padding-inline: var(--gutter); }
 .impact-laws .chip[aria-pressed="true"] { background:var(--navy-900); color:#fff; }
 .impact { display:grid; gap:var(--gap); }
 @media (min-width:1024px){ .impact { grid-template-columns:1fr 1fr; align-items:start; } }
+.clause-groups p { margin:0 0 4px; }
+.clause-groups strong { color:var(--navy-900); font-weight:600; }

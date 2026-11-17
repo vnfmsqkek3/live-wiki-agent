@@ -240,3 +240,12 @@ test('검색 결과 문서 단위: 같은 문서의 조문 조각은 카드 1장
   const g = groupByDoc([h('REG', '제12조제1항'), h('KH', '-'), h('REG', '제14조제1항'), h('REG', '제12조제1항')]);
   assert.deepEqual(g.map((x) => [x.doc_id, x.matches.map((m) => m.basis)]), [['REG', ['제12조제1항', '제14조제1항']], ['KH', ['-']]]);
 });
+
+test('인용 조문은 규정 이름과 묶는다: 규정 문서는 자기 이름, 노하우는 본문에서 조문 바로 앞 이름', async () => {
+  const { clauseGroups } = await import('../src/library.ts');
+  assert.deepEqual(clauseGroups(['제1조', '제7조의2'], '제1조(목적) …', '하나은행 기업여신 심사규정'), [{ law: '하나은행 기업여신 심사규정', clauses: ['제1조', '제7조의2'] }]);
+  const text = '감정평가서는 기업여신 심사규정 제10조제2항에 따른다. 「개인정보 보호법」 제15조제1항: 수집. 그리고 제3조도 본다.';
+  assert.deepEqual(clauseGroups(['제10조제2항', '제15조제1항', '제3조'], text, undefined, ['하나은행 기업여신 심사규정']), [
+    { law: '하나은행 기업여신 심사규정', clauses: ['제10조제2항'] }, { law: '개인정보 보호법', clauses: ['제15조제1항'] }, { law: null, clauses: ['제3조'] },
+  ]);
+});

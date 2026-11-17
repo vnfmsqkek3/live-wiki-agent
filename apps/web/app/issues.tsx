@@ -95,13 +95,19 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
 }
 
 /** 쪽 성격·핵심어·본문 속 조문 표기 (PageSummarize) */
-export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: string[]; page_type?: string } }) {
+export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: string[]; clause_groups?: { law: string | null; clauses: string[] }[]; page_type?: string } }) {
   if (!m.page_type && !m.keywords?.length && !m.clause_refs?.length) return null;
+  // 규정 이름과 묶어서 보여 주고, 누르면 '규정 이름 + 조문'으로 찾는다 ('제1조'만으로 찾으면 아무 규정이나 나옴)
+  const groups = m.clause_groups ?? [{ law: null, clauses: m.clause_refs ?? [] }];
   return (
     <dl className="meta-grid">
       {m.page_type && <><dt>쪽 성격</dt><dd>{m.page_type}</dd></>}
       {!!m.keywords?.length && <><dt>핵심어</dt><dd><span className="keyword">{m.keywords.join(', ')}</span></dd></>}
-      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd><span className="keyword">{m.clause_refs.join(', ')}</span></dd></>}
+      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd className="clause-groups">{groups.map((g) => (
+        <p key={g.law ?? '-'}><strong>{g.law ?? '규정 이름 표기 없음'}</strong>{' '}
+          {g.clauses.map((c, i) => <span key={c}>{i > 0 && ', '}{g.law ? <a href={`/search?q=${encodeURIComponent(`${g.law} ${c}`)}`}>{c}</a> : c}</span>)}
+        </p>
+      ))}</dd></>}
     </dl>
   );
 }

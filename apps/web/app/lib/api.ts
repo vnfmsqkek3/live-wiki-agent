@@ -158,7 +158,7 @@ function mockProgress(): Progress {
 /** 본문에 적힌 일자 (시행·개정·제정·작성·발행·기준). page는 0부터 */
 export interface DocDate { kind: string; date: string; page: number }
 /** PageSummarize 쪽 메타데이터 (masked/summary.json) */
-export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; page_type?: string }
+export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; clause_groups?: { law: string | null; clauses: string[] }[]; page_type?: string }
 export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
 export interface Review {
   doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
