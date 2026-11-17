@@ -173,7 +173,7 @@ function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
 }
 
 
-/** 장 나누기: 쪽 첫 글자 줄이 "04 …"·"04.…"처럼 0을 채운 두 자리 장 번호로 시작하고, 번호가 앞 장보다 클 때만 새 장.
+/** 장 나누기: 쪽 첫 글자 줄이 "04 …"·"04.…"처럼 두 자리 장 번호로 시작하고, 번호가 앞 장보다 클 때만 새 장 (10 이상은 앞 장 +2까지).
  *  "1. 다운로드"·"3 / 21"·"① …" 같은 단계·쪽 번호는 장이 아님 (PR #43 리뷰). 번호 없는 쪽(글자 없는 캡처 쪽 포함)은 앞 장을 잇는다.
  *  장 번호가 하나도 없는 문서는 장 없음.
  *  ponytail: 번호 붙은 장 표지가 있는 슬라이드형 매뉴얼 기준 (과천 실측). 다른 형식은 "## 제목" 절이 이미 조각 머리로 들어감 */
@@ -183,8 +183,10 @@ function sectionsOf(body: string[], pageAt: number[], lastPage: number): Map<num
   const starts: { n: number; page: number; title: string }[] = [];
   const chapterOf = new Map<number, number>(); // 쪽 → starts 인덱스
   for (let p = 0; p <= lastPage; p++) {
-    const m = /^0(\d)\s*\.?\s*(\S.*)$/u.exec(first.get(p) ?? "");
-    if (m && Number(m[1]) > (starts.at(-1)?.n ?? 0)) starts.push({ n: Number(m[1]), page: p, title: [...`0${m[1]} ${m[2]}`].slice(0, 60).join("") });
+    // 점이나 공백 필수 ("02-1234-5678" 전화번호 제외), 두 자리는 앞 장 +1·+2만 ("10. 설치" 단계가 장을 가로채지 않게)
+    const m = /^(0[1-9]|[1-9]\d)(?:\.\s*|\s+)(\S.*)$/u.exec(first.get(p) ?? "");
+    const n = Number(m?.[1]), prev = starts.at(-1)?.n ?? 0;
+    if (m && n > prev && (m[1]!.startsWith("0") || n <= prev + 2)) starts.push({ n, page: p, title: [...`${m[1]} ${m[2]}`].slice(0, 60).join("") });
     if (starts.length) chapterOf.set(p, starts.length - 1);
   }
   const out = new Map<number, { section: string; section_pages: string }>();

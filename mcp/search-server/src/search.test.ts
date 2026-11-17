@@ -296,11 +296,13 @@ test("expand section: 걸린 조각의 같은 장 조각을 쪽 순서로 함께
   retriever.add("[매뉴얼] 1. 다운로드 자료실 접속 드라이버 설치", { ...base, ...sec, provision_id: "K-001#p11", source_page: 11, original_text: "1. 다운로드 자료실 접속" });
   retriever.add("[매뉴얼] 3. 압축 해제 후 설치", { ...base, ...sec, provision_id: "K-001#p13", source_page: 13, original_text: "3. 압축 해제 후 설치" });
   retriever.add("[매뉴얼] 2. 모델명 입력", { ...base, ...sec, provision_id: "K-001#p12", source_page: 12, original_text: "2. 모델명 입력" });
+  retriever.add("[매뉴얼 · 그림] 다운로드 화면", { ...base, ...sec, provision_id: "K-001#p11fig", source_page: 11, has_figure: true, original_text: "" });
+  retriever.add("[매뉴얼] 13쪽 둘째", { ...base, ...sec, provision_id: "K-001#p13s10", source_page: 13, original_text: "13쪽 둘째" });
   retriever.add("[매뉴얼] 다른 장", { ...base, section: "03 신도", section_pages: "17-21", provision_id: "K-001#p17", source_page: 17, original_text: "다른 장" });
   const t = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
   const r = await t.search_wiki({ query: "다운로드 자료실 접속 드라이버 설치", as_of: "2026-12-15", rewrite: false, expand: "section" }, user) as { expanded?: { section: string; section_pages?: string; items: { provision_id: string; page?: number }[] }[] };
   const e = r.expanded!.find((x) => x.section === "02 삼성 복합기 드라이버")!;
   assert.equal(e.section_pages, "11-16");
-  assert.deepEqual(e.items.map((i) => i.provision_id), ["K-001#p11", "K-001#p12", "K-001#p13"]); // 쪽 순서, 다른 장 제외
+  assert.deepEqual(e.items.map((i) => i.provision_id), ["K-001#p11", "K-001#p12", "K-001#p13", "K-001#p13s10"]); // 쪽·숫자 순서, 다른 장·인용 불가 그림 제외
   await assert.rejects(t.search_wiki({ query: "x", expand: "all" }, user), /expand/u);
 });

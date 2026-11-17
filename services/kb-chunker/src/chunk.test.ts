@@ -181,3 +181,10 @@ test("장(章): 0 채운 장 번호가 커질 때만 새 장, 번호 없는 쪽�
   assert.deepEqual([at(9)!.section, at(9)!.section_pages], ["03 신도 복합기", "10-10"]);
   assert.ok(chunkDocument("제1조(목적) 이 규정은 정한다.", meta()).every((c) => !c.metadata.section));
 });
+
+test("장 번호: 10장 이상도 이어지고, 구분자 없는 숫자(전화번호)·건너뛴 큰 번호 단계는 장 아님 (PR #43 재리뷰)", () => {
+  const pages = ["09 아홉째 장", "10 열째 장", "02-1234-5678 대표번호", "15. 설치 단계", "11.열한째 장"];
+  const cs = chunkDocument(pages.join("\n\f\n"), meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const sec = (p: number) => cs.find((c) => c.metadata.source_page === p)!.metadata.section;
+  assert.deepEqual([0, 1, 2, 3, 4].map(sec), ["09 아홉째 장", "10 열째 장", "10 열째 장", "10 열째 장", "11 열한째 장"]);
+});
