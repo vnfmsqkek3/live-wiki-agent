@@ -41,9 +41,13 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
     {open && children}
   </dialog>;
 }
-function DetailCard({ title, children }: { title: string; children: ReactNode }) {
+/** filled: 내용이 있는 카드(사용자 요청: 초록 테두리 + '내용 있음' 글자, 색만으로 구분하지 않음) */
+function CardLabel({ title, filled }: { title: string; filled: boolean }) {
+  return <>{title}{filled && <span className="card-state">내용 있음</span>}</>;
+}
+function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
   const [open, setOpen] = useState(false);
-  return <><button type="button" className="detail-card" aria-haspopup="dialog" onClick={() => setOpen(true)}>{title}</button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
+  return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
 }
 
 function List() {
@@ -82,7 +86,7 @@ function List() {
         <PaginatedList label="문서보관함" className="ledger card-grid library-grid">
           {items.map((d) => (
             <li className="entry" key={d.doc_id}>
-              <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
+              <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link></h3>
               <FreshnessFlag freshness={d.freshness} />
               <dl>
@@ -334,7 +338,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
     <>
       <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
       <header className="document-header">
-      <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
+      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
       <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} /></div><dl className="meta-grid">
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
@@ -380,11 +384,11 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 
       </div><div className="document-more">
       <div className="detail-cards" aria-label="문서 상세 항목">
-      {page && <DetailCard title="이 쪽 요약"><h3 className="section">이 쪽 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
-      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card" aria-haspopup="dialog" onClick={() => setFixOpen(true)}>고칠 곳</button>}
+      {page && <DetailCard title="이 쪽 요약" filled={!!page.summary}><h3 className="section">이 쪽 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
+      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
       {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
-      {d.review && <><button type="button" className="detail-card" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}>확인이 필요한 이유</button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump} /></DetailPopup></>}
+      {d.review && <><button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump} /></DetailPopup></>}
       <Versions id={d.doc_id} />      {d.verification && (
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
@@ -435,7 +439,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
-      <DetailCard title="외부 법령 참고"><ExternalLaws id={d.doc_id} /></DetailCard>
+      <DetailCard title="외부 법령 참고" filled={false}><ExternalLaws id={d.doc_id} /></DetailCard>
       </div>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
 <DeleteDoc d={d} /></div></div>

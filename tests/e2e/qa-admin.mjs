@@ -82,7 +82,7 @@ for (const [name, id] of targets) {
   const ok = await findAcrossPages(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
   if (!ok) await go(`/library?id=${id}&from=admin`);
   await sleep(5000);
-  await ev("[...document.querySelectorAll('button.detail-card')].find((b) => b.textContent.trim() === '확인이 필요한 이유')?.click()");
+  await ev("[...document.querySelectorAll('button.detail-card')].find((b) => b.textContent.replace('내용 있음', '').trim() === '확인이 필요한 이유')?.click()");
   await sleep(200);
   const why = await ev("document.getElementById('why-h')?.closest('section')?.innerText ?? ''");
   const first = await ev("(() => { const b = document.querySelector('#why-h')?.closest('section')?.querySelector('button.linklike'); if (!b) return ''; b.click(); return b.textContent; })()");

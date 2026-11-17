@@ -45,3 +45,15 @@ test('long clauses separate their title and body without changing source marks',
   assert.match(html, /class="hl on"/);
   assert.equal(parseDocText(text)[1].start, text.indexOf('제2장'));
 });
+
+test('reflow: PDF에서 끊긴 문장은 잇고, 번호 소제목은 제목, → 흐름은 한 줄, 원문 위치는 그대로', () => {
+
+  const text = '1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다.\n\n「개인정보 보호법」 제15조제1항: “개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수\n\n있으며 그 수집 목적의 범위에서 이용할 수 있다.”\n\n처리목적\n\n확인 → 법적근거\n\n확인 → 고객안내';
+  const b = parseDocText(text).filter((x) => x.kind !== 'blank');
+  assert.equal(b[0].kind, 'heading');
+  const law = b.find((x) => text.slice(x.start, x.end).includes('「개인정보 보호법」'));
+  assert.ok(law.flow && text.slice(law.start, law.end).endsWith('있다.”'));
+  const flow = b.find((x) => text.slice(x.start, x.end).startsWith('처리목적'));
+  assert.ok(text.slice(flow.start, flow.end).endsWith('고객안내'));
+  assert.equal(b.find((x) => text.slice(x.start, x.end).startsWith('고객정보')).flow, undefined);
+});

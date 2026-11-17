@@ -32,7 +32,7 @@ const shot = async (name) => { const s = await send('Page.captureScreenshot', { 
 const text = () => ev('document.body.innerText');
 const until = async (fn, ms, step = 3000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await sleep(step); } };
 const setInput = (sel, v) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); const set = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-const click = (label, scope = 'document') => ev(`(() => { const b = [...${scope}.querySelectorAll('button,a')].find((x) => x.textContent.trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
+const click = (label, scope = 'document') => ev(`(() => { const b = [...${scope}.querySelectorAll('button,a')].find((x) => x.textContent.replace('내용 있음', '').trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
 const api = (path) => ev(`(async () => { const s = JSON.parse(sessionStorage.getItem('hanaeum.session') || 'null'); const r = await fetch(${JSON.stringify(path)}, { headers: s ? { authorization: 'Bearer ' + s.token } : {} }); return { status: r.status, body: await r.json().catch(() => null) }; })()`);
 
 // Read the rendered modal content, then return to the detail cards.
