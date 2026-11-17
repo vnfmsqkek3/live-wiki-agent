@@ -9,7 +9,7 @@ import type { TextLayer } from "./text-layer.ts";
 export interface OcrBlock { block_id: string; label: string; text: string; confidence: number; bbox: number[]; reading_order: number; table_id: string | null }
 /** tables: PP-StructureV3 표 (요청기록 20261117-2120). 없으면 줄 나열 (하위 호환) */
 export interface OcrTable { table_id: string; bbox: number[]; html: string }
-export interface OcrResult { doc_id: string; model: string; model_version: string; page_count: number; pages: { page_index: number; width: number; height: number; source: string; blocks: OcrBlock[]; tables?: OcrTable[] }[] }
+export interface OcrResult { doc_id: string; model: string; model_version: string; page_count: number; pages: { page_index: number; width: number; height: number; source: string; blocks: OcrBlock[]; tables?: OcrTable[]; figures?: { label: string; bbox: number[] }[] }[] }
 
 const decode = (h: string) => h.replace(/&nbsp;/gu, " ").replace(/&lt;/gu, "<").replace(/&gt;/gu, ">").replace(/&quot;/gu, '"')
   .replace(/&#(x?)([0-9a-f]+);/giu, (_, x: string, n: string) => { const c = parseInt(n, x ? 16 : 10); return c > 0 && c <= 0x10ffff ? String.fromCodePoint(c) : " "; })
@@ -46,26 +46,105 @@ export function tableToMarkdown(html: string): string {
   return [line(rows[0]!), `| ${Array<string>(w).fill("---").join(" | ")} |`, ...rows.slice(1).map(line)].join("\n");
 }
 
-/** OCR 블록 → 본문. 표 영역 줄은 빼고 그 자리에 마크다운 표를 한 번 넣는다(앞뒤 빈 줄).
- *  변환 결과가 빈 표는 줄 나열로 둔다 (표 인식이 깨져도 글자를 잃지 않게) */
-export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = []): string {
+/** OCR 페이지 그림 영역 (PP-StructureV3 image·figure·chart·seal, yoyo0704 25f42de) */
+export interface OcrFigure { label: string; bbox: number[] }
+// seal(직인)은 서명·시행일 줄 위에 찍히므로 본문에서 빼지 않는다 (PR #33 리뷰)
+const FIGURE_LABELS = new Set(["image", "figure", "chart"]);
+/** 그림 하나가 쪽 면적의 이 비율을 넘거나 쪽 줄의 절반 넘게 가져가면 분리하지 않는다 (쪽 전체 스캔을 그림으로 오인해 본문이 통째로 빠지는 것 방지) */
+const FIGURE_MAX_AREA = 0.6;
+/** 쪽 전체 스캔 판정 때 "본문 줄"로 세는 레이아웃 label (header·footer·number·footnote 등은 제외) */
+const BODY_LABELS = new Set(["text", "paragraph_title", "doc_title", "abstract", "content", "reference"]);
+// ponytail: 스캔 글자와 화면 캡처 글자를 가르는 신뢰도 기준 (실측 캡처 0.69~0.77, 스캔 규정 0.945~0.961). 문서가 늘면 재보정
+const SCAN_CONF_MIN = 0.85;
+// ponytail: 그림 하나의 글자 상한 (화면 캡처 한 장에 수백 줄이 나올 수 있음)
+const FIGURE_TEXT_MAX = 1500;
+const inBox = (b: number[] | undefined, f: number[]) => {
+  if (b?.length !== 4 || f.length !== 4) return false;
+  const x = (b[0]! + b[2]!) / 2, y = (b[1]! + b[3]!) / 2;
+  return x >= f[0]! && x <= f[2]! && y >= f[1]! && y <= f[3]!;
+};
+/** 줄이 속한 그림 번호: 그림이면 figures 인덱스(영역이 없으면 -1), 본문이면 undefined.
+ *  레이아웃 모델이 줄에 붙인 label을 먼저 따른다(text·title 등은 bbox가 겹쳐도 본문). bbox는 label이 없거나 옛 형식(paragraph)일 때만 */
+export function figureOf(b: OcrBlock, figures: OcrFigure[]): number | undefined {
+  const legacy = !b.label || b.label === "paragraph";
+  if (!legacy && !FIGURE_LABELS.has(b.label)) return undefined;
+  const i = figures.findIndex((f) => inBox(b.bbox, f.bbox));
+  if (i >= 0) return i;
+  return FIGURE_LABELS.has(b.label) ? -1 : undefined;
+}
+/** 자리 표시만 남은 본문인지 ("[그림 n]"만 있으면 글자 없음으로 본다) */
+export const onlyPlaceholders = (t: string) => !t.replace(/^\[그림 \d+\]$/gmu, "").trim();
+
+/** 쪽의 표·그림 나누기 (본문 만들기와 저신뢰 판정이 같은 기준을 쓰도록 한 곳에서, PR #33 리뷰).
+ *  - 표: 변환된 표의 줄(table_id 또는 표 bbox 안)은 본문 줄에서 뺀다 (마크다운 표로 한 번만 들어감)
+ *  - 그림: label이 그림(image·figure·chart)이거나, 옛 형식 줄이 그림 bbox 안이면 그림 줄
+ *  - 쪽을 60% 넘게 덮는 그림 영역은, 그 밖에 본문 줄이 없으면 그림이 아니다(쪽 전체 스캔 오인 방지). 그 안의 줄은 label이 image여도 본문
+ *  - bbox로만 묶인 그림이 쪽 글자 줄의 절반을 넘게 가져가면 분리하지 않는다 */
+export function splitPage(blocks: OcrBlock[], tables: OcrTable[] = [], figures0: OcrFigure[] = [], size?: { width: number; height: number }) {
+  const area = size ? size.width * size.height : 0;
+  const big = (f: OcrFigure) => !!area && f.bbox?.length === 4 && ((f.bbox[2]! - f.bbox[0]!) * (f.bbox[3]! - f.bbox[1]!)) / area > FIGURE_MAX_AREA;
+  // 쪽을 크게 덮는 그림이 실은 "쪽 전체 스캔"이면 그림이 아니라 본문 (레이아웃이 문서 사진 전체를 image로 잡는 경우).
+  // 스캔으로 보는 경우: ① 그림 안에 조문 머리가 2개 이상 ② 그림 밖 본문 줄·그림 제목이 없고, 그림 안 글자가 또렷함(평균 신뢰도 ≥ 0.85).
+  // 화면 캡처는 그림 안 글자 신뢰도가 낮다 (과천 매뉴얼 실측 0.69~0.77). 머리말·쪽 번호는 본문 줄로 세지 않는다 (PR #33 재리뷰)
+  const bigs = figures0.filter((f) => FIGURE_LABELS.has(f.label) && big(f));
+  const outside = blocks.filter((b) => BODY_LABELS.has(b.label) && !bigs.some((f) => inBox(b.bbox, f.bbox))).reduce((n, b) => n + b.text.trim().length, 0);
+  const captioned = blocks.some((b) => b.label === "figure_title" && b.text.trim());
+  const inside = (f: OcrFigure) => blocks.filter((b) => b.text.trim() && inBox(b.bbox, f.bbox));
+  const articleHeads = (f: OcrFigure) => inside(f).filter((b) => /^제\s*\d+\s*조/u.test(b.text.trim())).length;
+  const clear = (f: OcrFigure) => { const xs = inside(f); return xs.length > 0 && xs.reduce((s, b) => s + b.confidence, 0) / xs.length >= SCAN_CONF_MIN; };
+  const pageWide = bigs.filter((f) => articleHeads(f) >= 2 || (outside < 4 && !captioned && clear(f)));
+  const figures = figures0.filter((f) => FIGURE_LABELS.has(f.label) && !pageWide.includes(f));
   const md = new Map(tables.map((t) => [t.table_id, tableToMarkdown(t.html)] as const));
   const ids = new Set([...md].filter(([, v]) => v).map(([k]) => k));
+  const inTable = (b: OcrBlock) => (!!b.table_id && ids.has(b.table_id)) || tables.some((t) => ids.has(t.table_id) && inBox(b.bbox, t.bbox ?? []));
+  const fig = new Map<OcrBlock, number>();
+  for (const b of blocks) {
+    if (inTable(b) || pageWide.some((f) => inBox(b.bbox, f.bbox))) continue;
+    const f = figureOf(b, figures);
+    if (f !== undefined) fig.set(b, f);
+  }
+  const textLines = blocks.filter((b) => b.text.trim()).length;
+  for (const g of new Set(fig.values())) {
+    const members = [...fig].filter(([, i]) => i === g).map(([b]) => b);
+    const bboxOnly = members.every((b) => !FIGURE_LABELS.has(b.label));
+    if (bboxOnly && textLines >= 4 && members.filter((b) => b.text.trim()).length > textLines / 2) for (const b of members) fig.delete(b);
+  }
+  return { figures, fig, md, ids, inTable };
+}
+
+/** OCR 블록 → 본문.
+ *  - 표: 표 영역 줄은 빼고 그 자리에 마크다운 표 한 번(앞뒤 빈 줄). 변환 결과가 빈 표는 줄 나열 (글자 보존)
+ *  - 그림(화면 캡처 등): 그림 속 줄은 본문 흐름에서 빼고 그 자리에 "[그림 n]"만. 그림 속 글자는 쪽 끝에
+ *    "⟦그림 p{쪽}⟧ 그림 n 속 글자: …" 한 줄로 (사용자 지적 11/17: 캡처 속 UI 글자가 깨진 채 본문에 섞여 읽을 수 없음).
+ *    이 줄은 PiiScan이 함께 가리고, 색인에서는 인용 불가 그림 청크로만 검색된다 (kb-chunker FIGURE_RE) */
+export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = [], figures0: OcrFigure[] = [], page = 0, size?: { width: number; height: number }): string {
+  const { figures, fig, md, ids, inTable } = splitPage(blocks, tables, figures0, size);
   const hasBox = blocks.every((b) => b.bbox?.length === 4);
-  if (!ids.size) return (hasBox ? ocrRows(blocks) : blocks.map((b) => b.text)).join("\n");
-  const inTable = (b: OcrBlock) => !!b.table_id && ids.has(b.table_id);
-  const plain = blocks.filter((b) => !inTable(b));
-  // 위치: bbox가 다 있으면 세로 위치, 아니면 원래 순서(표는 그 표 첫 줄 자리, 줄이 없으면 맨 끝)
-  const rows = hasBox ? ocrRowsY(plain) : blocks.flatMap((b, i) => (inTable(b) ? [] : [{ yc: i, text: b.text }]));
-  const tabs = [...ids].map((id, k) => {
-    const t = tables.find((x) => x.table_id === id)!;
-    const first = blocks.findIndex((b) => b.table_id === id);
+  if (!ids.size && !fig.size && !figures.length) return (hasBox ? ocrRows(blocks) : blocks.map((b) => b.text)).join("\n");
+  const plain = blocks.filter((b) => !inTable(b) && !fig.has(b));
+  // 위치: bbox가 다 있으면 세로 위치, 아니면 원래 순서(표·그림은 그 첫 줄 자리, 줄이 없으면 맨 끝)
+  const rows = hasBox ? ocrRowsY(plain) : blocks.flatMap((b, i) => (plain.includes(b) ? [{ yc: i, text: b.text }] : []));
+  const END = Number.MAX_SAFE_INTEGER;
+  const firstY = (pick: (b: OcrBlock) => boolean, box: number[] | undefined, k: number) => {
+    const first = blocks.findIndex(pick);
     const fb = blocks[first]?.bbox;
-    const yc = hasBox ? (t.bbox?.length === 4 ? t.bbox[1]! : fb?.length === 4 ? (fb[1]! + fb[3]!) / 2 : Number.MAX_SAFE_INTEGER - ids.size + k)
-      : first >= 0 ? first - 0.5 : Number.MAX_SAFE_INTEGER - ids.size + k;
-    return { yc, text: `\n${md.get(id)!}\n` };
+    return hasBox ? (box?.length === 4 ? box[1]! : fb?.length === 4 ? (fb[1]! + fb[3]!) / 2 : END - 100 + k) : first >= 0 ? first - 0.5 : END - 100 + k;
+  };
+  const tabs = [...ids].map((id, k) => ({ yc: firstY((b) => b.table_id === id, tables.find((x) => x.table_id === id)!.bbox, k), text: `\n${md.get(id)!}\n` }));
+  // 그림: 영역 순서대로 번호, 영역 없는 그림 라벨 줄은 마지막 한 묶음
+  const groups = [...figures.map((f, i) => ({ i, box: f.bbox })), ...([...fig.values()].includes(-1) ? [{ i: -1, box: undefined as number[] | undefined }] : [])];
+  const figRows: { yc: number; text: string }[] = [];
+  const figLines: string[] = [];
+  groups.forEach((g, k) => {
+    const n = k + 1;
+    figRows.push({ yc: firstY((b) => fig.get(b) === g.i, g.box, 50 + k), text: `[그림 ${n}]` });
+    const inner = blocks.filter((b) => fig.get(b) === g.i);
+    const t = (inner.every((b) => b.bbox?.length === 4) ? ocrRows(inner) : inner.map((b) => b.text)).join(" ").replace(/\s+/gu, " ").trim();
+    // 자를 때는 낱말 경계에서 (주민등록번호 등이 반만 남아 가림 규칙을 피하지 않게)
+    if (t) figLines.push(`⟦그림 p${page}⟧ 그림 ${n} 속 글자: ${t.length > FIGURE_TEXT_MAX ? `${t.slice(0, FIGURE_TEXT_MAX).replace(/\S*$/u, "").trimEnd()}…` : t}`);
   });
-  return [...rows, ...tabs].sort((a, b) => a.yc - b.yc).map((r) => r.text).join("\n").replace(/\n{3,}/gu, "\n\n").trim();
+  const body = [...rows, ...tabs, ...figRows].sort((a, b) => a.yc - b.yc).map((r) => r.text).join("\n").replace(/\n{3,}/gu, "\n\n").trim();
+  return [body, ...figLines].filter(Boolean).join("\n");
 }
 
 export interface Segment {
@@ -95,12 +174,20 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     const op = ocr?.pages.find((x) => x.page_index === p.page_index);
     if (!op) throw new Error(`OCR 결과에 page ${p.page_index} 없음`); // 빈 결과로 성공 처리 금지
     const blocks = [...op.blocks].sort((a, b) => a.reading_order - b.reading_order);
-    const avg = blocks.length ? blocks.reduce((s, b) => s + b.confidence, 0) / blocks.length : 0;
+    // 저신뢰 판정은 본문 줄만 (그림 속 글자는 화면 캡처라 원래 신뢰도가 낮음, 11/17 실측 평균 0.74)
+    const figs = op.figures ?? [];
+    const size = { width: op.width, height: op.height };
+    // 본문 줄만(그림 줄은 본문 만들기와 같은 기준으로 제외). 글자가 빈 덩어리(신뢰도 0, 11/17 실측)도 뺀다
+    const { fig } = splitPage(blocks, op.tables, figs, size);
+    const conf = blocks.filter((b) => b.text.trim() && !fig.has(b));
+    const avg = conf.length ? conf.reduce((s, b) => s + b.confidence, 0) / conf.length : 0;
     return {
       // 같은 높이 블록을 한 줄로 묶고, 숫자로 읽힌 항 번호(①→1)를 순서 근거가 있을 때만 되돌린다 (13항 12번 실측)
       doc_id: layer.doc_id, page_index: p.page_index, source: "ocr",
-      text: (() => { const st = { last: lastPara, lastArticle: 0 }; const t = restoreCircled(ocrPageText(blocks, op.tables), st); lastPara = st.last; return t; })(),
-      blocks, avg_confidence: avg, low_confidence: !blocks.length || avg < PAGE_AVG_MIN || blocks.some((b) => b.confidence < BLOCK_MIN),
+      text: (() => { const st = { last: lastPara, lastArticle: 0 }; const t = restoreCircled(ocrPageText(blocks, op.tables, figs, p.page_index, size), st); lastPara = st.last; return t; })(),
+      blocks, avg_confidence: conf.length ? avg : null, low_confidence: !blocks.length || (conf.length > 0 && (avg < PAGE_AVG_MIN || conf.some((b) => b.confidence < BLOCK_MIN)))
+        // 쪽 글자가 모두 그림 속 글자로 분류된 쪽: 흐린 스캔을 캡처로 오인했을 수 있어 사람 확인 (PR #33 재리뷰 MEDIUM-F)
+        || (conf.length === 0 && [...fig.keys()].some((b) => b.text.trim())),
     } satisfies Segment;
   });
 }
@@ -113,7 +200,7 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
     : null;
   const segments = buildSegments(layer, ocr);
   // 글자가 하나도 없음 (강아지 사진 같은 그림·사진만 있는 파일, 11/17 실측): 예외로 멈추지 않고 이유를 알려 주며 차단
-  if (segments.every((s) => !s.text.trim())) {
+  if (segments.every((s) => onlyPlaceholders(s.text))) {
     const msg = segments.length === 1 ? "올린 파일에서 글자를 찾지 못했습니다. 글자 없이 사진·그림만 있는 파일은 위키에 등록할 수 없습니다."
       : `올린 파일의 ${segments.length}쪽 모두에서 글자를 찾지 못했습니다. 글자 없이 사진·그림만 있는 파일은 위키에 등록할 수 없습니다.`;
     return { status: "BLOCKED", findings: [{
@@ -127,7 +214,9 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
   }
   const low = segments.filter((s) => s.low_confidence);
   const findings: Finding[] = low.map((s) => {
-    const msg = `${s.page_index + 1}쪽 글자 인식(OCR) 신뢰도가 낮아(평균 ${Math.round((s.avg_confidence ?? 0) * 100)}%) 일부 글자가 틀렸을 수 있습니다.`;
+    const msg = s.avg_confidence === null
+      ? `${s.page_index + 1}쪽 글자가 모두 그림(화면 캡처 등) 속 글자로 분류됐습니다. 원본이 화면 캡처가 아니라 문서를 스캔한 것이면 확인해 주세요.`
+      : `${s.page_index + 1}쪽 글자 인식(OCR) 신뢰도가 낮아(평균 ${Math.round(s.avg_confidence * 100)}%) 일부 글자가 틀렸을 수 있습니다.`;
     return {
       finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE", message: msg,
       evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, location: { page: s.page_index + 1 },
