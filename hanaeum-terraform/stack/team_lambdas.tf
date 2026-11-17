@@ -152,7 +152,7 @@ locals {
     # ---- yoyo0704 (workflows.zip) ----
     # 문서 속 사진·캡처·도표 묘사·의도 (13항 13). model-caller: PiiScan 이 칠한 masked/pages 만 읽는다
     image-describe = {
-      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/image-describe.handler", memory = 512, timeout = 300, model_caller = true
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/image-describe.handler", memory = 512, timeout = 900, model_caller = true
       env = {
         BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name, MODEL_SONNET = var.models["MODEL_SONNET"]
         GUARDRAIL_ID      = aws_bedrock_guardrail.pii.guardrail_id, GUARDRAIL_VERSION = aws_bedrock_guardrail_version.pii.version

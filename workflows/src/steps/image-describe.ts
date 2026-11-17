@@ -11,6 +11,7 @@ import { findingsStore, type FindingsStore } from "./findings-store.js";
 import { detectPii, mask as maskSpans } from "@hanaeum/pii";
 
 export const STEP = "ImageDescribe";
+export const CONCURRENCY = 4; // ponytail: Bedrock 동시 호출 제한 안쪽 고정값. 스로틀링이 보이면 낮춤
 export const KINDS = ["photo", "screenshot", "diagram", "chart", "table_image", "signature_or_stamp", "other"] as const;
 export type Figure = { kind: (typeof KINDS)[number]; description: string; overlay_text?: string; intent?: string };
 export type Mask = (text: string) => { text: string; found: number } | Promise<{ text: string; found: number }>;
@@ -89,22 +90,26 @@ export function makeHandler(d: Deps) {
   return async (e: StepInput): Promise<StepOutput> => {
     const findings: Finding[] = [];
     let described = 0;
-    for (const page_index of await d.listMaskedPages(e.doc_id)) {
+    // 쪽 CONCURRENCY 개씩 동시에 (11/17 dev 실측: 28쪽 순서 처리 > Lambda 300초 → 시간 초과). 쪽 순서는 결과에 영향 없음
+    const one = async (page_index: number) => {
       const ref = `${e.doc_id}/masked/pages/${nnnn(page_index)}.png`;
       const png = await d.getBytes(ref);
-      if (!png) continue;
+      if (!png) return;
       const segKey = `${e.doc_id}/masked/segments/${nnnn(page_index)}.json`;
       const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index, text: "" };
       const { figures, pii } = await sanitize(await d.describe(png, seg.text.slice(0, 4000)), d.mask);
       if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref, {
         location: { page: page_index + 1 },
         user_message: `${page_index + 1}쪽 그림(사진·캡처)에 개인정보로 보이는 내용이 ${pii}건 있어 가렸습니다.`,
-        fix_hint: "그림 속 전화번호·카드번호 등 개인 식별 정보를 지우거나 가린 뒤 다시 올리는 것을 권장합니다.",
+        fix_hint: "그림 속 주민등록번호·카드번호 등 개인 식별 정보를 지우거나 가린 뒤 다시 올리는 것을 권장합니다.",
       }));
       await d.putJson(`${e.doc_id}/masked/figures/${nnnn(page_index)}.json`, { doc_id: e.doc_id, page_index, figures });
       await d.putJson(segKey, { ...seg, figures });
       described += figures.length;
-    }
+    };
+    const pages = await d.listMaskedPages(e.doc_id);
+    for (let i = 0; i < pages.length; i += CONCURRENCY) await Promise.all(pages.slice(i, i + CONCURRENCY).map(one));
+    findings.sort((a, b) => (a.location?.page ?? 0) - (b.location?.page ?? 0));
     await d.saveFindings(e.doc_id, STEP, findings);
     return {
       status: findings.length ? "REVIEW_REQUIRED" : "OK",
