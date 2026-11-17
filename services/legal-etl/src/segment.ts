@@ -78,6 +78,7 @@ export const BLOCK_MIN = 0.85;
 export const PAGE_AVG_MIN = 0.9;
 
 export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[] {
+  const circled = { last: 0, lastArticle: 0 }; // 항 번호 보정 문맥을 쪽 사이에 이어 감
   // 3a와 PageRender가 서로 다른 PDF를 봤으면 남는 쪽이 조용히 버려진다 → 멈춘다
   if (ocr && ocr.page_count !== layer.page_count) throw new Error(`쪽 수 불일치: text_layer ${layer.page_count}, ocr ${ocr.page_count}`);
   return layer.pages.map((p) => {
@@ -96,7 +97,7 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     return {
       // 같은 높이 블록을 한 줄로 묶고, 숫자로 읽힌 항 번호(①→1)를 순서 근거가 있을 때만 되돌린다 (13항 12번 실측)
       doc_id: layer.doc_id, page_index: p.page_index, source: "ocr",
-      text: restoreCircled(ocrPageText(blocks, op.tables)),
+      text: restoreCircled(ocrPageText(blocks, op.tables), circled),
       blocks, avg_confidence: avg, low_confidence: !blocks.length || avg < PAGE_AVG_MIN || blocks.some((b) => b.confidence < BLOCK_MIN),
     } satisfies Segment;
   });

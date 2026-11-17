@@ -46,3 +46,15 @@ test("ocrRows: 같은 높이 블록을 한 줄로 (항 번호 블록이 따로 �
   const b = (text: string, x: number, y: number) => ({ text, bbox: [x, y, x + 50, y + 40] });
   assert.deepEqual(ocrRows([b("심사역은 서류를 받는다.", 400, 101), b("1", 330, 100), b("제10조(심사 서류)", 40, 99)]), ["제10조(심사 서류) 1 심사역은 서류를 받는다."]);
 });
+
+test("DOCX→PDF→OCR 실측(11/17): '제 10 조' 공백 붙이기, 항 번호 문맥을 쪽 사이에 이어 감", () => {
+  const st = { last: 0, lastArticle: 0 };
+  const p1 = restoreCircled("제 10 조(심사 서류) ① 심사역은 다음 각 호의 서류를 받아야 한다.\n1.최근 3년간 재무제표\n3.담보물감정평가서", st);
+  assert.match(p1, /^제10조\(심사 서류\) ①/u);
+  // 다음 쪽 첫 줄 "2제 1 항…"은 앞 쪽의 ① 다음이므로 ②
+  const p2 = restoreCircled("2제 1 항제 3 호의 감정평가서는 발급일로부터 6 개월 이내의 것이어야 한다.\n제 12 조(승인 기준)① 여신 금액이 5 억원 이상인 경우", st);
+  assert.equal(p2.split("\n")[0], "② 제1항제3호의 감정평가서는 발급일로부터 6 개월 이내의 것이어야 한다.");
+  assert.match(p2.split("\n")[1]!, /^제12조\(승인 기준\) ① 여신/u);
+  // 문맥 없이(쪽마다 새로) 하면 되돌리지 않음
+  assert.match(restoreCircled("2제 1 항제 3 호의"), /^2제1항제3호의/u);
+});

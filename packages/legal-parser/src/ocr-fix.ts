@@ -8,28 +8,32 @@ const NUM_AHEAD = new RegExp(`^(\\d{1,2})(?:\\s+|(?=[가-힣「(]))(?![${UNIT}])
 const PARTICLE = /^(에서|에게|에도|에는|에|의|을|를|와|과|및|으로|로|부터|까지|에\s)/u;
 const ARTICLE = /^(제\d+조(?:의\d+)?(?:\s*\((?:[^()]|\([^()]*\))*\))?)\s*(.*)$/u;
 
-export function restoreCircled(text: string): string {
-  let last = 0; // 현재 조에서 마지막 항 번호
-  let lastArticle = 0; // 마지막 조 번호 (부칙에서 다시 1부터)
-  return text.split("\n").map((line) => {
-    if (/^부\s*칙/u.test(line)) { lastArticle = 0; last = 0; return line; }
+/** 쪽을 넘어 이어지는 문맥 (조·항이 다음 쪽으로 넘어가도 "2"를 ②로 되돌릴 수 있게) */
+export interface CircledState { last: number; lastArticle: number }
+// OCR은 "제 10 조", "제 1 항제 3 호"처럼 번호 앞뒤에 공백을 넣기도 한다(11/17 DOCX→PDF→OCR 실측) → 붙인다
+const SPACED_NO = /제\s+(\d+)\s*(조|항|호|장|절|편|관)|제(\d+)\s+(조|항|호|장|절|편|관)/gu;
+
+export function restoreCircled(text: string, st: CircledState = { last: 0, lastArticle: 0 }): string {
+  return text.split("\n").map((line0) => {
+    const line = line0.replace(SPACED_NO, (_, a: string, b: string, c: string, d: string) => `제${a ?? c}${b ?? d}`);
+    if (/^부\s*칙/u.test(line)) { st.lastArticle = 0; st.last = 0; return line; }
     const art = ARTICLE.exec(line);
     // 조 머리: 번호가 앞으로 가고(직전보다 큼, 가지 조는 같아도 됨) 괄호 바로 뒤가 조사가 아닐 때만.
     // OCR이 괄호 뒤 공백을 빼먹으면("제13조(심사 기록)심사") 되돌린다. 본문 속 인용("제10조(특례)에 따른")은 조사로 걸러진다
     const no = art ? Number(/^제(\d+)조/u.exec(line)![1]) : 0;
-    const forward = no > lastArticle || (no === lastArticle && /^제\d+조의\d+/u.test(line));
+    const forward = no > st.lastArticle || (no === st.lastArticle && /^제\d+조의\d+/u.test(line));
     if (art && forward && !PARTICLE.test(art[2]!)) {
-      lastArticle = no; last = 0;
+      st.lastArticle = no; st.last = 0;
       const rest = art[2]!;
       const m = NUM_AHEAD.exec(rest);
-      if (m && Number(m[1]) === 1) { last = 1; return `${art[1]} ① ${m[2]}`; }
-      if (CIRCLED.includes([...rest][0] ?? "")) last = CIRCLED.indexOf([...rest][0]!) + 1;
+      if (m && Number(m[1]) === 1) { st.last = 1; return `${art[1]} ① ${m[2]}`; }
+      if (CIRCLED.includes([...rest][0] ?? "")) st.last = CIRCLED.indexOf([...rest][0]!) + 1;
       return rest ? `${art[1]} ${rest}` : art[1]!;
     }
     const first = [...line][0] ?? "";
-    if (CIRCLED.includes(first)) { last = CIRCLED.indexOf(first) + 1; return line; }
+    if (CIRCLED.includes(first)) { st.last = CIRCLED.indexOf(first) + 1; return line; }
     const m = NUM_AHEAD.exec(line);
-    if (m && Number(m[1]) === last + 1 && last + 1 <= CIRCLED.length) { last++; return `${CIRCLED[last - 1]} ${m[2]}`; }
+    if (m && Number(m[1]) === st.last + 1 && st.last + 1 <= CIRCLED.length) { st.last++; return `${CIRCLED[st.last - 1]} ${m[2]}`; }
     return line;
   }).join("\n");
 }
