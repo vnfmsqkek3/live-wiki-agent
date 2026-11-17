@@ -35,6 +35,17 @@ function DetailFilters({ value, options, onApply }: { value: Detail; options: { 
   );
 }
 
+function SearchMatches({ item }: { item: SearchItem }) {
+  const matches = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
+  return <div className="search-matches">
+    {item.matches && item.matches.length > 1 && <p className="note">이 문서에서 일치한 조문 {matches.length}건</p>}
+    <ul>{matches.map((m, n) => <li key={n}>
+      {m.basis && <p className="match-basis">{m.basis}</p>}
+      <blockquote>{m.snippet}</blockquote>
+    </li>)}</ul>
+  </div>;
+}
+
 function Results() {
   const router = useRouter();
   const sp = useSearchParams();
@@ -96,6 +107,7 @@ function Results() {
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
                   <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                   <FreshnessFlag freshness={i.freshness} />
+                  {(i.version_count ?? 1) > 1 && <p className="note">전체 {i.version_count}개 판 · 오늘 시행 중인 판</p>}
                   {i.summary && <p className="card-summary">{i.summary}</p>}
                 </li>
               ))}
@@ -114,14 +126,13 @@ function Results() {
                 <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
-                  {i.basis && <><dt>근거</dt><dd>{i.basis}</dd></>}
                   {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
                   {i.business_path && i.business_path.length > 0 && <><dt>업무</dt><dd>{i.business_path.join(' › ')}</dd></>}
                   {i.team && <><dt>작성</dt><dd>{i.team}</dd></>}
                   {i.stars !== undefined && <><dt>평점</dt><dd><span className="num">{i.stars.toFixed(1)} / 5</span></dd></>}
                   <dt>찾은 이유</dt><dd>{i.reason}</dd>
                 </dl>
-                <p className="card-summary">{i.snippet}</p>
+                <SearchMatches item={i} />
                 <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
               </li>
             ))}
@@ -135,8 +146,8 @@ function Results() {
                   <li className="entry" key={`w-${i.doc_id}-${n}`}>
                     <Seal i={i} />
                     <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
-                                        <dl>{i.basis && <><dt>관련 조문</dt><dd>{i.basis}</dd></>}<dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
-                    <p className="card-summary">{i.snippet}</p>
+                                        <dl><dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
+                    <SearchMatches item={i} />
                     <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
                   </li>
                 ))}

@@ -538,3 +538,12 @@ h1, h2, h3, h4, .title, .section, .doc-title, .num { color:var(--navy-900); }
   .login-intro .trust-principles, .login-intro .intro-caption { display:none; }
   .login-intro > p { margin-bottom:0; }
 }
+
+.search-matches { max-width:80ch; margin:16px 0; }
+.search-matches ul { list-style:none; padding:0; margin:0; }
+.search-matches li + li { border-top:1px solid var(--line); margin-top:14px; padding-top:14px; }
+.match-basis { color:var(--violet-700, #5B4BC4); font-size:14px; font-weight:600; margin:0 0 4px; }
+.search-matches blockquote { margin:0; line-height:1.7; overflow-wrap:anywhere; }
+.version-list { display:grid; gap:12px; margin:12px 0; }
+.version-list > span { padding-bottom:12px; border-bottom:1px solid var(--line); overflow-wrap:anywhere; }
+.version-list p { margin:4px 0 0; }

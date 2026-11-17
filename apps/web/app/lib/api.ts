@@ -71,9 +71,10 @@ export interface SearchItem {
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
+  matches?: { basis?: string; snippet: string }[];
 }
 export const MOCK_ITEMS: SearchItem[] = [
-  { doc_id: 'doc_F001', title: '기업여신 심사규정 v1', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', updated: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', basis: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', reason: '찾는 내용과 조문이 직접 일치합니다' },
+  { doc_id: 'doc_F001', title: '기업여신 심사규정', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', updated: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', basis: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', reason: '찾는 내용과 조문이 직접 일치합니다', matches: [{ basis: '기업여신 심사규정 제12조제2항', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.' }, { basis: '기업여신 심사규정 제14조제1항', snippet: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.' }] },
   { doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', updated: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조', effective_from: '2026-11-01', reason: '같은 업무 담당자가 자주 찾고, 근거 규정이 최신입니다' },
   { doc_id: 'doc_K003', title: '소액 담보 처리 팁 (2025)', snippet: '5억원 미만은 지점 전결로 처리할 수 있다.', team: '여신심사2팀', updated: '2025-06-02', stars: 4.8, tags: ['실무사례'], authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조 (2025-01-01 개정 전)', effective_from: '2025-01-01', reason: '평점은 높지만 근거 규정이 개정되었습니다' },
 ];
@@ -86,6 +87,18 @@ function mock(method: string, path: string, body?: unknown): unknown {
   }
   if (/\/v1\/library\/.+\/similar/.test(path)) return { items: [] };
   if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
+  if (/^\/v1\/library\/[^/]+\/versions$/.test(path)) {
+    const id = decodeURIComponent(path.split('/')[3]!);
+    const d = MOCK_LIBRARY.find((x) => x.doc_id === id);
+    if (!d) throw new ApiError(404, 'document not found');
+    const items: VersionItem[] = [{ doc_id: d.doc_id, title: d.title, version_no: d.version_no ?? 1, lifecycle: d.lifecycle, freshness: d.freshness, updated_at: d.updated_at, effective_from: d.effective_from, current: true }];
+    if (id === 'doc_F001' || id === 'doc_F001_old') {
+      const current = MOCK_LIBRARY.find((x) => x.doc_id === 'doc_F001')!;
+      const old = MOCK_LIBRARY.find((x) => x.doc_id === 'doc_F001_old')!;
+      return { items: [current, old].map((x) => ({ doc_id: x.doc_id, title: x.title, version_no: x.version_no, lifecycle: x.lifecycle, freshness: x.freshness, updated_at: x.updated_at, effective_from: x.effective_from, current: x.doc_id === current.doc_id })), diff: id === current.doc_id ? { previous: { doc_id: old.doc_id, title: old.title, version_no: old.version_no }, count: 1, changes: [{ kind: 'CHANGED', where: '제12조제2항', old_page: 0, new_page: 0, old_text: old.pages[0]!.text, new_text: current.pages[0]!.text.split('\n')[0]!, numbers_changed: { old: ['5억원'], new: ['3억원'] } }] } : null };
+    }
+    return { items, diff: null };
+  }
   if (path.startsWith('/v1/library/')) {
     const d = MOCK_LIBRARY.find((x) => x.doc_id === decodeURIComponent(path.slice('/v1/library/'.length)));
     if (!d) throw new ApiError(404, 'document not found');
@@ -95,7 +108,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
     const u = new URL(path, 'http://x');
     const type = u.searchParams.get('type');
     const business = u.searchParams.get('business');
-    return { items: MOCK_LIBRARY.filter((d) => (!type || d.document_type === type) && (!business || d.business_path.includes(business))) };
+    return { items: MOCK_LIBRARY.filter((d) => !d.superseded_by && (!type || d.document_type === type) && (!business || d.business_path.includes(business))) };
   }
   if (path === '/v1/documents/upload-url') return { doc_id: 'doc_MOCK', url: 'mock://upload' };
   if (path === '/v1/approvals?status=APPROVED' || path === '/v1/approvals?status=USED')
@@ -189,7 +202,7 @@ const MOCK_GUIDE: Guide = {
   status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,
   evidence: [],
   steps: [
-    { text: '담보가액이 3억원 이상이면 본부 승인을 받아야 하므로, 담보 4억원 건은 본부 승인 대상입니다.', sources: [{ doc_id: 'doc_F001', title: '기업여신 심사규정 v1', snippet: '', provision: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT' }] },
+    { text: '담보가액이 3억원 이상이면 본부 승인을 받아야 하므로, 담보 4억원 건은 본부 승인 대상입니다.', sources: [{ doc_id: 'doc_F001', title: '기업여신 심사규정', snippet: '', provision: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT' }] },
     { text: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록합니다.', sources: [{ doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '', provision: '기업여신 심사규정 제12조', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT' }] },
   ],
   uncertainty: '"5억원 미만은 지점 전결" 팁은 개정 전 규정을 근거로 하고 있어 재검토 중입니다. 현행 기준은 3억원 이상 본부 승인입니다.',
@@ -209,6 +222,7 @@ export interface LibraryCard {
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
+  version_count?: number;
   doc_dates?: DocDate[]; version_no?: number | null; superseded_by?: string | null;
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string } | null;
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string; document_type?: string }[];
@@ -244,12 +258,16 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
   },
   {
     doc_id: 'doc_F001', title: '기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED', business_path: ['여신'], tags: ['공식규정'],
-    summary: '기업여신 심사 절차와 승인 기준을 정합니다. 5억원 이상은 본부 승인, 부동산 담보는 금액과 관계없이 현장 실사를 해야 합니다.',
+    version_no: 2, version_count: 2,
+    summary: '기업여신 심사 절차와 승인 기준을 정합니다. 3억원 이상은 본부 승인, 부동산 담보는 금액과 관계없이 현장 실사를 해야 합니다.',
     authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', uploaded_at: '2026-11-16T10:50:00Z', updated_at: '2026-11-16T11:13:00Z', mark_count: 0,
     related: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
-    doc_marks: [], pages: [{ page: 0, text: '제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
+    doc_marks: [], pages: [{ page: 0, text: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.\n\n제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
   },
 ];
+
+// 이전 판은 상세에서 열 수 있지만 보관함에는 대표 판만 표시한다.
+MOCK_LIBRARY.push({ ...MOCK_LIBRARY[1]!, doc_id: 'doc_F001_old', version_no: 1, freshness: 'SUPERSEDED', effective_from: '2025-01-01', updated_at: '2025-01-01T00:00:00Z', superseded_by: 'doc_F001', summary: '개정 전 승인 기준: 5억원 이상 본부 승인.', pages: [{ page: 0, text: '제12조(승인 기준) ② 담보가액이 5억원 이상인 경우 본부 승인을 받아야 한다.', summary: '개정 전 승인 기준입니다.', marks: [] }] });
 
 /** 가이드 스트리밍 (SSE): 진행 문구를 onProgress로, 마지막에 결과. 서버가 스트림을 못 주면 JSON으로 받는다 */
 export async function streamGuide(question: string, onProgress: (text: string) => void): Promise<Guide> {
@@ -322,5 +340,5 @@ export function dateLine(ds: DocDate[]): string {
 /** 버전 관리 (사용자 요청 11/17). 바뀐 곳은 legal-parser diffDocuments: 규정은 조·항 단위, 그 밖은 줄 단위 */
 export interface DocChange { kind: 'ADDED' | 'REMOVED' | 'CHANGED'; where: string; old_page: number | null; new_page: number | null; old_text: string; new_text: string; numbers_changed?: { old: string[]; new: string[] } }
 export interface VersionDiff { previous: { doc_id: string; title: string; version_no: number }; count: number; changes: DocChange[] }
-export interface VersionItem { doc_id: string; title: string; version_no: number; lifecycle: string; freshness: string; updated_at: string; current: boolean }
+export interface VersionItem { doc_id: string; title: string; version_no: number; lifecycle: string; freshness: string; updated_at: string; current: boolean; effective_from?: string | null }
 export interface VersionCandidates { linked: { doc_id: string; title: string; version_no: number } | null; version_no?: number; items: { doc_id: string; title: string; score: number; reason: string }[] }

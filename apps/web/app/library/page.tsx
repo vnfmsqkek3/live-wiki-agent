@@ -66,7 +66,7 @@ function List() {
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
                 {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
                 {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
-                <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span></dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
+                <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
                 {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => `${r.title} (${REL[r.relation]})`).join(', ')}</dd></>}
                 {d.mark_count > 0 && <><dt>고칠 곳</dt><dd className="danger-text">{d.mark_count}곳</dd></>}
                 {d.lifecycle !== 'PUBLISHED' && <><dt>상태</dt><dd>게시 전 (내 문서)</dd></>}
@@ -209,11 +209,13 @@ function Versions({ id }: { id: string }) {
   return (
     <section aria-labelledby="vers-h">
       <h3 className="section" id="vers-h">버전</h3>
-      <div className="filter" role="list">
+      <div className="version-list" role="list">
         {v.items.map((x) => (
           <span role="listitem" key={x.doc_id}>
             {x.doc_id === id ? <strong aria-current="page">v{x.version_no}</strong> : <Link href={`/library?id=${encodeURIComponent(x.doc_id)}`}>v{x.version_no}</Link>}
-            <span className="note"> {x.current ? '현행' : x.freshness === 'SUPERSEDED' ? '대체됨' : x.lifecycle === 'PUBLISHED' ? '' : '게시 전'}</span>
+            {x.doc_id === id && <span className="note"> · 보고 있는 판</span>}
+            <span className="note"> {x.current ? '오늘 시행 중' : x.freshness === 'SUPERSEDED' ? '대체됨' : x.lifecycle === 'PUBLISHED' ? '' : '게시 전'}</span>
+            <p className="note">시행일 {x.effective_from ?? '정보 없음'}</p>
           </span>
         ))}
       </div>
@@ -311,7 +313,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
         {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
-        <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span></dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
+        <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd><span className="num">{day(d.updated_at)}</span></dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
