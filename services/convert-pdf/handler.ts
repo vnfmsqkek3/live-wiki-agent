@@ -95,9 +95,13 @@ export async function libreOffice(data: Uint8Array, ext: "docx" | "hwpx"): Promi
   await mkdir(dir, { recursive: true });
   try {
     await writeFile(`${dir}/in.${ext}`, data);
-    await run("soffice", ["--headless", "--norestore", "--nolockcheck", "--nodefault", `-env:UserInstallation=file://${PROFILE}`,
+    const r = await run("soffice", ["--headless", "--norestore", "--nolockcheck", "--nodefault", `-env:UserInstallation=file://${PROFILE}`,
       "--convert-to", "pdf", "--outdir", dir, `${dir}/in.${ext}`], { timeout: 300_000, env: { ...process.env, HOME: "/tmp" } });
-    return new Uint8Array(await readFile(`${dir}/in.pdf`)); // 없으면 ENOENT → 변환 실패
+    try { return new Uint8Array(await readFile(`${dir}/in.pdf`)); }
+    catch {
+      // soffice 는 필터가 없거나 열지 못해도 종료 코드 0 → 출력으로 원인 남김 (11/17 HWPX 실측: 산출물 없음)
+      throw new Error(`NoOutput: ${(r.stdout + " | " + r.stderr).replace(/\s+/g, " ").slice(0, 300)}`);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
