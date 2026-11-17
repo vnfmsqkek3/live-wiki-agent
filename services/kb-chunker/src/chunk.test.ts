@@ -168,3 +168,23 @@ test("쪽 맥락은 본문 조각 검색 머리·page_context로만, 쪽 정리�
   const reg = chunkDocument("제1조(목적) 이 규정은 정한다.\n⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 요약", meta({ document_type: "REGULATION", law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" }));
   assert.ok(reg.every((c) => !c.metadata.evidence_kind));
 });
+
+test("장(章): 0 채운 장 번호가 커질 때만 새 장, 번호 없는 쪽·글자 없는 쪽은 앞 장을 이음 (과천 매뉴얼, PR #43 리뷰)", () => {
+  const pages = ["표지 MEGAZONE", "목차", "01.층별 복합기 정보", "01 층별 복합기 정보\n| ① | N620 |", "02.삼성 복합기 드라이버", "1. 다운로드 자료실 접속", "3. 압축 해제 후 설치", "", "① 드라이버 받기", "03 신도 복합기"];
+  const cs = chunkDocument(pages.join("\n\f\n") + "\n⟦그림 p7⟧ 그림 1 속 글자: 설치 완료", meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const at = (p: number) => cs.find((c) => !c.metadata.has_figure && c.metadata.source_page === p)?.metadata;
+  assert.equal(at(0)!.section, undefined);
+  assert.deepEqual([at(3)!.section, at(3)!.section_pages], ["01 층별 복합기 정보", "3-4"]);
+  // 단계 번호 "1."·"3."·"①"은 장을 가로채지 않음, 2장은 5~9쪽
+  for (const p of [5, 6, 8]) assert.deepEqual([at(p)!.section, at(p)!.section_pages], ["02 삼성 복합기 드라이버", "5-9"], `p${p}`);
+  assert.equal(cs.find((c) => c.metadata.has_figure)!.metadata.section, "02 삼성 복합기 드라이버"); // 글자 없는 8쪽 그림도 같은 장
+  assert.deepEqual([at(9)!.section, at(9)!.section_pages], ["03 신도 복합기", "10-10"]);
+  assert.ok(chunkDocument("제1조(목적) 이 규정은 정한다.", meta()).every((c) => !c.metadata.section));
+});
+
+test("장 번호: 10장 이상도 이어지고, 구분자 없는 숫자(전화번호)·건너뛴 큰 번호 단계는 장 아님 (PR #43 재리뷰)", () => {
+  const pages = ["09 아홉째 장", "10 열째 장", "02-1234-5678 대표번호", "15. 설치 단계", "11.열한째 장"];
+  const cs = chunkDocument(pages.join("\n\f\n"), meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const sec = (p: number) => cs.find((c) => c.metadata.source_page === p)!.metadata.section;
+  assert.deepEqual([0, 1, 2, 3, 4].map(sec), ["09 아홉째 장", "10 열째 장", "10 열째 장", "10 열째 장", "11 열한째 장"]);
+});

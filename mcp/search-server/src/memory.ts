@@ -34,6 +34,9 @@ export class MemoryRetriever implements Retriever {
   lastFilter: RetrievalFilter | undefined;
   lastQuery = "";
   add(text: string, metadata: Meta) { this.chunks.push({ text, metadata }); }
+  async retrieveRaw(query: string, filter: RetrievalFilter): Promise<Hit[]> {
+    return this.chunks.filter((c) => evalFilter(filter, c.metadata)).map((c) => ({ text: c.text, metadata: c.metadata, score: 0 }));
+  }
   async retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> {
     this.lastFilter = filter;
     this.lastQuery = query;

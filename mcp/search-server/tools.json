@@ -84,6 +84,13 @@
         "category": {
           "type": "string",
           "description": "업무 분류 경로(하위 포함). 예: \"경영지원\" 또는 \"경영지원/사무기기·시설\""
+        },
+        "expand": {
+          "type": "string",
+          "enum": [
+            "section"
+          ],
+          "description": "section: 걸린 조각과 같은 장(章)의 조각들을 쪽 순서로 함께 돌려줌(응답 expanded, 장 2개·장당 8조각). 여러 쪽에 걸친 절차용"
         }
       },
       "required": [
