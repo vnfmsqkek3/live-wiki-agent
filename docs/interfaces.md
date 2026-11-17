@@ -123,7 +123,8 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | 시작 | type-detection: `InvokeAgentRuntime({action:"start"})`, 승인 API: `InvokeAgentRuntime({action:"resume", decision})`. SFN·task token 경로는 폐기 |
 | 사람 승인 | 오케스트레이터는 Trust Gate 뒤 `await_review` Tool 로 `lifecycle=IN_REVIEW` 를 두고 종료. 승인 API 가 resume |
 
-- SegmentBuild(let522mj)는 `work/text_layer.json` + `work/ocr/result.json`을 페이지 번호로 병합한다. OCR 결과에 없는 페이지는 텍스트 레이어를 쓴다.
+- SegmentBuild(let522mj)는 `work/text_layer.json`의 `needs_ocr=true` 쪽을 `work/ocr/result.json`으로 만든다. 11/17부터 `work/document.pdf`(ConvertToPdf)가 있으면 PDF·이미지·DOCX·HWPX는 모든 쪽 `needs_ocr=true`(글자 비움), TXT·MD만 텍스트. 변환본이 깨졌으면 예외 `ConvertedPdfInvalid`(재시도, 올린 사람 차단 아님). OCR 결과와 text_layer 쪽 수가 다르면 예외. OCR 결과에 대상 쪽이 없으면 예외.
+- ConvertToPdf(yoyo0704, 11/17 신규): `{doc}/work/document.pdf`. TextLayerExtract는 이 파일이 있으면 그 쪽 수를 쓴다. 없으면(배포 전 호환) PDF는 쪽별 글자 수 판정, DOCX·HWPX는 XML 글자.
 - 단계 Lambda는 Terraform 변수 `step_functions = { malware_check = "<arn>", … }`로 연결한다. 비어 있으면 dev stub(`{status:"OK"}`). 단계 키: `workflows/src/asl.ts`.
 - `Finding = { finding_id, step, severity: LOW|MEDIUM|HIGH, code, message, evidence_ref }` (원문 PII를 message에 넣지 않음)
 
@@ -231,3 +232,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-17 | let522mj | 1(KB 메타데이터)·4(search_wiki) | v0.4: `DocumentMetadata.doc_date?`(YYYYMMDD, 본문 대표 일자 시행>개정>작성>발행>제정, Promote가 기록). `search_wiki` 세부 필터 `dept`·`date_from`·`date_to`(YYYY-MM-DD, doc_date)·`authority_status`(VERIFIED\|UNVERIFIED)·`freshness`(CURRENT\|REVIEW_REQUIRED). 검증 상태·최신성은 Documents 현재 상태로 거름 (사용자 요청: 검색 세부 필터) |
 | 2026-11-17 | let522mj | 부록(라이브러리) | `@hanaeum/legal-parser`: `docDates`·`primaryDate`(문서 일자), `titleCandidate`(제목 후보), `previousVersionCandidates`·`similarity`(같은 문서의 이전 버전 후보), `diffDocuments`(버전 간 변경점: 규정은 조·항·호, 그 밖은 줄·쪽). Mark `original`·`revision` (원본·근거·수정 세 칸) |
 | 2026-11-17 | let522mj | 4(search_wiki) | 질의 재구성: 인자 `rewrite`(boolean, 기본 true, false=원래 질의 그대로). 응답 `rewritten: { core, alternates≤2 }`, 결과 항목 `matched_query`(점수를 낸 질의). 규칙 정리본·core·alternates 각각 Retrieve+Rerank 후 청크별 최고 점수, 게이트 0.30 유지. 모델 입력은 PII 마스킹본, `MODEL_HAIKU` 없으면 규칙만. 평가 `tests/evaluations/cases/query_rewrite.jsonl` dev 실측 정답 35→38/40, 무관 질의 오탐 0/10 (요청기록 20261117-1910) |
+| 2026-11-17 | let522mj | 3(단계 산출물) | 업로드 절차: 모든 형식 PDF 변환 후 전부 OCR (사용자 결정, 요청기록 20261117-2010). `text_layer.json`은 `work/document.pdf`가 있으면 PDF·이미지·DOCX·HWPX 모든 쪽 `needs_ocr=true`·`text:""`(없으면 기존 판정), `SCANNED_PAGE` finding 폐지. `work/document.pdf`(ConvertToPdf) 계약 추가. TXT·MD는 그대로 |

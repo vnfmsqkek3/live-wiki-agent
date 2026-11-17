@@ -1,4 +1,4 @@
-// 단계 5 SegmentBuild: text_layer + OCR 결과를 페이지별 세그먼트로 병합 (docs/04 1.1, 2.1)
+// 단계 5 SegmentBuild: 쪽별 세그먼트 (docs/04 1.1, 2.1). 본문은 OCR 결과 (TXT·MD와 변환 단계 배포 전 DOCX·HWPX만 text_layer)
 import { ocrRows, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
 import { detectPii, mask } from "@hanaeum/pii";
 import { newId } from "@hanaeum/schemas";
@@ -19,6 +19,8 @@ export const BLOCK_MIN = 0.85;
 export const PAGE_AVG_MIN = 0.9;
 
 export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[] {
+  // 3a와 PageRender가 서로 다른 PDF를 봤으면 남는 쪽이 조용히 버려진다 → 멈춘다
+  if (ocr && ocr.page_count !== layer.page_count) throw new Error(`쪽 수 불일치: text_layer ${layer.page_count}, ocr ${ocr.page_count}`);
   return layer.pages.map((p) => {
     if (!p.needs_ocr) {
       const lines = p.text.split(/\r?\n/u).filter((l) => l.trim());
@@ -67,7 +69,7 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
     return {
       finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE", message: msg,
       evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, location: { page: s.page_index + 1 },
-      user_message: msg, fix_hint: "300dpi 이상으로 선명하게 다시 스캔하거나, 원본을 'PDF로 저장'해 글자가 선택되는 PDF로 올려 주세요.",
+      user_message: msg, fix_hint: "글자가 흐리거나 작으면 300dpi 이상으로 선명하게 다시 스캔하거나, 원본 프로그램에서 'PDF로 저장'해 올려 주세요.",
     };
   });
   findings.push(...structureFindings(segments, work));

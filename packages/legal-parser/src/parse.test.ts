@@ -109,3 +109,25 @@ test("타법개정 부칙 머리(법령명 괄호)도 부칙으로 인식 — �
   assert.deepEqual(law.issues.filter((i) => i.code === "NUMBER_REGRESSION"), []);
   assert.ok(law.provisions.some((p) => p.provision_id === "X@2026-01-01/SUPPLEMENTARY:1/ARTICLE:2"));
 });
+
+test("OCR 공백 누락: '제2장심사 절차'도 장 제목, 본문 줄은 제목으로 잡지 않음 (11/17 실측, PR #26 리뷰)", () => {
+  const meta0 = { law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" };
+  // 본문 줄: 앞 조문 본문에 그대로 남아야 함
+  for (const body of ["제2장, 제3장은 적용하지 아니한다.", "제2장·제3장에 따른 절차", "제2장중 제5조를 삭제한다.", "제2장으로", "제2장인 경우", "제2장(심사 절차)", "제2장에 따른 서류", "제2장에따른 서류", "제2장의규정은 적용 제외", "제2장을준용"]) {
+    const l0 = parseLaw(`제1조(적용) 이 규정은\n${body}\n제3조(기타) 끝.`, meta0);
+    assert.ok(l0.provisions.find((p) => p.provision_id.endsWith("ARTICLE:1"))!.normalized_text.includes(body.slice(0, 4)), body);
+    assert.deepEqual(l0.provisions.find((p) => p.provision_id.endsWith("ARTICLE:3"))!.heading_path, [], body);
+  }
+  // 공백 없는 진짜 제목 (첫 글자가 조사와 같아도 뒤에 글자가 이어지면 제목)
+  for (const h of ["제2장이사회", "제2장가계대출", "제3장만기 관리"]) {
+    assert.deepEqual(parseLaw(`${h}\n제1조(목적) 끝.`, meta0).provisions[0]!.heading_path, [h], h);
+  }
+  // 공백 있는 긴 제목은 길이 제한 없음 (기존 동작)
+  const long = "제2장 여신 심사 및 승인 절차와 사후 관리에 관한 세부 사항을 정하는 장";
+  assert.deepEqual(parseLaw(`${long}\n제1조(목적) 끝.`, meta0).provisions[0]!.heading_path, [long]);
+  const meta = { law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" };
+  const l = parseLaw("제1조(목적) 이 규정은 목적을 정한다.\n제2장심사 절차\n제2조(심사) 심사역은 제2장에 따른 서류를 확인한다.", meta);
+  assert.equal(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:1"))!.normalized_text.includes("제2장"), false);
+  assert.match(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2"))!.heading_path.join(), /심사 절차/u);
+  assert.ok(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2"))!.normalized_text.includes("제2장에 따른"));
+});
