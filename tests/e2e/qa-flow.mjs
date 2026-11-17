@@ -122,6 +122,11 @@ for (const file of FILES) {
   // F5 admin 승인
   const a = await login('admin');
   await go('/admin', 5000);
+  // L1 열어 보기 전 승인 잠금 → '문서 확인'으로 상세를 연 뒤 결재함으로 돌아와 승인 (사용자 결정 11/18)
+  const locked = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); const v = [...li.querySelectorAll('a')].find((x) => /문서 확인|다시 보기/.test(x.textContent)); if (!b || !v) return 'missing'; const was = b.disabled; v.click(); return was ? 'locked' : 'open'; })()`);
+  await sleep(4000);
+  check('L1', locked === 'locked', `열어 보기 전 승인 버튼 ${locked}`);
+  await go('/admin', 5000);
   const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; b.click(); return 'clicked'; })()`);
   await sleep(4000);
   const adminMsg = await ev("document.querySelector('p[aria-live]')?.textContent ?? ''");

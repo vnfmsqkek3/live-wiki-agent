@@ -4,7 +4,7 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type DocChange, type Role } from '../lib/api';
+import { api, ApiError, getSession, type DocChange, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
 import { Icon } from '../icons';
@@ -38,10 +38,10 @@ export default function Admin() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [mismatch, setMismatch] = useState<Mismatch[]>([]);
   const [done, setDone] = useState<Record<string, 'APPROVED' | 'REJECTED'>>({});
-  // 결재자가 문서를 열어 봤는지 (탭 단위 표시용, 서버 기록 아님)
+  // 결재자가 문서를 열어 봤는지: 열어 보기 전에는 승인 잠금 (사용자 결정 11/18)
   const [viewed, setViewed] = useState<Record<string, boolean>>({});
-  useEffect(() => { try { setViewed(JSON.parse(sessionStorage.getItem('hanaeum.viewed') ?? '{}') as Record<string, boolean>); } catch { /* 저장소 차단 */ } }, []);
-  const markViewed = (id: string) => { const v = { ...viewed, [id]: true }; setViewed(v); try { sessionStorage.setItem('hanaeum.viewed', JSON.stringify(v)); } catch { /* 저장소 차단 */ } };
+  useEffect(() => setViewed(viewedDocs()), []);
+  const markViewed = (id: string) => { markViewedDoc(id); setViewed(viewedDocs()); };
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [role, setRole] = useState('');
@@ -125,8 +125,9 @@ export default function Admin() {
                     <Link className="btn" href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}><Icon name="library" />{viewed[i.doc_id] ? '확인함 · 다시 보기' : '문서 확인'}</Link>
                     <span className="actions-gap" aria-hidden="true" />
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
-                    {/* 확인 전에는 승인도 테두리 버튼, 문서를 열어 본 뒤 초록 강조 (Fable 11/18, 잠그지는 않음) */}
-                    <button className={`btn${viewed[i.doc_id] ? ' solid' : ''}`} onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
+                    {/* 열어 보기 전 승인 잠금 (사용자 결정 11/18). 반려는 열지 않아도 가능 */}
+                    <button className={`btn${viewed[i.doc_id] ? ' solid' : ''}`} onClick={() => decide(i.approval_id, 'APPROVE')} disabled={!viewed[i.doc_id]} aria-describedby={viewed[i.doc_id] ? undefined : `lock-${i.approval_id}`}>승인</button>
+                    {!viewed[i.doc_id] && <p className="note lock-hint" id={`lock-${i.approval_id}`}>문서를 열어 확인한 뒤 승인할 수 있습니다.</p>}
                   </div>
                 )}
               </li>

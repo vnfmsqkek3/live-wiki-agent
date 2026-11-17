@@ -855,3 +855,5 @@ details > summary { list-style:none; } details > summary::-webkit-details-marker
 @media (max-width:1023px) { .submit-bar { top:52px; } }
 @media (max-width:640px) { .submit-bar { position:static; } }
 html:has(.submit-bar) { scroll-padding-top:120px; }
+.admin-grid .actions .lock-hint { flex-basis:100%; margin:0; text-align:right; }
+@media (max-width:640px) { .admin-grid .actions .lock-hint { text-align:left; } }

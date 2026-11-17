@@ -350,3 +350,8 @@ export interface DocChange { kind: 'ADDED' | 'REMOVED' | 'CHANGED'; where: strin
 export interface VersionDiff { previous: { doc_id: string; title: string; version_no: number }; count: number; changes: DocChange[] }
 export interface VersionItem { doc_id: string; title: string; version_no: number; lifecycle: string; freshness: string; updated_at: string; current: boolean; effective_from?: string | null }
 export interface VersionCandidates { linked: { doc_id: string; title: string; version_no: number } | null; version_no?: number; items: { doc_id: string; title: string; score: number; reason: string }[] }
+
+/** 결재자가 이 문서를 열어 봤는지 (사용자 결정 11/18: 열어 보기 전 승인 잠금). 탭 단위 기록, 서버 기록 아님 */
+const VIEWED = 'hanaeum.viewed';
+export function viewedDocs(): Record<string, boolean> { try { return JSON.parse(sessionStorage.getItem(VIEWED) ?? '{}') as Record<string, boolean>; } catch { return {}; } }
+export function markViewed(id: string) { try { sessionStorage.setItem(VIEWED, JSON.stringify({ ...viewedDocs(), [id]: true })); } catch { /* 저장소 차단 */ } }
