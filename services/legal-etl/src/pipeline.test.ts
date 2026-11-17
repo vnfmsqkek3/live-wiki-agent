@@ -33,11 +33,22 @@ function tinyPdf(pages: string[]): Buffer {
   return Buffer.from(out, "latin1");
 }
 
-test("3a: PDF 페이지별 글자 수로 OCR 대상 판정, 미지원 형식은 실패", async () => {
-  const layer = await extractTextLayer(tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]), "pdf", DOC);
+test("3a: 변환 PDF(document.pdf)가 있으면 디지털 글자를 추출하지 않고 모든 쪽 OCR (사용자 결정 11/17), 없으면 지금 방식, 미지원 형식은 실패", async () => {
+  const two = tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]);
+  const layer = await extractTextLayer(two, "pdf", DOC, two);
   assert.equal(layer.page_count, 2);
-  assert.equal(layer.pages[0]!.needs_ocr, false);
-  assert.equal(layer.pages[1]!.needs_ocr, true);
+  assert.ok(layer.pages.every((p) => p.needs_ocr && p.text === ""));
+  // 변환 단계 배포 전(document.pdf 없음): 쪽별 글자 수로 판정 (배포 순서가 어긋나도 멈추지 않게)
+  assert.deepEqual((await extractTextLayer(two, "pdf", DOC)).pages.map((p) => p.needs_ocr), [false, true]);
+  // 변환본이 깨졌으면 올린 사람 탓(BLOCKED)이 아니라 시스템 오류
+  await assert.rejects(extractTextLayer(two, "pdf", DOC, Buffer.from("깨진 변환본")), { name: "ConvertedPdfInvalid" });
+  // DOCX·이미지: ConvertToPdf 결과(document.pdf)의 쪽 수, 전부 OCR
+  assert.deepEqual((await extractTextLayer(Buffer.from("zip 아님"), "docx", DOC, two)).pages.map((p) => p.needs_ocr), [true, true]);
+  assert.equal((await extractTextLayer(Buffer.from("png"), "png", DOC, two)).page_count, 2);
+  // TXT는 글자 그대로
+  const t = await extractTextLayer(Buffer.from("SYNTHETIC 짧은 메모"), "txt", DOC);
+  assert.equal(t.pages[0]!.needs_ocr, false);
+  assert.equal(t.pages[0]!.text, "SYNTHETIC 짧은 메모");
   await assert.rejects(extractTextLayer(Buffer.from("x"), "docx", DOC)); // 깨진 DOCX(ZIP 아님)는 실패
   await assert.rejects(extractTextLayer(Buffer.from("x"), "xlsx", DOC), /지원하지 않는 형식/u);
 });
@@ -232,12 +243,19 @@ test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔
   const s3 = new MemoryObjectStore();
   await s3.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
   assert.equal((await textLayerStep(input, s3)).findings![0]!.code, "CORRUPT_OFFICE");
-  // 2쪽 PDF(2쪽은 빈 쪽) → 2쪽 스캔 안내, 처리는 계속(OK)
+  // 모든 쪽 OCR이 기본이라 스캔 쪽 안내는 없음. document.pdf가 있으면 그 쪽 수
   const s4 = new MemoryObjectStore();
-  await s4.put(Q, `${DOC}/original.pdf`, tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]));
+  await s4.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
+  await s4.put(Q, `${DOC}/work/document.pdf`, tinyPdf(["a", "b", "c"]));
   const ok = await textLayerStep(input, s4);
   assert.equal(ok.status, "OK");
-  assert.deepEqual(ok.findings!.map((f) => [f.code, f.severity, f.location?.page]), [["SCANNED_PAGE", "LOW", 2]]);
+  assert.equal(ok.findings, undefined);
+  assert.equal(JSON.parse((await s4.get(Q, `${DOC}/work/text_layer.json`)).toString()).page_count, 3);
+  // DOCX인데 변환본이 깨졌으면 CORRUPT_OFFICE 차단이 아니라 예외(재시도)
+  const s5 = new MemoryObjectStore();
+  await s5.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
+  await s5.put(Q, `${DOC}/work/document.pdf`, Buffer.from("깨진 변환본"));
+  await assert.rejects(textLayerStep(input, s5), { name: "ConvertedPdfInvalid" });
 });
 
 test("조문 구조 이상은 쪽·문장 위치로 안내, 문장 일부는 개인정보를 가린 뒤 담음, 부칙은 제외", async () => {
@@ -288,4 +306,44 @@ test("단계 Finding 저장: MemoryRecords.saveFindings는 같은 단계 것만 
   await r.saveFindings(DOC, "SegmentBuild", [f("SegmentBuild", "NO_TEXT")]);
   await r.saveFindings(DOC, "SegmentBuild", [f("SegmentBuild", "NO_TEXT2")]);
   assert.deepEqual(r.findings.get(DOC)!.map((x) => x.code), ["A", "NO_TEXT2"]);
+});
+
+test("표(PP-StructureV3): 표 영역 줄 대신 제자리에 마크다운 표, tables 없으면 줄 나열 그대로", async () => {
+  const { ocrPageText, tableToMarkdown } = await import("./segment.ts");
+  assert.equal(tableToMarkdown("<table><tr><td>구분</td><td>기준</td></tr><tr><td>금고 열쇠</td><td>보라색확인절차 서명 | 필수</td></tr><tr><td colspan=2>예외는 영업점장 보고</td></tr></table>"),
+    "| 구분 | 기준 |\n| --- | --- |\n| 금고 열쇠 | 보라색확인절차 서명 \\| 필수 |\n| 예외는 영업점장 보고 |  |");
+  // rowspan: 아래 행 값이 다른 열로 밀리지 않음 (PR #27 리뷰)
+  assert.equal(tableToMarkdown("<tr><td rowspan=2>A</td><td>B</td><td>C</td></tr><tr><td>D</td><td>E</td></tr>"), "| A | B | C |\n| --- | --- | --- |\n|  | D | E |");
+  // 닫는 태그 누락·엔티티
+  assert.equal(tableToMarkdown("<tr><td>a<td>b&quot;&#39;</tr>"), "| a | b\"' |\n| --- | --- |");
+  assert.equal(tableToMarkdown("<table></table>"), "");
+  // 행이 rowspan 열 전에 끝나도 다음 행이 밀리지 않음 (재리뷰)
+  assert.equal(tableToMarkdown("<tr><td>a</td><td rowspan=3>R</td></tr><tr><td>b</td></tr><tr><td>c</td></tr><tr><td>d</td><td>e</td></tr>"),
+    "| a | R |\n| --- | --- |\n| b |  |\n| c |  |\n| d | e |");
+  const b = (text: string, y: number, table_id: string | null = null) => ({ block_id: text, label: table_id ? "table" : "text", text, confidence: 0.99, bbox: [0, y, 100, y + 10], reading_order: y, table_id });
+  const blocks = [b("영업점 마감 노하우", 0), b("구분", 50, "p0-t0"), b("기준", 50, "p0-t0"), b("표 아래 문장", 200)];
+  assert.equal(ocrPageText(blocks), "영업점 마감 노하우\n구분 기준\n표 아래 문장");
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "<tr><td>구분</td><td>기준</td></tr>" }]),
+    "영업점 마감 노하우\n\n| 구분 | 기준 |\n| --- | --- |\n\n표 아래 문장");
+  // 표 HTML이 비면 글자를 잃지 않고 줄 나열 (PR #27 리뷰)
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "" }]), "영업점 마감 노하우\n구분 기준\n표 아래 문장");
+  // bbox 없는 블록이 섞이면 원래 순서에서 표 첫 줄 자리에
+  const nb = blocks.map((x, i) => (i === 0 ? { ...x, bbox: [] } : x));
+  assert.equal(ocrPageText(nb, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
+  // 표에만 bbox가 없으면 표 첫 줄의 세로 위치 (재리뷰)
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
+});
+
+test("쪽 넘김 문맥: 항 번호만 이어 가고 잘못 읽힌 조 번호는 번지지 않음, 글자 그대로 쓴 쪽에서 초기화 (PR #28 리뷰)", async () => {
+  const { buildSegments } = await import("./segment.ts");
+  const blk = (text: string, i: number) => ({ block_id: `b${i}`, label: "text", text, confidence: 0.99, bbox: [0, i * 20, 100, i * 20 + 10], reading_order: i, table_id: null });
+  const pg = (i: number, lines: string[]) => ({ page_index: i, width: 100, height: 100, source: "ocr", blocks: lines.map(blk) });
+  const layer = (n: number, textPages: number[] = []) => ({ doc_id: "D", source_ext: "pdf", page_count: n, pages: Array.from({ length: n }, (_, i) => ({ page_index: i, text: textPages.includes(i) ? "부칙" : "", char_count: 0, broken_ratio: 0, needs_ocr: !textPages.includes(i) })) });
+  const ocr = (pages: ReturnType<typeof pg>[]) => ({ doc_id: "D", model: "m", model_version: "v", page_count: pages.length, pages });
+  // 1쪽 본문 인용 "제 25 조 각 호의…"가 있어도 2쪽 "제11조(승인)1 …"은 ①로
+  const s1 = buildSegments(layer(2), ocr([pg(0, ["제10조(심사) ① 심사역은", "제 25 조 각 호의 서류를 받는다."]), pg(1, ["제11조(승인)1 여신 승인은", "2 금액이"])]));
+  assert.match(s1[1]!.text, /제11조\(승인\) ① 여신 승인은\n② 금액이/u);
+  // 2쪽이 글자 그대로 쓴 쪽이면 3쪽은 새 문맥
+  const s2 = buildSegments(layer(3, [1]), ocr([pg(0, ["제30조(시행) ① 시행한다"]), pg(1, []), pg(2, ["2 이 규정 시행 당시"])]));
+  assert.equal(s2[2]!.text, "2 이 규정 시행 당시");
 });
