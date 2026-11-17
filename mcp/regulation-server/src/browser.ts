@@ -61,38 +61,53 @@ function cdp(ws: WebSocket) {
     });
 }
 
-/** AgentCore 관리형 Browser(aws.browser.v1) 세션 → SigV4 서명 WebSocket(CDP)으로 페이지 텍스트 추출. 세션은 매 호출 종료 */
+/** AgentCore 관리형 Browser(aws.browser.v1)로 페이지 하나를 열어 `expression`(브라우저에서 평가, 문자열 반환)이 `done`을 만족할 때까지
+ *  1초 간격으로 읽는다. 세션은 매 호출 열고 닫는다. 법령 원문 조회와 참조 확인(dhxorb96, interfaces 6.4)이 같이 쓴다.
+ *  ponytail: 호출마다 세션 1개 (재사용 풀 없음). 동시 호출이 많아지면 세션 풀 */
+export async function readPage(url: string, o: { expression: string; done: (value: string) => boolean; maxWaitSec?: number; region?: string; identifier?: string; sessionName?: string }): Promise<string> {
+  const b = new Browser({ region: o.region ?? process.env["AWS_REGION"] ?? "us-east-1", ...(o.identifier ?? process.env["BROWSER_ID"] ? { identifier: o.identifier ?? process.env["BROWSER_ID"]! } : {}) });
+  await b.startSession({ sessionName: o.sessionName ?? "hanaeum-read", timeout: 120 });
+  let ws: WebSocket | undefined;
+  try {
+    const { url: wsUrl, headers } = await b.generateWebSocketUrl();
+    ws = new WebSocket(wsUrl, { headers });
+    await new Promise((ok, ng) => { ws!.once("open", ok); ws!.once("error", ng); });
+    const send = cdp(ws);
+    const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+    const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true }) as { sessionId: string };
+    await send("Page.navigate", { url }, sessionId);
+    let last = "";
+    for (let i = 0; i < (o.maxWaitSec ?? 30); i++) {
+      const r = await send("Runtime.evaluate", { expression: o.expression, returnByValue: true }, sessionId) as { result: { value?: unknown } };
+      last = typeof r.result.value === "string" ? r.result.value : "";
+      if (o.done(last)) return last;
+      await new Promise((res) => setTimeout(res, 1000));
+    }
+    throw Object.assign(new Error(`페이지 내용을 기다리다 시간 초과: ${new URL(url).host}`), { name: "PageNotReady", last });
+  } finally {
+    ws?.close();
+    await b.stopSession();
+  }
+}
+
+/** 법령 원문 페이지 (law.go.kr): 본문에 "제1조"가 그려질 때까지 */
 export class AgentCoreLawFetcher implements LawPageFetcher {
   private readonly region: string;
   private readonly identifier: string | undefined;
   constructor(region = process.env["AWS_REGION"] ?? "us-east-1", identifier = process.env["BROWSER_ID"]) { this.region = region; this.identifier = identifier; }
   async fetch(lawName: string): Promise<LawPage> {
     const url = lawUrl(lawName);
-    const b = new Browser({ region: this.region, ...(this.identifier ? { identifier: this.identifier } : {}) });
-    await b.startSession({ sessionName: "hanaeum-law", timeout: 120 });
-    let ws: WebSocket | undefined;
     try {
-      const { url: wsUrl, headers } = await b.generateWebSocketUrl();
-      ws = new WebSocket(wsUrl, { headers });
-      await new Promise((ok, ng) => { ws!.once("open", ok); ws!.once("error", ng); });
-      const send = cdp(ws);
-      const { targetId } = await send("Target.createTarget", { url: "about:blank" });
-      const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true }) as { sessionId: string };
-      await send("Page.navigate", { url }, sessionId);
-      // ponytail: 본문이 그려질 때까지 1초 간격 폴링(최대 30초). 사이트 구조 변경 시 선택자 갱신
-      for (let i = 0; i < 30; i++) {
-        const r = await send("Runtime.evaluate", {
-          expression: `JSON.stringify({ h: document.querySelector("#conTop")?.innerText ?? "", b: document.querySelector("#conScroll")?.innerText ?? "" })`,
-          returnByValue: true,
-        }, sessionId) as { result: { value?: string } };
-        const v = JSON.parse(r.result.value ?? "{}") as { h?: string; b?: string };
-        if (v.b && /제1조/u.test(v.b)) return { url, header: v.h ?? "", body: v.b };
-        await new Promise((res) => setTimeout(res, 1000));
-      }
-      throw Object.assign(new Error(`법령 본문을 찾지 못함: ${lawName}`), { name: "LawPageNotFound" });
-    } finally {
-      ws?.close();
-      await b.stopSession();
+      // ponytail: 사이트 구조 변경 시 선택자 갱신
+      const v = JSON.parse(await readPage(url, {
+        expression: `JSON.stringify({ h: document.querySelector("#conTop")?.innerText ?? "", b: document.querySelector("#conScroll")?.innerText ?? "" })`,
+        done: (x) => /제1조/u.test((JSON.parse(x || "{}") as { b?: string }).b ?? ""),
+        region: this.region, ...(this.identifier ? { identifier: this.identifier } : {}), sessionName: "hanaeum-law",
+      })) as { h?: string; b?: string };
+      return { url, header: v.h ?? "", body: v.b ?? "" };
+    } catch (e) {
+      if ((e as Error).name === "PageNotReady") throw Object.assign(new Error(`법령 본문을 찾지 못함: ${lawName}`), { name: "LawPageNotFound" });
+      throw e;
     }
   }
 }
