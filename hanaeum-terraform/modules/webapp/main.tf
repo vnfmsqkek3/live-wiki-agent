@@ -18,6 +18,10 @@ variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "runtime_arn_patterns" { type = list(string) } # API 가 호출하는 AgentCore Runtime (파이프라인·가이드)
 # API 검색(/v1/search: KB Retrieve·Rerank)용 KB ARN
 variable "kb_arn" { type = string }
+variable "extra_api_statements" {
+  type    = list(any)
+  default = []
+}
 # 같은 CodeBuild 로 빌드하는 Agent 이미지의 ECR (파이프라인·가이드 Runtime)
 variable "extra_ecr_arns" {
   type    = list(string)
@@ -196,14 +200,15 @@ resource "aws_iam_role_policy" "api" {
   role = aws_iam_role.api.id
   policy = jsonencode({
     Version = "2012-10-17"
-    Statement = [
+    Statement = concat(var.extra_api_statements, [
       {
         Effect   = "Allow"
         Action   = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:UpdateItem", "dynamodb:Query", "dynamodb:Scan", "dynamodb:BatchGetItem"]
         Resource = flatten([for k in ["documents", "approvals", "feedback", "audit_events", "workflows"] : [var.tables[k].arn, "${var.tables[k].arn}/index/*"]])
       },
       { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
-      { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
+      # 원본 다운로드(사용자 요청 11/17, dhxorb96 efe5463): 승인된 s3_version_id 로 60초 presigned GET → 버전 지정 읽기
+      { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/segments/*" },
       # 실패·검토 사유 위치 표시: PII 를 칠한 페이지 이미지 위에 bbox 강조 (요청기록 20261117-0106)
@@ -220,7 +225,7 @@ resource "aws_iam_role_policy" "api" {
       # 검색 화면 /v1/search (let522mj search_wiki 를 API 가 직접 사용): KB Retrieve + Cohere Rerank
       { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = var.kb_arn },
       { Effect = "Allow", Action = ["bedrock:Rerank", "bedrock:InvokeModel"], Resource = "*" },
-    ]
+    ])
   })
 }
 

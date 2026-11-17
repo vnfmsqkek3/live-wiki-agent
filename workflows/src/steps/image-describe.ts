@@ -5,11 +5,9 @@
 // 출력: {doc}/masked/figures/{nnnn}.json, {doc}/masked/segments/{nnnn}.json 의 figures 필드 (색인 계약 interfaces.md 5장)
 // 묘사 결과도 PII 규칙(dhxorb96 pii-detect)으로 다시 마스킹한다. 이미지 속 글은 자료로만 다루고 지시로 따르지 않는다.
 import { ApplyGuardrailCommand, BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { finding, type Finding, type StepInput, type StepOutput } from "./common.js";
-import { dynamoFindingsStore, type FindingsStore } from "./findings-store.js";
+import { findingsStore, type FindingsStore } from "./findings-store.js";
 import { detectPii, mask as maskSpans } from "@hanaeum/pii";
 
 export const STEP = "ImageDescribe";
@@ -166,5 +164,5 @@ export const handler = makeHandler({
       return r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input; // 구조화 출력만 사용, 자유 텍스트 무시
     },
     mask: sharedMask,
-    saveFindings: dynamoFindingsStore(DynamoDBDocumentClient.from(new DynamoDBClient({})), process.env.TABLE_DOCUMENTS ?? ""),
+    saveFindings: findingsStore(),
 });

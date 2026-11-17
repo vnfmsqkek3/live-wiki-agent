@@ -5,11 +5,9 @@
 // DOCX·HWPX 는 본문 글은 구조화 텍스트(TextLayerExtract)로 쓰고, 안에 든 그림만 쪽별로 세로로 이어 붙여 PNG 한 장으로 만든다
 //   → 같은 OCR → PiiScan 마스킹 → ImageDescribe 경로 (사용자 결정 11/17). 분석할 수 없는 형식(EMF·WMF 등)은 Finding 으로 알린다.
 // 출력: {doc_id}/work/pages/{nnnn}.png, {doc_id}/work/pages/ocr_targets.json
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { DynamoDBDocumentClient } from "@aws-sdk/lib-dynamodb";
 import { finding, type Finding, type StepInput, type StepOutput } from "./common.js";
-import { dynamoFindingsStore, type FindingsStore } from "./findings-store.js";
+import { findingsStore, type FindingsStore } from "./findings-store.js";
 import { officeFigures, type OfficeFigure } from "./office-figures.js";
 
 export const STEP = "PageRender";
@@ -160,7 +158,7 @@ export function makeHandler(d: Deps) {
 
 const s3 = new S3Client({});
 export const handler = makeHandler({
-  saveFindings: dynamoFindingsStore(DynamoDBDocumentClient.from(new DynamoDBClient({})), process.env.TABLE_DOCUMENTS ?? ""),
+  saveFindings: findingsStore(),
   findOriginal: async (bucket, doc_id) =>
     (await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: `${doc_id}/original.`, MaxKeys: 1 }))).Contents?.[0]?.Key,
   get: async (bucket, key) => (await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))).Body!.transformToByteArray(),

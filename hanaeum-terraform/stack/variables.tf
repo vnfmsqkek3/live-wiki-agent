@@ -1,4 +1,14 @@
 variable "env" { type = string }
+
+# 거버넌스 저장소 전환 (interfaces.md 10장). 세 Owner 구현이 dev 에 올라간 뒤 postgres 로
+variable "governance_store" {
+  type    = string
+  default = "dynamo"
+  validation {
+    condition     = contains(["dynamo", "postgres"], var.governance_store)
+    error_message = "dynamo | postgres"
+  }
+}
 variable "name_suffix" { type = string } # "" (prod) / "-dev" / "-{닉네임}"
 variable "owner" { type = string }
 variable "region" {

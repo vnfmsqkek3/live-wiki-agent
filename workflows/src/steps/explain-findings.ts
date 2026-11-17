@@ -4,9 +4,8 @@
 // 입력: Documents META 의 findings(각 단계가 남긴 사실: code·message·location·user_message·fix_hint·details)만. 원문·work/* 는 읽지 않는다.
 // 출력: {doc}/masked/explanation.json (API 가 업로드·결재 화면에 표시). 모든 글 필드는 @hanaeum/pii 로 재마스킹.
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
-import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
-import { DynamoDBDocumentClient, GetCommand } from "@aws-sdk/lib-dynamodb";
+import { getDocument } from "./findings-store.js";
 import { detectPii, mask as maskSpans } from "@hanaeum/pii";
 import type { Finding, StepInput, StepOutput } from "./common.js";
 
@@ -112,13 +111,11 @@ export function makeHandler(d: Deps) {
 // ---------- Lambda 연결 (model-caller Role) ----------
 const s3 = new S3Client({});
 const bedrock = new BedrockRuntimeClient({});
-const db = DynamoDBDocumentClient.from(new DynamoDBClient({}));
 const MODEL = process.env.MODEL_SONNET ?? "";
 const maskText = (t: string) => { const sp = detectPii(t); return sp.length ? maskSpans(t, sp) : t; };
 
 export const handler = makeHandler({
-  getDoc: async (doc_id) =>
-    (await db.send(new GetCommand({ TableName: process.env.TABLE_DOCUMENTS, Key: { pk: `DOC#${doc_id}`, sk: "META" } }))).Item as Doc | undefined,
+  getDoc: (doc_id) => getDocument<Doc>(doc_id),
   explain: async (factsJson) => {
     const r = await bedrock.send(new ConverseCommand({
       modelId: MODEL,

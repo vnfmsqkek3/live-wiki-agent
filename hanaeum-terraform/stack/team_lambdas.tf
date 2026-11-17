@@ -162,6 +162,16 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ]
     }
+    # 문서 삭제 시 게시본·격리 파일 모든 버전 삭제 (사용자 결정 11/17 B). lifecycle=DELETED 일 때만 동작
+    purge-document = {
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/purge-document.handler", memory = 256, timeout = 300, model_caller = false
+      env = { BUCKET_PUBLISHED = local.b["published"].name, BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name }
+      statements = concat(local.purge, [
+        { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["s3:ListBucketVersions", "s3:ListBucket"], Resource = local.b["published"].arn },
+        { Effect = "Allow", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = ["${local.b["published"].arn}/legal/*", "${local.b["published"].arn}/knowledge/*"] },
+      ])
+    }
     # 쪽별 요약·핵심어·조문 표기 (사용자 결정 11/17). model-caller: masked/segments 만 읽고 masked/summaries 작성
     page-summarize = {
       zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/page-summarize.handler", memory = 256, timeout = 300, model_caller = true
@@ -201,10 +211,12 @@ locals {
     }
     mcp-graph = {
       zip = "${local.lz}/mcp_graph.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = true, vpc = true, reserved = -1
-      env = { NEPTUNE_ENDPOINT = module.neptune.endpoint, TABLE_REGULATIONS = local.t["regulations"].name }
+      # TABLE_DOCUMENTS: 폐기(DELETED) 노하우를 trace_impact 결과에서 제외 (let522mj ab742cb)
+      env = { NEPTUNE_ENDPOINT = module.neptune.endpoint, TABLE_REGULATIONS = local.t["regulations"].name, TABLE_DOCUMENTS = local.t["documents"].name }
       statements = [
         { Effect = "Allow", Action = ["neptune-db:connect", "neptune-db:ReadDataViaQuery"], Resource = module.neptune.db_resource_arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
       ]
     }
     mcp-regulation = {
@@ -238,14 +250,15 @@ locals {
 data "aws_caller_identity" "me" {}
 
 module "team" {
-  source               = "../modules/fn"
-  for_each             = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
-  n                    = local.n
-  name                 = each.key
-  s3                   = { bucket = local.lb.bucket, key = each.value.zip }
-  handler              = each.value.handler
-  env                  = each.value.env
-  statements           = each.value.statements
+  source   = "../modules/fn"
+  for_each = { for k, v in local.team : k => v if contains(var.team_lambdas, k) }
+  n        = local.n
+  name     = each.key
+  s3       = { bucket = local.lb.bucket, key = each.value.zip }
+  handler  = each.value.handler
+  env      = merge(each.value.env, local.gov_env)
+  # 거버넌스 테이블(documents·approvals·feedback·audit)을 쓰는 Lambda 에만 Data API 권한
+  statements           = concat(each.value.statements, length(regexall("ddb-(documents|approvals|feedback|audit-events)", jsonencode(each.value.statements))) > 0 ? module.aurora.app_statements : [])
   memory               = each.value.memory
   timeout              = each.value.timeout
   model_caller         = each.value.model_caller
@@ -283,7 +296,7 @@ locals {
   # 파이프라인 단계 키 → 팀 Lambda 키 (Gateway Tool 로 등록)
   step_fn = {
     file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
-    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings", page_summarize = "page-summarize"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings", page_summarize = "page-summarize", purge_document = "purge-document"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
 

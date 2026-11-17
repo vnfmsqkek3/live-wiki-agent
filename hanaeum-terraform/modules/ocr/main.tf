@@ -196,6 +196,42 @@ resource "aws_appautoscaling_target" "ocr" {
   scalable_dimension = "sagemaker:variant:DesiredInstanceCount"
   min_capacity       = 0
   max_capacity       = 1
+  # 업무 시간에는 아래 예약 작업이 최소 1대로 올린다 → plan 이 그 값을 되돌리지 않게
+  lifecycle { ignore_changes = [min_capacity] }
+}
+
+# 업무·데모 시간 예열 (let522mj 11/17 실측: 0대에서 첫 요청까지 약 5분 → 업로드가 '문자 인식 중'에서 멈춘 것처럼 보임)
+# 평일 08:30~19:00 KST 최소 1대, 그 밖에는 0대(요청이 오면 기존 wake 경보로 기동). ponytail: 시간 고정, 데모 일정이 바뀌면 cron 만 수정
+variable "warm_hours" {
+  type    = bool
+  default = true
+}
+resource "aws_appautoscaling_scheduled_action" "warm" {
+  count              = var.warm_hours ? 1 : 0
+  name               = "${var.n.prefix}-ocr-warm${var.n.suffix}"
+  service_namespace  = aws_appautoscaling_target.ocr.service_namespace
+  resource_id        = aws_appautoscaling_target.ocr.resource_id
+  scalable_dimension = aws_appautoscaling_target.ocr.scalable_dimension
+  schedule           = "cron(30 8 ? * MON-FRI *)"
+  timezone           = "Asia/Seoul"
+  scalable_target_action {
+    min_capacity = 1
+    max_capacity = 1
+  }
+}
+resource "aws_appautoscaling_scheduled_action" "cool" {
+  count              = var.warm_hours ? 1 : 0
+  name               = "${var.n.prefix}-ocr-cool${var.n.suffix}"
+  service_namespace  = aws_appautoscaling_target.ocr.service_namespace
+  resource_id        = aws_appautoscaling_target.ocr.resource_id
+  scalable_dimension = aws_appautoscaling_target.ocr.scalable_dimension
+  schedule           = "cron(0 19 ? * MON-FRI *)"
+  timezone           = "Asia/Seoul"
+  scalable_target_action {
+    min_capacity = 0
+    max_capacity = 1
+  }
+  depends_on = [aws_appautoscaling_scheduled_action.warm]
 }
 
 # 대기열이 0이면 축소 (target tracking, 기본 scale-in 쿨다운 후 0대)

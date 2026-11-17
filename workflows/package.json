@@ -17,6 +17,7 @@
   },
   "dependencies": {
     "@aws-sdk/credential-provider-node": "3.972.97",
+    "@hanaeum/db": "*",
     "@hanaeum/pii": "*",
     "@napi-rs/canvas": "1.1.1",
     "@smithy/hash-node": "4.5.2",
