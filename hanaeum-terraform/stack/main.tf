@@ -96,7 +96,7 @@ module "pipeline" {
   create_runtime            = local.agents_ref != null || var.pipeline_runtime_image_tag != null
   runtime_image_tag         = var.pipeline_runtime_image_tag != null ? var.pipeline_runtime_image_tag : terraform_data.agent_image["pipeline"].output
   extra_runtime_statements  = module.aurora.app_statements
-  runtime_env               = merge(local.gov_env, { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off", PAGE_SUMMARIZE = contains(var.team_lambdas, "page-summarize") ? "on" : "off" })
+  runtime_env               = merge(local.gov_env, { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off", PAGE_SUMMARIZE = contains(var.team_lambdas, "page-summarize") ? "on" : "off", REFERENCE_CHECK = contains(var.team_lambdas, "reference-check") ? "on" : "off" })
   enable_transaction_search = var.enable_transaction_search
 }
 

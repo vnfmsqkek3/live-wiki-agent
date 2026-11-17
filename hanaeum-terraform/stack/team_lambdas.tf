@@ -80,6 +80,21 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ])
     }
+    # 참조 확인 (사용자 결정 11/18, 계약 6.4): 주소 없는 링크·모순 → AgentCore Browser 공개 웹 검색, 게시 비차단. 검색어 1개 ~15초 × 최대 5
+    reference-check = {
+      zip = local.dz, handler = "handlers.referenceCheck", memory = 512, timeout = 300, model_caller = true
+      env = merge(local.d_env, { REFERENCE_CHECK = "on", MODEL_HAIKU = var.models["MODEL_HAIKU"] })
+      statements = concat(local.d_statements, [
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn, Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*"] } } },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${local.b["quarantine"].arn}/*/masked/segments/*", "${local.b["quarantine"].arn}/*/masked/structured/*"] },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+        {
+          Effect   = "Allow"
+          Action   = ["bedrock-agentcore:StartBrowserSession", "bedrock-agentcore:StopBrowserSession", "bedrock-agentcore:GetBrowserSession", "bedrock-agentcore:ConnectBrowserAutomationStream"]
+          Resource = "arn:aws:bedrock-agentcore:${var.region}:aws:browser/aws.browser.v1"
+        },
+      ])
+    }
     # 노하우 검증(Sonnet 판정) → 모델 호출 Role (dhxorb96 11/16). quarantine 은 masked/ 만 읽음 (원본 등급은 버킷 정책이 거부)
     trust-gate = {
       zip = local.dz, handler = "handlers.trustGate", memory = 512, timeout = 300, model_caller = true
@@ -310,7 +325,7 @@ locals {
   # 파이프라인 단계 키 → 팀 Lambda 키 (Gateway Tool 로 등록)
   step_fn = {
     file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
-    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings", page_summarize = "page-summarize", purge_document = "purge-document"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings", page_summarize = "page-summarize", purge_document = "purge-document", reference_check = "reference-check"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
 

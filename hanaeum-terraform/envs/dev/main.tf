@@ -29,11 +29,11 @@ module "stack" {
   # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
-    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "category-sweep", "interceptor", "mcp-privacy", "mcp-approval",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "category-sweep", "reference-check", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
     yoyo0704 = "b782529" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "88248c7" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
+    dhxorb96 = "54b294d" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
     let522mj = "30d25b3" # main: #39 figure_boxes·나란한 캡션 + #38 #37 #33 #36
   }
 
@@ -45,8 +45,8 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "88248c7" # 위키에서 고치기·고칠 것·결재 카드 단순화
-  agents_source_ref = "88248c7" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "54b294d" # 위키에서 고치기·고칠 것·결재 카드 단순화
+  agents_source_ref = "54b294d" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
