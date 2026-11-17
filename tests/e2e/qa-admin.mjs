@@ -72,7 +72,8 @@ for (;;) {
   await sleep(250);
 }
 const links = [...collected.values()];
-check('A1', links.length > 0 && links.every(([, h]) => h.includes('from=admin')), `결재함 제목 링크 ${links.length}개`, await shot('A1-admin'));
+// 결재 대상이 하나도 없으면(예: 공격·위조 문서를 올리지 않은 prod) 실패가 아니라 해당 없음
+check('A1', links.length === 0 ? 'partial' : links.every(([, h]) => h.includes('from=admin')), links.length ? `결재함 제목 링크 ${links.length}개` : '결재 대상 없음 (해당 없음)', await shot('A1-admin'));
 // 점검 대상: QA_ADMIN_DOCS(쉼표, doc_id)가 없으면 결재함 목록에 지금 있는 문서 앞에서 3건 (데이터 초기화 뒤에도 동작)
 const targets = process.env.QA_ADMIN_DOCS ? process.env.QA_ADMIN_DOCS.split(',').map((id) => [id.slice(-6), id])
   : links.slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
