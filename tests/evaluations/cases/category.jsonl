@@ -1,0 +1,16 @@
+{"id":"CAT-01","doc":"과천사옥 복합기 매뉴얼 (사용자 제공 실문서, yoyo0704 dev 업로드)","expected_category":"경영지원/사무기기·시설","why":"복합기·사무기기 사용·장애 조치"}
+{"id":"CAT-02","doc":"K-001 부동산 담보평가 실무 노하우","expected_category":"여신/담보·감정평가","why":"감정평가·현장 실사"}
+{"id":"CAT-03","doc":"K-003 본부 승인 대상 판단 요령","expected_category":"여신/기업여신","why":"기업여신 본부 승인 기준"}
+{"id":"CAT-04","doc":"F-002 하나은행 기업여신 심사규정","expected_category":"여신/기업여신","why":"기업여신 심사·승인 규정"}
+{"id":"CAT-05","doc":"G-KREV-01 예금 수신 실무 메모 1","expected_category":"수신/계좌·예적금","why":"예금 계좌·휴면예금"}
+{"id":"CAT-06","doc":"G-KREV-02 외국환 실무 메모 2","expected_category":"외환/송금·환전","why":"해외송금·환전"}
+{"id":"CAT-07","doc":"G-KREV-03 신용카드 발급 실무 메모 3","expected_category":"카드","why":"신용카드 발급"}
+{"id":"CAT-08","doc":"G-KREV-04 신용리스크 실무 메모 4","expected_category":"리스크관리","why":"신용리스크 한도"}
+{"id":"CAT-09","doc":"하나은행 개인정보 보호규정 (G-REG)","expected_category":"개인정보·보안/개인정보 보호","why":"개인정보 처리·파기"}
+{"id":"CAT-10","doc":"하나은행 자금세탁방지 업무규정 (G-REG)","expected_category":"내부통제·준법/자금세탁방지","why":"의심거래 보고·고객확인"}
+{"id":"CAT-11","doc":"하나은행 전산보안 관리규정 (G-REG)","expected_category":"개인정보·보안/정보보안","why":"비밀번호·보안 사고"}
+{"id":"CAT-12","doc":"하나은행 민원 처리규정 (G-REG)","expected_category":"민원·소비자보호","why":"민원 처리 기한"}
+{"id":"CAT-13","doc":"하나은행 펀드 판매규정 (G-REG)","expected_category":"신탁·펀드/상품 판매·설명","why":"적합성·설명의무"}
+{"id":"CAT-14","doc":"하나은행 직원 겸직 관리규정 (G-REG)","expected_category":"인사·교육","why":"직원 겸직"}
+{"id":"CAT-15","doc":"창구 현금 한도 확인 노하우 (K-TBL-01 시험 문서)","expected_category":"수신/창구·현금","why":"창구 현금 지급 한도"}
+{"id":"CAT-16","doc":"야간 자동화기기 장애 대응 노하우 (K-IMG-01 시험 문서)","expected_category":"수신/창구·현금","why":"ATM 장애"}
