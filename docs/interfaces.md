@@ -139,6 +139,16 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 
 없애는 것: 역할별 수정 권한 구분, 작성자 검토·승인 검토 이중 화면, 검토 화면의 검사별 섹션 나열(→ '자세히').
 
+### 6.3 그림 쪽 정리본 page_markdown (사용자 결정 11/17 "A: megazone-idp 방식")
+
+| 항목 | 계약 |
+|---|---|
+| 생성 (ImageDescribe, yoyo0704) | 그림 있는 쪽(masked/pages 있는 쪽)마다 마스킹 쪽 이미지 + OCR 글자(참고)를 Sonnet 에 넣어 쪽 전체 마크다운. 이미지가 정답, OCR 은 참고. 절차는 번호 단계, UI 이름 굵게, 그림 근거 문장 끝 `_(그림 n)_`(n = figures 순서). PII 재마스킹, 최대 6000자 |
+| 저장 | `masked/figures/{nnnn}.json`·`masked/segments/{nnnn}.json` 의 `page_markdown` (그림 없는 쪽은 없음) |
+| 사용 (Classify, dhxorb96) | 있으면 그 쪽 정리본으로 그대로(모델 재호출·원문 대조 없음). 화면 표시 "AI 정리(그림 기준) — 근거 인용 불가" |
+| 검사 | InjectionScan 이 page_markdown 도 검사 |
+| 바뀌지 않는 것 | 원문 보기·조문 인용·PII 검사·주장 대조는 OCR `text` 기준 |
+
 ## 7. Backend API (Owner dhxorb96, 원본 `01` 10장)
 
 | 메서드·경로 | 역할 | 요약 |
