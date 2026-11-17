@@ -201,10 +201,12 @@ locals {
     }
     mcp-graph = {
       zip = "${local.lz}/mcp_graph.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = true, vpc = true, reserved = -1
-      env = { NEPTUNE_ENDPOINT = module.neptune.endpoint, TABLE_REGULATIONS = local.t["regulations"].name }
+      # TABLE_DOCUMENTS: 폐기(DELETED) 노하우를 trace_impact 결과에서 제외 (let522mj ab742cb)
+      env = { NEPTUNE_ENDPOINT = module.neptune.endpoint, TABLE_REGULATIONS = local.t["regulations"].name, TABLE_DOCUMENTS = local.t["documents"].name }
       statements = [
         { Effect = "Allow", Action = ["neptune-db:connect", "neptune-db:ReadDataViaQuery"], Resource = module.neptune.db_resource_arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
       ]
     }
     mcp-regulation = {

@@ -32,7 +32,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "9244d28" # workflows·auth-triggers·services/ocr
     dhxorb96 = "f146b60" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "dc1ba61" # PR #12 병합 (실무 보완 밑줄·색인 실패 문장)
+    let522mj = "ab742cb" # PR #12 병합 (실무 보완 밑줄·색인 실패 문장)
   }
 
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
