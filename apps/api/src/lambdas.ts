@@ -50,7 +50,7 @@ export interface SegmentDeps {
   getBytes?(key: string): Promise<Uint8Array>;
   putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
-type Seg = { page_index: number; text: string };
+type Seg = { page_index: number; text: string; figures?: import('./steps/structure.ts').PageFigure[] };
 const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
 
 async function maskedSegments(deps: SegmentDeps, doc_id: string) {
@@ -156,14 +156,14 @@ export function makeClassify(deps: SegmentDeps) {
 
 /** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)·이미 마크다운인 쪽은 건너뜀. 원문 대조를 통과한 정리본만 저장 */
 export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
-  const todo = segs.filter((s) => needsStructure(s.text)).slice(0, 40);
+  const todo = segs.filter((s) => needsStructure(s.text, s.figures)).slice(0, 40);
   let saved = 0, rejected = 0, failed = 0;
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
       try {
-        const r = await deps.structure!(structurePrompt(s.page_index, s.text));
+        const r = await deps.structure!(structurePrompt(s.page_index, s.text, s.figures));
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
-        const f = faithful(s.text, md);
+        const f = faithful(s.text, md, s.figures);
         if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
         await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
         saved++;

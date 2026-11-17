@@ -217,3 +217,15 @@ test('AI 재구성 대상: 이미 마크다운인 쪽·짧은 쪽은 건너뜀',
   assert.equal(needsStructure('짧은 쪽'), false);
   assert.equal(needsStructure('1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다. 「개인정보 보호법」 제15조제1항: 개인정보처리자는'), true);
 });
+
+test('쪽 전체 맥락 재구성: 그림 줄(⟦그림 pN⟧)은 본문 대조에서 빼고, 그림 설명에서 온 문장·숫자는 허용, 지어낸 숫자는 거부', async () => {
+  const { faithful, splitPage, needsStructure } = await import('../src/steps/structure.ts');
+  const text = '드라이버 설치 방법\n다운로드 자료실에서 모델명을 입력하고 검색한다. [그림 1]\n⟦그림 p3⟧ 그림 1 속 글자: Myo1z1s Wiotaes11Prrt 2024-06-21';
+  assert.equal(splitPage(text).body.includes('Myo1z1s'), false);
+  const figures = [{ kind: 'screenshot', description: '모델명 검색창과 검색 버튼이 보이는 화면', overlay_text: 'SL-K3250NR' }];
+  assert.equal(needsStructure('짧은 쪽', figures), true); // 그림이 있으면 짧아도 맥락 정리
+  const good = '## 드라이버 설치 방법\n\n1. **다운로드 자료실**에서 모델명을 입력하고 검색한다.\n   - 모델명 검색창과 검색 버튼이 보이는 화면 (그림 1)';
+  assert.equal(faithful(text, good, figures).ok, true);
+  assert.equal(faithful(text, good + '\n- 버전 9.99 설치 (그림 1)', figures).ok, false); // 그림에도 없는 숫자
+  assert.equal(faithful(text, '## 드라이버 설치 방법', figures).ok, false); // 본문 문장 빠짐
+});
