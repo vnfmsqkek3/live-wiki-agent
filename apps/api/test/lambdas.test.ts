@@ -382,3 +382,18 @@ test('Clarify 흐름: 위키 제안(부서+직책, 사람 이름 버림), 담당
   assert.equal((await bad(t.input)).status, 'OK');
 });
 
+
+test('Clarify 보정(11/18 dev 재시험): 채택 결과가 없으면 웹 검색 1회 재시도, INCONSISTENT 에는 웹 제안 없음', async () => {
+  const { makeReferenceCheck } = await import('../src/lambdas.ts');
+  const { WEB_KINDS } = await import('../src/steps/clarify.ts');
+  assert.equal(WEB_KINDS.has('INCONSISTENT'), false);
+  const body = '삼성 드라이버는 다운로드 자료실 링크 접속 후 받는다.';
+  const t = segSetup([body]); await t.store.putDoc(t.doc);
+  t.objects.set(`${t.doc.doc_id}/masked/segments/0000.json`, { doc_id: t.doc.doc_id, page_index: 0, text: body });
+  let calls = 0;
+  const step = makeReferenceCheck({ ...t.deps, findClarify: async () => ({ value: { items: [] }, model: 'm' }),
+    web: { search: async (qs) => { calls++; return new Map([[qs[0]!, calls === 1 ? [] : [{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실', text: '' }]]]); } } });
+  const r = await step(t.input);
+  assert.equal(calls, 2);
+  assert.equal((r.findings![0]!.details as { suggestions: { value: string }[] }).suggestions[0]!.value, 'https://www.samsungsvc.co.kr/download');
+});

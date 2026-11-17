@@ -203,8 +203,11 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       const checked_at = now();
       if (deps.web && webC.length) {
         // 채택 판정을 검색 안으로: 채택할 수 있는 결과가 나올 때까지 사이트별 site: 검색 → 일반 검색 (Fable 진단 C)
-        const hits = await deps.web.search([...new Set(webC.map(({ q }) => q!))], new Map(webC.map(({ q, sites }) => [q!, sites])),
-          new Map(webC.map(({ q, sites }) => [q!, linkAcceptable(all, sites)])));
+        const run = (qs: string[]) => deps.web!.search(qs, new Map(webC.map(({ q, sites }) => [q!, sites])), new Map(webC.map(({ q, sites }) => [q!, linkAcceptable(all, sites)])));
+        const hits = await run([...new Set(webC.map(({ q }) => q!))]);
+        // 웹 결과는 실행마다 달라진다: 채택할 결과가 없는 검색어는 한 번만 다시 (11/18 dev 1회차 빈 제안)
+        const retry = webC.filter(({ q, sites }) => !(hits.get(q!) ?? []).some(linkAcceptable(all, sites))).map(({ q }) => q!);
+        if (retry.length) for (const [q, h] of await run([...new Set(retry)]).catch(() => new Map<string, never[]>())) hits.set(q, [...(hits.get(q) ?? []), ...h]);
         for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
           detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
         for (const { c, n, q, sites } of webC) {

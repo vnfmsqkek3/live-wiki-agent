@@ -19,7 +19,7 @@ export interface ClarifyCandidate {
 export interface ClarifySuggestion { value: string; after: string; source: { type: 'WIKI' | 'WEB' | 'USER'; doc_id?: string; page?: number; url?: string; title?: string } }
 export interface ClarifyData { kind: ClarifyKind; item: string; page?: number; before: string; question: string; suggestions: ClarifySuggestion[]; status: 'OPEN' | 'APPLIED' | 'DISMISSED'; dismiss_reason?: string }
 
-export const WEB_KINDS = new Set<ClarifyKind>(['MISSING_LINK', 'INCONSISTENT', 'OUTDATED']); // VAGUE_ACTOR·MISSING_VALUE 는 웹 금지(내부 사정 유출·오답)
+export const WEB_KINDS = new Set<ClarifyKind>(['MISSING_LINK', 'OUTDATED']); // 담당자·빠진 값은 웹 금지(내부 사정 유출·오답), 표·본문 모순(INCONSISTENT)은 위키 제안만 (11/18 dev)
 
 export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc>는 개인정보를 가린 문서 정리본의 일부 쪽이다. 아래 체크리스트 항목에 해당하는 곳만 골라 submit_clarify 도구로 낸다(자유 판단 금지). 최대 5건, 없으면 빈 배열.
 체크리스트(이것만 본다):
