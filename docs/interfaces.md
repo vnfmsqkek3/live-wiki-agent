@@ -226,6 +226,18 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 조회 (API·검색) | 보관함 트리 = `merged_into IS NULL` 칸 계층 + `doc_count`. 검색 필터 `category`(하위 포함). 색인 메타데이터 `category_path` (let522mj) |
 | 관리자 | 선택: 이름 수정·병합(`origin=ADMIN`, 기록 남음). 승인 절차 없음 |
 
+
+### 10.2 주장(Claim) 단위 지식 (사용자 결정 11/17 "얇은 버전", 스키마 `db/migrations/007_claims.sql`)
+
+| 항목 | 계약 |
+|---|---|
+| 원본 | 노하우 검증 `knowhow_validation.items` 그대로. 새 추출 없음 |
+| 저장 (dhxorb96, 검증 단계) | 검증이 끝나면 그 문서의 주장을 한 트랜잭션으로 교체: `DELETE` 대신 같은 `(doc_id, seq)` UPSERT, 사라진 seq 는 `status='SUPERSEDED'`. `claim_id={doc_id}#{seq}`, `verified = !!verified_quote`, `page` 는 찾으면 |
+| 답변·집계 대상 | `documents.lifecycle='PUBLISHED'` 문서의 주장만 (JOIN). 삭제·이전 버전은 자동 제외 |
+| 개정 시 재검증 (let522mj 개정 처리 → SQL) | 조문이 새 개정으로 바뀌면 `UPDATE claims SET status='REVIEW_REQUIRED', status_reason='provision_revised:'||:new, updated_at=now() WHERE provision_id=:old AND status='CURRENT'`. 노하우 재검증이 다시 돌면 저장 규칙대로 CURRENT 로 돌아옴 |
+| 조회 (API, dhxorb96) | 상세: 주장 목록(문장·관계·근거 조문·인용·상태). 조문 기준: "지지 N / 충돌 N" (`GROUP BY provision_id, relation`). 관리자: `SELECT * FROM knowledge_debt` (conflicts·review_required·unverified·healthy·docs_needing_attention) |
+| 나중 (칸만 있음) | `condition`(적용 조건), `group_id`·`embedding`(중복 묶기), Neptune CLAIM 노드 |
+
 ## 변경 이력
 
 | 날짜 | 작성자 | 섹션 | 변경 |
