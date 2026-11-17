@@ -74,8 +74,11 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
     } else if (b.kind === 'heading') {
       out.push(b.level === 1 ? <h2 key={key}>{content}</h2> : b.level === 2 ? <h3 key={key}>{content}</h3> : <h4 key={key}>{content}</h4>);
     } else if (b.kind === 'clause') {
-      const number = /^제\s*\d+\s*(?:조(?:의\d+)?|장|절)/.exec(text.slice(b.start, b.end))!;
-      out.push(<h3 className="doc-clause" key={key}><span>{inline(b.start, b.start + number[0].length)}</span>{inline(b.start + number[0].length, b.end)}</h3>);
+      const source = text.slice(b.start, b.end);
+      const title = /^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장|절)/.exec(source)!;
+      const end = b.start + title[0].length;
+      const chapter = /^제\s*\d+\s*(?:장|절)/.test(source);
+      out.push(<section className="doc-clause" id={`clause-${b.start}`} key={key}><h3><span>{inline(b.start, end)}</span>{chapter && inline(end, b.end)}</h3>{!chapter && end < b.end && <p>{inline(end, b.end)}</p>}</section>);
     } else if (b.kind === 'list') {
       out.push(<div className="doc-list" role="list" key={key}><div role="listitem" style={{ paddingLeft: `${Math.min(b.level, 6)}em` }}><span className="doc-bullet" aria-hidden="true">{b.prefix.trim().replace(/^[-*]$/, '•')}</span>{content}</div></div>);
     } else if (b.kind === 'quote') out.push(<blockquote key={key}>{content}</blockquote>);

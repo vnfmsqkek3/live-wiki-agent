@@ -90,11 +90,11 @@ function ReviewView() {
         return (
           <section aria-labelledby="kh">
             <h2 className="section" id="kh">노하우 검증</h2>
-            <p className="notice" style={{ borderLeftColor: color, color }}>{title}. AI가 비교한 결과이며, 게시 여부는 규정 승인자가 결정합니다.</p>
+            <p className="notice" style={{ color }}>{title}. AI가 비교한 결과이며, 게시 여부는 규정 승인자가 결정합니다.</p>
             {k.outdated.map((o) => <p key={o.cited} className="flag" style={{ display: 'block', marginBottom: 8 }}>개정 전 조문을 인용했습니다. 현행 {o.label} 기준으로 다시 확인하세요.</p>)}
             <ul className="ledger">
               {k.items.filter((j) => j.relation !== 'UNRELATED').map((j, i) => (
-                <li key={i} className="entry" style={{ paddingRight: 16, borderLeftColor: j.relation === 'CONFLICTS' ? 'var(--danger)' : j.relation === 'SUPPORTS' ? 'var(--verified)' : undefined }}>
+                <li key={i} className="entry" style={{ paddingRight: 16 }}>
                   <p style={{ margin: 0 }}><strong>{REL[j.relation]}</strong><br />노하우: “{j.statement}”</p>
                   {j.verified_quote && <p className="quote" style={{ margin: '6px 0' }}>{j.label}: {j.quote}</p>}
                   <p className="note" style={{ margin: 0 }}>{j.reason}</p>
@@ -114,7 +114,7 @@ function ReviewView() {
             <p className="note">{help}</p>
             <ul className="ledger">
               {fs.map((f) => (
-                <li key={f.finding_id} className="entry" style={{ paddingRight: 16, borderLeftColor: f.severity === 'LOW' ? undefined : f.severity === 'HIGH' ? 'var(--danger)' : 'var(--ochre)' }}>
+                <li key={f.finding_id} className="entry" style={{ paddingRight: 16 }}>
                   {f.message}<div className="meta">{f.evidence_ref.replace('page:', '')}쪽</div>
                 </li>
               ))}

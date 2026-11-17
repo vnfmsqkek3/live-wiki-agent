@@ -34,3 +34,14 @@ test('overlap follows the earlier mark; literal HTML is escaped', () => {
   assert.match(html, /ef<sup>2/);
   assert.match(render('<script>'), /&lt;script&gt;/);
 });
+
+test('long clauses separate their title and body without changing source marks', () => {
+  const text = '제7조의2(중도 해지) ① 수수료는 계약서에 명시한다.\n제2장 업무 기준';
+  const start = text.indexOf('해지');
+  const html = render(text, [{ n: 1, m: { start, end: text.indexOf('계약서') + 3 } }]);
+  assert.equal(visible(html), text.replace('\n', ''));
+  assert.match(html, /id="clause-0"/);
+  assert.match(html, /<\/h3><p>/);
+  assert.match(html, /class="hl on"/);
+  assert.equal(parseDocText(text)[1].start, text.indexOf('제2장'));
+});

@@ -47,7 +47,7 @@ function GuideView() {
       {err && <p className="error" role="alert">{err}</p>}
       {g && (
         <>
-          <p className="notice" style={{ borderLeftColor: 'var(--ledger)', color: 'var(--ink)' }}>
+          <p className="notice" style={{ color: 'var(--ink)' }}>
             검증된 문서 {docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.
           </p>
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}

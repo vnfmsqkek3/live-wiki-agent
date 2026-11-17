@@ -80,7 +80,7 @@ export default function Admin() {
           {source.length > 0 && <h2 className="section">출처 확인이 먼저 필요한 문서</h2>}
           <ul className="ledger stack">
             {source.map((i) => (
-              <li className="entry" key={i.doc_id} style={{ paddingRight: 16, borderLeftColor: 'var(--danger)' }}>
+              <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                 <span className="flag"><Icon name="alert" />검토 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                 {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
