@@ -307,3 +307,29 @@ test("단계 Finding 저장: MemoryRecords.saveFindings는 같은 단계 것만 
   await r.saveFindings(DOC, "SegmentBuild", [f("SegmentBuild", "NO_TEXT2")]);
   assert.deepEqual(r.findings.get(DOC)!.map((x) => x.code), ["A", "NO_TEXT2"]);
 });
+
+test("표(PP-StructureV3): 표 영역 줄 대신 제자리에 마크다운 표, tables 없으면 줄 나열 그대로", async () => {
+  const { ocrPageText, tableToMarkdown } = await import("./segment.ts");
+  assert.equal(tableToMarkdown("<table><tr><td>구분</td><td>기준</td></tr><tr><td>금고 열쇠</td><td>보라색확인절차 서명 | 필수</td></tr><tr><td colspan=2>예외는 영업점장 보고</td></tr></table>"),
+    "| 구분 | 기준 |\n| --- | --- |\n| 금고 열쇠 | 보라색확인절차 서명 \\| 필수 |\n| 예외는 영업점장 보고 |  |");
+  // rowspan: 아래 행 값이 다른 열로 밀리지 않음 (PR #27 리뷰)
+  assert.equal(tableToMarkdown("<tr><td rowspan=2>A</td><td>B</td><td>C</td></tr><tr><td>D</td><td>E</td></tr>"), "| A | B | C |\n| --- | --- | --- |\n|  | D | E |");
+  // 닫는 태그 누락·엔티티
+  assert.equal(tableToMarkdown("<tr><td>a<td>b&quot;&#39;</tr>"), "| a | b\"' |\n| --- | --- |");
+  assert.equal(tableToMarkdown("<table></table>"), "");
+  // 행이 rowspan 열 전에 끝나도 다음 행이 밀리지 않음 (재리뷰)
+  assert.equal(tableToMarkdown("<tr><td>a</td><td rowspan=3>R</td></tr><tr><td>b</td></tr><tr><td>c</td></tr><tr><td>d</td><td>e</td></tr>"),
+    "| a | R |\n| --- | --- |\n| b |  |\n| c |  |\n| d | e |");
+  const b = (text: string, y: number, table_id: string | null = null) => ({ block_id: text, label: table_id ? "table" : "text", text, confidence: 0.99, bbox: [0, y, 100, y + 10], reading_order: y, table_id });
+  const blocks = [b("영업점 마감 노하우", 0), b("구분", 50, "p0-t0"), b("기준", 50, "p0-t0"), b("표 아래 문장", 200)];
+  assert.equal(ocrPageText(blocks), "영업점 마감 노하우\n구분 기준\n표 아래 문장");
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "<tr><td>구분</td><td>기준</td></tr>" }]),
+    "영업점 마감 노하우\n\n| 구분 | 기준 |\n| --- | --- |\n\n표 아래 문장");
+  // 표 HTML이 비면 글자를 잃지 않고 줄 나열 (PR #27 리뷰)
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "" }]), "영업점 마감 노하우\n구분 기준\n표 아래 문장");
+  // bbox 없는 블록이 섞이면 원래 순서에서 표 첫 줄 자리에
+  const nb = blocks.map((x, i) => (i === 0 ? { ...x, bbox: [] } : x));
+  assert.equal(ocrPageText(nb, [{ table_id: "p0-t0", bbox: [0, 40, 100, 120], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
+  // 표에만 bbox가 없으면 표 첫 줄의 세로 위치 (재리뷰)
+  assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
+});
