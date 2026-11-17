@@ -3,6 +3,7 @@
 로그에 OCR 텍스트를 남기지 않는다 (원본 등급)."""
 import json
 import os
+import queue
 import tempfile
 import threading
 import time
@@ -13,6 +14,10 @@ import boto3
 from convert import to_structure_page
 
 MODEL = {"ocr": None, "error": None}
+# 10쪽 청크 병렬 처리 (사용자 결정 11/17). 모델 인스턴스를 WORKERS 개 올려 두고 요청마다 하나씩 빌려 쓴다.
+# 실측(11/17): 쪽당 평균 1.19초, GPU 최대 2.6GB/인스턴스 → T4 16GB 에 3개. SageMaker max_concurrent_invocations_per_instance 와 같게
+WORKERS = int(os.environ.get("OCR_WORKERS", "3"))
+POOL: "queue.Queue" = queue.Queue()
 s3 = boto3.client("s3")
 
 
@@ -27,7 +32,8 @@ def load():
               "gpu_count", paddle.device.cuda.device_count(), "device", paddle.device.get_device(), flush=True)
         # 표·레이아웃 분석 PP-StructureV3 (사용자 결정 11/17, 모든 업로드에 항상). 인식은 lang=korean → korean mobile rec 그대로.
         # 수식·차트·도장 인식은 끔(속도, 은행 문서에 불필요). 방향·왜곡 보정도 끔(렌더링 PDF 라 반듯함)
-        MODEL["ocr"] = PPStructureV3(
+        def make():
+            return PPStructureV3(
             lang="korean",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -37,7 +43,10 @@ def load():
             use_seal_recognition=False,
             use_table_recognition=True,
         )
-        print("model loaded", flush=True)
+        for _ in range(WORKERS):  # predictor 는 스레드 간 공유하지 않는다 (인스턴스당 1요청)
+            POOL.put(make())
+        MODEL["ocr"] = True
+        print("model loaded", WORKERS, flush=True)
     except Exception as e:  # noqa: BLE001
         MODEL["error"] = repr(e)
         print("model load failed", MODEL["error"], flush=True)
@@ -54,7 +63,11 @@ def run(req):
             with Image.open(path) as im:
                 w, h = im.size
             t0 = time.time()
-            r = MODEL["ocr"].predict(input=path)[0]
+            model = POOL.get()
+            try:
+                r = model.predict(input=path)[0]
+            finally:
+                POOL.put(model)
             res = r.json.get("res", {}) if hasattr(r, "json") else r  # 참고 구현과 같은 결과 접근
             page = to_structure_page(p["page_index"], w, h, res)
             pages.append(page)
