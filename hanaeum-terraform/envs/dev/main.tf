@@ -34,7 +34,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "c66bd12" # workflows·auth-triggers·services/ocr
     dhxorb96 = "776110d" # 정리본 쪽 맥락·업무 분류·주장 저장 (dhxorb96)
-    let522mj = "b1085de" # PR #32 업무 분류 필터·category_path (+#28 조문 번호)
+    let522mj = "0b4ecf4" # PR #36 개정 시 주장 재검증·SUPERSEDED 영향 제외 (+#32 분류 필터)
   }
 
   ocr_source_ref = "6b52ef3" # PP-StructureV3 표·레이아웃 + figures (11/17)
