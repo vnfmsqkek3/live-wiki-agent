@@ -5,11 +5,12 @@ import json
 import os
 import tempfile
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import boto3
 
-from convert import to_page
+from convert import to_structure_page
 
 MODEL = {"ocr": None, "error": None}
 s3 = boto3.client("s3")
@@ -17,18 +18,24 @@ s3 = boto3.client("s3")
 
 def load():
     try:
-        from paddleocr import PaddleOCR  # 무거운 import 는 백그라운드에서
+        from paddleocr import PPStructureV3  # 무거운 import 는 백그라운드에서
 
         import paddle
 
         # 장치는 paddle 이 고른다 (GPU 가 보이면 GPU). 참고 구현처럼 시작 시 인식 결과를 남겨 진단에 쓴다
         print("paddle", paddle.__version__, "cuda_compiled", paddle.is_compiled_with_cuda(),
               "gpu_count", paddle.device.cuda.device_count(), "device", paddle.device.get_device(), flush=True)
-        MODEL["ocr"] = PaddleOCR(
+        # 표·레이아웃 분석 PP-StructureV3 (사용자 결정 11/17, 모든 업로드에 항상). 인식은 lang=korean → korean mobile rec 그대로.
+        # 수식·차트·도장 인식은 끔(속도, 은행 문서에 불필요). 방향·왜곡 보정도 끔(렌더링 PDF 라 반듯함)
+        MODEL["ocr"] = PPStructureV3(
             lang="korean",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
+            use_formula_recognition=False,
+            use_chart_recognition=False,
+            use_seal_recognition=False,
+            use_table_recognition=True,
         )
         print("model loaded", flush=True)
     except Exception as e:  # noqa: BLE001
@@ -46,10 +53,23 @@ def run(req):
             s3.download_file(req["bucket"], p["key"], path)
             with Image.open(path) as im:
                 w, h = im.size
+            t0 = time.time()
             r = MODEL["ocr"].predict(input=path)[0]
             res = r.json.get("res", {}) if hasattr(r, "json") else r  # 참고 구현과 같은 결과 접근
-            pages.append(to_page(p["page_index"], w, h, res))
-    return {"doc_id": req["doc_id"], "model": "paddleocr-korean-PP-OCRv5", "model_version": "paddleocr==3.7.0", "pages": pages}
+            page = to_structure_page(p["page_index"], w, h, res)
+            pages.append(page)
+            # 실측용 (텍스트 없음): 쪽당 시간·줄 수·표 수·GPU 최대 메모리
+            print(json.dumps({"page_sec": round(time.time() - t0, 2), "lines": len(page["blocks"]), "tables": len(page.get("tables", [])),
+                              "gpu_max_mb": _gpu_mb()}), flush=True)
+    return {"doc_id": req["doc_id"], "model": "paddleocr-PP-StructureV3-korean", "model_version": "paddleocr==3.7.0", "pages": pages}
+
+
+def _gpu_mb():
+    try:
+        import paddle
+        return round(paddle.device.cuda.max_memory_allocated() / 2**20)
+    except Exception:  # noqa: BLE001
+        return None
 
 
 class H(BaseHTTPRequestHandler):
