@@ -24,7 +24,7 @@ export const publishedPrefix = (d: Pick<DocumentRecord, "document_type" | "doc_i
 const dateOf = (texts: string[]) => { const d = primaryDate(docDates(texts)); return d ? Number(d.date.replaceAll("-", "")) : undefined; };
 const todayYmd = () => Number(new Date().toISOString().slice(0, 10).replaceAll("-", ""));
 
-export function buildMetadata(doc: DocumentRecord, approval_id: string, content_hash: string, doc_date?: number): DocumentMetadata {
+export function buildMetadata(doc: DocumentRecord, approval_id: string, content_hash: string, doc_date?: number, category_path?: string): DocumentMetadata {
   if (doc.authority_status === "REJECTED") throw stepFailure("RejectedDocument", "반려된 문서라 게시할 수 없습니다.", "반려 사유를 고쳐 새로 올려 주세요.");
   return {
     doc_id: doc.doc_id,
@@ -43,6 +43,7 @@ export function buildMetadata(doc: DocumentRecord, approval_id: string, content_
     ...(doc.business_path?.length ? { business_path: doc.business_path.slice(0, 3) } : {}),
     ...(doc.tags?.length ? { tags: doc.tags.slice(0, 8) } : {}),
     ...(doc_date ? { doc_date } : {}),
+    ...(category_path ? { category_path } : {}),
     approval_id,
     content_hash,
   };
@@ -83,7 +84,9 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   if (!content.trim()) throw stepFailure("EmptyContent", "게시할 본문이 비어 있습니다(모든 쪽에서 글자를 찾지 못함).", "글자가 들어 있는 원본을 다시 올려 주세요.");
 
   const contentHash = sha256(content);
-  const parsed = MetadataSidecar.safeParse({ metadataAttributes: buildMetadata(doc, apr.approval_id, contentHash, dateOf(texts)) });
+  // 분류 경로는 탐색용 부가 정보라 조회 실패(스키마 배포 전 등)로 게시를 막지 않는다. 검색은 현재 분류로 다시 거른다
+  const category = await records.categoryPath?.(input.doc_id).catch((e: unknown) => { console.warn(JSON.stringify({ msg: "분류 경로 조회 실패 → 생략", error: (e as Error).name })); return undefined; });
+  const parsed = MetadataSidecar.safeParse({ metadataAttributes: buildMetadata(doc, apr.approval_id, contentHash, dateOf(texts), category) });
   if (!parsed.success) {
     const fields = parsed.error.issues.map((i) => i.message).join(", ");
     throw doc.document_type === "REGULATION" && /law_id|revision_id/u.test(fields)

@@ -78,6 +78,8 @@ export const DocumentMetadata = z.object({
   tags: z.array(z.string().min(1)).min(1).max(8).optional(),
   // v0.4 (사용자 요청 11/17 검색 세부 필터): 본문에 적힌 대표 일자(시행>개정>작성>발행>제정). 없으면 생략
   doc_date: YmdNumber.optional(),
+  // v0.5 (업무 분류 자동화, interfaces 10.1): 배정된 분류 경로 "경영지원/사무기기·시설". 미배정이면 생략
+  category_path: z.string().min(1).max(200).optional(),
 }).refine((m) => m.effective_from <= m.effective_to, "effective_from > effective_to")
   .refine((m) => m.document_type !== "REGULATION" || (m.law_id && m.revision_id), "REGULATION은 law_id·revision_id 필수");
 export type DocumentMetadata = z.infer<typeof DocumentMetadata>;

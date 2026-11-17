@@ -5,7 +5,7 @@ import { chunkDocument } from "@hanaeum/kb-chunker";
 import { regulationTools } from "@hanaeum/regulation-server";
 import { fixtureClauseStore } from "../../regulation-server/src/fixtures.ts";
 import type { DocumentMetadata } from "@hanaeum/schemas";
-import { buildFilter, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
+import { buildFilter, inCategory, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const H = (c: string) => "sha256:" + c.repeat(64);
@@ -220,4 +220,22 @@ test("search_wiki 질의 재구성: rewritten·matched_query 응답, rewrite=fal
   // 모델 없으면 규칙만
   const r3 = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown };
   assert.deepEqual(r3.rewritten, { core: "본부 여신심사위원회 승인 기준", alternates: [] });
+});
+
+test("업무 분류 필터 (interfaces 10.1): 하위 포함 KB 필터 + 현재 분류로 다시 거름(재분류·병합 뒤 낡은 메타데이터 차단)", async () => {
+  const f = JSON.stringify(buildFilter(user, { asOf: 20261215, category: "여신" }));
+  assert.ok(f.includes('"equals":{"key":"category_path","value":"여신"}') && f.includes('"startsWith":{"key":"category_path","value":"여신/"}'));
+  const { retriever, states } = setup();
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "F-002") c.metadata["category_path"] = "여신/기업여신";
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "K-001") c.metadata["category_path"] = "여신/담보·감정평가";
+  // 현재 분류: K-001은 그 뒤 '수신'으로 재분류됨
+  const cur = new Map([["F-002", "여신/기업여신"], ["K-001", "수신/창구·현금"]]);
+  const t = searchTools({ retriever, states: Object.assign(states, { categoryPaths: async (ids: string[]) => new Map(ids.flatMap((i) => (cur.has(i) ? [[i, cur.get(i)!] as [string, string]] : []))) }), regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "본부 여신심사위원회 승인 기준 담보 감정평가", as_of: "2026-12-15", category: "여신", rewrite: false }, user);
+  const all = [...r.items, ...(r.related ?? [])];
+  assert.ok(all.length && all.every((x) => x.doc_id === "F-002" && x.category_path === "여신/기업여신"));
+  // "여신"이 "여신심사" 같은 다른 칸 이름의 앞부분일 때 섞이지 않음
+  assert.equal(inCategory("여신심사/기타", "여신"), false);
+  assert.equal(inCategory("여신", "여신"), true);
+  await assert.rejects(t.search_wiki({ query: "x", category: "가".repeat(201) }, user), /category/u);
 });
