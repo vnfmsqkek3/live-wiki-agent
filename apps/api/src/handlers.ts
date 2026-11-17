@@ -9,7 +9,8 @@ import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type 
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
 import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
 import { DynamoClauseStore, regulationTools } from '@hanaeum/regulation-server';
-import { BedrockRetriever, DynamoDocStates, searchTools } from '@hanaeum/search-server';
+import { BedrockRetriever, DynamoDocStates, PgDocStates, searchTools } from '@hanaeum/search-server';
+import { db } from '@hanaeum/db';
 import { extractCitations } from '@hanaeum/graph-server';
 
 const store = storeFromEnv();
@@ -35,7 +36,7 @@ const e = process.env;
 const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
   ? (() => {
     const clauses = new DynamoClauseStore(e.TABLE_REGULATIONS);
-    const search = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: new DynamoDocStates(e.TABLE_DOCUMENTS!), regulation: regulationTools(clauses) });
+    const search = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: e.GOV_STORE === 'postgres' ? new PgDocStates(db().query) : new DynamoDocStates(e.TABLE_DOCUMENTS!), regulation: regulationTools(clauses) });
     const system = { sub: 'system:trust-gate', groups: ['REG_APPROVER'] };
     return {
       maskedText,

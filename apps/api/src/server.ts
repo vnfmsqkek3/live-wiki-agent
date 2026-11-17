@@ -1,4 +1,5 @@
 // API 실행 진입점 (ECS Fargate / 로컬). 값은 환경변수(SSM)로만 받는다.
+import { db } from '@hanaeum/db';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { cognitoVerifier } from './auth.ts';
@@ -22,9 +23,9 @@ async function marks(pages: Page[], d: DocumentRecord): Promise<Mark[]> {
 async function searchWiki() {
   const e = process.env;
   if (!e.KB_ID || !e.TABLE_REGULATIONS) return async () => ({ items: [] });
-  const { BedrockRetriever, DynamoDocStates, searchTools } = await import('@hanaeum/search-server');
+  const { BedrockRetriever, DynamoDocStates, PgDocStates, searchTools } = await import('@hanaeum/search-server');
   const { DynamoClauseStore, regulationTools } = await import('@hanaeum/regulation-server');
-  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)) });
+  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: e.GOV_STORE === 'postgres' ? new PgDocStates(db().query) : new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)) });
   return t.search_wiki as unknown as SearchWiki;
 }
 
