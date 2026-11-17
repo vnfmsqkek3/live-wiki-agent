@@ -19,7 +19,8 @@
     "@aws-sdk/client-rds-data": "3.1169.0"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "@hanaeum/kb-chunker": "*"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json",

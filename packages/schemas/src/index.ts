@@ -220,5 +220,11 @@ export const newId = (prefix: "doc" | "wf" | "apr" | "fnd"): string => `${prefix
 /** 페이지 그림 묘사 (ImageDescribe 단계, yoyo0704) → 게시 본문 끝에 한 줄씩. 인용 원문이 아니므로 별도 청크(has_figure)로만 색인 */
 export interface Figure { kind: string; description: string; overlay_text?: string; intent?: string }
 export const FIGURE_RE = /^⟦그림 p(\d+)⟧ (.+)$/u;
+/** 그림 줄 종류 접두 (Promote가 쓰고 kb-chunker가 읽음, 한 곳에서만 정의) */
+export const FIG_CONTEXT_LABEL = "쪽 맥락(AI, 그림 기준)";
+export const figSummaryLabel = (part = 1) => `쪽 정리(AI, 그림 기준)${part > 1 ? ` (이어서 ${part})` : ""}`;
+export const FIG_SUMMARY_RE = /^쪽 정리\(AI, 그림 기준\)(?: \(이어서 \d+\))?: /u;
+/** 문서 본문 줄이 그림 줄처럼 보이지 않게 (올린 사람이 "⟦그림 p0⟧ 쪽 정리…"를 넣어 AI 근거를 위조하지 못하게) */
+export const defangFigureLine = (line: string) => line.replace(/^(\s*)⟦/u, "$1[");
 export const figureLine = (page: number, f: Figure) =>
   `⟦그림 p${page}⟧ ${[`${f.kind}: ${f.description}`, f.overlay_text ? `표기: ${f.overlay_text}` : "", f.intent ? `의도: ${f.intent}` : ""].filter(Boolean).join(" / ").replace(/\s+/gu, " ")}`;

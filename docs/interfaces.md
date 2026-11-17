@@ -137,7 +137,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `POST /v1/documents/{id}/edit` | 로그인 누구나 | 위키 수정 `{markdown}`. 게시 노하우·매뉴얼 → 새 버전(`source=WIKI_EDIT`, `previous_doc_id`, `{doc}/original.md`), 내 IN_REVIEW 문서 → 그 자리 재분석. 규정 409 |
 | `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | 수정에서 지운 중요 문장 '의도한 삭제' 확인 |
 | `GET /v1/documents/{id}` · `/progress` · `/issues` | 권한 내 | 상태·단계 진행(`ConvertToPdf` '문서 변환' 포함)·확인할 내용 |
-| `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings |
+| `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18) |
 | `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
 | `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
 | `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
@@ -252,4 +252,5 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-18 | let522mj | 부록(라이브러리)·6.4 | `@hanaeum/regulation-server` `readPage(url, {expression, done, maxWaitSec?, region?, identifier?, sessionName?})`: AgentCore Browser 세션 열기 → 이동 → `expression`(브라우저에서 평가, 문자열)을 `done`일 때까지 1초 간격으로 읽기 → 세션 닫기. 시간 초과는 `PageNotReady`. http(s)만·내부 주소 거부·`allowHosts`로 제한(위반 `BlockedUrl`, 세션 열기 전 검사), 결과는 신뢰할 수 없는 입력(모델에 넘길 때 지시문 검사). 법령 원문 조회(AgentCoreLawFetcher)와 참조 확인(dhxorb96)이 같이 씀 |
 | 2026-11-18 | let522mj | 3(SegmentBuild) | `work/segments/{nnnn}.json`에 `figure_boxes: number[][]`(그림으로 분리한 image·figure·chart 영역, 쪽 대비 0~1000 정수 [x0,y0,x1,y1]; 쪽 전체 스캔으로 본 큰 상자·직인 제외, 그림 없으면 생략). PiiScan이 masked/segments로 그대로 넘겨야 ImageDescribe가 씀(yoyo0704 b782529). OCR 줄 합치기: 같은 줄이라도 글자 높이 8배 넘게 떨어진 덩어리는 ` / `로 구분 |
 | 2026-11-18 | let522mj | 1(청크) | 노하우·매뉴얼 조각: `## 제목` → 쪽 경계 → 길이(1,800자)로 나눔. 마크다운 표는 중간에서 자르지 않고, 표 하나가 상한을 넘으면 머리행을 반복해 행 단위로. `source_page`는 조각 첫 글자 줄의 쪽 (과천 매뉴얼: 39쪽이 조각 1개 → 39개) |
+| 2026-11-18 | let522mj | 1(청크)·4(search_wiki)·6.3 | 쪽 맥락: Promote가 매뉴얼·노하우 그림 쪽마다 `⟦그림 pN⟧ 쪽 맥락(AI, 그림 기준): …`(정리본 제목 중 OCR로 확인된 것 ≤3개·각 40자, 정리본과 맞는 그림 라벨, 합 120자) → kb-chunker가 같은 쪽 본문 조각의 검색 머리 둘째 줄과 메타데이터 `page_context`로(인용 원문 아님). 쪽 정리본 조각은 매뉴얼·노하우에서 `evidence_kind:"FIGURE"`·인용 가능(original_text = 정리본), 규정·그림 속 글자는 인용 불가 유지. search_wiki 결과 `evidence_kind`·`page_context`, FIGURE snippet 머리 `[그림 기준 · AI 정리]` (yoyo0704 결정 11/18, fable 의견 반영) |
 | 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |

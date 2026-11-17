@@ -267,3 +267,24 @@ test("결과 항목 page: 근거 조각의 쪽 (1부터, 청크 source_page + 1)
   const f2 = [...r.items, ...(r.related ?? [])].filter((x) => x.doc_id === "F-002");
   assert.ok(f2.length && f2.every((x) => x.page === 3));
 });
+
+test("그림 기준 근거(evidence_kind FIGURE)는 인용 가능·머리표, page_context 전달", async () => {
+  const { tools, retriever } = setup();
+  const c0 = retriever.chunks.find((c) => c.metadata["doc_id"] === "K-001")!;
+  retriever.add("[부동산 담보평가 실무 노하우 · 그림 (2쪽)]\n감정평가 현장 실사 화면 절차", { ...c0.metadata, provision_id: "K-001#fig0", has_figure: true, evidence_kind: "FIGURE", original_text: "감정평가 현장 실사 화면 절차", page_context: "01 실사 › 그림 1: 현장", source_page: 1 });
+  const r = await tools.search_wiki({ query: "감정평가 현장 실사 화면 절차", as_of: "2026-12-15", rewrite: false }, user);
+  const f = [...r.items, ...(r.related ?? [])].find((x) => x.provision_id === "K-001#fig0")!;
+  assert.equal(f.quotable, true);
+  assert.equal(f.evidence_kind, "FIGURE");
+  assert.match(f.snippet, /^\[그림 기준 · AI 정리\] 감정평가/u);
+  assert.equal(f.page_context, "01 실사 › 그림 1: 현장");
+});
+
+test("규정 문서에 evidence_kind가 남아 있어도 그림 기준 근거로 인용되지 않음 (PR #42 리뷰)", async () => {
+  const { tools, retriever } = setup();
+  const reg = retriever.chunks.find((c) => c.metadata["doc_id"] === "F-002")!.metadata;
+  retriever.add("[규정 · 그림 (1쪽)]\n본부 여신심사위원회 승인 기준 금액 요약", { ...reg, provision_id: "F-002#fig0", has_figure: true, evidence_kind: "FIGURE", original_text: "요약" });
+  const r = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 금액 요약", as_of: "2026-12-15", rewrite: false }, user);
+  const f = [...r.items, ...(r.related ?? [])].find((x) => x.provision_id === "F-002#fig0");
+  assert.ok(f && f.quotable === false && f.evidence_kind === undefined);
+});
