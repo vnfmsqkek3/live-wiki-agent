@@ -1,6 +1,7 @@
 'use client';
 // 01 사용자 홈: 검색이 주 동작. 아래는 최근 게시된 문서(실제 게시 기록). 조회수 집계가 없으므로 '많이 본' 표현은 쓰지 않는다
 import Link from 'next/link';
+import { Icon } from './icons';
 import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getSession, MOCK, type LibraryCard, type Session } from './lib/api';
@@ -39,13 +40,6 @@ export default function Home() {
   return (
     <>
       {MOCK && <p className="mock">서버에 연결되지 않아 하나은행(가상 데이터) 예시를 보여주고 있습니다.</p>}
-      {s && <p className="note" style={{ margin: 0 }}>{accountLabel(s.groups)} 화면</p>}
-      <h1 className="title">어떤 기준을 확인하시겠어요?</h1>
-      <form role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
-        <input className="field lg" type="search" aria-label="검색어" placeholder="예: 담보 3억원 이상 승인 절차" value={q} onChange={(e) => setQ(e.target.value)} />
-        <p className="note" style={{ marginTop: 8 }}>승인된 문서만 검색되며, 결과마다 근거 조문과 시행일을 함께 보여줍니다.</p>
-      </form>
-
       {todo && (
         <section aria-labelledby="todo">
           <h2 className="section" id="todo">처리할 일</h2>
@@ -53,9 +47,21 @@ export default function Home() {
             <li><strong>{todo.approvals}</strong>게시 승인 대기</li>
             <li><strong>{todo.mismatch}</strong>출처 확인 필요</li>
           </ul>
-          <Link className="btn solid" href="/admin">승인 관리로 가기</Link>
+          <Link className="btn solid" href="/admin" style={{ marginBottom: 20 }}>승인 관리로 가기</Link>
         </section>
       )}
+
+      <section className="home-hero">
+      <span className="eyebrow">지식이 이어지면, 업무가 명확해집니다</span>
+      {s && <p className="note" style={{ margin: 0 }}>{accountLabel(s.groups)} 화면</p>}
+      <h1 className="title">어떤 기준을 확인하시겠어요?</h1>
+      <form className="hero-search" role="search" onSubmit={(e) => { e.preventDefault(); if (q.trim()) go(q.trim()); }}>
+        <input className="field lg" type="search" aria-label="검색어" placeholder="예: 담보 3억원 이상 승인 절차" value={q} onChange={(e) => setQ(e.target.value)} />
+        <button className="btn solid" type="submit"><Icon name="search" />검색</button>
+        <p className="note" style={{ marginTop: 8 }}>승인된 문서만 검색되며, 결과마다 근거 조문과 시행일을 함께 보여줍니다.</p>
+      </form>
+      <div className="hero-foot"><Icon name="shield" />근거 조문 · 시행일 · 검증 상태를 함께 확인하세요.</div></section>
+      <div className="quick-links"><Link href="/search"><Icon name="search" /><strong>기준 찾기</strong><span>규정과 노하우 검색</span><Icon name="arrow" /></Link><Link href="/guide"><Icon name="guide" /><strong>업무 가이드</strong><span>근거를 담은 단계별 안내</span><Icon name="arrow" /></Link></div>
 
       {isAuthor && (
         <section aria-labelledby="mine">
@@ -65,7 +71,7 @@ export default function Home() {
               {mine.map((i) => (
                 <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                   <h3 className="doc-title"><Link className="card-link" href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
-                  <div className="meta">{STATE[i.lifecycle] ?? i.lifecycle} · 등록 {i.uploaded_at.slice(0, 10)}</div>
+                  <div className="meta">{STATE[i.lifecycle] ?? '상태 확인 필요'} · 등록 {i.uploaded_at.slice(0, 10)}</div>
                 </li>
               ))}
             </ul>

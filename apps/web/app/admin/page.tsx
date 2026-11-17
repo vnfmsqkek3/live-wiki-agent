@@ -64,7 +64,7 @@ export default function Admin() {
   const blocked = mismatch.filter((m) => m.kind === 'BLOCKED');
   return (
     <>
-      <h1 className="title">결재함</h1>
+      <h1 className="title">결재함</h1><p className="page-description">출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요.</p>
       {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
       <div className="counts">
@@ -89,7 +89,7 @@ export default function Admin() {
       <ul className="ledger">
         {pending.map((i) => (
           <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-            <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? i.doc_id}</Link></h3>
+            <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
             <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
             {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
             <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
@@ -124,9 +124,9 @@ export default function Admin() {
         <ul className="ledger">
           {after.map((i) => (
             <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-              <h3 className="doc-title">{i.title ?? i.doc_id}</h3>
+              <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
               {i.workflow_failure
-                ? <p className="error">게시 실패: {i.workflow_failure.step} 단계 ({i.workflow_failure.error}). 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
+                ? <p className="error">게시 처리에 실패했습니다. 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
                 : <p className="note">게시 중입니다. 색인이 끝나면 검색과 보관함에 나타납니다(보통 수 분).</p>}
             </li>
           ))}

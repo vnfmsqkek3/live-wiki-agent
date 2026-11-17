@@ -89,7 +89,7 @@ function Marked({ text, marks, active, onPick }: { text: string; marks: { m: Mar
     if (s >= m.end!) continue;
     out.push(text.slice(at, s));
     out.push(
-      <mark key={n} className={`hl${active === n ? ' on' : ''}`} onClick={() => onPick(n)}>
+      <mark key={n} role="button" tabIndex={0} aria-label={`${n}번 확인할 내용`} onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onPick(n); } }} className={`hl${active === n ? ' on' : ''}`} onClick={() => onPick(n)}>
         {text.slice(s, m.end!)}<sup>{n}</sup>
       </mark>,
     );
@@ -318,15 +318,14 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
-  const jump = (i: number, n: number) => { setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0); };
+  const jump = (i: number, n: number) => { setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   const back = from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함</Link>;
   return (
     <>
       <p>{back}</p>
-      <h2 className="doc-title lg">{d.title}</h2>
-      <div className="actions" style={{ marginTop: 0 }}><Download id={d.doc_id} /></div>
+      <header className="document-header">
       <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
-      <FreshnessFlag freshness={d.freshness} />
+      <FreshnessFlag freshness={d.freshness} /><h2 className="doc-title lg">{d.title}</h2><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p><div className="actions"><Download id={d.doc_id} /></div></header>
       {d.superseded_by && <p className="notice" role="status">새 버전이 게시되어 이 문서는 대체되었습니다. <Link href={`/library?id=${encodeURIComponent(d.superseded_by)}`}>최신 버전 보기</Link></p>}
       {d.freshness_reason?.deleted_doc ? (
         <p className="notice" role="status">
@@ -415,7 +414,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
           </div>
           <div className="sheet page">
-            <Marked text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }} />
+            <Marked text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }} />
           </div>
           <h3 className="section">이 쪽 요약</h3>
           <p>{page.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
@@ -446,6 +445,6 @@ function View() {
 }
 
 export default function LibraryPage() {
-  return <><h1 className="title">문서보관함</h1><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
+  return <><h1 className="title">문서보관함</h1><p className="page-description">검증 상태와 현행 여부를 확인한 뒤 업무에 참고하세요.</p><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
 }
 

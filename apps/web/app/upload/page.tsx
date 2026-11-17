@@ -1,5 +1,6 @@
 'use client';
 // 04 문서 등록: 서식 기입란 형태. 업로드 → 격리 저장 → 분석 시작
+import { Icon } from '../icons';
 import { useEffect, useState } from 'react';
 import { api, ApiError, uploadFile, type Progress } from '../lib/api';
 import { IssueList } from '../issues';
@@ -56,8 +57,9 @@ export default function Upload() {
 
   return (
     <>
-      <h1 className="title">문서 등록</h1>
+      <h1 className="title">문서 등록</h1><p className="page-description">파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다.</p>
       <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
+      <div className="upload-overview"><div><Icon name="upload" /><strong>1. 문서 등록</strong><span>파일과 열람 범위를 정합니다.</span></div><div><Icon name="shield" /><strong>2. 자동 검사</strong><span>보안·개인정보·근거를 확인합니다.</span></div><div><Icon name="approval" /><strong>3. 검토와 승인</strong><span>사람이 확인해야 게시됩니다.</span></div></div>
       <form onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
         <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />

@@ -1,5 +1,6 @@
 'use client';
 // 올린 사람에게 "몇 쪽 어디가 왜, 어떻게 고치는지" (사용자 지시 11/17). 쪽 이미지는 개인정보를 가린 마스킹본만 보여 준다
+import { Icon } from './icons';
 import { useEffect, useState } from 'react';
 import { api, ApiError, apiBlobUrl, type DocChange, type Explanation, type Issue, type Issues, type VersionCandidates, type VersionDiff } from './lib/api';
 
@@ -25,7 +26,7 @@ function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Iss
           );
         })}
       </ul>
-      {e.next_action && <p><strong>다음에 할 일</strong> {e.next_action}</p>}
+      {e.next_action && <p><strong><Icon name="arrow" /> 다음에 할 일</strong> {e.next_action}</p>}
       <p className="meta">AI가 검사 결과를 설명한 내용입니다. 등록 가능 여부 판정은 검사 규칙이 정하며, 설명이 판정을 바꾸지 않습니다.</p>
     </div>
   );
@@ -65,7 +66,7 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
   const info = d.items.filter((i) => i.severity === 'LOW');
   return (
     <section aria-labelledby="issues-h" className="issues">
-      <h2 className="section" id="issues-h">확인할 내용 {shown.length > 0 && <span className="danger-text">{shown.length}건</span>}</h2>
+      <h2 className="section" id="issues-h"><Icon name="alert" /> 확인할 내용 {shown.length > 0 && <span className="danger-text">{shown.length}건</span>}</h2>
       {d.explanation && <ExplainView e={d.explanation} issues={d.items} pages={d.page_images} onPage={setOpen} />}
       {shown.length === 0 && <p className="note">고쳐야 할 내용이 없습니다.</p>}
       {d.explanation && shown.length > 0 && <h3 className="section" style={{ fontSize: '.9rem' }}>검사 항목별 결과</h3>}
