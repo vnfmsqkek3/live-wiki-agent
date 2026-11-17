@@ -115,3 +115,11 @@ test("쪽 번호: Promote의 쪽 경계(\\f)로 조각마다 source_page(0부터
   const kh = chunkDocument("## 준비\n서류를 확인한다.\n\f\n## 실행\n현장 실사를 한다.", meta({ document_type: "KNOWHOW", index_group: "wiki-knowledge" }));
   assert.deepEqual(kh.map((c) => c.metadata.source_page), [0, 1]);
 });
+
+test("쪽 번호는 위치로: 쪽마다 반복되는 머리말과 글자가 같아도 앞쪽에 붙지 않음 (PR #37 리뷰)", () => {
+  const reg = "하나은행 기업여신 심사규정\n제1조(목적) 이 규정은 여신 심사를 정한다.\n\f\n하나은행 기업여신 심사규정\n제2조(목적) 이 규정은 여신 심사를 정한다.";
+  const cs = chunkDocument(reg, meta({ document_type: "REGULATION", law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" }));
+  assert.equal(cs.find((c) => c.metadata.provision_path === "제2조")!.metadata.source_page, 1);
+  const kh = chunkDocument("---\ntitle: t\n---\n## 준비\n같은 문장.\n\f\n## 실행\n같은 문장.", meta({ document_type: "KNOWHOW", index_group: "wiki-knowledge" }));
+  assert.deepEqual(kh.map((c) => c.metadata.source_page), [0, 1]);
+});

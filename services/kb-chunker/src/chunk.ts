@@ -27,7 +27,8 @@ function subtree(p: Provision, children: Map<string, Provision[]>): Provision[] 
 const render = (nodes: Provision[], field: "original_text" | "normalized_text") =>
   nodes.map((n) => (n.level === "ARTICLE" ? `${n.original_marker}${n.title ? `(${n.title})` : ""} ` : `${n.original_marker} `) + n[field]).join("\n").trim();
 
-export function chunkLegal(text: string, meta: DocumentMetadata): Chunk[] {
+/** pageOfLine: 입력 줄 번호(1부터) → 쪽(0부터). 없으면 0 (쪽 경계 없는 = 한 쪽 문서) */
+export function chunkLegal(text: string, meta: DocumentMetadata, pageOfLine: (line: number) => number = () => 0): Chunk[] {
   if (!meta.law_id || !meta.revision_id) throw new Error("법령 청킹에는 law_id·revision_id 필요");
   const lawName = meta.law_name ?? meta.title;
   const law = parseLaw(text, { law_id: meta.law_id, law_name: lawName, revision_id: meta.revision_id });
@@ -73,7 +74,7 @@ export function chunkLegal(text: string, meta: DocumentMetadata): Chunk[] {
         provision_path: u.path_label,
         provision_status: u.status,
         parent_id: u.parent_id ?? meta.doc_id,
-        source_page: 0,
+        source_page: pageOfLine(u.source_line),
         original_text: original,
       },
     };
@@ -85,14 +86,17 @@ function* ancestors(p: Provision, byId: Map<string, Provision>) {
   while (cur) { yield cur; cur = cur.parent_id ? byId.get(cur.parent_id) : undefined; }
 }
 
-export function chunkKnowledge(text: string, meta: DocumentMetadata): Chunk[] {
-  const body = text.replace(/^---\n[\s\S]*?\n---\n/u, ""); // front matter 제거
-  const sections: { heading: string; text: string }[] = [];
-  let cur = { heading: meta.title, text: "" };
-  for (const line of body.split(/\r?\n/u)) {
+export function chunkKnowledge(text: string, meta: DocumentMetadata, pageOfLine: (line: number) => number = () => 0): Chunk[] {
+  const fm = /^---\n[\s\S]*?\n---\n/u.exec(text)?.[0] ?? "";
+  const body = text.slice(fm.length); // front matter 제거
+  const offset = fm ? fm.split("\n").length - 1 : 0;
+  const sections: { heading: string; text: string; page: number }[] = [];
+  let cur = { heading: meta.title, text: "", page: -1 };
+  for (const [i, line] of body.split(/\r?\n/u).entries()) {
     const h = line.match(/^#{2,3}\s+(.+)$/u);
-    if (h) { if (cur.text.trim()) sections.push(cur); cur = { heading: h[1]!.trim(), text: "" }; continue; }
+    if (h) { if (cur.text.trim()) sections.push(cur); cur = { heading: h[1]!.trim(), text: "", page: -1 }; continue; }
     if (/^#\s+/u.test(line)) continue; // 문서 제목은 헤더로
+    if (cur.page < 0 && line.trim()) cur.page = pageOfLine(offset + i + 1); // 절의 첫 글자 줄이 있는 쪽
     cur.text += line + "\n";
   }
   if (cur.text.trim()) sections.push(cur);
@@ -104,27 +108,26 @@ export function chunkKnowledge(text: string, meta: DocumentMetadata): Chunk[] {
       augmented_search_text: `[${meta.title} · ${kind} · ${s.heading}]\n${t}`,
       metadata: {
         ...meta, provision_id: `${meta.doc_id}#s${i}`, provision_path: s.heading, provision_status: "ACTIVE",
-        parent_id: meta.doc_id, source_page: 0, original_text: t,
+        parent_id: meta.doc_id, source_page: Math.max(0, s.page), original_text: t,
       },
     };
   });
 }
 
-const pageOf = (raw: string, original: string) => {
-  const probe = original.split("\n").map((l) => l.trim()).find((l) => l.length >= 4)?.slice(0, 40);
-  const at = probe ? raw.indexOf(probe) : -1;
-  return at < 0 ? 0 : (raw.slice(0, at).match(/\f/gu)?.length ?? 0);
-};
 
 /** 본문 끝의 그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. original_text는 비워 인용 금지 (그림 묘사는 원문이 아님) */
 export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   const body: string[] = []; const figs: { page: number; text: string }[] = [];
   for (const line of text.split("\n")) { const m = FIGURE_RE.exec(line); if (m) figs.push({ page: Number(m[1]), text: m[2]! }); else body.push(line); }
-  const raw = body.join("\n");
-  const clean = raw.replace(/\f/gu, "");
-  const main0 = meta.document_type === "REGULATION" ? chunkLegal(clean, meta) : chunkKnowledge(clean, meta);
-  // 쪽 번호: Promote가 넣은 쪽 경계(\f) 기준으로 조각 원문의 첫 줄이 처음 나오는 쪽 (0부터). 못 찾으면 0
-  const main = raw.includes("\f") ? main0.map((c) => ({ ...c, metadata: { ...c.metadata, source_page: pageOf(raw, c.metadata.original_text) } })) : main0;
+  // 쪽 번호: Promote가 넣은 쪽 경계(\f 한 줄). \f만 지우고 줄 수는 그대로 두어, 조문·절이 시작하는 줄의 쪽을 쓴다
+  // (반복되는 머리말·목차와 글자가 같아도 위치로 정하므로 앞쪽에 잘못 붙지 않음, PR #37 리뷰)
+  const lines = body;
+  const pageAt: number[] = [];
+  let pg = 0;
+  for (const l of lines) { pageAt.push(pg); if (l.includes("\f")) pg++; }
+  const pageOfLine = (ln: number) => pageAt[Math.min(Math.max(ln - 1, 0), pageAt.length - 1)] ?? 0;
+  const clean = lines.join("\n").replace(/\f/gu, "");
+  const main = meta.document_type === "REGULATION" ? chunkLegal(clean, meta, pageOfLine) : chunkKnowledge(clean, meta, pageOfLine);
   return [...main, ...figs.map((f, i) => ({
     augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,
     metadata: { ...meta, provision_id: `${meta.doc_id}#fig${i}`, provision_path: `그림 (${f.page + 1}쪽)`, provision_status: "ACTIVE" as const,
