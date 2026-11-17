@@ -163,3 +163,20 @@ test("규정 삭제: 그 조문을 인용하던 노하우를 재검토 대상으
   for (const d of others) await graph.deleteDoc(d);
   assert.ok(!graph.nodes.has("SYN-LOAN-001"), "개정본이 모두 지워지면 LAW도 삭제");
 });
+
+test("규정 게시가 Trusted Registry 원본 해시를 덮어쓰지 않음 (11/17 재업로드 실측: 같은 공식 원본이 '출처 불일치'로 막힘)", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const law0 = { law_id: LAW.law_id, law_name: LAW.law_name, revision_id: "2026-11-01" };
+  // Registry 적재분: 원본 텍스트 해시 + PDF 해시
+  clauses.put({ ...law0, effective_from: 20261101, effective_to: 99991231, authority_status: "VERIFIED", doc_id: "F-001", content_hash: "sha256:registry-text", pdf_content_hash: "sha256:registry-pdf", acl_groups: ["ALL"], parse_ok: true },
+    { ...law0, effective_from: 20261101, parser_version: "", provisions: [], issues: [] });
+  const putLaw = async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l);
+  const out = await graphUpsertStep({ ...base, doc_id: "doc_pub", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20261101, effective_to: 99991231,
+    content: read("documents/F-001.txt"), content_hash: "sha256:published-content", law: { ...LAW, revision_id: "2026-11-01" } }, graph, Object.assign(clauses, { putLaw }));
+  assert.equal(out.status, "OK");
+  assert.equal((await clauses.revisionByHash("sha256:registry-pdf"))?.revision_id, "2026-11-01", "같은 PDF를 다시 올려도 Registry와 일치");
+  const r = (await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!;
+  assert.equal(r.content_hash, "sha256:registry-text");
+  assert.equal(r.doc_id, "doc_pub", "게시 문서 연결은 갱신");
+});
