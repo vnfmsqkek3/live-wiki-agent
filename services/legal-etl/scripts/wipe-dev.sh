@@ -64,5 +64,5 @@ items=json.load(sys.stdin)["Items"]
 for i in range(0,len(items),25): print(json.dumps({sys.argv[1]:[{"DeleteRequest":{"Key":k}} for k in items[i:i+25]]}))' "$TW" | while read -r R; do
   for _ in 1 2 3 4 5; do # 미처리 항목 재시도
     R=$(aws dynamodb batch-write-item --request-items "$R" --query UnprocessedItems --output json)
-    [ "$R" = "{}" ] && break; sleep 1; done; done
+    case "$R" in ""|"{}"|null) break;; esac; sleep 1; done; done # 미처리 없으면 빈 출력·{}·null
 echo "workflows 남은 항목 $(aws dynamodb scan --table-name "$TW" --select COUNT --query Count --output text)"
