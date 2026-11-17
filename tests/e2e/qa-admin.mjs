@@ -29,6 +29,21 @@ const shot = async (name) => { const s = await send('Page.captureScreenshot', { 
 const until = async (fn, ms, step = 3000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await sleep(step); } };
 const setInput = (sel, v) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); const set = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
 
+
+// 각 독립 목록의 다음 쪽을 끝까지 확인한다. API 호출 대신 실제 화면 버튼을 사용한다.
+async function findAcrossPages(expression) {
+  for (;;) {
+    const found = await ev(expression);
+    if (found) return found;
+    const before = await ev('location.href');
+    const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
+    if (!next) return false;
+    const changed = await until(async () => (await ev('location.href')) !== before, 5000, 100);
+    if (!changed) throw new Error('페이지네이션 다음 쪽 이동 실패');
+    await sleep(250);
+  }
+}
+
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 1200, deviceScaleFactor: 1, mobile: false });
 
@@ -46,16 +61,35 @@ async function login(who) {
 }
 await login('admin');
 await go('/admin', 5000);
-const links = await ev("[...document.querySelectorAll('.doc-title a')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
-check('A1', links.length > 0 && links.every(([, h]) => h.includes('from=admin')), `결재함 제목 링크 ${links.length}개`, await shot('A1-admin'));
-for (const [name, id] of [['G-FORGE-01', 'doc_01M7KJQZRHMNY3WMJ3AK9WSHVD'], ['G-INJ-03', 'doc_01M7KJRVWVJSVGAH0V4W6G0JRY'], ['DOCX-요약', 'doc_01M7KK95GRQB1RSVQ3J7M57AWE']]) {
-  const ok = await ev(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
+const collected = new Map();
+for (;;) {
+  const visible = await ev("[...document.querySelectorAll('.doc-title a')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
+  for (const link of visible) collected.set(link[1], link);
+  const before = await ev('location.href');
+  const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
+  if (!next) break;
+  if (!await until(async () => (await ev('location.href')) !== before, 5000, 100)) throw new Error('페이지네이션 다음 쪽 이동 실패');
+  await sleep(250);
+}
+const links = [...collected.values()];
+// 결재 대상이 하나도 없으면(예: 공격·위조 문서를 올리지 않은 prod) 실패가 아니라 해당 없음
+check('A1', links.length === 0 ? 'partial' : links.every(([, h]) => h.includes('from=admin')), links.length ? `결재함 제목 링크 ${links.length}개` : '결재 대상 없음 (해당 없음)', await shot('A1-admin'));
+// 점검 대상: QA_ADMIN_DOCS(쉼표, doc_id)가 없으면 결재함 목록에 지금 있는 문서 앞에서 3건 (데이터 초기화 뒤에도 동작)
+const targets = process.env.QA_ADMIN_DOCS ? process.env.QA_ADMIN_DOCS.split(',').map((id) => [id.slice(-6), id])
+  : links.slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
+for (const [name, id] of targets) {
+  await go('/admin', 4000);
+  const ok = await findAcrossPages(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
   if (!ok) await go(`/library?id=${id}&from=admin`);
   await sleep(5000);
+  await ev("[...document.querySelectorAll('button.detail-card')].find((b) => b.textContent.replace('내용 있음', '').trim() === '확인이 필요한 이유')?.click()");
+  await sleep(200);
   const why = await ev("document.getElementById('why-h')?.closest('section')?.innerText ?? ''");
   const first = await ev("(() => { const b = document.querySelector('#why-h')?.closest('section')?.querySelector('button.linklike'); if (!b) return ''; b.click(); return b.textContent; })()");
   await sleep(800);
   const on = await ev("document.querySelector('.fix.on')?.innerText ?? ''");
+  await ev("document.querySelector('dialog[open] .popup-header button')?.click()");
+  await sleep(100);
   const decide = await ev("document.getElementById('decide-h')?.closest('section')?.innerText ?? ''");
   const back = await ev("[...document.querySelectorAll('a')].some((a) => a.textContent.includes('결재함으로'))");
   check(`A2 ${name}`, !!why && back, `${ok ? '목록 클릭' : '직접 이동'} · ${why.replace(/\s+/g, ' ').slice(0, 220)}`, await shot(`A2-${name}`));

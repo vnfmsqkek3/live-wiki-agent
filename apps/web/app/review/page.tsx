@@ -1,9 +1,12 @@
 'use client';
+import { DocText } from '../doc-text';
+import { PageHeader } from '../page-header';
 // 05 OCR·PII 검토: 작성자가 자동 분석 결과를 확인·수정하고 게시를 요청한다.
+import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, type Finding, type Review } from '../lib/api';
-import { IssueList, PageFacts } from '../issues';
+import { api, ApiError, dateLine, type Finding, type Review } from '../lib/api';
+import { IssueList, PageFacts, VersionLink } from '../issues';
 
 const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
 const VERDICT: Record<string, [string, string]> = {
@@ -22,11 +25,6 @@ const GROUPS: [string, string, (f: Finding) => boolean][] = [
   // KNOWHOW_VALIDATION Finding은 위 '노하우 검증' 구역에서 근거와 함께 보여준다
 ];
 
-/** [전화번호] 같은 마스킹 표시를 눈에 띄게 */
-function Masked({ text }: { text: string }) {
-  return <>{text.split(/(\[[^\]\n]{2,8}\])/).map((p, i) => (/^\[.+\]$/.test(p) ? <mark key={i} className="pii">{p}</mark> : p))}</>;
-}
-
 function ReviewView() {
   const id = useSearchParams().get('id') ?? '';
   const [r, setR] = useState<Review | null>(null);
@@ -35,6 +33,7 @@ function ReviewView() {
   const [reason, setReason] = useState('');
   const [msg, setMsg] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [editTitle, setEditTitle] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) { setErr('검토할 문서를 찾을 수 없습니다. 문서 등록 화면에서 다시 시작하세요.'); return; }
@@ -57,6 +56,13 @@ function ReviewView() {
       setReason(''); setMsg('문서 종류를 바꿨습니다. 수정 이력이 함께 저장됩니다.');
     } catch (e) { setMsg((e as ApiError).message); }
   }
+  async function saveTitle() {
+    if (!editTitle?.trim()) return;
+    try {
+      const x = await api<{ title: string }>('POST', `/v1/documents/${encodeURIComponent(id)}/title`, { title: editTitle.trim() });
+      setR((v) => v && { ...v, title: x.title, title_source: 'USER' }); setEditTitle(null); setMsg('제목을 바꿨습니다. 수정 이력이 함께 저장됩니다.');
+    } catch (e) { setMsg((e as ApiError).message); }
+  }
   async function submit() {
     try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true); setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.'); }
     catch (e) { setMsg((e as ApiError).status === 409 ? '지금 상태에서는 게시를 요청할 수 없습니다. 분석이 끝났는지 확인하세요.' : (e as ApiError).message); }
@@ -65,38 +71,18 @@ function ReviewView() {
   const stage = submitted ? 4 : 3;
   return (
     <>
-      <h1 className="title" style={{ marginBottom: 8 }}>{r.title ?? '문서 검토'}</h1>
+      <PageHeader title={r.title ?? '문서 검토'} description="분석 결과를 확인하고 문서 종류와 제목을 정리하세요." action={<a className="btn" href={`/library?id=${encodeURIComponent(id)}`}>문서 보기</a>} />
       <ol className="stages" aria-label="등록 진행 단계">
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
-      {r.workflow_failure && <p className="notice" role="alert">{r.workflow_failure.step} 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
+      <div className="layout-a review-layout"><div className="primary">
+      {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       <IssueList docId={r.doc_id} />
+      <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 
-      <h2 className="section">문서 종류</h2>
-      <div className="sheet">
-        {r.classification ? (
-          <p style={{ margin: 0 }}>
-            {r.classification.source === 'HUMAN' ? '작성자가 정한 종류: ' : `AI 제안 (확신도 ${Math.round(r.classification.confidence * 100)}%): `}
-            <strong>{TYPES.find(([v]) => v === r.classification!.document_type)?.[1]}</strong>
-          </p>
-        ) : <p style={{ margin: 0 }}>AI가 종류를 정하지 못했습니다. 직접 골라 주세요.</p>}
-        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale}</p>}
-        <label className="lbl" htmlFor="ty">바꿀 종류</label>
-        <select id="ty" className="field" value={type} onChange={(e) => setType(e.target.value)} disabled={submitted}>
-          <option value="" disabled>선택</option>
-          {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        {changed && (
-          <>
-            <label className="lbl" htmlFor="rs">바꾸는 이유</label>
-            <input id="rs" className="field" type="text" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <div className="actions"><button className="btn" onClick={saveType} disabled={!reason.trim()}>문서 종류 저장</button></div>
-          </>
-        )}
-      </div>
 
       {r.knowhow_validation && (() => {
         const k = r.knowhow_validation;
@@ -104,11 +90,11 @@ function ReviewView() {
         return (
           <section aria-labelledby="kh">
             <h2 className="section" id="kh">노하우 검증</h2>
-            <p className="notice" style={{ borderLeftColor: color, color }}>{title}. AI가 비교한 결과이며, 게시 여부는 규정 승인자가 결정합니다.</p>
+            <p className="notice" style={{ color }}>{title}. AI가 비교한 결과이며, 게시 여부는 규정 승인자가 결정합니다.</p>
             {k.outdated.map((o) => <p key={o.cited} className="flag" style={{ display: 'block', marginBottom: 8 }}>개정 전 조문을 인용했습니다. 현행 {o.label} 기준으로 다시 확인하세요.</p>)}
             <ul className="ledger">
               {k.items.filter((j) => j.relation !== 'UNRELATED').map((j, i) => (
-                <li key={i} className="entry" style={{ paddingRight: 16, borderLeftColor: j.relation === 'CONFLICTS' ? 'var(--danger)' : j.relation === 'SUPPORTS' ? 'var(--verified)' : undefined }}>
+                <li key={i} className="entry" style={{ paddingRight: 16 }}>
                   <p style={{ margin: 0 }}><strong>{REL[j.relation]}</strong><br />노하우: “{j.statement}”</p>
                   {j.verified_quote && <p className="quote" style={{ margin: '6px 0' }}>{j.label}: {j.quote}</p>}
                   <p className="note" style={{ margin: 0 }}>{j.reason}</p>
@@ -128,7 +114,7 @@ function ReviewView() {
             <p className="note">{help}</p>
             <ul className="ledger">
               {fs.map((f) => (
-                <li key={f.finding_id} className="entry" style={{ paddingRight: 16, borderLeftColor: f.severity === 'LOW' ? undefined : f.severity === 'HIGH' ? 'var(--danger)' : 'var(--ochre)' }}>
+                <li key={f.finding_id} className="entry" style={{ paddingRight: 16 }}>
                   {f.message}<div className="meta">{f.evidence_ref.replace('page:', '')}쪽</div>
                 </li>
               ))}
@@ -156,14 +142,56 @@ function ReviewView() {
         <>
           <h2 className="section">마스킹 후 미리보기</h2>
           <p className="note">검색과 AI에는 이 내용만 전달됩니다. 이미지 속 개인정보도 같은 위치를 가린 뒤 다시 인식해 확인합니다.</p>
-          <div className="sheet quote" style={{ whiteSpace: 'pre-line' }}><Masked text={r.masked_preview} /></div>
+          <div className="sheet"><DocText text={r.masked_preview} /></div>
         </>
       )}
+
+      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
+      {editTitle === null ? (
+        <>
+          <h2 className="section">문서 제목</h2><p>{r.title}</p>
+          <p className="meta" style={{ marginTop: 0 }}>
+            {r.title_source === 'AUTO' && '문서 내용으로 붙인 제목입니다. '}
+            {r.doc_dates?.length ? `본문 일자: ${dateLine(r.doc_dates)} ` : ''}
+            {r.can_edit && <button type="button" className="linklike" onClick={() => setEditTitle(r.title ?? '')}>제목 고치기</button>}
+          </p>
+        </>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <label className="lbl" htmlFor="title-edit">문서 제목</label>
+          <input id="title-edit" className="field" maxLength={200} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <div className="actions"><button className="btn solid" onClick={saveTitle} disabled={!editTitle.trim()}>제목 저장</button><button className="btn" onClick={() => setEditTitle(null)}>취소</button></div>
+        </div>
+      )}
+
+      <h2 className="section">문서 종류</h2>
+      <div className="sheet">
+        {r.classification ? (
+          <p style={{ margin: 0 }}>
+            {r.classification.source === 'HUMAN' ? '작성자가 정한 종류: ' : `AI 제안 (확신도 ${Math.round(r.classification.confidence * 100)}%): `}
+            <strong>{TYPES.find(([v]) => v === r.classification!.document_type)?.[1]}</strong>
+          </p>
+        ) : <p style={{ margin: 0 }}>AI가 종류를 정하지 못했습니다. 직접 골라 주세요.</p>}
+        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale}</p>}
+        <label className="lbl" htmlFor="ty">바꿀 종류</label>
+        <select id="ty" className="field" value={type} onChange={(e) => setType(e.target.value)} disabled={submitted}>
+          <option value="" disabled>선택</option>
+          {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        {changed && (
+          <>
+            <label className="lbl" htmlFor="rs">바꾸는 이유</label>
+            <input id="rs" className="field" type="text" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <div className="actions"><button className="btn" onClick={saveType} disabled={!reason.trim()}>문서 종류 저장</button></div>
+          </>
+        )}
+      </div>
 
       <div className="actions" style={{ marginTop: 24 }}>
         <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW'}>검토 마치고 게시 요청</button>
       </div>
       <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
+      </aside></div>
     </>
   );
 }

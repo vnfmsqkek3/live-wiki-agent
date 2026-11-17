@@ -1,5 +1,7 @@
 'use client';
+import { PageHeader } from '../page-header';
 // 04 문서 등록: 서식 기입란 형태. 업로드 → 격리 저장 → 분석 시작
+import { Icon } from '../icons';
 import { useEffect, useState } from 'react';
 import { api, ApiError, uploadFile, type Progress } from '../lib/api';
 import { IssueList } from '../issues';
@@ -37,11 +39,11 @@ export default function Upload() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || fileErr || !title.trim()) return;
+    if (!file || fileErr) return;
     try {
       setState({ kind: 'busy', msg: '업로드 주소를 받는 중입니다.' });
       const { doc_id, url } = await api<{ doc_id: string; url: string }>('POST', '/v1/documents/upload-url', {
-        filename: file.name, size: file.size, title: title.trim(), dept: acl.startsWith('DEPT#') ? acl.slice(5) : 'all', acl_groups: [acl],
+        filename: file.name, size: file.size, ...(title.trim() ? { title: title.trim() } : {}), dept: acl.startsWith('DEPT#') ? acl.slice(5) : 'all', acl_groups: [acl],
       });
       setState({ kind: 'busy', msg: '검사 전용 저장소에 올리는 중입니다.' });
       setProg(null); setSent(0);
@@ -56,15 +58,16 @@ export default function Upload() {
 
   return (
     <>
-      <h1 className="title">문서 등록</h1>
+      <PageHeader title="문서 등록" description="파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다." action={<button className="btn solid" type="submit" form="upload-form" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button>} />
       <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
-      <form onSubmit={submit} className="sheet" noValidate>
+      <div className="layout-a upload-layout"><div className="primary"><form id="upload-form" onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
-        <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />
+        <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" />
         <p id="f-help" className={fileErr ? 'error' : 'note'}>{fileErr || 'PDF, DOCX, HWPX, PNG, JPG 파일, 50MB 이하'}</p>
 
-        <label className="lbl" htmlFor="t">문서명</label>
-        <input id="t" className="field" type="text" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />
+        <label className="lbl" htmlFor="t">문서명 <span className="note">(선택)</span></label>
+        <input id="t" className="field" type="text" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} aria-describedby="t-help" />
+        <p id="t-help" className="note">비워 두면 분석이 끝난 뒤 문서 내용으로 제목을 붙입니다. 검토 화면에서 고칠 수 있습니다.</p>
 
         <label className="lbl" htmlFor="a">열람 범위</label>
         <select id="a" className="field" value={acl} onChange={(e) => setAcl(e.target.value)}>{SCOPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
@@ -72,9 +75,6 @@ export default function Upload() {
         <label className="lbl">문서 종류</label>
         <p className="note" style={{ margin: '6px 0 0' }}>분석이 끝나면 규정, 노하우, 매뉴얼 중 하나로 제안합니다. 검토할 때 바꿀 수 있습니다.</p>
 
-        <div className="actions" style={{ marginTop: 24 }}>
-          <button className="btn solid" type="submit" disabled={!file || !!fileErr || !title.trim() || state.kind === 'busy'}>분석 시작</button>
-        </div>
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
         {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}
         {prog && (
@@ -91,9 +91,16 @@ export default function Upload() {
             )}
           </section>
         )}
-        {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
-        {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </form>
+      <div aria-label="확인할 내용">
+        {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
+        {/* 실행이 실패해 분석이 끝나지 않은 문서(QUARANTINED)는 검토할 결과가 없다 → 실패 단계와 다음 행동만 */}
+        {state.doc_id && prog?.halted && prog.lifecycle === 'QUARANTINED' && (
+          <p className="notice" role="alert">{prog.steps.find((x) => x.state === 'failed')?.label ?? '처리'} 단계에서 분석이 멈춰 검토할 결과가 없습니다. 위 '확인할 내용'의 사유를 보고 파일을 고쳐 다시 올려 주세요. 반복되면 관리자에게 알려 주세요.</p>
+        )}
+        {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && prog?.lifecycle !== 'QUARANTINED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
+      </div></div><aside className="support-panel"><h2 className="section">등록 절차</h2>      <div className="upload-overview"><div><Icon name="upload" /><strong>1. 문서 등록</strong><span>파일과 열람 범위를 정합니다.</span></div><div><Icon name="shield" /><strong>2. 자동 검사</strong><span>보안·개인정보·근거를 확인합니다.</span></div><div><Icon name="approval" /><strong>3. 검토와 승인</strong><span>사람이 확인해야 게시됩니다.</span></div></div>
+<h2 className="section">지원 형식</h2><p className="note">PDF · DOCX · HWPX · PNG · JPG<br /><span className="num">50</span>MB 이하</p></aside></div>
     </>
   );
 }
@@ -102,7 +109,7 @@ function Bar({ label, value, danger }: { label: string; value: number; danger?: 
   const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
   return (
     <div className="bar-wrap">
-      <span className="note">{label} · {pct}%</span>
+      <span className="note">{label} · <span className="num">{pct}</span>%</span>
       <div className={`bar${danger ? ' danger' : ''}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></div>
     </div>
   );

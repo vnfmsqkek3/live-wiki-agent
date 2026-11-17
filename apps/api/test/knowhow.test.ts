@@ -81,3 +81,22 @@ test('실무 보완(SUPPLEMENTS): 근거 있음으로 보고 게시 보류 사�
   assert.equal(r.gate, 'PASS');
   assert.equal(r.findings.length, 0);
 });
+
+test('수정 문장(suggestion): 인용이 확인된 충돌만 별도 호출로, 인용 미확인·부합·근거 없음은 만들지 않음, 실패해도 판정 유지', async () => {
+  const fix = '5억원 미만은 영업점 전결로 처리한다(5억원 이상은 본부 여신심사위원회 승인).';
+  const asked: string[][] = [];
+  const base = (items: Judgement[], suggest?: KnowhowDeps['suggest']) => ({ ...deps({ search: [A12], items }), ...(suggest ? { suggest } : {}) });
+  const q = '여신 금액이 5억원 이상인 경우';
+  const ok = await validateKnowhow('t', base([
+    { statement: '7억원 미만은 영업점 전결로 처리한다', provision_id: A12.provision_id, relation: 'CONFLICTS', reason: 'r', quote: q },
+    { statement: 's2', provision_id: A12.provision_id, relation: 'SUPPORTS', reason: 'r', quote: q },
+    { statement: 's3', provision_id: A12.provision_id, relation: 'CONFLICTS', reason: 'r', quote: '지어낸 조문' },
+  ], async (items) => { asked.push(items.map((i) => i.statement)); return [fix]; }));
+  assert.deepEqual(asked, [['7억원 미만은 영업점 전결로 처리한다']]);
+  assert.equal(ok.validation.items[0]!.suggestion, fix);
+  assert.equal(ok.validation.items[1]!.suggestion, undefined);
+  assert.equal(ok.findings[0]!.fix_hint, `이렇게 고쳐 주세요: "${fix}"`);
+  const failed = await validateKnowhow('t', base([{ statement: 's', provision_id: A12.provision_id, relation: 'CONFLICTS', reason: 'r', quote: q }], async () => { throw new Error('model'); }));
+  assert.equal(failed.validation.verdict, 'CONFLICT');
+  assert.match(failed.findings[0]!.fix_hint!, /근거 조문에 맞게/);
+});

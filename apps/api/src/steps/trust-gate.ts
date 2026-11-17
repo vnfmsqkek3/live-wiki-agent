@@ -56,7 +56,7 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
       findings.push(fnd('HIGH', 'REGISTRY_MISMATCH',
         `공식 원본과 내용 불일치${diff.length ? ` (조문 ${diff.length}개: ${diff.slice(0, 5).join(', ')})` : ''} · 위조 확정 아님, 출처 검토 필요`,
         `${i.registry.law_id}@${i.registry.revision_id}`, {
-          user_message: `공식 원본과 내용이 다른 조문이 ${diff.length || '여러'}곳 있습니다${diff.length ? ` (${diff.slice(0, 5).map(label).join(', ')})` : ''}. 위조로 확정한 것은 아니며 출처 확인이 필요합니다.`,
+          user_message: `공식 원본과 내용이 다른 조문이 ${diff.length || '여러'}곳 있습니다${diff.length ? ` (${diff.slice(0, 3).map(label).join(', ')}${diff.length > 3 ? ` 외 ${diff.length - 3}곳` : ''})` : ''}. 위조로 확정한 것은 아니며 출처 확인이 필요합니다.`,
           fix_hint: '공식 원본 파일을 그대로 올려 주세요. 문서보관함 밑줄에서 조문별로 공식 원문과 비교할 수 있습니다.' }));
     }
   } else {

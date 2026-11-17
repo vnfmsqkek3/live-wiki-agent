@@ -10,6 +10,9 @@ import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
+import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
+import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
+import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
@@ -39,6 +42,8 @@ export interface SegmentDeps {
   guardrail?: GuardrailCheck;
   classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
+  /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
+  structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
   /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
   getBytes?(key: string): Promise<Uint8Array>;
   putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
@@ -75,9 +80,15 @@ export function makePiiScan(deps: SegmentDeps) {
 async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Finding[]> {
   if (!deps.getBytes || !deps.putBytes) return [];
   const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
-  const pages = (targets?.pages ?? []).filter((p) => p.has_images || p.reason === 'image');
+  const ocr = await deps.getJson<{ pages: (OcrPage & { figures?: { label: string }[] })[] }>(`${doc_id}/work/ocr/result.json`).catch(() => undefined);
+  // 그림 쪽 기준 (사용자 결정 11/17, 비전 중복 줄이기): OCR 쪽에 figures 키가 있으면 사진·그림·차트·도장 영역이 있는 쪽만.
+  // 없으면(이전 OCR) has_images || reason==='image'. 글자·표만 있는 쪽은 masked/pages를 만들지 않아 ImageDescribe가 빠진다
+  const isFigurePage = (p: { page_index: number; reason: string; has_images?: boolean }) => {
+    const o = ocr?.pages.find((x) => x.page_index === p.page_index);
+    return o && Array.isArray(o.figures) ? o.figures.length > 0 : !!p.has_images || p.reason === 'image';
+  };
+  const pages = (targets?.pages ?? []).filter(isFigurePage);
   if (!pages.length) return [];
-  const ocr = await deps.getJson<{ pages: OcrPage[] }>(`${doc_id}/work/ocr/result.json`).catch(() => undefined);
   const out: Finding[] = [];
   for (const p of pages) {
     const n = String(p.page_index).padStart(4, '0');
@@ -119,14 +130,42 @@ export function makeClassify(deps: SegmentDeps) {
     const findings: Finding[] = v.confidence < 0.7
       ? [{ finding_id: newId.fnd(), step: 'CLASSIFY', severity: 'MEDIUM', code: 'CLASSIFY_LOW_CONFIDENCE', message: `분류 신뢰도 ${v.confidence.toFixed(2)} → 작성자 확인 필요`, evidence_ref: r.model }]
       : [];
+    // 본문 일자(시행·개정·작성 …)와 자동 제목 (사용자 요청 11/17). 제목은 작성자가 비워 둔 경우만 바꾼다
+    const texts = segs.map((s) => s.text);
+    const dates = docDates(texts).map((x) => ({ ...x, page: segs[x.page]?.page_index ?? x.page }));
+    const main = primaryDate(dates);
+    const autoTitle = d.title_source === 'AUTO' ? (sum?.value.title?.replace(/^\[?SYNTHETIC\]?\s*/u, '').trim().slice(0, 60) || titleCandidate(texts, d.filename ?? '') || d.title) : undefined;
+    // 쪽 본문 AI 재구성 → masked/structured/{nnnn}.json. 원문과 같은 글이 아니면 저장하지 않는다(화면은 원문). 실패는 게시를 막지 않는다
+    if (deps.structure) await structurePages(deps, i.doc_id, segs);
     await deps.store.putDoc({
       ...addFindings(d, findings),
+      ...(autoTitle ? { title: autoTitle } : {}),
+      ...(dates.length ? { doc_dates: dates, ...(main ? { doc_date: main } : {}) } : {}),
       document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
       classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
       ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),
     });
     return { status: findings.length ? 'REVIEW_REQUIRED' : 'OK', findings };
   };
+}
+
+/** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)·이미 마크다운인 쪽은 건너뜀. 원문 대조를 통과한 정리본만 저장 */
+export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
+  const todo = segs.filter((s) => needsStructure(s.text)).slice(0, 40);
+  let saved = 0, rejected = 0, failed = 0;
+  for (let k = 0; k < todo.length; k += 4) {
+    await Promise.all(todo.slice(k, k + 4).map(async (s) => {
+      try {
+        const r = await deps.structure!(structurePrompt(s.page_index, s.text));
+        const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
+        const f = faithful(s.text, md);
+        if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
+        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
+        saved++;
+      } catch (e) { failed++; console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
+    }));
+  }
+  return { pages: todo.length, saved, rejected, failed };
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;
@@ -229,8 +268,9 @@ export function makeWaitForApproval(deps: LambdaDeps) {
 
 /** 단계 14. outcome에 따라 최종 상태. 승인 레코드 USED 전환은 Promote(let522mj)가 한다 */
 export function makeFinalize(deps: LambdaDeps) {
-  return async (i: StepInput & { outcome: 'PUBLISHED' | 'BLOCKED' | 'REJECTED' }): Promise<StepOutput> => {
+  return async (i: StepInput & { outcome: 'PUBLISHED' | 'BLOCKED' | 'REJECTED' | 'DELETED'; affected_doc_ids?: string[] }): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
+    if (i.outcome === 'DELETED') return finalizeDeleted(deps.store, d, i.affected_doc_ids ?? [], i.workflow_id);
     const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
       // 노하우·매뉴얼은 사람 승인이 곧 검증이다 (규정은 TrustGate Registry 대조로 VERIFIED). 승인·게시가 끝났으면 VERIFIED
@@ -241,6 +281,14 @@ export function makeFinalize(deps: LambdaDeps) {
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
     // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
     if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
+    // 새 버전 게시 → 이전 버전은 대체됨(검색은 SUPERSEDED를 내보내지 않음). 보관함에는 버전 목록으로 남는다
+    if (i.outcome === 'PUBLISHED' && next.previous_doc_id) {
+      const prev = await deps.store.getDoc(next.previous_doc_id);
+      if (prev && prev.lifecycle === 'PUBLISHED') {
+        await deps.store.putDoc({ ...prev, freshness: 'SUPERSEDED', superseded_by: next.doc_id, updated_at: now() });
+        await deps.store.audit({ at: now(), actor: 'system:finalize', action: 'VERSION_SUPERSEDED', resource: prev.doc_id, result: 'OK', trace_id: i.workflow_id });
+      }
+    }
     // 검증에서 차단되거나 반려된 문서는 원본·작업 파일을 저장소에서 바로 지운다 (사용자 지시 11/17).
     // 개인정보를 가린 설명·쪽 이미지(masked/)는 올린 사람이 사유를 보도록 MASKED_RETENTION_DAYS 동안 남기고 freshnessSweep이 지운다
     if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && deps.purge) await purgeOriginal(deps, next, i.workflow_id);
@@ -259,6 +307,28 @@ export function withPages(findings: Finding[], pages: { page: number; text: stri
     const hit = probe.length >= 6 ? norm.find((p) => p.t.includes(probe)) : undefined;
     return hit ? { ...f, location: { ...f.location, page: hit.page + 1 } } : f;
   });
+}
+
+/** 삭제 정리 마무리 (interfaces 6.0): 삭제된 규정의 조문을 근거로 쓰던 게시 문서를 재검토 대상으로, 정리 완료 시각 기록. 멱등 */
+async function finalizeDeleted(store: Store, d: DocumentRecord, affected: string[], trace_id: string): Promise<StepOutput> {
+  if (d.lifecycle !== 'DELETED') throw new Error('NotDeleted');
+  const at = now();
+  const marked: string[] = [];
+  for (const id of [...new Set(affected)].filter((x) => x !== d.doc_id)) {
+    const k = await store.getDoc(id);
+    if (!k || k.lifecycle !== 'PUBLISHED') continue;
+    const provisions = (k.knowhow_validation?.items ?? []).map((j) => j.provision_id).concat((k.citations ?? []).map((c) => c.provision_id)).filter((p) => !!d.law_id && p.startsWith(`${d.law_id}@`));
+    await store.putDoc({
+      ...k, freshness: 'REVIEW_REQUIRED', updated_at: at,
+      freshness_reason: { law_id: d.law_id ?? d.doc_id, law_name: d.title, cited_revision: d.revision_id ?? '', current_revision: '', effective_from: '', provisions: [...new Set(provisions)], at, deleted_doc: d.doc_id },
+    });
+    await store.audit({ at, actor: 'system:finalize', action: 'FRESHNESS_REVIEW_REQUIRED', resource: id, result: 'OK', trace_id });
+    marked.push(id);
+  }
+  const cur = (await store.getDoc(d.doc_id)) ?? d;
+  await store.putDoc({ ...cur, purge: { ...cur.purge, objects: cur.purge?.objects ?? 0, deleted_at: at, review_required: marked } });
+  await store.audit({ at, actor: 'system:finalize', action: 'FINALIZE_DELETED', resource: d.doc_id, result: 'OK', trace_id });
+  return { status: 'OK' };
 }
 
 async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {

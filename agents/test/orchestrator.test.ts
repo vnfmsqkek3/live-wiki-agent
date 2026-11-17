@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ingestGraph, publishGraph, run, type PipelineDeps, type StepOutput } from '../src/pipeline/orchestrator.ts';
+import { deleteGraph, ingestGraph, publishGraph, run, type PipelineDeps, type StepOutput } from '../src/pipeline/orchestrator.ts';
 
 const input = { workflow_id: 'wf_1', doc_id: 'doc_1', version: 1, bucket: 'b', prefix: 'doc_1/', actor: { sub: 'u', groups: ['AUTHOR'] } };
 
@@ -28,9 +28,9 @@ test('1차: 고정 순서 (병렬 2개 합류 후 진행), 마지막에 검토 �
   const r = await run(ingestGraph(t.d, input), t.d, input);
   assert.equal(r.status, 'COMPLETED');
   const order = t.calls.map((c) => c.step);
-  assert.deepEqual(order.slice(0, 2), ['malware_check', 'file_structure_check']);
-  assert.deepEqual(new Set(order.slice(2, 4)), new Set(['text_layer_extract', 'page_render']));
-  assert.deepEqual(order.slice(4), ['ocr_if_needed', 'segment_build', 'pii_scan', 'injection_scan', 'classify', 'trust_gate', 'await_review']);
+  assert.deepEqual(order.slice(0, 3), ['malware_check', 'file_structure_check', 'convert_to_pdf']);
+  assert.deepEqual(new Set(order.slice(3, 5)), new Set(['text_layer_extract', 'page_render']));
+  assert.deepEqual(order.slice(5), ['ocr_if_needed', 'segment_build', 'pii_scan', 'injection_scan', 'classify', 'trust_gate', 'await_review']);
   assert.ok(t.calls.every((c) => c.args.workflow_id === 'wf_1' && c.args.doc_id === 'doc_1'));
   assert.ok(t.records.includes('WaitForApproval=OK'));
   assert.equal(t.records.at(-1), 'EXECUTION=SUCCEEDED');
@@ -41,7 +41,7 @@ test('선택 단계: IMAGE_DESCRIBE·PAGE_SUMMARIZE 켜면 pii_scan → image_de
   const d = { ...t.d, imageDescribe: true, pageSummarize: true };
   await run(ingestGraph(d, input), d, input);
   const order = t.calls.map((c) => c.step);
-  assert.deepEqual(order.slice(6, 11), ['pii_scan', 'image_describe', 'injection_scan', 'page_summarize', 'classify']);
+  assert.deepEqual(order.slice(7, 12), ['pii_scan', 'image_describe', 'injection_scan', 'page_summarize', 'classify']);
   assert.ok(t.records.includes('PageSummarize=OK'));
 });
 
@@ -91,4 +91,23 @@ test('차단·검토 필요면 끝내기 전에 explain_findings 호출, 설명 
   const ok = deps();
   await run(ingestGraph(ok.d, input), ok.d, input);
   assert.ok(!ok.calls.some((c) => c.step === 'explain_findings'));
+});
+
+test('삭제: purge_document → kb_ingest·graph_upsert(action=delete) → finalize(DELETED, graph_upsert의 affected_doc_ids)', async () => {
+  const t = deps({ graph_upsert: () => ({ status: 'OK', affected_doc_ids: ['doc_K1'] }) });
+  const r = await run(deleteGraph(t.d, input), t.d, input);
+  assert.equal(r.status, 'COMPLETED');
+  assert.deepEqual(t.calls.map((c) => c.step), ['purge_document', 'kb_ingest', 'graph_upsert', 'finalize']);
+  assert.equal(t.calls[1]!.args.action, 'delete');
+  assert.equal(t.calls[2]!.args.action, 'delete');
+  assert.deepEqual([t.calls[3]!.args.outcome, t.calls[3]!.args.affected_doc_ids], ['DELETED', ['doc_K1']]);
+  assert.ok(t.records.includes('PurgeDocument=OK'));
+});
+
+test('문서 변환 실패(BLOCKED)면 뒤 단계는 건너뛰고 차단으로 끝난다', async () => {
+  const t = deps({ convert_to_pdf: () => ({ status: 'BLOCKED' }) });
+  await run(ingestGraph(t.d, input), t.d, input);
+  const order = t.calls.map((c) => c.step);
+  assert.ok(!order.includes('text_layer_extract') && !order.includes('ocr_if_needed'), order.join(','));
+  assert.ok(t.records.includes('ConvertToPdf=BLOCKED'));
 });

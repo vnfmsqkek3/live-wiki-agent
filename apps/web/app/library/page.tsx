@@ -1,12 +1,15 @@
 'use client';
+import { PaginatedList } from '../paginated-list';
+import { DocText, parseDocText } from '../doc-text';
+import { PageHeader } from '../page-header';
 // 문서보관함: 카드 목록(요약·연관·태그) → 상세(전체 내용을 한 장씩) → 페이지 하단에 요약과 고칠 곳.
 // 밑줄은 서버(buildMarks)가 찾은 위치만 긋는다. 화면에서 새로 판단하지 않는다.
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
+import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
+import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
-import { PageFacts } from '../issues';
+import { Changes, PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
@@ -19,6 +22,33 @@ const KIND: Record<Mark['kind'], string> = {
   REGISTRY_MISMATCH: '공식 원본과 다름', PII_UNCERTAIN: '개인정보 확인 필요', INJECTION: '의심스러운 지시문',
   CONFIRMED: '근거 확인됨', SUPPLEMENT: '실무 보완(참고)',
 };
+
+/** Native modal: browser focus trap / Escape, explicit return focus and scroll restoration. */
+function DetailPopup({ title, children, open, onClose }: { title: string; children: ReactNode; open: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const heading = useId();
+  useEffect(() => {
+    if (!open) return;
+    const dialog = ref.current!;
+    const trigger = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialog.showModal();
+    return () => { dialog.close(); document.body.style.overflow = overflow; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+  }, [open]);
+  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onCancel={(e) => { e.preventDefault(); onClose(); }}>
+    <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" autoFocus onClick={onClose}>닫기</button></div>
+    {open && children}
+  </dialog>;
+}
+/** filled: 내용이 있는 카드(사용자 요청: 초록 테두리 + '내용 있음' 글자, 색만으로 구분하지 않음) */
+function CardLabel({ title, filled }: { title: string; filled: boolean }) {
+  return <>{title}{filled && <span className="card-state">내용 있음</span>}</>;
+}
+function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
+  const [open, setOpen] = useState(false);
+  return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
+}
 
 function List() {
   const router = useRouter();
@@ -38,7 +68,7 @@ function List() {
   const go = (t: string, b: string) => router.push(`/library${qs(t, b) ? `?${qs(t, b)}` : ''}`);
   return (
     <>
-      <div className="filter" role="group" aria-label="문서 종류">
+      <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
         {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, business)}>{l}</button>)}
       </div>
       {businesses.length > 1 && (
@@ -49,66 +79,62 @@ function List() {
           </select>
         </label>
       )}
-      {err && <p className="error" role="alert">{err}</p>}
+      </div>{err && <p className="error" role="alert">{err}</p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
-        <ul className="ledger">
+        <PaginatedList label="문서보관함" className="ledger card-grid library-grid">
           {items.map((d) => (
             <li className="entry" key={d.doc_id}>
-              <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
+              <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link></h3>
-              <p>{d.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
               <FreshnessFlag freshness={d.freshness} />
               <dl>
                 {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
-                {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
-                <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
+                {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
+                {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
+                <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
                 {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => `${r.title} (${REL[r.relation]})`).join(', ')}</dd></>}
                 {d.mark_count > 0 && <><dt>고칠 곳</dt><dd className="danger-text">{d.mark_count}곳</dd></>}
                 {d.lifecycle !== 'PUBLISHED' && <><dt>상태</dt><dd>게시 전 (내 문서)</dd></>}
               </dl>
+              <p className="card-summary">{d.summary ?? '요약이 아직 없습니다.'}</p>
+              <Link href={`/library?id=${encodeURIComponent(d.doc_id)}`}>문서 보기 →</Link>
             </li>
           ))}
-        </ul>
+        </PaginatedList>
       )}
     </>
   );
 }
 
-/** 텍스트에 밑줄을 긋는다. 겹치는 구간은 앞 밑줄을 우선한다 */
-function Marked({ text, marks, active, onPick }: { text: string; marks: { m: Mark; n: number }[]; active: number; onPick: (n: number) => void }) {
-  const spans = marks.filter((x) => x.m.start !== null && x.m.end !== null).sort((a, b) => a.m.start! - b.m.start!);
-  const out: React.ReactNode[] = [];
-  let at = 0;
-  for (const { m, n } of spans) {
-    const s = Math.max(m.start!, at);
-    if (s >= m.end!) continue;
-    out.push(text.slice(at, s));
-    out.push(
-      <mark key={n} className={`hl${active === n ? ' on' : ''}`} onClick={() => onPick(n)}>
-        {text.slice(s, m.end!)}<sup>{n}</sup>
-      </mark>,
-    );
-    at = m.end!;
-  }
-  out.push(text.slice(at));
-  return <div className="page-text">{out}</div>;
+/** 확인이 필요한 건의 세 칸: 원본 내용 · 근거 내용 · 근거를 바탕으로 한 수정 내용 (사용자 요청 11/17) */
+function Trio({ m }: { m: Mark }) {
+  const revision = m.revision ?? (m.kind === 'INSUFFICIENT' ? '근거 조문을 확인한 뒤 고쳐 주세요.' : '수정 필요 없음');
+  return (
+    <dl className="trio">
+      <dt>원본 내용</dt><dd>{m.original ?? <span className="note">(올린 문서에 없음)</span>}</dd>
+      <dt>근거 내용</dt>
+      <dd>{m.basis ? <><cite>{m.basis.label}{m.basis.effective_from && ` · ${m.basis.effective_from} 시행`}</cite>{m.basis.text}</> : <span className="note">근거 조문 없음</span>}</dd>
+      <dt>수정 내용</dt><dd className={m.revision ? 'rev' : 'note'}>{revision}</dd>
+    </dl>
+  );
 }
 
 function Fix({ m, n, on }: { m: Mark; n?: number; on?: boolean }) {
+  const trio = m.original !== undefined || m.revision !== undefined; // 새 API(세 칸). 이전 API는 기존 표시
   return (
     <li className={`fix${on ? ' on' : ''}`} id={n ? `mark-${n}` : undefined}>
       <p className="fix-head">{n && <b className="fix-n">{n}</b>}{m.label ?? KIND[m.kind]}{m.severity === 'HIGH' && <span className="danger-text"> · 수정 필요</span>}</p>
-      <p>{m.reason}</p>
-      {m.basis && (
+      {trio ? <><Trio m={m} /><p className="note" style={{ marginTop: 6 }}>{m.reason}</p></> : <p>{m.reason}</p>}
+      {!trio && m.basis && (
         <blockquote className="basis">
           <cite>{m.basis.label}{m.basis.effective_from && ` · ${m.basis.effective_from} 시행`}</cite>
           <p>{m.basis.text}</p>
         </blockquote>
       )}
-      {m.fix && <p><strong>고칠 내용</strong> {m.fix}</p>}
+      {m.fix && m.fix !== m.revision && <p className={trio ? 'note' : undefined}><strong>고칠 내용</strong> {m.fix}</p>}
     </li>
   );
 }
@@ -118,7 +144,7 @@ function ExternalLaws({ id }: { id: string }) {
   const [items, setItems] = useState<ExternalLaw[] | null>(null);
   useEffect(() => { api<{ items: ExternalLaw[] }>('GET', `/v1/library/${encodeURIComponent(id)}/external-laws`).then((r) => setItems(r.items)).catch(() => setItems([])); }, [id]);
   if (items === null) return <p className="note" aria-live="polite">본문이 인용한 법령을 국가법령정보센터에서 확인하는 중입니다…</p>;
-  if (!items.length) return null;
+  if (!items.length) return <p className="note" role="status">참고할 외부 법령이 없습니다.</p>;
   return (
     <section aria-labelledby="ext-h">
       <h3 className="section" id="ext-h">외부 법령 최신본 참고 <span className="note">(미검증)</span></h3>
@@ -160,11 +186,11 @@ function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) =
         {located.map(({ pi, n, m }) => (
           <li key={`${pi}-${n}`} className={`fix${m.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
             <button type="button" className="linklike" onClick={() => jump(pi, n)}>{pi + 1}쪽 {n}번 · {m.label ?? KIND[m.kind]}</button>
-            <p style={{ margin: 0 }}>{m.reason}</p>
+            {m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}
           </li>
         ))}
         {d.doc_marks.map((m, i) => (
-          <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p><p style={{ margin: 0 }}>{m.reason}</p></li>
+          <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p>{m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}</li>
         ))}
         {!d.pages.length && r.findings.map((f, i) => (
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
@@ -202,11 +228,93 @@ function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: str
   );
 }
 
+/** 문서 삭제 (작성자·관리자): 사유 → 확인 → 저장소·검색 색인·관계 그래프 정리 진행 표시 (interfaces 6.0) */
+/** 버전 목록(v1 · v2 …)과 직전 버전과 바뀐 곳 (사용자 요청 11/17). 버전이 하나뿐이면 표시하지 않는다 */
+function Versions({ id }: { id: string }) {
+  const [v, setV] = useState<{ items: VersionItem[]; diff: VersionDiff | null } | null>(null);
+  useEffect(() => { api<{ items: VersionItem[]; diff: VersionDiff | null }>('GET', `/v1/library/${encodeURIComponent(id)}/versions`).then(setV).catch(() => setV(null)); }, [id]);
+  if (!v || (v.items.length < 2 && !v.diff)) return null;
+  return (
+    <DetailCard title="버전·바뀐 곳"><section aria-labelledby="vers-h">
+      <h3 className="section" id="vers-h">버전</h3>
+      <div className="version-list" role="list">
+        {v.items.map((x) => (
+          <span role="listitem" key={x.doc_id}>
+            {x.doc_id === id ? <strong aria-current="page">v{x.version_no}</strong> : <Link href={`/library?id=${encodeURIComponent(x.doc_id)}`}>v{x.version_no}</Link>}
+            {x.doc_id === id && <span className="note"> · 보고 있는 판</span>}
+            <span className="note"> {x.current ? '오늘 시행 중' : x.freshness === 'SUPERSEDED' ? '대체됨' : x.lifecycle === 'PUBLISHED' ? '' : '게시 전'}</span>
+            <p className="note">시행일 {x.effective_from ?? '정보 없음'}</p>
+          </span>
+        ))}
+      </div>
+      {v.diff && <Changes diff={v.diff} />}
+    </section></DetailCard>
+  );
+}
+
+/** 원본 파일 내려받기 (사용자 요청 11/17). 60초짜리 주소를 받아 바로 저장. 주소는 화면·저장소에 남기지 않는다 */
+function Download({ id }: { id: string }) {
+  const [msg, setMsg] = useState('');
+  async function go() {
+    setMsg('');
+    try {
+      const r = await api<{ url: string; filename: string }>('GET', `/v1/library/${encodeURIComponent(id)}/download`);
+      const a = document.createElement('a');
+      a.href = r.url; a.rel = 'noopener'; a.download = r.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) { setMsg((e as ApiError).status === 404 ? '원본 파일이 없습니다. 검증 실패나 삭제로 지워진 문서입니다.' : (e as ApiError).message); }
+  }
+  return <><button type="button" className="btn" onClick={go}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+}
+
+function DeleteDoc({ d }: { d: LibraryDoc }) {
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'slow' | 'error'>('idle');
+  const [info, setInfo] = useState('');
+  async function del() {
+    const reason = prompt('삭제 사유를 적어 주세요 (예: 개정판으로 대체, 중복 등록)')?.trim();
+    if (!reason) return;
+    if (!confirm(`「${d.title}」을(를) 삭제합니다.\n검색·문서보관함·관계 그래프에서 빠지고 파일은 모든 버전이 지워집니다. 되돌릴 수 없습니다.\n결재·감사 기록은 남습니다. 계속할까요?`)) return;
+    try {
+      await api('DELETE', `/v1/documents/${encodeURIComponent(d.doc_id)}`, { reason });
+    } catch (e) { setState('error'); setInfo((e as ApiError).message); return; }
+    setState('running');
+    // 정리(저장소 → 검색 색인 → 그래프)는 보통 1~3분. Finalize가 purge.deleted_at을 남기면 끝
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const x = await api<{ purge?: { deleted_at?: string; review_required?: string[] } }>('GET', `/v1/documents/${encodeURIComponent(d.doc_id)}`).catch(() => undefined);
+      if (x?.purge?.deleted_at) {
+        const n = x.purge.review_required?.length ?? 0;
+        setState('done');
+        setInfo(n ? `이 문서를 근거로 쓰던 게시 문서 ${n}건을 재검토 대상으로 표시했습니다.` : '');
+        return;
+      }
+    }
+    setState('slow');
+  }
+  if (!d.can_delete) return null;
+  return (
+    <section aria-labelledby="del-h" style={{ marginTop: 28 }}>
+      <h3 className="section" id="del-h">문서 삭제</h3>
+      {state === 'idle' && <><p className="note">검색·보관함·관계 그래프에서 빼고 파일을 모두 지웁니다. 결재·감사 기록은 남습니다.</p><div className="actions"><button className="btn" onClick={del}>문서 삭제</button></div></>}
+      <p aria-live="polite" className={state === 'error' ? 'error' : 'note'}>
+        {state === 'running' && '삭제했습니다. 저장소·검색 색인·관계 그래프를 정리하는 중입니다(보통 1~3분).'}
+        {state === 'done' && `삭제와 정리가 끝났습니다. ${info}`}
+        {state === 'slow' && '삭제는 되었고 정리가 아직 진행 중입니다. 검색·보관함에는 이미 보이지 않습니다. 잠시 뒤 다시 확인해 주세요.'}
+        {state === 'error' && `삭제하지 못했습니다: ${info}`}
+      </p>
+      {(state === 'done' || state === 'slow') && <Link href="/library">보관함으로</Link>}
+    </section>
+  );
+}
+
 function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
   const [err, setErr] = useState('');
   const [p, setP] = useState(0);
   const [active, setActive] = useState(0);
+  const [raw, setRaw] = useState(false); // false: AI 정리본(있으면), true: 원문(고칠 곳 밑줄)
+  const [fixOpen, setFixOpen] = useState(false);
+  const [reasonsOpen, setReasonsOpen] = useState(false);
   useEffect(() => {
     api<LibraryDoc>('GET', `/v1/library/${encodeURIComponent(id)}`)
       .then((x) => {
@@ -225,36 +333,69 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
-  const jump = (i: number, n: number) => { setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: 'smooth' }), 0); };
-  const back = from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함</Link>;
+  const jump = (i: number, n: number) => { setRaw(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
+  const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
   return (
     <>
-      <p>{back}</p>
-      <h2 className="doc-title lg">{d.title}</h2>
-      <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
-      <FreshnessFlag freshness={d.freshness} />
-      {d.freshness_reason && (
+      <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
+      <header className="document-header">
+      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
+      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} /></div><dl className="meta-grid">
+        {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
+        {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
+        {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
+        <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
+        {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd><span className="num">{day(d.updated_at)}</span></dd></>}
+        {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
+
+      </dl></header>
+
+      <div className="detail-layout"><div className="detail-body">
+
+      {d.superseded_by && <p className="notice" role="status">새 버전이 게시되어 이 문서는 대체되었습니다. <Link href={`/library?id=${encodeURIComponent(d.superseded_by)}`}>최신 버전 보기</Link></p>}
+      {d.freshness_reason?.deleted_doc ? (
+        <p className="notice" role="status">
+          근거로 쓰던 「{d.freshness_reason.law_name}」 문서가 삭제되었습니다. 근거 조문을 다시 확인해야 합니다. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
+        </p>
+      ) : d.freshness_reason && (
         <p className="notice" role="status">
           근거 규정 「{d.freshness_reason.law_name}」이 {d.freshness_reason.effective_from} 시행 개정판으로 바뀌었습니다.
           이 문서는 {d.freshness_reason.cited_revision} 판을 근거로 승인되어, 현행 조문과 맞는지 다시 검토해야 합니다.
           게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
         </p>
       )}
-      {d.summary && <p className="lead">{d.summary}</p>}
-      <dl className="meta-grid">
-        {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
-        {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
-        {d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
-        <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
-        {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd>{day(d.updated_at)}</dd></>}
-        {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
-      </dl>
 
-      {d.review && <Reasons d={d} jump={jump} />}
+      {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
+        <section aria-label={`${p + 1}쪽`}>
+          <div className="pager">
+            <button className="btn" disabled={p === 0} onClick={() => go(p - 1)}>이전 쪽</button>
+            <span aria-live="polite"><span className="num">{p + 1} / {d.pages.length}</span>쪽</span>
+            <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
+          </div>
+          {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
+          {page.structured && <div className="view-toggle" role="group" aria-label="본문 보기 방식">
+            <button type="button" className="btn" aria-pressed={!raw} onClick={() => setRaw(false)}>정리본</button>
+            <button type="button" className="btn" aria-pressed={raw} onClick={() => setRaw(true)}>원문{numbered.length > 0 ? ` · 고칠 곳 ${numbered.length}` : ''}</button>
+          </div>}
+          <div className="document-columns"><div className="sheet page">
+            {page.structured && !raw ? <><p className="note">AI가 원문 글자를 바꾸지 않고 읽기 좋게 다시 배치한 본문입니다. 고칠 곳 밑줄은 원문에서 보입니다.</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
+          </div>
+          <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>
+            <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>
+          </aside>          </div>
+        </section>
+      )}
 
-      {d.verification && (
-        <section aria-labelledby="verify-h">
+      </div><div className="document-more">
+      <div className="detail-cards" aria-label="문서 상세 항목">
+      {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
+      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}
+      <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
+      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
+      {d.review && <><button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump} /></DetailPopup></>}
+      <Versions id={d.doc_id} />      {d.verification && (
+        <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
           <dl className="meta-grid">
             <dt>검증한 사람</dt><dd>{d.verification.approved_by ?? '아직 승인 전'}</dd>
@@ -262,6 +403,10 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             {d.verification.approval_reason && <><dt>승인 의견</dt><dd>{d.verification.approval_reason}</dd></>}
             <dt>검증 방법</dt><dd>{d.verification.method}</dd>
           </dl>
+        </section></DetailCard>
+      )}
+      {d.verification && d.verification.basis.length > 0 && (
+        <DetailCard title="비교한 대상">
           {d.verification.basis.length > 0 && (
             <>
               <p className="note" style={{ margin: '10px 0 4px' }}>비교한 대상</p>
@@ -276,10 +421,11 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
               </ul>
             </>
           )}
-        </section>
+        </DetailCard>
       )}
+
       {d.related.length > 0 && (
-        <section aria-labelledby="rel-h">
+        <DetailCard title="관련 문서"><section aria-labelledby="rel-h">
           <h3 className="section" id="rel-h">함께 보면 좋은 문서</h3>
           {(['REGULATION', 'KNOWHOW', 'MANUAL'] as const).map((t) => {
             const rs = d.related.filter((r) => (r.document_type ?? 'KNOWHOW') === t);
@@ -287,52 +433,21 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             return (
               <div key={t} style={{ marginBottom: 10 }}>
                 <p className="note" style={{ margin: '6px 0 2px' }}>{TYPE_NAME[t]}</p>
-                <ul className="fixes">{rs.map((r) => (
+                <PaginatedList label={`${TYPE_NAME[t]} 관련 문서`} pageKey={`related_${t}`} className="fixes">{rs.map((r) => (
                   <li key={r.doc_id} className={`fix${r.relation === 'CONFLICTS' ? ' sev-HIGH' : ''}`}>
                     <p style={{ margin: 0 }}><Link href={`/library?id=${encodeURIComponent(r.doc_id)}`}>{r.title}</Link></p>
                     <p className="meta" style={{ margin: 0 }}>{REL[r.relation]} · {r.reason}</p>
                   </li>
-                ))}</ul>
+                ))}</PaginatedList>
               </div>
             );
           })}
-        </section>
+        </section></DetailCard>
       )}
-      <ExternalLaws id={d.doc_id} />
+      <DetailCard title="외부 법령 참고" filled={false}><ExternalLaws id={d.doc_id} /></DetailCard>
+      </div>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
-      {d.doc_marks.length > 0 && (
-        <section aria-labelledby="doc-marks">
-          <h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3>
-          <ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul>
-        </section>
-      )}
-
-      {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
-        <section aria-label={`${p + 1}쪽`}>
-          <div className="pager">
-            <button className="btn" disabled={p === 0} onClick={() => go(p - 1)}>이전 쪽</button>
-            <span aria-live="polite">{p + 1} / {d.pages.length}쪽</span>
-            <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
-          </div>
-          <div className="sheet page">
-            <Marked text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }} />
-          </div>
-          <h3 className="section">이 쪽 요약</h3>
-          <p>{page.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
-          <PageFacts m={page} />
-          <h3 className="section">고칠 곳 {numbered.length > 0 && <span className="danger-text">{numbered.length}곳</span>}</h3>
-          {numbered.length === 0 ? <p className="note">이 쪽에서 찾은 문제가 없습니다.</p> : (
-            <ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>
-          )}
-          {notes.length > 0 && (
-            <>
-              <h3 className="section">참고: 확인된 근거·실무 보완 <span className="note">{notes.length}건</span></h3>
-              <ul className="fixes">{notes.map((m, i) => <Fix key={`n${i}`} m={m} />)}</ul>
-            </>
-          )}
-        </section>
-      )}
-      {d.review && <Decide r={d.review} docId={d.doc_id} />}
+<DeleteDoc d={d} /></div></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
     </>
   );
@@ -341,10 +456,10 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 function View() {
   const sp = useSearchParams();
   const id = sp.get('id');
-  return id ? <Detail key={id} id={id} from={sp.get('from')} /> : <List />;
+  return id ? <Detail key={id} id={id} from={sp.get('from')} /> : <><PageHeader title="문서보관함" description="검증 상태와 현행 여부를 확인한 뒤 업무에 참고하세요." action={<Link className="btn" href="/search">문서 검색</Link>} /><List /></>;
 }
 
 export default function LibraryPage() {
-  return <><h1 className="title">문서보관함</h1><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
+  return <><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
 }
 

@@ -4,7 +4,7 @@
 import { Graph, Node, type MultiAgentState, type NodeResultUpdate } from '@strands-agents/sdk/multiagent';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
-export interface StepOutput { status: 'OK' | 'REVIEW_REQUIRED' | 'BLOCKED' | 'PENDING'; output_key?: string; findings?: unknown[] }
+export interface StepOutput { status: 'OK' | 'REVIEW_REQUIRED' | 'BLOCKED' | 'PENDING'; output_key?: string; findings?: unknown[]; /** graph_upsert(action=delete): 삭제된 규정 조문을 인용하던 문서 */ affected_doc_ids?: string[] }
 
 export interface PipelineDeps {
   /** Gateway Tool 호출 (단계 키 = Tool 이름). 단계 예외는 throw */
@@ -27,9 +27,9 @@ export interface PipelineDeps {
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
 export const STEP_NAMES: Record<string, string> = {
-  malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
+  malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', convert_to_pdf: 'ConvertToPdf', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
   ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify',
-  trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize',
+  trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize', purge_document: 'PurgeDocument',
 };
 
 const BLOCKED = 'blocked';
@@ -64,6 +64,7 @@ class StepNode extends Node {
       throw e; // Graph 실패 → 실행 FAILED 기록은 호출자
     }
     await this.deps.record(this.input.workflow_id, this.input.doc_id, name, out!.status);
+    state.app.set(`out:${this.step}`, out as never); // 뒤 단계가 앞 단계 결과를 쓸 때 (삭제: graph_upsert → finalize)
     if (out!.status === 'BLOCKED') state.app.set(BLOCKED, true);
     if (out!.status === 'REVIEW_REQUIRED') state.app.set(REVIEW, true);
     return done(`${name}: ${out!.status}`);
@@ -82,12 +83,13 @@ export function ingestGraph(deps: PipelineDeps, input: StepInput) {
   const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify'];
   return new Graph({
     nodes: [
-      n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),
+      n('malware_check'), n('file_structure_check'), n('convert_to_pdf'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),
       ...mid.map((k) => n(k)), n('trust_gate'), tail,
     ],
     edges: [
-      ['malware_check', 'file_structure_check'],
-      ['file_structure_check', 'text_layer_extract'], ['file_structure_check', 'page_render'], // 병렬
+      // 모든 형식을 PDF로 바꾼 뒤 전부 OCR (요청기록/20261117-2010). 변환은 동기(최대 600초, callTool 제한 900초 안)
+      ['malware_check', 'file_structure_check'], ['file_structure_check', 'convert_to_pdf'],
+      ['convert_to_pdf', 'text_layer_extract'], ['convert_to_pdf', 'page_render'], // 병렬
       ['text_layer_extract', 'ocr_if_needed'], ['page_render', 'ocr_if_needed'], // 합류 (둘 다 끝나야 실행)
       ...chain(['ocr_if_needed', 'segment_build', ...mid, 'trust_gate', 'review_or_block']),
     ],
@@ -129,6 +131,20 @@ export function publishGraph(deps: PipelineDeps, input: StepInput, decision: 'AP
     nodes: [n('promote'), n('kb_ingest'), n('graph_upsert'), n('finalize', (st) => ({ outcome: st.app.get(BLOCKED) === true ? 'BLOCKED' : 'PUBLISHED' }))],
     edges: chain(['promote', 'kb_ingest', 'graph_upsert', 'finalize']),
     sources: ['promote'],
+    maxSteps: 10,
+  });
+}
+
+/** 문서 삭제 정리 (interfaces 6.0, 사용자 결정 11/17 B). API가 DELETED로 표시한 뒤 호출.
+ *  저장소 모든 버전 삭제 → KB 재색인(문서 빠짐) → 그래프 노드·관계 삭제 → 마무리(근거를 잃은 노하우 재검토 표시). 각 단계는 할 일이 없으면 OK */
+export function deleteGraph(deps: PipelineDeps, input: StepInput) {
+  const n = (s: string, extra?: (st: MultiAgentState) => Record<string, unknown>) => new StepNode(s, deps, input, extra);
+  const del = () => ({ action: 'delete' });
+  return new Graph({
+    nodes: [n('purge_document'), n('kb_ingest', del), n('graph_upsert', del),
+      n('finalize', (st) => ({ outcome: 'DELETED', affected_doc_ids: (st.app.get('out:graph_upsert') as StepOutput | undefined)?.affected_doc_ids ?? [] }))],
+    edges: chain(['purge_document', 'kb_ingest', 'graph_upsert', 'finalize']),
+    sources: ['purge_document'],
     maxSteps: 10,
   });
 }
