@@ -3,7 +3,7 @@
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type Finding, type Review } from '../lib/api';
-import { IssueList } from '../issues';
+import { IssueList, PageFacts } from '../issues';
 
 const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
 const VERDICT: Record<string, [string, string]> = {
@@ -136,6 +136,21 @@ function ReviewView() {
           </section>
         );
       })}
+
+      {!!r.page_summaries?.length && (
+        <section aria-labelledby="ps">
+          <h2 className="section" id="ps">쪽별 요약</h2>
+          <p className="note">마스킹된 본문만 AI가 읽고 요약했습니다. 원문과 다르면 검토 의견에 적어 주세요.</p>
+          <ol className="ledger">
+            {r.page_summaries.map((p) => (
+              <li key={p.page_index} className="entry" style={{ paddingRight: 16 }}>
+                <p style={{ margin: 0 }}><strong>{p.page_index + 1}쪽</strong> {p.summary}</p>
+                <PageFacts m={p} />
+              </li>
+            ))}
+          </ol>
+        </section>
+      )}
 
       {r.masked_preview && (
         <>

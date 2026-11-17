@@ -69,4 +69,4 @@ export async function release(workflow_id: string, phase: string, status: 'DONE'
   await ddb.send(new PutItemCommand({ TableName: env('TABLE_WORKFLOWS'), Item: { pk: { S: `WF#${workflow_id}` }, sk: { S: `LOCK#${phase}` }, status: { S: status }, ended_at: { S: new Date().toISOString() } } }));
 }
 
-export const awsDeps: PipelineDeps = { callTool, record, claim, release, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), imageDescribe: process.env.IMAGE_DESCRIBE === 'on' };
+export const awsDeps: PipelineDeps = { callTool, record, claim, release, sleep: (ms) => new Promise((r) => setTimeout(r, ms)), imageDescribe: process.env.IMAGE_DESCRIBE === 'on', pageSummarize: process.env.PAGE_SUMMARIZE === 'on' };

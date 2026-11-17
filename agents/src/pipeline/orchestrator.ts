@@ -21,12 +21,14 @@ export interface PipelineDeps {
   release?(workflow_id: string, phase: string, status: 'DONE' | 'FAILED'): Promise<void>;
   /** 그림 분석 단계(13항, yoyo0704 Lambda). Gateway Target 등록 전에는 끈다 (env IMAGE_DESCRIBE=on) */
   imageDescribe?: boolean;
+  /** 쪽별 요약·메타데이터 단계(yoyo0704 Lambda, masked/summary.json). env PAGE_SUMMARIZE=on */
+  pageSummarize?: boolean;
 }
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
 export const STEP_NAMES: Record<string, string> = {
   malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
-  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', classify: 'Classify',
+  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify',
   trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize',
 };
 
@@ -76,17 +78,18 @@ export function ingestGraph(deps: PipelineDeps, input: StepInput) {
   const n = (s: string, extra?: (st: MultiAgentState) => Record<string, unknown>) => new StepNode(s, deps, input, extra);
   // 차단이 아니면 검토 대기(await_review), 차단이면 finalize(BLOCKED). 둘 다 마지막에 두고 노드 안에서 분기
   const tail = new ReviewOrBlock(deps, input);
+  // 선택 단계: ImageDescribe(그림 묘사도 지시문 검사를 받도록 InjectionScan 앞), PageSummarize(지시문 검사 뒤, 요약을 Classify가 쓸 수 있게)
+  const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify'];
   return new Graph({
     nodes: [
       n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),
-      n('pii_scan'), ...(deps.imageDescribe ? [n('image_describe')] : []), n('injection_scan'), n('classify'), n('trust_gate'), tail,
+      ...mid.map((k) => n(k)), n('trust_gate'), tail,
     ],
     edges: [
       ['malware_check', 'file_structure_check'],
       ['file_structure_check', 'text_layer_extract'], ['file_structure_check', 'page_render'], // 병렬
       ['text_layer_extract', 'ocr_if_needed'], ['page_render', 'ocr_if_needed'], // 합류 (둘 다 끝나야 실행)
-      // 그림 묘사 텍스트도 지시문 검사를 받도록 InjectionScan 앞 (yoyo0704 합의)
-      ...chain(['ocr_if_needed', 'segment_build', 'pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', 'classify', 'trust_gate', 'review_or_block']),
+      ...chain(['ocr_if_needed', 'segment_build', ...mid, 'trust_gate', 'review_or_block']),
     ],
     sources: ['malware_check'],
     maxSteps: 30,

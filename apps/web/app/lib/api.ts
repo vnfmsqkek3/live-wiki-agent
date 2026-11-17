@@ -142,12 +142,15 @@ function mockProgress(): Progress {
 }
 
 // ---------- 05 검토 · 03 가이드 ----------
+/** PageSummarize 쪽 메타데이터 (masked/summary.json) */
+export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; page_type?: string }
 export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
 export interface Review {
   doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
   authority_status: string;
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
   findings: Finding[]; masked_preview?: string;
+  page_summaries?: ({ page_index: number } & PageMeta)[];
   knowhow_validation?: KnowhowValidation;
   workflow_failure?: { step: string; error: string };
 }
@@ -209,7 +212,7 @@ export interface Verification {
 }
 export interface ExternalLaw { law_name: string; clause?: string; error?: string;
   result?: { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null } | null }
-export interface LibraryDoc extends LibraryCard { doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: { page: number; text: string; summary: string | null; marks: Mark[] }[] }
+export interface LibraryDoc extends LibraryCard { doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [

@@ -35,6 +35,7 @@ async function setup() {
     store, presignPut: async () => '', headObject: async () => undefined, startWorkflow: async () => {}, resume: async () => true,
     search: async () => [], guide: async () => ({}),
     pages: async () => [{ page: 1, text: '둘째 장' }, { page: 0, text: '1억원 이하는 현장 실사를 생략한다.' }],
+    pageSummary: async (id: string) => id === 'KH' ? { pages: [{ page_index: 1, summary: '둘째 장 요약', keywords: ['현장 실사'], clause_refs: ['제14조'], page_type: '본문' }] } : undefined,
     marks: async () => [{ page: 0, start: 0, end: 5, severity: 'HIGH', kind: 'CONFLICT', reason: '실사 의무' }, { page: null, start: null, end: null, severity: 'HIGH', kind: 'REGISTRY_MISMATCH', reason: '조문 누락' }],
   } as Deps;
   const app = createApp(deps);
@@ -76,7 +77,8 @@ test('상세: 페이지 순서·페이지 요약·밑줄, 권한 밖·타인 미
   assert.deepEqual(d.pages.map((p) => p.page), [0, 1]);
   assert.equal(d.pages[0]!.summary, '첫 장 요약');
   assert.equal(d.pages[0]!.marks[0]!.kind, 'CONFLICT');
-  assert.equal(d.pages[1]!.summary, null);
+  assert.equal(d.pages[1]!.summary, '둘째 장 요약'); // PageSummarize 결과(masked/summary.json)
+  assert.deepEqual((d.pages[1] as unknown as { clause_refs: string[] }).clause_refs, ['제14조']);
   assert.equal(d.pages[1]!.marks.length, 0);
   assert.deepEqual(d.doc_marks.map((m) => m.kind), ['REGISTRY_MISMATCH']);
   assert.equal((await t.get('user', '/v1/library/SECRET')).status, 404);

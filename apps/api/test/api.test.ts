@@ -248,8 +248,8 @@ test('업로드 진행: 건너뛴 단계(그림 분석 꺼짐)는 진행 중으�
   const { progress } = await import('../src/progress.ts');
   const p = progress('QUARANTINED', ['MalwareCheck', 'FileStructureCheck', 'TextLayerExtract', 'PageRender', 'OcrIfNeeded', 'SegmentBuild', 'PiiScan', 'InjectionScan'].map((step) => ({ step, status: 'OK' })));
   assert.equal(p.steps.find((s) => s.key === 'ImageDescribe')?.state, 'skipped');
-  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'Classify');
-  assert.equal(p.total, 12);
+  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'PageSummarize'); // 꺼져 있으면 Classify 기록 시 skipped
+  assert.equal(p.total, 13);
   assert.equal(progress('IN_REVIEW', []).done, progress('IN_REVIEW', []).total);
 });
 

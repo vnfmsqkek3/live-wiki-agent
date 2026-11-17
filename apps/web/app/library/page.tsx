@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
+import { PageFacts } from '../issues';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 /** ISO 시각 → 'YYYY-MM-DD' (한국 시간) */
@@ -251,6 +252,7 @@ function Detail({ id }: { id: string }) {
           </div>
           <h3 className="section">이 쪽 요약</h3>
           <p>{page.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
+          <PageFacts m={page} />
           <h3 className="section">고칠 곳 {numbered.length > 0 && <span className="danger-text">{numbered.length}곳</span>}</h3>
           {numbered.length === 0 ? <p className="note">이 쪽에서 찾은 문제가 없습니다.</p> : (
             <ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>
@@ -275,3 +277,4 @@ function View() {
 export default function LibraryPage() {
   return <><h1 className="title">문서보관함</h1><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
 }
+

@@ -92,3 +92,15 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
     </section>
   );
 }
+
+/** 쪽 성격·핵심어·본문 속 조문 표기 (PageSummarize) */
+export function PageFacts({ m }: { m: { keywords?: string[]; clause_refs?: string[]; page_type?: string } }) {
+  if (!m.page_type && !m.keywords?.length && !m.clause_refs?.length) return null;
+  return (
+    <dl className="meta-grid">
+      {m.page_type && <><dt>쪽 성격</dt><dd>{m.page_type}</dd></>}
+      {!!m.keywords?.length && <><dt>핵심어</dt><dd>{m.keywords.join(', ')}</dd></>}
+      {!!m.clause_refs?.length && <><dt>인용 조문</dt><dd>{m.clause_refs.join(', ')}</dd></>}
+    </dl>
+  );
+}

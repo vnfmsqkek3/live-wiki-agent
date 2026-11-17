@@ -170,6 +170,9 @@ export async function pageImage(doc_id: string, page_index: number) {
 export async function pageImageList(doc_id: string) {
   return (await listKeys(`${doc_id}/masked/pages/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n));
 }
+export async function pageSummary(doc_id: string) {
+  return getJson<{ pages?: import('./app.ts').PageMeta[] }>(`${doc_id}/masked/summary.json`);
+}
 export async function explanation(doc_id: string) {
   return getJson<unknown>(`${doc_id}/masked/explanation.json`);
 }

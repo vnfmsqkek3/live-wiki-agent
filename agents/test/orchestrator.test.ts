@@ -36,6 +36,15 @@ test('1차: 고정 순서 (병렬 2개 합류 후 진행), 마지막에 검토 �
   assert.equal(t.records.at(-1), 'EXECUTION=SUCCEEDED');
 });
 
+test('선택 단계: IMAGE_DESCRIBE·PAGE_SUMMARIZE 켜면 pii_scan → image_describe → injection_scan → page_summarize → classify', async () => {
+  const t = deps();
+  const d = { ...t.d, imageDescribe: true, pageSummarize: true };
+  await run(ingestGraph(d, input), d, input);
+  const order = t.calls.map((c) => c.step);
+  assert.deepEqual(order.slice(6, 11), ['pii_scan', 'image_describe', 'injection_scan', 'page_summarize', 'classify']);
+  assert.ok(t.records.includes('PageSummarize=OK'));
+});
+
 test('PENDING은 같은 입력으로 재호출 (멱등 폴링)', async () => {
   const t = deps({ malware_check: (n) => ({ status: n < 3 ? 'PENDING' : 'OK' }) });
   await run(ingestGraph(t.d, input), t.d, input);

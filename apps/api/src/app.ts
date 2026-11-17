@@ -50,7 +50,15 @@ export interface Deps {
   pages?(doc_id: string): Promise<Page[]>;
   /** let522mj buildMarks: 판정·Finding → 밑줄 (page = pages 배열 인덱스, 못 찾으면 null) */
   marks?(pages: Page[], doc: DocumentRecord): Promise<Mark[]>;
+  /** PageSummarize(yoyo0704) 결과 masked/summary.json. 없으면 undefined */
+  pageSummary?(doc_id: string): Promise<{ pages?: PageMeta[] } | undefined>;
 }
+
+/** 쪽별 요약·메타데이터 (docs/interfaces.md 6장 PageSummarize). page_index는 0부터 */
+export interface PageMeta { page_index: number; summary: string; keywords: string[]; clause_refs: string[]; page_type: string }
+const pageMetas = async (deps: Deps, doc_id: string) =>
+  new Map(((deps.pageSummary ? await deps.pageSummary(doc_id).catch(() => undefined) : undefined)?.pages ?? [])
+    .map((p) => [p.page_index, { summary: p.summary, keywords: p.keywords ?? [], clause_refs: p.clause_refs ?? [], page_type: p.page_type }] as const));
 
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
 
@@ -149,7 +157,8 @@ export function createApp(deps: Deps) {
     const d = await loadDoc(c, c.req.param('id'));
     if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
-    return c.json({ workflow_failure, doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
+    const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
+    return c.json({ workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
   });
 
   app.get('/v1/documents/:id/progress', async (c) => {
@@ -321,6 +330,7 @@ export function createApp(deps: Deps) {
     const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
     const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
+    const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     return c.json({
@@ -328,7 +338,7 @@ export function createApp(deps: Deps) {
       doc_date: docDate(pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
-      pages: pages.map((p, i) => ({ page: p.page, text: p.text, summary: sum.get(p.page) ?? null, marks: marks.filter((m) => m.page === i) })),
+      pages: pages.map((p, i) => ({ page: p.page, text: p.text, ...meta.get(p.page), summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
     });
   });
 
