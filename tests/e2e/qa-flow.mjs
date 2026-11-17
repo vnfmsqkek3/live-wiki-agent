@@ -150,7 +150,8 @@ const allN = await ev("document.querySelectorAll('li.entry').length");
 check('S1', allN > 0 && /전체 게시 문서/.test(await text()), `검색어 없음 → 카드 ${allN}개`);
 await go('/search?q=' + encodeURIComponent('개인정보'), 6000);
 const priv = await ev("[...document.querySelectorAll('li.entry h3')].map((h) => h.textContent.slice(0, 30))");
-check('S2', priv.length >= 2, `'개인정보' → ${priv.join(' / ')}`);
+// 검색은 문서 단위로 묶인다(같은 규정의 조문 조각은 카드 1장) → 관련 문서가 1건 이상이고 개인정보 문서가 나오면 통과
+check('S2', priv.length >= 1 && priv.some((t) => t.includes('개인정보')), `'개인정보' → ${priv.join(' / ')}`);
 await ev("const i = document.querySelector('input[type=search]'); i.focus(); i.select()");
 for (const type of ['keyDown', 'keyUp']) await send('Input.dispatchKeyEvent', { type, key: 'Backspace', code: 'Backspace', windowsVirtualKeyCode: 8 });
 await sleep(5000);
