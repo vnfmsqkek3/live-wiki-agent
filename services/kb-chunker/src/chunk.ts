@@ -173,33 +173,25 @@ function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
 }
 
 
-/** 장 나누기: 쪽 첫 글자 줄이 "04 …", "04. …", "⑤ …"처럼 장 번호로 시작하면 그 장. 번호 없는 쪽은 앞 쪽의 장을 잇는다.
- *  장 이름은 그 번호가 처음 나온 줄(번호 뒤 점 제거, 60자). 장 번호가 하나도 없는 문서는 장 없음.
+/** 장 나누기: 쪽 첫 글자 줄이 "04 …"·"04.…"처럼 0을 채운 두 자리 장 번호로 시작하고, 번호가 앞 장보다 클 때만 새 장.
+ *  "1. 다운로드"·"3 / 21"·"① …" 같은 단계·쪽 번호는 장이 아님 (PR #43 리뷰). 번호 없는 쪽(글자 없는 캡처 쪽 포함)은 앞 장을 잇는다.
+ *  장 번호가 하나도 없는 문서는 장 없음.
  *  ponytail: 번호 붙은 장 표지가 있는 슬라이드형 매뉴얼 기준 (과천 실측). 다른 형식은 "## 제목" 절이 이미 조각 머리로 들어감 */
-function sectionsOf(body: string[], pageAt: number[]): Map<number, { section: string; section_pages: string }> {
+function sectionsOf(body: string[], pageAt: number[], lastPage: number): Map<number, { section: string; section_pages: string }> {
   const first = new Map<number, string>();
   body.forEach((l, i) => { const t = l.replace(/\f/gu, "").trim(); if (t && !first.has(pageAt[i]!)) first.set(pageAt[i]!, t); });
-  const pages = [...first.keys()].sort((a, b) => a - b);
-  const CIRC = "①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳";
-  const numOf = (t: string) => {
-    const m = /^(\d{1,2})\s*\.?\s+(?=\S)/u.exec(t) ?? /^(\d{1,2})\.(?=\S)/u.exec(t);
-    if (m) return Number(m[1]);
-    const c = CIRC.indexOf([...t][0] ?? "");
-    return c >= 0 && /^.\s+\S/u.test(t) ? c + 1 : undefined;
-  };
-  const title = new Map<number, string>();
-  const chapterOf = new Map<number, number>();
-  let cur: number | undefined;
-  for (const p of pages) {
-    const t = first.get(p)!;
-    const n = numOf(t);
-    if (n !== undefined) { cur = n; if (!title.has(n)) title.set(n, `${String(n).padStart(2, "0")} ${t.replace(/^(\d{1,2})\s*\.?\s*|^.\s+/u, "")}`.slice(0, 60)); }
-    if (cur !== undefined) chapterOf.set(p, cur);
+  const starts: { n: number; page: number; title: string }[] = [];
+  const chapterOf = new Map<number, number>(); // 쪽 → starts 인덱스
+  for (let p = 0; p <= lastPage; p++) {
+    const m = /^0(\d)\s*\.?\s*(\S.*)$/u.exec(first.get(p) ?? "");
+    if (m && Number(m[1]) > (starts.at(-1)?.n ?? 0)) starts.push({ n: Number(m[1]), page: p, title: [...`0${m[1]} ${m[2]}`].slice(0, 60).join("") });
+    if (starts.length) chapterOf.set(p, starts.length - 1);
   }
-  const range = new Map<number, [number, number]>();
-  for (const [p, n] of chapterOf) { const r = range.get(n); range.set(n, r ? [Math.min(r[0], p), Math.max(r[1], p)] : [p, p]); }
   const out = new Map<number, { section: string; section_pages: string }>();
-  for (const [p, n] of chapterOf) { const r = range.get(n)!; out.set(p, { section: title.get(n)!, section_pages: `${r[0] + 1}-${r[1] + 1}` }); }
+  for (const [p, i] of chapterOf) {
+    const end = (starts[i + 1]?.page ?? lastPage + 1) - 1;
+    out.set(p, { section: starts[i]!.title, section_pages: `${starts[i]!.page + 1}-${end + 1}` });
+  }
   return out;
 }
 
@@ -226,7 +218,7 @@ export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   const clean = body.join("\n").replace(/\f/gu, "");
   const reg = meta.document_type === "REGULATION";
   const main0 = reg ? chunkLegal(clean, meta, pageOfLine) : chunkKnowledge(clean, meta, pageOfLine);
-  const sec = reg ? new Map<number, { section: string; section_pages: string }>() : sectionsOf(body, pageAt);
+  const sec = reg ? new Map<number, { section: string; section_pages: string }>() : sectionsOf(body, pageAt, Math.max(pageAt.at(-1) ?? 0, ...figs.map((f) => f.page)));
   const withSec = <T extends Chunk>(c: T): T => { const s = sec.get(c.metadata.source_page); return s ? { ...c, metadata: { ...c.metadata, ...s } } : c; };
   // 본문 조각에 같은 쪽 맥락을 검색 머리(두 번째 줄)와 page_context로 붙임. original_text(인용)는 그대로
   const main = reg ? main0 : main0.map(withSec).map((c) => {

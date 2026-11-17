@@ -294,16 +294,18 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
   async function expandSections(top: Result[], query: string, actor: Actor, o: FilterOpts) {
     if (!deps.retriever.retrieveRaw) return [];
     const keys = [...new Map(top.filter((r) => r.section).map((r) => [`${r.doc_id}\u0000${r.section}`, r] as const)).values()].slice(0, 2);
-    const out: { doc_id: string; section: string; section_pages?: string; items: Result[] }[] = [];
-    for (const r of keys) {
-      const hits = await deps.retriever.retrieveRaw(query, buildFilter(actor, { ...o, docIds: [r.doc_id], section: r.section!, expand: undefined, kbCategory: false }));
-      const states = await deps.states.get([r.doc_id]);
-      const items = [...new Map(revalidate(hits, states, actor, o).kept.map((x) => [x.provision_id, x] as const)).values()]
-        .sort((a, b) => (a.page ?? 0) - (b.page ?? 0) || a.provision_id.localeCompare(b.provision_id)).slice(0, 8)
+    // 장 2개를 동시에 (PR #43 리뷰: 순차 호출 지연)
+    const out = await Promise.all(keys.map(async (r) => {
+      const [hits, states] = await Promise.all([
+        deps.retriever.retrieveRaw!(query, buildFilter(actor, { ...o, docIds: [r.doc_id], section: r.section!, expand: undefined, kbCategory: false })),
+        deps.states.get([r.doc_id])]);
+      // 인용 불가 그림 설명은 빼고(장 자리를 차지하지 않게), 쪽·조각 번호 순 (#s10이 #s2 뒤로)
+      const items = [...new Map(revalidate(hits, states, actor, o).kept.filter((x) => x.quotable).map((x) => [x.provision_id, x] as const)).values()]
+        .sort((a, b) => (a.page ?? 0) - (b.page ?? 0) || a.provision_id.localeCompare(b.provision_id, undefined, { numeric: true })).slice(0, 8)
         .map((x) => { const y = { ...x }; delete y.weak; return y; }); // 같은 장 조각은 관련도와 무관 (weak 표시 없음)
-      if (items.length) out.push({ doc_id: r.doc_id, section: r.section!, ...(r.section_pages ? { section_pages: r.section_pages } : {}), items });
-    }
-    return out;
+      return { doc_id: r.doc_id, section: r.section!, ...(r.section_pages ? { section_pages: r.section_pages } : {}), items };
+    }));
+    return out.filter((x) => x.items.length);
   }
 
   async function run(query: string, actor: Actor, o0: FilterOpts, k: number, rewrite = false) {
