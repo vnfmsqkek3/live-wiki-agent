@@ -46,7 +46,8 @@ test('PII: 불확실 구간이 있으면 REVIEW_REQUIRED, Guardrail 추가 탐�
 
 test('PII: 날짜(시행일)는 계좌로 오탐하지 않음', () => {
   assert.deepEqual(detectPii('시행일 2026-11-01, 개정 2025-01-01'), []);
-  assert.equal(detectPii('참조번호 2026-13-01')[0]?.type, 'ACCOUNT'); // 날짜가 아니면 불확실 계좌
+  assert.deepEqual(detectPii('참조번호 2026-13-01'), []); // N-2-2 모양은 날짜·버전으로 보고 계좌로 잡지 않음 (OCR 깨진 날짜, 11/17)
+  assert.equal(detectPii('참조번호 2026-130-01')[0]?.type, 'ACCOUNT'); // 그 밖의 형태는 불확실 계좌
 });
 
 test('Injection: A-001 유형 차단, 정상 규정 통과', () => {

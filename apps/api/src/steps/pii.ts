@@ -40,7 +40,7 @@ export async function piiScan(
       const ents = g.entities ?? [];
       for (const e of ents.filter((x) => SECRET_TYPES.has(x.type))) text = text.split(e.match).join('[비밀값]');
       const secrets = ents.filter((x) => SECRET_TYPES.has(x.type)).length;
-      // IP는 규칙이 '[IP 주소]'로 가리고, 사용자명은 장비·제조사 이름 오탐이 많아 확인 항목에서 뺀다 (사용자 결정 11/17)
+      // IP·전화·이메일은 가리지 않고(사용자 결정 11/17 22시), 사용자명은 장비·제조사 이름 오탐이 많아 확인 항목에서 뺀다
       const other = ents.filter((x) => !SECRET_TYPES.has(x.type) && !GUARD_SKIP.has(x.type));
       if (secrets) {
         const at = text.indexOf('[비밀값]');

@@ -78,11 +78,11 @@ test('PiiScan 그림 쪽 기준: OCR figures가 있으면 그 개수로, 없으�
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 1);
 });
 
-test('piiBoxes: Guardrail IP·사용자명 판정으로는 칠하지 않고, IP는 규칙으로 칠한다', async () => {
+test('piiBoxes: IP·사용자명은 칠하지 않는다 (사용자 결정 11/17 22시)', async () => {
   const page = { page_index: 0, width: 100, height: 100, blocks: [
     { text: 'SINDORICOH', bbox: [0, 0, 10, 10] as [number, number, number, number] },
     { text: '10.20.30.41', bbox: [0, 20, 10, 30] as [number, number, number, number] },
   ] };
   const g = async () => ({ text: '', entities: [{ type: 'USERNAME', match: 'SINDORICOH' }, { type: 'IP_ADDRESS', match: '10.20.30.41' }] });
-  assert.deepEqual(await piiBoxes(page as never, g), [[0, 20, 10, 30]]);
+  assert.deepEqual(await piiBoxes(page as never, g), []);
 });
