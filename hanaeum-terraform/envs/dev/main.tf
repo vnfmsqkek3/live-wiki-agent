@@ -34,10 +34,10 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "cb9a76c" # workflows·auth-triggers·services/ocr
     dhxorb96 = "04bb559" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
-    let522mj = "10a7454" # main: #37 쪽 번호 + #33 그림 속 글자 + #36 주장 재검토
+    let522mj = "72f65b4" # main: #38 page_markdown 색인 + #37 쪽 번호 + #33 + #36
   }
 
-  ocr_source_ref = "6b52ef3" # PP-StructureV3 표·레이아웃 + figures (11/17)
+  ocr_source_ref = "620108a" # 레이아웃 그림(image·chart) 안쪽 상자 유지 (과천 12쪽)
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   # null: webapp_source_ref 커밋으로 오케스트레이터 이미지를 CodeBuild 빌드. 지정하면 그 태그 고정(빌드 안 함)
