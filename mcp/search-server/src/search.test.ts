@@ -189,4 +189,6 @@ test("세부 필터(11/17): 부서·문서 일자 기간은 KB 필터, 잘못된
   const t = searchTools({ retriever: new MemoryRetriever(), states: new MemoryDocStates(), regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
   await assert.rejects(t.search_wiki({ query: "q", date_from: "2026/01/01" }, { sub: "x", groups: ["USER"] }), { name: "ToolError", message: /date_from/u });
   await assert.rejects(t.search_wiki({ query: "q", freshness: "OLD" }, { sub: "x", groups: ["USER"] }), { message: /freshness/u });
+  await assert.rejects(t.search_wiki({ query: "q", date_from: "2026-13-45" }, { sub: "x", groups: ["USER"] }), { message: /date_from/u });
+  await assert.rejects(t.search_wiki({ query: "q", date_from: "2026-12-01", date_to: "2026-01-01" }, { sub: "x", groups: ["USER"] }), { message: /늦음/u });
 });

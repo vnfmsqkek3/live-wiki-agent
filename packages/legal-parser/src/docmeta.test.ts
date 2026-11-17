@@ -11,6 +11,8 @@ test("문서 일자: 라벨 붙은 날짜만, 형식 여러 가지, 대표 일�
   assert.equal(primaryDate(d)?.date, "2026-12-01");
   assert.equal(primaryDate(d.filter((x) => x.kind === "개정"))?.date, "2026-11-01", "같은 종류는 최신");
   assert.ok(docDates([read("documents/F-001.txt")]).length > 0, "합성 규정 머리말의 시행일");
+  assert.deepEqual(docDates(["<개정 2019. 1. 1., 2026. 11. 1.>"]).map((x) => x.date), ["2019-01-01", "2026-11-01"], "쉼표로 이어진 개정일");
+  assert.deepEqual(docDates(["이 규정은 2026년 11월 1일부터 시행한다."]).map((x) => [x.kind, x.date]), [["시행", "2026-11-01"]], "부칙 정형문");
 });
 
 test("제목 후보: SYNTHETIC 표시줄·조문·문장 건너뜀, 없으면 파일 이름", () => {
@@ -40,4 +42,5 @@ test("버전 변경점: 규정은 조문 단위(수치 변화 포함), 노하우
     ["ADDED", "2쪽", "", "4. 팀장에게 보고한다."],
   ]);
   assert.deepEqual(diffDocuments(old, old), []);
+  assert.deepEqual(previousVersionCandidates({ title: "", text: "가나다라마바사" }, [{ doc_id: "X", title: "", text: "전혀 다른 본문입니다" }]), [], "빈 제목끼리 같은 제목 아님");
 });

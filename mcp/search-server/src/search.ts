@@ -37,6 +37,7 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   // 업무 분류(1단계 일치)·태그(하나라도 일치)
   if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
   if (o.dept) conds.push({ equals: { key: "dept", value: o.dept } });
+  if (o.authority) conds.push({ equals: { key: "authority_status", value: o.authority } }); // KB에서 먼저 거르고 현재 상태로 다시 확인 (상위 N건 밖 누락 방지)
   if (o.dateFrom) conds.push({ greaterThanOrEquals: { key: "doc_date", value: o.dateFrom } });
   if (o.dateTo) conds.push({ lessThanOrEquals: { key: "doc_date", value: o.dateTo } });
   if (o.tags?.length) conds.push(o.tags.length === 1 ? { listContains: { key: "tags", value: o.tags[0]! } } : { orAll: o.tags.map((t) => ({ listContains: { key: "tags", value: t } })) });
@@ -181,9 +182,12 @@ const groupsArg = (args: Record<string, unknown>): IndexGroup[] | undefined => {
 const classArgs = (args: Record<string, unknown>) => {
   const business = str(args, "business", false);
   const tags = Array.isArray(args["tags"]) ? (args["tags"] as unknown[]).filter((t): t is string => typeof t === "string" && !!t.trim()).slice(0, 8) : [];
-  const day = (k: string) => { const v = str(args, k, false); if (!v) return undefined; if (!/^\d{4}-\d{2}-\d{2}$/u.test(v)) throw new ToolError("INVALID_ARGUMENT", `${k}: YYYY-MM-DD`); return Number(v.replaceAll("-", "")); };
+  const day = (k: string) => { const v = str(args, k, false); if (!v) return undefined;
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(v) || Number.isNaN(Date.parse(`${v}T00:00:00Z`)) || new Date(`${v}T00:00:00Z`).toISOString().slice(0, 10) !== v) throw new ToolError("INVALID_ARGUMENT", `${k}: YYYY-MM-DD`);
+    return Number(v.replaceAll("-", "")); };
   const pick = <T extends string>(k: string, ok: readonly T[]) => { const v = str(args, k, false); if (!v) return undefined; if (!ok.includes(v as T)) throw new ToolError("INVALID_ARGUMENT", `${k}: ${ok.join("|")}`); return v as T; };
   const dept = str(args, "dept", false), dateFrom = day("date_from"), dateTo = day("date_to");
+  if (dateFrom && dateTo && dateFrom > dateTo) throw new ToolError("INVALID_ARGUMENT", "date_from이 date_to보다 늦음");
   const authority = pick("authority_status", ["VERIFIED", "UNVERIFIED"] as const), freshness = pick("freshness", ["CURRENT", "REVIEW_REQUIRED"] as const);
   return { ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
     ...(authority ? { authority } : {}), ...(freshness ? { freshness } : {}) };
