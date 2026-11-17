@@ -128,22 +128,30 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 - 단계 Lambda는 Terraform 변수 `step_functions = { malware_check = "<arn>", … }`로 연결한다. 비어 있으면 dev stub(`{status:"OK"}`). 단계 키: `workflows/src/asl.ts`.
 - `Finding = { finding_id, step, severity: LOW|MEDIUM|HIGH, code, message, evidence_ref }` (원문 PII를 message에 넣지 않음)
 
-## 7. Backend API (Owner dhxorb96, 원본 `01` 10장)
+## 7. Backend API (Owner dhxorb96, 원본 `01` 10장, 11/17 갱신)
 
 | 메서드·경로 | 역할 | 요약 |
 |---|---|---|
-| `POST /v1/documents/upload-url` | AUTHOR | → `{ doc_id, url }` (SigV4, 리전 엔드포인트) |
-| `POST /v1/documents/{id}/analyze` | AUTHOR | 워크플로 시작 → `{ workflow_id }` |
-| `GET /v1/documents/{id}` | 권한 내 | 상태·단계 진행·분류 |
-| `GET /v1/documents/{id}/review` | AUTHOR·REVIEWER | OCR·PII·Trust Gate Findings, 마스킹 미리보기 |
-| `POST /v1/documents/{id}/submit` | AUTHOR | 게시 요청 → Approvals 생성 |
-| `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 목록 |
-| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만) |
-| `GET /v1/search?q=&tags=&as_of=` | USER+ | ACL 필터 + 재랭크 결과, `search_status` 포함 |
-| `POST /v1/guides` | USER+ | 인용 포함 가이드 생성 |
-| `POST /v1/policies/{id}/impact` | REG_APPROVER | 영향 분석 |
+| `POST /v1/documents/upload-url` | 로그인 누구나 (6.2 규칙 1) | → `{ doc_id, url }` (SigV4, 리전 엔드포인트) |
+| `POST /v1/documents/{id}/analyze` | 올린 사람 | 워크플로 시작 → `{ workflow_id }` |
+| `POST /v1/documents/{id}/edit` | 로그인 누구나 | 위키 수정 `{markdown}`. 게시 노하우·매뉴얼 → 새 버전(`source=WIKI_EDIT`, `previous_doc_id`, `{doc}/original.md`), 내 IN_REVIEW 문서 → 그 자리 재분석. 규정 409 |
+| `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | 수정에서 지운 중요 문장 '의도한 삭제' 확인 |
+| `GET /v1/documents/{id}` · `/progress` · `/issues` | 권한 내 | 상태·단계 진행(`ConvertToPdf` '문서 변환' 포함)·확인할 내용 |
+| `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings |
+| `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
+| `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
+| `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
+| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지) |
+| `GET /v1/library` | USER+ | 문서 묶음 카드. `?category=`(하위 포함)·`type`·세부 필터, 카드 `category_path` |
+| `GET /v1/library/{id}` | 권한 내 | 상세: `pages[].structured`(AI 정리본)·`structured_source`(TEXT\|VISION)·`clause_groups`, `image_pages`, `claims`, `category_path`·`category_id`, `verification.basis[].statement·reason·relation` |
+| `GET /v1/library/{id}/pages/{n}/image` | 문서를 볼 수 있는 사람 | 개인정보 가린 쪽 이미지(masked/pages) |
+| `GET /v1/categories` · `PATCH /v1/categories/{id}` · `POST /v1/categories/{id}/merge` | USER+ / 결재자 | 업무 분류 트리(볼 수 있는 게시 문서 수) / 이름 수정·병합 (10.1) |
+| `GET /v1/search?q=&type=&category=&raw=1` | USER+ | 문서 단위 묶음 + `related`, `rewritten{core,alternates}`(질의 재구성, `raw=1`이면 끔), 일치 조각 `page` |
+| `POST /v1/guides` | USER+ | 인용 포함 가이드 (SSE 가능) |
+| `GET /v1/admin/runs` · `/runs/{workflow_id}` | 결재자 | Agent 실행 기록(시작·소요·멈춘 단계), 단계별 상태 |
+| `GET /v1/admin/impact/laws` · `/impact?law=` | REG_APPROVER | 규정 변경 영향(사용자 Gateway `graph___trace_impact`) |
+| `GET /v1/admin/knowledge-debt` | 결재자 | 지식 상태 (`knowledge_debt` 뷰, 10.2) |
 | `POST /v1/feedback` | USER+ | `{ doc_id, stars, useful }` 사용자당 문서 1건 (덮어쓰기) |
-| `GET /v1/admin/observability` | PLATFORM_OPERATOR | 마스킹된 지표 |
 
 공통 오류: `{ error: { code, message, trace_id } }`, 401/403/404/409(CONFLICT)/422.
 
@@ -239,3 +247,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-17 | let522mj | 10.2(claims) | GraphUpsert: VERIFIED 규정 새 버전이 게시되면 직전 버전과 diff(부칙 제외)해 바뀐 조문(겹치는 경로 포함)에 근거를 둔 CURRENT 주장을 `status='REVIEW_REQUIRED'`, `status_reason='provision_revised:{새 버전 조문 ID}'`로. Records(PgRecords) `claimsCiting`·`markClaimReview`. 평가 `tests/evaluations/cases/claims.jsonl` (요청기록 20261117-2300) |
 | 2026-11-17 | let522mj | 1(청크)·4(search_wiki)·5(게시본) | 쪽 번호: Promote가 게시본 `content.txt`의 쪽 사이에 폼피드(`\f`) 한 줄을 넣고, kb-chunker가 조각 원문 첫 줄이 처음 나오는 쪽을 `source_page`(0부터)로 기록(`\f`는 본문·인용에서 제거). `search_wiki` 결과 항목 `page`(1부터). 화면 쪽 썸네일용 (사용자 요청 11/17, dhxorb96 1378e2e) |
 | 2026-11-17 | let522mj | 5(게시본)·6.3 | 그림 쪽 정리본 `page_markdown`을 게시본 끝에 `⟦그림 p{쪽}⟧ 쪽 정리(AI, 그림 기준): …` 한 줄(공백 정리, 4,000자)로 → kb-chunker가 인용 불가 그림 조각(`has_figure`, `original_text` 비움)으로 색인. 검색에는 쓰이고 근거 인용·주장 대조는 OCR text 기준 그대로 |
+| 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |
