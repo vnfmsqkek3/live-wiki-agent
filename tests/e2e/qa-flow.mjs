@@ -95,7 +95,7 @@ for (const file of FILES) {
   await sleep(500);
   net.length = 0;
   await click('분석 시작');
-  const done = await until(async () => /분석이 끝났습니다|분석이 멈췄습니다|차단되어/.test(await text()), 6 * 60_000, 4000);
+  const done = await until(async () => /분석이 끝났습니다|분석이 멈췄습니다|차단되어/.test(await text()), 15 * 60_000, 4000); // 전부 OCR 전환 뒤 첫 OCR은 GPU 콜드 스타트로 ~11분 (dev 실측 11/17)
   const upRes = net.find((n) => n.url.endsWith('/v1/documents/upload-url'));
   const body = upRes ? await send('Network.getResponseBody', { requestId: upRes.requestId }) : null;
   const docId = body?.body ? JSON.parse(body.body).doc_id : undefined;
