@@ -50,7 +50,8 @@ export function ocrRows(blocks: OcrBox[]): string[] {
 // ponytail: 좌우 분리 기준 (글자 높이 배수). 표처럼 칸이 넓은 줄은 표 변환(마크다운)이 따로 처리
 const GAP_RATIO = 8;
 /** 왼쪽 덩어리가 구조 머리(조·항·호·목·삭제)이거나 오른쪽이 꼬리표(<개정 …>, [본조신설 …], (…))면 떨어져 있어도 같은 글 (PR #39 리뷰) */
-const HEAD = /^(제\s*\d+\s*조|[①-⑳]|\d+\.|[가-힣]\.|삭제)/u;
+// 덩어리 전체가 머리일 때만 (예 "제1조(목적)", "1.", "제5조 삭제"). "1. 다운로드 자료실 접속" 같은 완결 문장은 해당 없음 (PR #39 재리뷰)
+const HEAD = /^(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*\([^)]*\))?(?:\s*삭제)?|[①-⑳]|\d+\.|[가-힣]\.|삭제)$/u;
 const TAIL = /^[<[(]/u;
 /** ocrRows와 같지만 줄의 세로 위치(yc)도 돌려줌 (표를 제자리에 끼워 넣을 때) */
 export function ocrRowsY(blocks: OcrBox[]): { yc: number; text: string }[] {

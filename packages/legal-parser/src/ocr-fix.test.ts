@@ -87,3 +87,9 @@ test("좌우 구분자 예외 (PR #39 리뷰): 조 머리·항 번호 뒤, 꼬�
   // restoreCircled까지: 조 머리 뒤 1이 ①로
   assert.match(restoreCircled(ocrRows([box("제1조(목적)", 0, 200), box("1 이 규정은", 600, 900)]).join("\n")), /^제1조\(목적\) ① 이 규정은/u);
 });
+
+test("구조 머리 예외는 덩어리 전체가 머리일 때만 (PR #39 재리뷰)", () => {
+  const box = (t: string, x0: number, x1: number) => ({ text: t, bbox: [x0, 100, x1, 120] });
+  assert.deepEqual(ocrRows([box("1. 다운로드 자료실 접속", 0, 400), box("2. 모델명 입력 후 검색", 1200, 1600)]), ["1. 다운로드 자료실 접속 / 2. 모델명 입력 후 검색"]);
+  assert.deepEqual(ocrRows([box("1.", 0, 30), box("최근 3년간 재무제표", 600, 900)]), ["1. 최근 3년간 재무제표"]);
+});
