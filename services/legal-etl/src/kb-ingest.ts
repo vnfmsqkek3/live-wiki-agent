@@ -35,14 +35,18 @@ interface JobState { job_id: string; data_source_id: string }
 
 export const jobStateKey = (input: Pick<StepInput, "workflow_id" | "doc_id" | "version">) => `kb-ingest/${input.workflow_id}/${input.doc_id}-v${input.version}.json`;
 
-export async function kbIngestStep(input: StepInput, api: IngestionApi, records: Records, store: ObjectStore, env: KbEnv): Promise<StepOutput> {
+/** deleting: 문서 삭제 흐름(action=delete)에서 부름. 이때만 분류 전 문서를 "색인된 적 없음"으로 보고 넘긴다 */
+export async function kbIngestStep(input: StepInput, api: IngestionApi, records: Records, store: ObjectStore, env: KbEnv, deleting = false): Promise<StepOutput> {
   const key = jobStateKey(input);
   let state: JobState | undefined;
   try { state = JSON.parse((await store.get(env.BUCKET_ARTIFACT, key)).toString()) as JobState; }
   catch (e) { if ((e as Error).name !== "NoSuchKey") throw e; }
 
   if (!state) {
-    const doc = await records.getDocument(input.doc_id);
+    let doc;
+    try { doc = await records.getDocument(input.doc_id); }
+    // 분류 전 문서는 게시(색인)된 적이 없다 → 삭제 흐름(interfaces.md 6.0)에서 재색인할 것 없음
+    catch (e) { if (deleting && (e as Error).name === "UnclassifiedDocument") return { status: "OK" }; throw e; }
     if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
     const ds = doc.document_type === "REGULATION" ? env.KB_DS_LEGAL_ID : env.KB_DS_KNOWLEDGE_ID;
     // clientToken 결정적: 저장 전에 Lambda가 죽어 재호출돼도 같은 Job (멱등).
