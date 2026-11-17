@@ -102,3 +102,16 @@ test("그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빠지고 별도
   assert.equal(f.metadata.source_page, 1);
   assert.match(f.augmented_search_text, /그림 \(2쪽\)[\s\S]*승인권자 표 \/ 표기: 5억원 이상 본부 \/ 의도: 승인 기준 요약/u);
 });
+
+test("쪽 번호: Promote의 쪽 경계(\\f)로 조각마다 source_page(0부터), 경계 문자는 본문·인용에 남지 않음 (사용자 요청 11/17 쪽 썸네일)", () => {
+  const reg = "제1조(목적) 이 규정은 여신 심사를 정한다.\n제2조(적용) 이 규정은 모든 영업점에 적용한다.\n\f\n제3조(승인) 본부 승인을 받아야 한다.\n⟦그림 p1⟧ 표: 승인 한도표";
+  const cs = chunkDocument(reg, meta({ document_type: "REGULATION", law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" }));
+  const byPath = (p: string) => cs.find((c) => c.metadata.provision_path === p)!;
+  assert.equal(byPath("제1조").metadata.source_page, 0);
+  assert.equal(byPath("제3조").metadata.source_page, 1);
+  assert.equal(cs.find((c) => c.metadata.has_figure)!.metadata.source_page, 1);
+  assert.ok(cs.every((c) => !c.metadata.original_text.includes("\f") && !c.augmented_search_text.includes("\f")));
+  // 노하우: 절이 시작한 쪽
+  const kh = chunkDocument("## 준비\n서류를 확인한다.\n\f\n## 실행\n현장 실사를 한다.", meta({ document_type: "KNOWHOW", index_group: "wiki-knowledge" }));
+  assert.deepEqual(kh.map((c) => c.metadata.source_page), [0, 1]);
+});

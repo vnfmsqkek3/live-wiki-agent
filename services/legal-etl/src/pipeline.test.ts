@@ -236,7 +236,7 @@ test("Promote: 마스킹 세그먼트의 figures를 본문 끝에 페이지 표�
   r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
   r.approvals.set("apr_f", { approval_id: "apr_f", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
   const out = await promoteStep({ ...input, published_bucket: P }, s, r);
-  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시");
+  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n\f\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시");
 });
 
 test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔 쪽은 쪽 번호와 함께 (사용자 지시 11/17)", async () => {

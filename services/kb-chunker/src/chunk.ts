@@ -110,11 +110,21 @@ export function chunkKnowledge(text: string, meta: DocumentMetadata): Chunk[] {
   });
 }
 
+const pageOf = (raw: string, original: string) => {
+  const probe = original.split("\n").map((l) => l.trim()).find((l) => l.length >= 4)?.slice(0, 40);
+  const at = probe ? raw.indexOf(probe) : -1;
+  return at < 0 ? 0 : (raw.slice(0, at).match(/\f/gu)?.length ?? 0);
+};
+
 /** 본문 끝의 그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. original_text는 비워 인용 금지 (그림 묘사는 원문이 아님) */
 export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   const body: string[] = []; const figs: { page: number; text: string }[] = [];
   for (const line of text.split("\n")) { const m = FIGURE_RE.exec(line); if (m) figs.push({ page: Number(m[1]), text: m[2]! }); else body.push(line); }
-  const main = meta.document_type === "REGULATION" ? chunkLegal(body.join("\n"), meta) : chunkKnowledge(body.join("\n"), meta);
+  const raw = body.join("\n");
+  const clean = raw.replace(/\f/gu, "");
+  const main0 = meta.document_type === "REGULATION" ? chunkLegal(clean, meta) : chunkKnowledge(clean, meta);
+  // 쪽 번호: Promote가 넣은 쪽 경계(\f) 기준으로 조각 원문의 첫 줄이 처음 나오는 쪽 (0부터). 못 찾으면 0
+  const main = raw.includes("\f") ? main0.map((c) => ({ ...c, metadata: { ...c.metadata, source_page: pageOf(raw, c.metadata.original_text) } })) : main0;
   return [...main, ...figs.map((f, i) => ({
     augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,
     metadata: { ...meta, provision_id: `${meta.doc_id}#fig${i}`, provision_path: `그림 (${f.page + 1}쪽)`, provision_status: "ACTIVE" as const,
