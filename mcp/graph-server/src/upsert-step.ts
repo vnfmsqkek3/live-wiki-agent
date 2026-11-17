@@ -49,7 +49,7 @@ const norm = (t: string) => t.normalize("NFC").replace(/[\s\p{P}\p{S}]/gu, "");
 /** 한 개정에서 바뀐 조문이 이 비율을 넘으면 자동 표시를 멈추고 사람 확인을 요청 (본문 추출 이상 의심) */
 const MASS_CHANGE = 0.5;
 // SQLState 42P01(테이블 없음): 주장 스키마 배포 전. 규정 게시를 막지 않는다. 그 밖의 오류는 던져 단계 재시도
-const missingTable = (e: unknown) => /42P01|does not exist/u.test(String((e as Error).message ?? ""));
+const missingTable = (e: unknown) => /42P01|relation "claims" does not exist/u.test(String((e as Error).message ?? ""));
 
 /** 새 VERIFIED 버전이 게시되면, 그 법령의 더 이른 버전 조문에 근거를 둔 CURRENT 주장 중 내용이 바뀐 조문(겹치는 경로 포함)의 주장을 REVIEW_REQUIRED로.
  *  주장이 인용한 버전과 새 버전을 직접 비교한다 (중간 개정을 거쳐도 누락 없음). status_reason = "provision_revised:{새 버전 조문 경로}".
@@ -57,10 +57,22 @@ const missingTable = (e: unknown) => /42P01|does not exist/u.test(String((e as E
 export async function markRevisedClaims(law: ParsedLaw, clauses: WritableClauseStore, claims: ClaimStore): Promise<{ marked: number; held?: string[] }> {
   if (!claims.claimsCiting || !claims.markClaimReview) return { marked: 0 };
   let rows: { claim_id: string; provision_id: string }[];
-  try { rows = await claims.claimsCiting(`${law.law_id}@`); } catch (e) { if (missingTable(e)) return { marked: 0 }; throw e; }
-  const revs = new Map((await clauses.revisions(law.law_id)).map((r) => [r.revision_id, r]));
-  const changesOf = new Map<string, ProvisionChange[] | null>(); // null = 대량 변경으로 보류
-  const held: string[] = [];
+  try { rows = await claims.claimsCiting(`${law.law_id}@`); } catch (e) {
+    if (!missingTable(e)) throw e;
+    console.warn(JSON.stringify({ msg: "claims 테이블 없음 → 주장 재검토 건너뜀", law_id: law.law_id }));
+    return { marked: 0 };
+  }
+  if (!rows.length) return { marked: 0 };
+  const all = await clauses.revisions(law.law_id);
+  const revs = new Map(all.map((r) => [r.revision_id, r]));
+  // 대량 변경(본문 인식 이상 의심)은 직전 개정본과 한 번만 판정한다. 오래된 버전과는 실제 차이가 커서 판정 기준으로 쓰지 않음 (PR #36 재리뷰)
+  const prev = all.filter((r) => r.revision_id !== law.revision_id && r.effective_from < law.effective_from).sort((a, b) => b.effective_from - a.effective_from)[0];
+  if (prev) {
+    const old = await loadLaw(clauses, law.law_id, prev.revision_id);
+    const ch = diffLaws(old, law).filter((x) => !x.path.startsWith("SUPPLEMENTARY:") && x.kind !== "ADDED" && norm(x.old_text) !== norm(x.new_text));
+    if (old.provisions.length > 0 && ch.length / old.provisions.length > MASS_CHANGE) return { marked: 0, held: [`${law.law_id}@${prev.revision_id}`] };
+  }
+  const changesOf = new Map<string, ProvisionChange[]>();
   let marked = 0;
   for (const c of rows) {
     const m = /^[^@]+@([^/]+)\/(.+)$/u.exec(c.provision_id);
@@ -70,19 +82,14 @@ export async function markRevisedClaims(law: ParsedLaw, clauses: WritableClauseS
     if (rev === law.revision_id || !r || r.effective_from >= law.effective_from) continue; // 같거나 더 새 버전 인용은 대상 아님
     if (!changesOf.has(rev)) {
       const old = await loadLaw(clauses, law.law_id, rev);
-      const ch = diffLaws(old, law).filter((x) => !x.path.startsWith("SUPPLEMENTARY:") && norm(x.old_text) !== norm(x.new_text));
-      // 새로 생긴 조문(ADDED)은 기존 주장과 무관하므로 비율에서 뺀다
-      const mass = old.provisions.length > 0 && ch.filter((x) => x.kind !== "ADDED").length / old.provisions.length > MASS_CHANGE;
-      changesOf.set(rev, mass ? null : ch);
-      if (mass) held.push(`${law.law_id}@${rev}`);
+      changesOf.set(rev, diffLaws(old, law).filter((x) => !x.path.startsWith("SUPPLEMENTARY:") && norm(x.old_text) !== norm(x.new_text)));
     }
-    const ch = changesOf.get(rev);
-    const hit = ch?.find((x) => overlaps(path, x.path));
+    const hit = changesOf.get(rev)!.find((x) => overlaps(path, x.path));
     if (!hit) continue;
     await claims.markClaimReview(c.claim_id, `provision_revised:${law.law_id}@${law.revision_id}/${hit.path}`);
     marked++;
   }
-  return held.length ? { marked, held } : { marked };
+  return { marked };
 }
 
 export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore, clauses: WritableClauseStore, claims: ClaimStore = {}): Promise<StepOutput> {
