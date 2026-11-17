@@ -26,4 +26,5 @@ export const promoteHandler = (e: PromoteInput) =>
   promoteStep({ ...StepInput.parse(e), approval_id: e.approval_id, published_bucket: env("BUCKET_PUBLISHED") }, s3(), db());
 export const kbIngestHandler = (e: unknown) =>
   kbIngestStep(StepInput.parse(e), new BedrockIngestionApi(), db(), s3(),
-    { KB_ID: env("KB_ID"), KB_DS_LEGAL_ID: env("KB_DS_LEGAL_ID"), KB_DS_KNOWLEDGE_ID: env("KB_DS_KNOWLEDGE_ID"), BUCKET_ARTIFACT: env("BUCKET_ARTIFACT") });
+    { KB_ID: env("KB_ID"), KB_DS_LEGAL_ID: env("KB_DS_LEGAL_ID"), KB_DS_KNOWLEDGE_ID: env("KB_DS_KNOWLEDGE_ID"), BUCKET_ARTIFACT: env("BUCKET_ARTIFACT") },
+    (e as { action?: unknown }).action === "delete"); // action은 StepInput.parse가 지움
