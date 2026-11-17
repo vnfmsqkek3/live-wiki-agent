@@ -280,3 +280,12 @@ test("12: 삭제 흐름(interfaces 6.0) — 분류 전 문서는 색인된 적�
   assert.equal((await kbIngestStep({ ...input, workflow_id: "wf-del" }, api, r, s, env)).status, "PENDING");
   assert.equal((await kbIngestStep({ ...input, workflow_id: "wf-del" }, api, r, s, env)).status, "OK");
 });
+
+test("단계 Finding 저장: MemoryRecords.saveFindings는 같은 단계 것만 교체", async () => {
+  const r = new MemoryRecords();
+  const f = (step: string, code: string) => ({ finding_id: code, step, severity: "HIGH" as const, code, message: code, evidence_ref: "e" });
+  await r.saveFindings(DOC, "TextLayerExtract", [f("TextLayerExtract", "A")]);
+  await r.saveFindings(DOC, "SegmentBuild", [f("SegmentBuild", "NO_TEXT")]);
+  await r.saveFindings(DOC, "SegmentBuild", [f("SegmentBuild", "NO_TEXT2")]);
+  assert.deepEqual(r.findings.get(DOC)!.map((x) => x.code), ["A", "NO_TEXT2"]);
+});

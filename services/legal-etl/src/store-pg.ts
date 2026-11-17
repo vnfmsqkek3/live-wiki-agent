@@ -1,7 +1,8 @@
 // 거버넌스 저장소 PostgreSQL 구현 (사용자 결정 11/17, interfaces.md 10장, 스키마 hanaeum-terraform/db/migrations).
 // DynamoRecords와 같은 계약. 문서 행 변환은 @hanaeum/db fromDocumentRow로만 (세 사람이 같은 모양).
-import { db, fromDocumentRow } from "@hanaeum/db";
-import type { Query } from "@hanaeum/db";
+import { db, fromDocumentRow, replaceStepFindings } from "@hanaeum/db";
+import type { Db, Query } from "@hanaeum/db";
+import type { Finding } from "@hanaeum/schemas";
 import { DynamoRecords, normalizeDocument } from "./store.ts";
 import type { ApprovalRecord, ConsumeArgs, Records } from "./store.ts";
 
@@ -9,7 +10,13 @@ const bindingError = (id: string) => Object.assign(new Error(`승인 바인딩 �
 
 export class PgRecords implements Records {
   private readonly q: Query;
-  constructor(q: Query) { this.q = q; }
+  private readonly d?: Db;
+  constructor(q: Query, d?: Db) { this.q = q; if (d) this.d = d; }
+  async saveFindings(docId: string, step: string, findings: Finding[]) {
+    // 문서 행 잠금 트랜잭션으로 그 단계 것만 교체 (@hanaeum/db, 병렬 단계 직렬화)
+    const run = (q: Query) => replaceStepFindings(q, docId, step, findings as unknown as Parameters<typeof replaceStepFindings>[3]);
+    if (this.d) await this.d.tx(run); else await run(this.q);
+  }
   async getDocument(doc_id: string) {
     const [row] = await this.q("SELECT * FROM documents WHERE doc_id = :id", { id: doc_id });
     return row ? normalizeDocument(fromDocumentRow(row)) : undefined;
@@ -46,7 +53,7 @@ export class PgRecords implements Records {
 
 /** GOV_STORE=postgres면 PostgreSQL, 아니면 DynamoDB (전환 기간 롤백용). 단계 Lambda·Graph·Search가 같이 쓴다 */
 export function recordsFromEnv(env: Record<string, string | undefined> = process.env): Records {
-  if (env["GOV_STORE"] === "postgres") return new PgRecords(db({ resourceArn: env["DB_CLUSTER_ARN"], secretArn: env["DB_SECRET_ARN"], database: env["DB_NAME"] }).query);
+  if (env["GOV_STORE"] === "postgres") { const d = db({ resourceArn: env["DB_CLUSTER_ARN"], secretArn: env["DB_SECRET_ARN"], database: env["DB_NAME"] }); return new PgRecords(d.query, d); }
   const need = (k: string) => { const v = env[k]; if (!v) throw new Error(`환경변수 ${k} 없음`); return v; };
   return new DynamoRecords({ documents: need("TABLE_DOCUMENTS"), approvals: env["TABLE_APPROVALS"] ?? "" });
 }
