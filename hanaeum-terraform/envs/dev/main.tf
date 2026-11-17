@@ -34,7 +34,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "2d53d78" # workflows·auth-triggers·services/ocr
     dhxorb96 = "1377d9c" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "9accab2" # PR #21 텍스트 추출·본문 정리 Finding 저장 (+#20·#19)
+    let522mj = "d919cfb" # PR #22 검색 related + #21 Finding 저장 (+#20·#19)
   }
 
   ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
