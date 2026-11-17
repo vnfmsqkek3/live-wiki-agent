@@ -7,7 +7,9 @@ export interface SearchHit {
   doc_id: string; title: string; snippet: string; provision?: string; effective_from: string;
   authority_status: string; freshness: string; search_status: string; document_type: string; business_path?: string[]; tags?: string[];
 }
-export type SearchWiki = (args: Record<string, unknown>, actor: { sub: string; groups: string[]; dept?: string }) => Promise<{ items?: SearchHit[]; related?: SearchHit[] }>;
+/** 질의 재구성 (let522mj search_wiki, 요청기록/20261117-1910 1장): 문장형 질의를 핵심 검색어 + 대안 ≤2로 */
+export interface Rewritten { core: string; alternates: string[] }
+export type SearchWiki = (args: Record<string, unknown>, actor: { sub: string; groups: string[]; dept?: string }) => Promise<{ items?: SearchHit[]; related?: SearchHit[]; rewritten?: Rewritten }>;
 
 /** 화면 검색 항목. 이유는 결과 상태로만 설명한다 (모델 생성 아님) */
 export const toItem = (h: SearchHit) => ({
@@ -19,13 +21,19 @@ export const toItem = (h: SearchHit) => ({
     : h.provision ? '찾는 내용과 조문이 일치합니다' : '찾는 내용과 관련된 승인 문서입니다',
 });
 
+/** 검색 결과 배열 + 재구성 질의 (배열에 붙여 기존 호출부 모양을 유지) */
+export type SearchResult = (ReturnType<typeof toItem> & { weak?: true })[] & { rewritten?: Rewritten };
+
 export function searchVia(searchWiki: SearchWiki) {
-  return async (q: string, a: Actor, o: { tags: string[]; as_of?: string; index_groups?: string[] } & DetailFilter) => {
-    const { tags, ...rest } = o; // 세부 필터는 search_wiki 인자 이름 그대로 (값이 있는 것만)
-    const r = await searchWiki({ query: q, top_k: 10, ...(tags.length ? { tags } : {}), ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v)) },
+  return async (q: string, a: Actor, o: { tags: string[]; as_of?: string; index_groups?: string[]; rewrite?: boolean } & DetailFilter): Promise<SearchResult> => {
+    const { tags, rewrite, ...rest } = o; // 세부 필터는 search_wiki 인자 이름 그대로 (값이 있는 것만)
+    // rewrite=false: '원래 질의로 찾기'. 기본(생략)은 search_wiki가 재구성
+    const r = await searchWiki({ query: q, top_k: 10, ...(tags.length ? { tags } : {}), ...(rewrite === false ? { rewrite: false } : {}), ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v)) },
       { sub: a.sub, groups: a.groups, ...(a.dept ? { dept: a.dept } : {}) });
     // related: 재정렬 점수가 약해(0.10~0.30) 근거로 확인되지 않은 관련 문서 (let522mj PR #22). weak 표시로 뒤에 붙인다
-    return [...(r.items ?? []).map(toItem), ...(r.related ?? []).map((h) => ({ ...toItem(h), weak: true as const, reason: '관련 있을 수 있지만 정확한 근거로 확인되지는 않았습니다' }))];
+    const out: SearchResult = [...(r.items ?? []).map(toItem), ...(r.related ?? []).map((h) => ({ ...toItem(h), weak: true as const, reason: '관련 있을 수 있지만 정확한 근거로 확인되지는 않았습니다' }))];
+    if (r.rewritten?.core && r.rewritten.core.trim() !== q.trim()) out.rewritten = { core: r.rewritten.core, alternates: (r.rewritten.alternates ?? []).slice(0, 2) };
+    return out;
   };
 }
 

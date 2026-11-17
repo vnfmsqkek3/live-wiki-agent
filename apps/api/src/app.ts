@@ -33,13 +33,17 @@ export interface Deps {
   /** 사용자 삭제 정리 실행 (오케스트레이터 action=delete). 없으면 DELETED 표시만 */
   deleteWorkflow?(doc: DocumentRecord): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
-  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; index_groups?: string[] } & import('./library.ts').DetailFilter): Promise<unknown[]>;
+  search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; index_groups?: string[]; rewrite?: boolean } & import('./library.ts').DetailFilter): Promise<unknown[] & { rewritten?: import('./search.ts').Rewritten }>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
   guide(question: string, accessToken: string): Promise<unknown>;
   /** 가이드 SSE (progress·result·error 이벤트). 없으면 JSON 응답만 */
   guideStream?(question: string, accessToken: string): Promise<ReadableStream<Uint8Array>>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string; message?: string } | undefined>;
+  /** 관리 > Agent 실행 기록: 실행 단위로 묶은 WORKFLOWS (EXECUTION·STEP#·LOCK#) */
+  workflowRuns?(): Promise<{ workflow_id: string; doc_id?: string; status?: string; ended_at?: string; kind?: string; steps: { step: string; status: string; ended_at: string; error?: string }[] }[]>;
+  /** 관리 > 규정 변경 영향: 사용자 Gateway graph___trace_impact (관리자 토큰) */
+  traceImpact?(a: { law: string }, accessToken: string): Promise<unknown>;
   /** 업로드 진행바: WORKFLOWS 단계 기록 */
   workflowSteps?(workflow_id: string): Promise<{ step: string; status: string; ended_at: string; error?: string }[]>;
   /** 마스킹된 쪽 이미지 (masked/pages/{nnnn}.png). 없으면 undefined */
@@ -67,6 +71,15 @@ export interface PageMeta { page_index: number; summary: string; keywords: strin
 const pageMetas = async (deps: Deps, doc_id: string) =>
   new Map(((deps.pageSummary ? await deps.pageSummary(doc_id).catch(() => undefined) : undefined)?.pages ?? [])
     .map((p) => [p.page_index, { summary: p.summary, keywords: p.keywords ?? [], clause_refs: p.clause_refs ?? [], page_type: p.page_type }] as const));
+
+/** ULID 앞 10자(Crockford base32) = 생성 ms. 'wf_' 같은 접두사는 뗀다 */
+export const ulidTime = (id: string) => {
+  const u = id.replace(/^[a-z]+_/, '').slice(0, 10).toUpperCase();
+  if (u.length < 10) return undefined;
+  let ms = 0;
+  for (const ch of u) { const v = '0123456789ABCDEFGHJKMNPQRSTVWXYZ'.indexOf(ch); if (v < 0) return undefined; ms = ms * 32 + v; }
+  return new Date(ms).toISOString();
+};
 
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
 
@@ -304,6 +317,50 @@ export function createApp(deps: Deps) {
     return c.json({ document_type: b.document_type });
   });
 
+  // ---- 관리 > 운영 도구 (요청기록/20261117-1910 2장) ----
+  // Agent 실행 기록: 최근 실행 50건 (상태·소요 시간·문서 제목). 시작 시각은 workflow_id(ULID)에 들어 있다
+  app.get('/v1/admin/runs', async (c) => {
+    need(c, APPROVERS);
+    if (!deps.workflowRuns) return c.json({ items: [] });
+    const titles = new Map((await store.listDocs()).map((d) => [d.doc_id, d.title]));
+    const items = (await deps.workflowRuns()).map((r) => {
+      const started_at = ulidTime(r.workflow_id);
+      const ended = [r.ended_at, ...r.steps.map((s) => s.ended_at)].filter(Boolean).sort().at(-1);
+      const failed = r.steps.find((s) => s.status === 'FAILED');
+      return {
+        workflow_id: r.workflow_id, doc_id: r.doc_id, title: r.doc_id ? titles.get(r.doc_id) ?? '(삭제된 문서)' : undefined, kind: r.kind ?? 'ingest',
+        status: r.status ?? (failed ? 'FAILED' : 'RUNNING'), started_at, ended_at: r.ended_at,
+        duration_s: started_at && ended ? Math.max(0, Math.round((Date.parse(ended) - Date.parse(started_at)) / 1000)) : undefined,
+        steps: r.steps.length, failed_step: failed?.step,
+      };
+    }).sort((x, y) => (y.started_at ?? '').localeCompare(x.started_at ?? '')).slice(0, 50);
+    return c.json({ items, trace_url: `https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core` });
+  });
+  app.get('/v1/admin/runs/:id', async (c) => {
+    need(c, APPROVERS);
+    const id = c.req.param('id');
+    if (!/^wf_[0-9A-Z]{26}$/.test(id)) throw new ApiError('VALIDATION', 'workflow_id 형식');
+    const steps = deps.workflowSteps ? await deps.workflowSteps(id) : [];
+    if (!steps.length) throw new ApiError('NOT_FOUND', '실행 기록 없음');
+    return c.json({ workflow_id: id, started_at: ulidTime(id), steps: steps.sort((x, y) => x.ended_at.localeCompare(y.ended_at)) });
+  });
+  // 규정 변경 영향: 규정 고르기 → 개정 전후 바뀐 조문 → 영향받는 노하우·근거 조문·위험도 (graph trace_impact)
+  app.get('/v1/admin/impact/laws', async (c) => {
+    need(c, ['REG_APPROVER']);
+    const regs = (await store.listDocs()).filter((d) => d.lifecycle === 'PUBLISHED' && d.law_name);
+    const by = new Map<string, number>();
+    for (const d of regs) by.set(d.law_name!, (by.get(d.law_name!) ?? 0) + 1);
+    return c.json({ items: [...by].map(([law_name, versions]) => ({ law_name, versions })).sort((x, y) => y.versions - x.versions || x.law_name.localeCompare(y.law_name)) });
+  });
+  app.get('/v1/admin/impact', async (c) => {
+    need(c, ['REG_APPROVER']);
+    const law = (c.req.query('law') ?? '').trim();
+    if (!law || law.length > 200) throw new ApiError('VALIDATION', 'law: 1~200자');
+    if (!deps.traceImpact) throw new ApiError('NOT_FOUND', '영향 분석 도구가 연결되지 않았습니다');
+    try { return c.json(await deps.traceImpact({ law }, c.get('token'))); }
+    catch (e) { throw new ApiError('NOT_FOUND', (e as Error).name === 'ToolError' ? '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다' : '영향 분석 도구 호출에 실패했습니다'); }
+  });
+
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----
   app.get('/v1/review-queue', async (c) => {
     need(c, APPROVERS);
@@ -510,10 +567,14 @@ export function createApp(deps: Deps) {
     const type = c.req.query('type');
     if (type && !['REGULATION', 'KNOWHOW', 'MANUAL'].includes(type)) throw new ApiError('VALIDATION', 'type: REGULATION|KNOWHOW|MANUAL');
     const groups = type === 'REGULATION' ? ['legal-clauses'] : type ? ['wiki-knowledge', 'official-manuals'] : undefined;
-    const all = await deps.search(q, a, { tags, as_of, ...df, ...(groups ? { index_groups: groups } : {}) }) as { doc_id: string; document_type?: string; weak?: boolean }[];
+    const raw = c.req.query('raw') === '1'; // '원래 질의로 찾기': 재구성 끔
+    const res = await deps.search(q, a, { tags, as_of, ...df, ...(groups ? { index_groups: groups } : {}), ...(raw ? { rewrite: false } : {}) });
+    const rewritten = res.rewritten;
+    const all = res as unknown as { doc_id: string; document_type?: string; weak?: boolean }[];
     const sem = all.filter((i) => !i.weak);
     // 의미 검색은 조문 조각 상위 몇 개만 남는다 → 제목·요약·업무·태그에 검색어가 있는 게시 문서를 뒤에 더한다 (짧은 단어 검색 보완)
-    const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
+    // 재구성됐으면 핵심 검색어로 ('개인정보 관련된 문서들을 찾아줘' → '개인정보')
+    const words = (rewritten?.core ?? q).toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
     const seen = new Set(sem.map((i) => i.doc_id));
     // 키워드 보완은 묶음 대표(오늘 시행 중인 판)만: 같은 규정의 개정본이 따로 나오지 않게
     const reps = [...groupSeries((await visibleDocs(a)).filter((d) => d.lifecycle === 'PUBLISHED')).values()].map((g) => representative(g));
@@ -524,7 +585,7 @@ export function createApp(deps: Deps) {
     const items = [...groupByDoc((type ? sem.filter((i) => i.document_type === type) : sem) as unknown as { doc_id: string; basis?: string; snippet: string }[]), ...kw];
     const shown = new Set(items.map((i) => i.doc_id));
     const related = groupByDoc(all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type)) as unknown as { doc_id: string; basis?: string; snippet: string }[]);
-    return c.json({ items, related });
+    return c.json({ items, related, ...(rewritten ? { rewritten } : {}) });
   });
 
   app.post('/v1/guides', async (c) => {

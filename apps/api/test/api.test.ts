@@ -346,3 +346,45 @@ test('검색: 의미 검색에 없는 게시 문서도 제목·요약에 검색�
   assert.deepEqual(r.items.map((i) => i.doc_id), ['doc_R', 'doc_M']);
   assert.match(r.items[1]!.reason!, /제목·요약/);
 });
+
+test('검색 질의 재구성: rewritten을 그대로 내려주고, 핵심어로 키워드 보완, raw=1이면 rewrite:false 전달', async () => {
+  const { searchVia } = await import('../src/search.ts');
+  const calls: Record<string, unknown>[] = [];
+  const s = searchVia(async (args) => { calls.push(args); return { items: [], rewritten: args.rewrite === false ? undefined : { core: '개인정보', alternates: ['개인정보 처리', '개인정보 보호규정', '초과'] } }; });
+  const r = await s('개인정보 관련된 문서들을 찾아줘', { sub: 'u', groups: ['USER'] } as never, { tags: [] });
+  assert.deepEqual(r.rewritten, { core: '개인정보', alternates: ['개인정보 처리', '개인정보 보호규정'] });
+  assert.equal('rewrite' in calls[0]!, false);
+  const raw = await s('개인정보 관련된 문서들을 찾아줘', { sub: 'u', groups: ['USER'] } as never, { tags: [], rewrite: false });
+  assert.equal(calls[1]!.rewrite, false);
+  assert.equal(raw.rewritten, undefined);
+});
+
+test('ulidTime: workflow_id 앞 10자에서 생성 시각', async () => {
+  const { ulidTime } = await import('../src/app.ts');
+  const t = Date.parse(ulidTime('wf_01M7KZPWCGEBKSA27FAC9MWV9A')!);
+  assert.ok(t <= Date.parse('2026-11-17T05:30:24.957Z') && t > Date.parse('2026-11-17T05:20:00Z'), new Date(t).toISOString());
+  assert.equal(ulidTime('bad'), undefined);
+});
+
+test('운영 도구: 실행 기록은 결재자만, 시작·소요·실패 단계 / 변경 영향은 규정 결재자 토큰으로 trace_impact', async () => {
+  const t = setup();
+  t.deps.workflowRuns = async () => [
+    { workflow_id: 'wf_01M7KZPWCGEBKSA27FAC9MWV9A', doc_id: 'doc_x', status: 'SUCCEEDED', ended_at: '2026-11-17T05:30:24.957Z', kind: 'ingest', steps: [{ step: 'Classify', status: 'OK', ended_at: '2026-11-17T05:29:53.688Z' }] },
+    { workflow_id: 'wf_01M7MEH5136HE3JJ68AD8M0WWS', steps: [{ step: 'PiiScan', status: 'FAILED', ended_at: '2026-11-17T09:48:00.000Z', error: 'Timeout' }] },
+  ];
+  assert.equal((await t.call('user', 'GET', '/v1/admin/runs')).status, 403);
+  const r = (await (await t.call('approver', 'GET', '/v1/admin/runs')).json()) as { items: { workflow_id: string; status: string; duration_s?: number; failed_step?: string; title?: string }[]; trace_url: string };
+  assert.equal(r.items[0]!.workflow_id, 'wf_01M7MEH5136HE3JJ68AD8M0WWS'); // 최근 먼저
+  assert.equal(r.items[0]!.status, 'FAILED'); assert.equal(r.items[0]!.failed_step, 'PiiScan');
+  assert.ok((r.items[1]!.duration_s ?? -1) >= 0); assert.equal(r.items[1]!.title, '(삭제된 문서)');
+  assert.match(r.trace_url, /gen-ai-observability/);
+  assert.equal((await t.call('approver', 'GET', '/v1/admin/runs/bad')).status, 422);
+
+  const seen: unknown[] = [];
+  t.deps.traceImpact = async (a, tok) => { seen.push([a, tok]); return { changes: [], impacted: [] }; };
+  assert.equal((await t.call('author', 'GET', '/v1/admin/impact?law=x')).status, 403);
+  assert.equal((await t.call('approver', 'GET', '/v1/admin/impact?law=하나은행 기업여신 심사규정')).status, 200);
+  assert.deepEqual(seen[0], [{ law: '하나은행 기업여신 심사규정' }, 'approver']);
+  t.deps.traceImpact = async () => { throw Object.assign(new Error('x'), { name: 'ToolError' }); };
+  assert.equal((await t.call('approver', 'GET', '/v1/admin/impact?law=없는규정')).status, 404);
+});

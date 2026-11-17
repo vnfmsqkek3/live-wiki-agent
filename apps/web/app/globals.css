@@ -688,3 +688,20 @@ main { padding-inline: var(--gutter); }
 .doc-text .doc-line + p:not(.doc-line), .doc-text .doc-line + h3 { margin-top:16px; }
 .view-toggle { display:flex; gap:8px; margin:0 0 12px; }
 .view-toggle .btn[aria-pressed="true"] { background:var(--navy-900); color:#fff; border-color:var(--navy-900); }
+/* 질의 재구성 안내 (검색) */
+.rewritten { margin:0 0 var(--gap); }
+.rewritten p { margin:0 0 8px; color:var(--ink-700); }
+.rewritten strong { color:var(--navy-900); }
+.rewritten .chips { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.rewritten .chip { min-height:40px; padding:6px 14px; border:1px solid var(--green-700); border-radius:999px; background:#fff; color:var(--green-700); font:inherit; cursor:pointer; }
+.rewritten .chip:hover, .rewritten .chip:focus-visible { background:var(--green-050); }
+/* 관리 > 운영 도구 */
+.run-head { display:grid; gap:4px; width:100%; padding:0; border:0; background:none; text-align:left; font:inherit; color:inherit; cursor:pointer; }
+.run-status { display:inline-block; width:max-content; padding:2px 10px; border-radius:999px; font-size:var(--fs-small); font-weight:600; border:1.5px solid currentColor; }
+.run-status.ok { color:var(--green-700); } .run-status.bad { color:var(--coral-700, #B5462F); } .run-status.wait { color:var(--ink-700); border-style:dashed; }
+.run-steps { margin:12px 0 0; padding-left:20px; display:grid; gap:6px; }
+.impact-laws { display:flex; flex-wrap:wrap; gap:8px; margin-bottom:var(--gap); }
+.impact-laws .chip { min-height:40px; padding:6px 14px; border:1px solid var(--navy-600); border-radius:999px; background:#fff; color:var(--navy-900); font:inherit; cursor:pointer; }
+.impact-laws .chip[aria-pressed="true"] { background:var(--navy-900); color:#fff; }
+.impact { display:grid; gap:var(--gap); }
+@media (min-width:1024px){ .impact { grid-template-columns:1fr 1fr; align-items:start; } }

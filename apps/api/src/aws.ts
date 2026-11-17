@@ -164,6 +164,30 @@ export async function pages(doc_id: string) {
   return segs.map((s) => ({ page: s.page_index, text: s.text }));
 }
 
+/** 관리 > Agent 실행 기록: WORKFLOWS 전체를 실행 단위로 묶는다 (EXECUTION·STEP#·LOCK#). 오류는 이름만
+ *  ponytail: Scan — 실행 수천 건 전까지. 늘면 gsi1(최근순) Query로 */
+export async function workflowRuns() {
+  const { DynamoDBClient, ScanCommand } = await import('@aws-sdk/client-dynamodb');
+  const c = new DynamoDBClient({ region: region() });
+  const by = new Map<string, { workflow_id: string; doc_id?: string; status?: string; ended_at?: string; kind?: string; steps: { step: string; status: string; ended_at: string; error?: string }[] }>();
+  let ExclusiveStartKey: Record<string, import('@aws-sdk/client-dynamodb').AttributeValue> | undefined;
+  do {
+    const r = await c.send(new ScanCommand({ TableName: env('TABLE_WORKFLOWS'), ExclusiveStartKey }));
+    for (const i of r.Items ?? []) {
+      const id = i.pk?.S?.replace(/^WF#/, ''); const sk = i.sk?.S ?? '';
+      if (!id) continue;
+      const run = by.get(id) ?? { workflow_id: id, steps: [] };
+      run.doc_id ??= i.doc_id?.S;
+      if (sk === 'EXECUTION') { run.status = i.status?.S; run.ended_at = i.ended_at?.S; }
+      else if (sk.startsWith('LOCK#')) run.kind = sk.slice(5);
+      else if (sk.startsWith('STEP#')) run.steps.push({ step: sk.slice(5), status: i.status?.S ?? '', ended_at: i.ended_at?.S ?? '', ...(i.error?.S ? { error: i.error.S } : {}) });
+      by.set(id, run);
+    }
+    ExclusiveStartKey = r.LastEvaluatedKey;
+  } while (ExclusiveStartKey);
+  return [...by.values()];
+}
+
 /** WORKFLOWS 단계 기록 (업로드 진행바). 상태·종료 시각만, 오류는 이름만 */
 export async function workflowSteps(workflow_id: string) {
   const { DynamoDBClient, QueryCommand } = await import('@aws-sdk/client-dynamodb');

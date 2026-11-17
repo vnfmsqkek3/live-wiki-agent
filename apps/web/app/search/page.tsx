@@ -65,6 +65,8 @@ function Results() {
   const [input, setInput] = useState(q);
   const [items, setItems] = useState<SearchItem[] | null>(null);
   const [related, setRelated] = useState<SearchItem[]>([]);
+  const [rewritten, setRewritten] = useState<{ core: string; alternates: string[] } | null>(null);
+  const raw = sp.get('raw') === '1'; // '원래 질의로 찾기'
   const [recent, setRecent] = useState<LibraryCard[] | null>(null);
   const [err, setErr] = useState('');
   useEffect(() => { setInput(q); }, [q]);
@@ -80,10 +82,11 @@ function Results() {
     }
     setItems(null);
     setRelated([]);
-    api<{ items: SearchItem[]; related?: SearchItem[] }>('GET', `/v1/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}`)
-      .then((r) => { setItems(r.items); setRelated(r.related ?? []); })
+    setRewritten(null);
+    api<{ items: SearchItem[]; related?: SearchItem[]; rewritten?: { core: string; alternates: string[] } }>('GET', `/v1/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}${raw ? '&raw=1' : ''}`)
+      .then((r) => { setItems(r.items); setRelated(r.related ?? []); setRewritten(r.rewritten ?? null); })
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 검색하세요.' : e.message); setItems([]); });
-  }, [q, type, dq]);
+  }, [q, type, dq, raw]);
   const nav = (nq: string, nt: string, nd: Detail = detail) =>
     router.push(`/search?q=${encodeURIComponent(nq)}${nt ? `&type=${nt}` : ''}${DETAIL.filter((k) => nd[k]).map((k) => `&${k}=${encodeURIComponent(nd[k]!)}`).join('')}`);
   return (
@@ -115,7 +118,15 @@ function Results() {
             </PaginatedList>
           </>
         )
-      ) : items === null ? <p className="note">찾는 중입니다.</p> : items.length === 0 && related.length === 0 && !err ? (
+      ) : items === null ? <p className="note">찾는 중입니다.</p> : <>{rewritten && (
+        <div className="rewritten" aria-live="polite">
+          <p>이 검색어로 찾았습니다: <strong>{rewritten.core}</strong></p>
+          <div className="chips">
+            {rewritten.alternates.map((a) => <button key={a} type="button" className="chip" onClick={() => { setInput(a); nav(a, type); }}>{a}</button>)}
+            <button type="button" className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}&raw=1`)}>원래 질의로 찾기</button>
+          </div>
+        </div>
+      )}{ items.length === 0 && related.length === 0 && !err ? (
         <p className="note">열람 권한이 있는 승인 문서 중에 맞는 결과가 없습니다. 다른 표현으로 찾거나 종류를 '전체'로 바꿔 보세요.</p>
       ) : (
         <>
@@ -156,7 +167,7 @@ function Results() {
             </section>
           )}
         </>
-      )}
+      )}</>}
     </>
   );
 }

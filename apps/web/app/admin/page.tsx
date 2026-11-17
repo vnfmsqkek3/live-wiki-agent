@@ -137,8 +137,8 @@ export default function Admin() {
 
       <h2 className="section">운영 도구</h2>
       <div className="actions" style={{ marginTop: 0 }}>
-        <button className="btn" disabled title="11/21 연동 예정">Agent 실행 기록</button>
-        <button className="btn" disabled title="11/20 연동 예정">규정 변경 영향</button>
+        <Link className="btn" href="/admin/runs">Agent 실행 기록</Link>
+        <Link className="btn" href="/admin/impact">규정 변경 영향</Link>
       </div>
     </>
   );
