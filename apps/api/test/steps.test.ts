@@ -152,8 +152,25 @@ endstream endobj
 9 0 obj << /S /JavaScript /JS (app.alert(1)) >> endobj
 %%EOF`);
   const r = fileStructureCheck('pdf', pdf);
-  const e = r.findings?.find((x) => x.code === 'PDF_EMBEDDED_FILE');
+  const e = r.findings?.find((x) => x.code === 'PDF_C2PA_ONLY');
   assert.deepEqual(e?.details, { embedded_files: [{ name: 'Content Credentials', subtype: 'application/c2pa', size: 2048, c2pa: true }] });
+  assert.equal(e?.severity, 'MEDIUM');
   assert.match(e!.user_message!, /콘텐츠 출처 서명\(C2PA/);
   assert.deepEqual(r.findings?.find((x) => x.code === 'PDF_JAVASCRIPT')?.details, { objects: [9] });
+});
+
+test('FileStructureCheck: C2PA 서명만 있으면 경고로 통과, 다른 첨부가 섞이면 차단', () => {
+  const c2pa = `5 0 obj << /Type /Filespec /UF (Content Credentials) /EF << /F 6 0 R >> >> endobj
+6 0 obj << /Type /EmbeddedFile /Subtype /application#2Fc2pa >> stream
+xx
+endstream endobj`;
+  const only = fileStructureCheck('pdf', new TextEncoder().encode(`%PDF-1.7\n${c2pa}\n%%EOF`));
+  assert.equal(only.status, 'REVIEW_REQUIRED');
+  const mixed = fileStructureCheck('pdf', new TextEncoder().encode(`%PDF-1.7\n${c2pa}
+7 0 obj << /Type /Filespec /UF (대출내역.xlsx) /EF << /F 8 0 R >> >> endobj
+8 0 obj << /Type /EmbeddedFile /Subtype /application#2Fvnd.ms-excel >> stream
+yy
+endstream endobj\n%%EOF`));
+  assert.equal(mixed.status, 'BLOCKED');
+  assert.ok(mixed.findings?.some((x) => x.code === 'PDF_EMBEDDED_FILE'));
 });

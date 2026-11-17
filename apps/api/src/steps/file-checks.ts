@@ -57,11 +57,16 @@ export function fileStructureCheck(kind: FileKind, body: Uint8Array): StepOutput
       const files = pdfEmbedded(s);
       const list = files.slice(0, 3).map((x) => x.name).join(', ') + (files.length > 3 ? ` 외 ${files.length - 3}개` : '');
       const onlyC2pa = files.length > 0 && files.every((x) => x.c2pa);
-      findings.push(f('FILE_STRUCTURE', 'HIGH', 'PDF_EMBEDDED_FILE', `PDF 첨부 파일 ${files.length}개`, 'catalog', {
-        user_message: onlyC2pa
-          ? `PDF 안에 콘텐츠 출처 서명(C2PA, ${list})이 첨부되어 있습니다. 문서 작성 도구가 자동으로 넣는 경우가 많지만, 첨부 파일은 보안상 등록할 수 없습니다.`
-          : `PDF 안에 첨부 파일 ${files.length}개(${list})가 들어 있어 보안상 등록할 수 없습니다.`,
-        fix_hint: `첨부 파일을 지운 뒤 ${FIX_PDF}`,
+      // 사용자 결정(11/17): C2PA 출처 서명만 있으면 경고로 허용. 다른 첨부가 하나라도 있으면 차단
+      findings.push(onlyC2pa
+        ? f('FILE_STRUCTURE', 'MEDIUM', 'PDF_C2PA_ONLY', `PDF C2PA 출처 서명 ${files.length}개`, 'catalog', {
+          user_message: `PDF 안에 콘텐츠 출처 서명(C2PA, ${list})이 들어 있습니다. 문서 작성 도구가 자동으로 넣는 서명이라 등록은 허용하고, 검토자에게 알립니다.`,
+          fix_hint: `서명이 필요 없으면 ${FIX_PDF}`,
+          details: { embedded_files: files.slice(0, 10) },
+        })
+        : f('FILE_STRUCTURE', 'HIGH', 'PDF_EMBEDDED_FILE', `PDF 첨부 파일 ${files.length}개`, 'catalog', {
+          user_message: `PDF 안에 첨부 파일 ${files.length}개(${list})가 들어 있어 보안상 등록할 수 없습니다.`,
+          fix_hint: `첨부 파일을 지운 뒤 ${FIX_PDF}`,
         details: { embedded_files: files.slice(0, 10) },
       }));
     }
