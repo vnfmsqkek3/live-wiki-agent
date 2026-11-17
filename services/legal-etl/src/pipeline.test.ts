@@ -428,3 +428,20 @@ test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEX
   const t = ocrPageText([b(long, 50, "image", 0.5)], [], [{ label: "image", bbox: [0, 0, 400, 300] }]);
   assert.ok(!/900101-12/u.test(t) && t.endsWith("…"));
 });
+
+test("figure_boxes: 그림으로 분리한 영역을 쪽 대비 0~1000 정수로 (ImageDescribe 그림 자르기, yoyo0704 b782529)", async () => {
+  const { buildSegments } = await import("./segment.ts");
+  const b = (text: string, y: number, label = "text") => ({ block_id: text, label, text, confidence: 0.99, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  const layer = { doc_id: "D", source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+  const seg = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 1000, source: "ocr",
+    blocks: [b("1. 다운로드 자료실 접속", 20), b("Wivdoms", 300, "image")],
+    figures: [{ label: "image", bbox: [389, 136, 1000, 600] }, { label: "seal", bbox: [0, 0, 100, 100] }] }] })[0]!;
+  assert.deepEqual(seg.figure_boxes, [[194, 136, 500, 600]]); // 직인은 제외, 시작은 내림 (389/2000 → 194)
+  const { normBox } = await import("./segment.ts");
+  assert.deepEqual(normBox([1000, 600, 389, 136], 2000, 1000), [194, 136, 500, 600]); // 뒤집힌 상자 정렬, 시작 내림
+  assert.equal(normBox([0, 0, 10, 10], 0, 1000), null); // 쪽 크기 모름
+  assert.equal(normBox([3000, 0, 4000, 10], 2000, 1000), null); // 쪽 밖 → 면적 0
+  assert.equal(normBox([0, 0, Number.NaN, 10], 2000, 1000), null);
+  const noFig = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 1000, source: "ocr", blocks: [b("본문", 20)] }] })[0]!;
+  assert.equal(noFig.figure_boxes, undefined);
+});
