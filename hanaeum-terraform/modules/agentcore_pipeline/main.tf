@@ -6,13 +6,23 @@ variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
 variable "step_arns" { type = map(string) } # 단계 키 → Lambda ARN
 variable "tables" { type = map(object({ name = string, arn = string })) }
-variable "runtime_image" {
+# Runtime 생성 여부 (plan 시점에 알 수 있어야 함: 이미지 태그는 빌드 뒤에 정해짐)
+variable "create_runtime" {
+  type    = bool
+  default = false
+}
+variable "runtime_image_tag" {
   type    = string
-  default = null # ECR 이미지 URI. null 이면 Runtime 은 만들지 않는다
+  default = null # 오케스트레이터 ECR 이미지 태그. null 이면 Runtime 은 만들지 않는다
 }
 variable "runtime_env" {
   type    = map(string)
   default = {}
+}
+# 계정 단위 설정(Transaction Search). 같은 계정의 env 하나에서만 true
+variable "enable_transaction_search" {
+  type    = bool
+  default = false
 }
 
 data "aws_region" "this" {}
@@ -22,8 +32,12 @@ locals {
   region       = data.aws_region.this.region
   acct         = data.aws_caller_identity.me.account_id
   runtime_name = replace("${var.n.prefix}_rt_pipeline${var.n.suffix}", "-", "_")
-  # task token 방식 폐기 → wait_for_approval 은 Tool 로 등록하지 않음
-  steps = { for k, v in var.step_arns : k => v if k != "wait_for_approval" }
+  # task token 방식 폐기: wait_for_approval Lambda 는 await_review Tool 로 등록
+  # (오케스트레이터가 Trust Gate 뒤 문서를 IN_REVIEW 로 두는 단계, dhxorb96 요청 11/16 20:50)
+  steps = merge(
+    { for k, v in var.step_arns : k => v if k != "wait_for_approval" },
+    { await_review = var.step_arns["wait_for_approval"] },
+  )
 }
 
 # ---------- Gateway ----------
@@ -41,8 +55,26 @@ resource "aws_iam_role" "gateway" {
 resource "aws_iam_role_policy" "gateway" {
   role = aws_iam_role.gateway.id
   policy = jsonencode({
-    Version   = "2012-10-17"
-    Statement = [{ Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = distinct(concat(values(local.steps), [for a in values(local.steps) : "${a}:*"])) }]
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = distinct(concat(values(local.steps), [for a in values(local.steps) : "${a}:*"])) },
+    ]
+  })
+}
+
+# Policy 평가 권한 (https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/policy-permissions.html)
+# 단계 Lambda 목록과 분리: Gateway 가 이 정책만 기다리게 해서 순환 참조를 피한다
+resource "aws_iam_role_policy" "gateway_policy_engine" {
+  role = aws_iam_role.gateway.id
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      { Effect = "Allow", Action = ["bedrock-agentcore:GetPolicyEngine"], Resource = aws_bedrockagentcore_policy_engine.pipeline.policy_engine_arn },
+      {
+        Effect   = "Allow", Action = ["bedrock-agentcore:AuthorizeAction", "bedrock-agentcore:PartiallyAuthorizeActions"]
+        Resource = [aws_bedrockagentcore_policy_engine.pipeline.policy_engine_arn, "arn:aws:bedrock-agentcore:${local.region}:${local.acct}:gateway/*"]
+      },
+    ]
   })
 }
 
@@ -55,6 +87,13 @@ resource "aws_bedrockagentcore_gateway" "pipeline" {
   # 시스템 전용 Gateway: 오케스트레이터가 단계 예외 원인(예: OriginalNotFound)을 STEP# 기록에 남기도록 상세 오류 반환.
   # 단계 예외 메시지에는 PII 를 넣지 않는다 (interfaces.md 6장)
   exception_level = "DEBUG"
+  # AgentCore Policy: 오케스트레이터 Role 외 호출은 Tool 단위로 거부 (policy.tf)
+  policy_engine_configuration {
+    arn  = aws_bedrockagentcore_policy_engine.pipeline.policy_engine_arn
+    mode = "ENFORCE"
+  }
+  # 엔진 연결 시 Gateway Role 의 GetPolicyEngine 권한을 검사한다 → Role 정책 먼저
+  depends_on = [aws_iam_role_policy.gateway_policy_engine]
   # ponytail: AWS 관리 키. Gateway 에는 Tool 설정만 있고 문서 데이터는 없음.
   # CMK 를 쓰려면 KMS 키 정책에 bedrock-agentcore 서비스 권한 추가 필요 (트러블슈팅 11/16)
 }
@@ -67,6 +106,8 @@ resource "aws_bedrockagentcore_gateway_target" "step" {
   credential_provider_configuration {
     gateway_iam_role {}
   }
+  # 새 Lambda 로 바꿀 때 Gateway Role 의 InvokeFunction 권한이 먼저 있어야 한다
+  depends_on = [aws_iam_role_policy.gateway]
   target_configuration {
     mcp {
       lambda {
@@ -175,14 +216,16 @@ resource "aws_iam_role_policy" "runtime" {
 }
 
 resource "aws_bedrockagentcore_agent_runtime" "pipeline" {
-  count              = var.runtime_image == null ? 0 : 1
+  count              = var.create_runtime ? 1 : 0
   agent_runtime_name = local.runtime_name
   description        = "문서 처리 오케스트레이터 (Strands Graph, 단계 순서 고정)"
   role_arn           = aws_iam_role.runtime.arn
   agent_runtime_artifact {
-    container_configuration { container_uri = var.runtime_image }
+    container_configuration { container_uri = "${aws_ecr_repository.orchestrator.repository_url}:${var.runtime_image_tag}" }
   }
   network_configuration { network_mode = "PUBLIC" }
+  # ponytail: 새 단계 노드(env 로 켬)는 Target·permit 이 먼저 있어야 함. depends_on 은 순환(단계 Lambda env 가 Runtime ARN 참조)
+  # → 새 단계 추가 시 Target·policy 를 -target 으로 먼저 apply (docs/06 공유 dev 변경 규칙)
   environment_variables = merge(var.runtime_env, {
     PIPELINE_GATEWAY_URL = aws_bedrockagentcore_gateway.pipeline.gateway_url
     TABLE_DOCUMENTS      = var.tables["documents"].name
@@ -194,6 +237,8 @@ output "gateway_id" { value = aws_bedrockagentcore_gateway.pipeline.gateway_id }
 output "gateway_url" { value = aws_bedrockagentcore_gateway.pipeline.gateway_url }
 output "gateway_arn" { value = aws_bedrockagentcore_gateway.pipeline.gateway_arn }
 output "runtime_role_arn" { value = aws_iam_role.runtime.arn }
+output "ecr_repository_name" { value = aws_ecr_repository.orchestrator.name }
+output "ecr_repository_arn" { value = aws_ecr_repository.orchestrator.arn }
 output "ecr_repository_url" { value = aws_ecr_repository.orchestrator.repository_url }
 output "runtime_name" { value = local.runtime_name }
 output "runtime_arn" { value = try(aws_bedrockagentcore_agent_runtime.pipeline[0].agent_runtime_arn, null) }

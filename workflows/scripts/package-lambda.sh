@@ -8,8 +8,11 @@ rm -rf .lambda && mkdir -p .lambda
 cp -R dist/. .lambda/
 node -e '
 const p = require("./package.json");
-require("fs").writeFileSync(".lambda/package.json", JSON.stringify({ type: "module", private: true, dependencies: p.dependencies }, null, 2));
+// 팀 워크스페이스 패키지(@hanaeum/*)는 레지스트리에서 받지 않는다 (같은 이름 외부 패키지 설치 방지) → 아래에서 소스 복사
+const deps = Object.fromEntries(Object.entries(p.dependencies).filter(([n]) => !n.startsWith("@hanaeum/")));
+require("fs").writeFileSync(".lambda/package.json", JSON.stringify({ type: "module", private: true, dependencies: deps }, null, 2));
 '
 npm install --prefix .lambda --omit=dev --no-package-lock --no-audit --no-fund --os=linux --cpu=arm64 --libc=glibc >/dev/null
+mkdir -p .lambda/node_modules/@hanaeum/pii && cp ../packages/pii/package.json ../packages/pii/index.js .lambda/node_modules/@hanaeum/pii/
 ls .lambda/node_modules/@napi-rs/ | grep -q canvas-linux-arm64-gnu || { echo "linux arm64 canvas binary missing" >&2; exit 1; }
 du -sh .lambda | cut -f1

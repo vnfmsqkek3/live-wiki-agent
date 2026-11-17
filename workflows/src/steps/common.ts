@@ -2,7 +2,13 @@
 import { randomBytes } from "node:crypto";
 
 export type Severity = "LOW" | "MEDIUM" | "HIGH";
-export type Finding = { finding_id: string; step: string; severity: Severity; code: string; message: string; evidence_ref: string };
+// location·user_message·fix_hint: 올린 사람에게 "몇 쪽 어디가 왜 문제이고 어떻게 고치는지" 보여 주기 위한 필드 (사용자 요청 11/17).
+// page 는 1부터. bbox 는 렌더 PNG 픽셀 [x0,y0,x1,y1]. excerpt 는 마스킹된 텍스트만(원문 금지)
+export type FindingLocation = { page?: number; bbox?: number[][]; excerpt?: string };
+export type Finding = {
+  finding_id: string; step: string; severity: Severity; code: string; message: string; evidence_ref: string;
+  location?: FindingLocation; user_message?: string; fix_hint?: string;
+};
 export type StepStatus = "OK" | "REVIEW_REQUIRED" | "BLOCKED" | "PENDING";
 export type StepOutput = { status: StepStatus; output_key?: string; findings?: Finding[] };
 export type StepInput = {
@@ -22,5 +28,6 @@ export function ulid(now = Date.now()): string {
   return t + s;
 }
 
-export const finding = (step: string, severity: Severity, code: string, message: string, evidence_ref: string): Finding =>
-  ({ finding_id: `fnd_${ulid()}`, step, severity, code, message, evidence_ref });
+export const finding = (step: string, severity: Severity, code: string, message: string, evidence_ref: string,
+  extra: Pick<Finding, "location" | "user_message" | "fix_hint"> = {}): Finding =>
+  ({ finding_id: `fnd_${ulid()}`, step, severity, code, message, evidence_ref, ...extra });
