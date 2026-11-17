@@ -65,6 +65,14 @@ test("Change Impact F-001→F-002: 정답 영향 문서와 일치, 근거·수�
   await assert.rejects(t.trace_impact({ law: LAW.law_name }, { sub: "u", groups: ["USER"] }), /AUTHOR·REG_APPROVER/u);
 });
 
+test("삭제(DELETED)된 노하우는 그래프에 남아 있어도 trace_impact에서 제외 (Documents 재검증)", async () => {
+  const { graph, clauses } = await loaded();
+  const args = { law: LAW.law_name, old_revision: "2026-11-01", new_revision: "2026-12-01" };
+  const r = await graphTools({ graph, clauses, live: async (id) => id !== "K-001" }).trace_impact(args, { sub: "a", groups: ["AUTHOR"] });
+  assert.ok(!r.impacted.some((i) => i.doc_id === "K-001"));
+  assert.ok(r.impacted.length > 0);
+});
+
 test("간접 영향: 변경 조문을 참조하는 조문을 인용한 노하우도 탐지 (1홉)", async () => {
   const { graph, clauses } = await loaded();
   // 제12조제2항("제1항에도 불구하고")만 인용한 노하우 → 제12조제1항 변경의 간접 영향

@@ -2,6 +2,8 @@
 # 공유 dev에 규정 기준본 PDF를 실제 파이프라인으로 게시 (업로드 → AgentCore 오케스트레이터 → TrustGate Registry 대조 → 사람 승인(API) → Promote → KbIngest → PUBLISHED)
 # 승인 없이 KB에 직접 넣지 않는다 (docs/02 승인 전 검색 제외). 데이터는 SYNTHETIC 합성 규정만.
 # 사용: API=http://localhost:8091 services/legal-etl/scripts/publish-regs-dev.sh G-REG-01 G-REV-01 F-002 ...  (이미 올린 문서는 G-REG-01=doc_…)
+#       노하우(K-*, G-K*)는 KNOWLEDGE로 분류해 같은 흐름으로 게시한다.
+#       EXPECT=block: 위조·공격·충돌 노하우 문서 (충돌 노하우를 기본 모드로 올리면 자동 승인돼 게시된다). 게시 요청이 받아들여지면 승인하지 않고 반려한다 (사람이 막는 경로). 결과에 차단 지점을 남긴다.
 # 전제: 승인 API 실행 중, .env.local 로드. 결과는 stdout 표 (id doc_id 상태)
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
@@ -16,8 +18,14 @@ token() { local p; p=$(python3 -c 'import json,sys; v=json.loads(sys.argv[1])[sy
   aws cognito-idp initiate-auth --client-id "$CLIENT" --auth-flow USER_PASSWORD_AUTH --auth-parameters "USERNAME=$1,PASSWORD=$p" --query AuthenticationResult.AccessToken --output text; }
 call() { curl -sS -X "$2" "$API$3" -H "authorization: Bearer $1" -H 'content-type: application/json' ${4:+-d "$4"} -w '\n%{http_code}'; }
 code() { tail -1 <<<"$1"; }; bodyof() { sed '$d' <<<"$1"; }
-pdf() { case "$1" in G-*) echo "tests/fixtures/golden/pdf/$1.pdf";; *) echo "tests/fixtures/documents/pdf/$1.pdf";; esac; }
-title() { python3 -c 'import json,sys,re
+pdf() { case "$1" in G-*) echo "tests/fixtures/golden/pdf/$1.pdf";; A-002) echo "tests/fixtures/documents/A-002.png";; *) echo "tests/fixtures/documents/pdf/$1.pdf";; esac; }
+kind() { case "$1" in K-*|G-K*) echo KNOWLEDGE;; *) echo REGULATION;; esac; }
+title() { [ "$(kind "$1")" = KNOWLEDGE ] || [ "${EXPECT:-}" = block ] && { python3 -c 'import sys,re
+for f in ["tests/fixtures/golden/"+sys.argv[1]+".md","tests/fixtures/documents/"+sys.argv[1]+".md"]:
+  try: m=re.search(r"^title: (.*)$",open(f).read(),re.M); print("[SYNTHETIC] "+(m.group(1) if m else sys.argv[1])); sys.exit()
+  except FileNotFoundError: pass
+print("[SYNTHETIC] "+sys.argv[1])' "$1"; return; }
+  python3 -c 'import json,sys,re
 for f in ["tests/fixtures/registry/registry.json","tests/fixtures/registry/registry.golden.json"]:
   for r in json.load(open(f))["regulations"]:
     if re.sub(r"^.*/|\.txt$","",r["fixture"])==sys.argv[1]: print("[SYNTHETIC] %s (%s)" % (r["law_name"], r["revision_id"])); sys.exit()' "$1"; }
@@ -31,7 +39,7 @@ for arg in "$@"; do
   id=${arg%%=*}; IDS+=("$id")
   if [[ $arg == *=* ]]; then DOC[$id]=${arg#*=}; echo "기존 $id ${DOC[$id]}"; continue; fi  # 이미 올린 문서 이어서 처리: G-REG-01=doc_…
   f=$(pdf "$id")
-  R=$(call "$AT" POST /v1/documents/upload-url "{\"filename\":\"$id.pdf\",\"size\":$(wc -c <"$f" | tr -d ' '),\"title\":\"$(title "$id")\",\"dept\":\"공통\",\"acl_groups\":[\"ALL\"]}")
+  R=$(call "$AT" POST /v1/documents/upload-url "{\"filename\":\"$(basename "$f")\",\"size\":$(wc -c <"$f" | tr -d ' '),\"title\":\"$(title "$id")\",\"dept\":\"공통\",\"acl_groups\":[\"ALL\"]}")
   [ "$(code "$R")" = 201 ] || { echo "$id upload-url 실패 $(bodyof "$R")"; continue; }
   DOC[$id]=$(bodyof "$R" | j doc_id)
   curl -sS -f -X PUT --data-binary @"$f" "$(bodyof "$R" | j url)" >/dev/null && echo "업로드 $id ${DOC[$id]}"
@@ -41,11 +49,12 @@ for id in "${IDS[@]}"; do
   d=${DOC[$id]:-}; [ -n "$d" ] || continue
   for _ in $(seq 1 90); do R=$(doc "$d"); LC=$(bodyof "$R" | j lifecycle); [ "$LC" = IN_REVIEW ] || [ "$LC" = BLOCKED ] && break; sleep 5; done  # 업로드 직후 초기 상태는 QUARANTINED
   B=$(bodyof "$R")
-  if [ "$LC" != IN_REVIEW ]; then echo "$id $d 승인대기 미도달 lifecycle=$LC"; continue; fi
+  if [ "$LC" != IN_REVIEW ]; then echo "결과 $id $d 승인대기 미도달 lifecycle=$LC TrustGate=$(j trust_gate_result <<<"$B")"; continue; fi
   TG=$(j trust_gate_result <<<"$B"); AS=$(j authority_status <<<"$B"); CT=$(j classification.document_type <<<"$B")
-  [ "$CT" = REGULATION ] || call "$AT" POST "/v1/documents/$d/classification" '{"document_type":"REGULATION","reason":"규정 기준본 (Registry 등록)"}' >/dev/null
+  K=$(kind "$id"); [ "$CT" = "$K" ] || call "$AT" POST "/v1/documents/$d/classification" "{\"document_type\":\"$K\",\"reason\":\"평가 세트 정답 분류\"}" >/dev/null
   R=$(call "$AT" POST "/v1/documents/$d/submit"); [ "$(code "$R")" = 201 ] || { echo "$id $d submit 실패 $(bodyof "$R" | head -c 200) (TrustGate=$TG $AS)"; continue; }
   APR=$(bodyof "$R" | j approval_id)
+  if [ "${EXPECT:-}" = block ]; then R=$(call "$PT" POST "/v1/approvals/$APR/decision" '{"decision":"REJECT","reason":"평가: 위조·공격 문서 반려"}'); echo "결과 $id $d TrustGate=$TG authority=$AS → 게시 요청 접수, 사람 반려 $(code "$R")"; continue; fi
   R=$(call "$PT" POST "/v1/approvals/$APR/decision" '{"decision":"APPROVE","reason":"Registry 기준본 해시 일치 확인"}'); [ "$(code "$R")" = 200 ] || { echo "$id $d 승인 실패 $(bodyof "$R" | head -c 200)"; continue; }
   for _ in $(seq 1 120); do LC=$(bodyof "$(doc "$d")" | j lifecycle); [ "$LC" = PUBLISHED ] || [ "$LC" = BLOCKED ] && break; sleep 5; done
   echo "결과 $id $d TrustGate=$TG authority=$AS 분류=$CT → $LC"

@@ -20,7 +20,9 @@ export * from "./tools.ts";
 export * from "./upsert-step.ts";
 
 const e = process.env;
-const deps = () => ({ graph: new NeptuneGraphStore(e["NEPTUNE_ENDPOINT"]!), clauses: new DynamoClauseStore(e["TABLE_REGULATIONS"]!) });
+const records = () => new DynamoRecords({ documents: e["TABLE_DOCUMENTS"]!, approvals: "" });
+const deps = () => ({ graph: new NeptuneGraphStore(e["NEPTUNE_ENDPOINT"]!), clauses: new DynamoClauseStore(e["TABLE_REGULATIONS"]!),
+  ...(e["TABLE_DOCUMENTS"] ? { live: async (id: string) => (await records().getDocument(id))?.lifecycle !== "DELETED" } : {}) });
 export const handler = makeHandler(e["NEPTUNE_ENDPOINT"] && e["TABLE_REGULATIONS"] ? graphTools(deps()) : {});
 
 /** 단계 13 Lambda: ASL은 공통 입력 6필드만 넘긴다 → Documents 레코드·게시본을 직접 읽어 GraphUpsertInput을 만든다 */

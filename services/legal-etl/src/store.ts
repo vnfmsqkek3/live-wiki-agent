@@ -63,6 +63,7 @@ export interface DocumentRecord {
   effective_to?: number;
   business_path?: string[];
   tags?: string[];
+  lifecycle?: string;
 }
 
 export interface ApprovalRecord {
