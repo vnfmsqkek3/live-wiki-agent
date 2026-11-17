@@ -107,8 +107,9 @@ locals {
     }
 
     # ---- let522mj (dist/lambda/{name}.zip, index.handler) ----
-    text-layer-extract = { zip = "${local.lz}/text_layer_extract.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
-    segment-build      = { zip = "${local.lz}/segment_build.zip", handler = "index.handler", env = {}, memory = 1024, timeout = 300, model_caller = false, statements = local.q_rw }
+    # Finding 을 문서에 저장 (let522mj PR #21: 글자 없는 사진 BLOCKED 사유). 문서 테이블 문구가 있어야 Data API 권한이 붙는다
+    text-layer-extract = { zip = "${local.lz}/text_layer_extract.zip", handler = "index.handler", env = { TABLE_DOCUMENTS = local.t["documents"].name }, memory = 1024, timeout = 300, model_caller = false, statements = concat(local.q_rw, [{ Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.t["documents"].arn }]) }
+    segment-build      = { zip = "${local.lz}/segment_build.zip", handler = "index.handler", env = { TABLE_DOCUMENTS = local.t["documents"].name }, memory = 1024, timeout = 300, model_caller = false, statements = concat(local.q_rw, [{ Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:UpdateItem"], Resource = local.t["documents"].arn }]) }
     promote = {
       zip = "${local.lz}/promote.zip", handler = "index.handler", memory = 1024, timeout = 300, model_caller = false
       env = { BUCKET_PUBLISHED = local.b["published"].name, TABLE_DOCUMENTS = local.t["documents"].name, TABLE_APPROVALS = local.t["approvals"].name }
