@@ -37,7 +37,7 @@ module "stack" {
     let522mj = "48e2f4f" # PR #24 질의 재구성 (+#22·#21·#20·#19)
   }
 
-  ocr_source_ref = "25f42de" # services/ocr 변경 없음. 엔드포인트 유지
+  ocr_source_ref = "25f42de" # PP-StructureV3 표·레이아웃 + figures (11/17)
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   # null: webapp_source_ref 커밋으로 오케스트레이터 이미지를 CodeBuild 빌드. 지정하면 그 태그 고정(빌드 안 함)
