@@ -398,6 +398,12 @@ test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEX
   // 3-1b) 제목(본문 줄) + 쪽 대부분을 덮는 화면 캡처는 그림으로 분리 (과천 매뉴얼 실측)
   const slide = [b("02. 드라이버 설치", 5, "doc_title"), b("Wivdoms7/8/83", 120, "image", 0.4), b("V1o Pivivg", 160, "image", 0.4)];
   assert.equal(ocrPageText(slide, [], [{ label: "image", bbox: [0, 30, 400, 300] }], 1, { width: 400, height: 300 }), "02. 드라이버 설치\n[그림 1]\n⟦그림 p1⟧ 그림 1 속 글자: Wivdoms7/8/83 V1o Pivivg");
+  // 3-1c) 쪽 전체 image + 바깥에 쪽 번호 한 줄만 → 스캔 쪽, 조문은 본문 (재리뷰)
+  const scan = [b("제1조(목적) 이 규정은", 20, "image"), b("제2조(정의) 용어는", 60, "image"), b("- 3 -", 295, "number")];
+  assert.equal(ocrPageText(scan, [], [{ label: "image", bbox: [0, 0, 400, 290] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n제2조(정의) 용어는\n- 3 -");
+  // 3-1d) 제목이 따로 있어도 큰 그림 안에 조문 머리가 2개 이상이면 본문
+  const scan2 = [b("하나은행 여신 규정 전문 제목줄입니다", 5, "doc_title"), b("제1조(목적) 이 규정은", 50, "image"), b("제2조(정의) 용어는", 90, "image")];
+  assert.equal(ocrPageText(scan2, [], [{ label: "image", bbox: [0, 30, 400, 300] }], 0, { width: 400, height: 300 }), "하나은행 여신 규정 전문 제목줄입니다\n제1조(목적) 이 규정은\n제2조(정의) 용어는");
   // 3-2) 표 bbox 안 줄(table_id 없음)은 마크다운 표로 한 번만 (재리뷰 MEDIUM-B)
   const tl = [b("구분", 60, "text"), b("기준", 60, "text"), b("표 아래", 200)];
   assert.equal(ocrPageText(tl, [{ table_id: "t0", bbox: [0, 50, 400, 100], html: "<tr><td>구분</td><td>기준</td></tr>" }]), "| 구분 | 기준 |\n| --- | --- |\n\n표 아래");

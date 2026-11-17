@@ -52,6 +52,10 @@ export interface OcrFigure { label: string; bbox: number[] }
 const FIGURE_LABELS = new Set(["image", "figure", "chart"]);
 /** 그림 하나가 쪽 면적의 이 비율을 넘거나 쪽 줄의 절반 넘게 가져가면 분리하지 않는다 (쪽 전체 스캔을 그림으로 오인해 본문이 통째로 빠지는 것 방지) */
 const FIGURE_MAX_AREA = 0.6;
+/** 쪽 전체 스캔 판정 때 "본문 줄"로 세는 레이아웃 label (header·footer·number·footnote 등은 제외) */
+const BODY_LABELS = new Set(["text", "paragraph_title", "doc_title", "abstract", "content", "reference"]);
+// ponytail: 스캔 글자와 화면 캡처 글자를 가르는 신뢰도 기준 (실측 캡처 0.69~0.77, 스캔 규정 0.945~0.961). 문서가 늘면 재보정
+const SCAN_CONF_MIN = 0.85;
 // ponytail: 그림 하나의 글자 상한 (화면 캡처 한 장에 수백 줄이 나올 수 있음)
 const FIGURE_TEXT_MAX = 1500;
 const inBox = (b: number[] | undefined, f: number[]) => {
@@ -79,11 +83,16 @@ export const onlyPlaceholders = (t: string) => !t.replace(/^\[그림 \d+\]$/gmu,
 export function splitPage(blocks: OcrBlock[], tables: OcrTable[] = [], figures0: OcrFigure[] = [], size?: { width: number; height: number }) {
   const area = size ? size.width * size.height : 0;
   const big = (f: OcrFigure) => !!area && f.bbox?.length === 4 && ((f.bbox[2]! - f.bbox[0]!) * (f.bbox[3]! - f.bbox[1]!)) / area > FIGURE_MAX_AREA;
-  // 쪽을 크게 덮는 그림: 그 밖에 본문 줄(그림 아닌 label)이 하나도 없으면 쪽 전체 스캔으로 보고 본문으로 둔다.
-  // 본문 줄이 따로 있으면(제목 + 큰 화면 캡처인 매뉴얼 쪽, 과천 실측) 진짜 그림
+  // 쪽을 크게 덮는 그림이 실은 "쪽 전체 스캔"이면 그림이 아니라 본문 (레이아웃이 문서 사진 전체를 image로 잡는 경우).
+  // 스캔으로 보는 경우: ① 그림 안에 조문 머리가 2개 이상 ② 그림 밖 본문 줄·그림 제목이 없고, 그림 안 글자가 또렷함(평균 신뢰도 ≥ 0.85).
+  // 화면 캡처는 그림 안 글자 신뢰도가 낮다 (과천 매뉴얼 실측 0.69~0.77). 머리말·쪽 번호는 본문 줄로 세지 않는다 (PR #33 재리뷰)
   const bigs = figures0.filter((f) => FIGURE_LABELS.has(f.label) && big(f));
-  const bodyOutside = blocks.some((b) => b.text.trim() && !FIGURE_LABELS.has(b.label) && b.label !== "paragraph" && !bigs.some((f) => inBox(b.bbox, f.bbox)));
-  const pageWide = bodyOutside ? [] : bigs;
+  const outside = blocks.filter((b) => BODY_LABELS.has(b.label) && !bigs.some((f) => inBox(b.bbox, f.bbox))).reduce((n, b) => n + b.text.trim().length, 0);
+  const captioned = blocks.some((b) => b.label === "figure_title" && b.text.trim());
+  const inside = (f: OcrFigure) => blocks.filter((b) => b.text.trim() && inBox(b.bbox, f.bbox));
+  const articleHeads = (f: OcrFigure) => inside(f).filter((b) => /^제\s*\d+\s*조/u.test(b.text.trim())).length;
+  const clear = (f: OcrFigure) => { const xs = inside(f); return xs.length > 0 && xs.reduce((s, b) => s + b.confidence, 0) / xs.length >= SCAN_CONF_MIN; };
+  const pageWide = bigs.filter((f) => articleHeads(f) >= 2 || (outside < 4 && !captioned && clear(f)));
   const figures = figures0.filter((f) => FIGURE_LABELS.has(f.label) && !pageWide.includes(f));
   const md = new Map(tables.map((t) => [t.table_id, tableToMarkdown(t.html)] as const));
   const ids = new Set([...md].filter(([, v]) => v).map(([k]) => k));
