@@ -70,3 +70,9 @@ test("번호 공백 붙이기 경계 (PR #28 리뷰): 보통 명사는 그대로
   assert.equal(restoreCircled("2 / 15", st), "2 / 15");
   assert.equal(st.last, 1);
 });
+
+test("좌우로 나란한 두 글은 ' / '로 구분, 가까운 덩어리는 공백 (과천 12쪽)", () => {
+  const box = (t: string, x0: number, x1: number) => ({ text: t, bbox: [x0, 100, x1, 120] });
+  assert.deepEqual(ocrRows([box("링크 접속", 100, 300), box("해당 모델명 입력 후 검색", 900, 1300)]), ["링크 접속 / 해당 모델명 입력 후 검색"]);
+  assert.deepEqual(ocrRows([box("제1조(목적)", 100, 300), box("이 규정은", 320, 450)]), ["제1조(목적) 이 규정은"]);
+});

@@ -150,6 +150,8 @@ export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = [], figures
 export interface Segment {
   doc_id: string; page_index: number; source: "text_layer" | "ocr";
   text: string; blocks: Partial<OcrBlock>[]; avg_confidence: number | null; low_confidence: boolean;
+  /** 그림 영역 [x0,y0,x1,y1] (쪽 너비·높이 대비 0~1000 정수). ImageDescribe가 그림을 정확히 잘라 보여 줄 때 씀 (yoyo0704 b782529). 그림 없으면 생략 */
+  figure_boxes?: number[][];
 }
 
 // ponytail: 저신뢰 기준 고정값 (docs/04 2.1), 실측 후 조정
@@ -178,7 +180,9 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     const figs = op.figures ?? [];
     const size = { width: op.width, height: op.height };
     // 본문 줄만(그림 줄은 본문 만들기와 같은 기준으로 제외). 글자가 빈 덩어리(신뢰도 0, 11/17 실측)도 뺀다
-    const { fig } = splitPage(blocks, op.tables, figs, size);
+    const { fig, figures: kept } = splitPage(blocks, op.tables, figs, size);
+    // 그림으로 분리한 영역만 (쪽 전체 스캔으로 본 큰 상자·직인은 제외)
+    const boxes = op.width > 0 && op.height > 0 ? kept.filter((f) => f.bbox?.length === 4).map((f) => [f.bbox[0]! / op.width, f.bbox[1]! / op.height, f.bbox[2]! / op.width, f.bbox[3]! / op.height].map((v) => Math.min(1000, Math.max(0, Math.round(v * 1000))))) : [];
     const conf = blocks.filter((b) => b.text.trim() && !fig.has(b));
     const avg = conf.length ? conf.reduce((s, b) => s + b.confidence, 0) / conf.length : 0;
     return {
@@ -188,6 +192,7 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
       blocks, avg_confidence: conf.length ? avg : null, low_confidence: !blocks.length || (conf.length > 0 && (avg < PAGE_AVG_MIN || conf.some((b) => b.confidence < BLOCK_MIN)))
         // 쪽 글자가 모두 그림 속 글자로 분류된 쪽: 흐린 스캔을 캡처로 오인했을 수 있어 사람 확인 (PR #33 재리뷰 MEDIUM-F)
         || (conf.length === 0 && [...fig.keys()].some((b) => b.text.trim())),
+      ...(boxes.length ? { figure_boxes: boxes } : {}),
     } satisfies Segment;
   });
 }

@@ -48,13 +48,19 @@ export function ocrRows(blocks: OcrBox[]): string[] {
   return ocrRowsY(blocks).map((r) => r.text);
 }
 /** ocrRows와 같지만 줄의 세로 위치(yc)도 돌려줌 (표를 제자리에 끼워 넣을 때) */
+// ponytail: 좌우 분리 기준 (글자 높이 배수). 표처럼 칸이 넓은 줄은 표 변환(마크다운)이 따로 처리
+const GAP_RATIO = 8;
 export function ocrRowsY(blocks: OcrBox[]): { yc: number; text: string }[] {
   const items = blocks.filter((b) => b.bbox?.length === 4)
-    .map((b) => ({ t: b.text, x: b.bbox[0]!, yc: (b.bbox[1]! + b.bbox[3]!) / 2, h: b.bbox[3]! - b.bbox[1]! })).sort((a, b) => a.yc - b.yc);
+    .map((b) => ({ t: b.text, x: b.bbox[0]!, x1: b.bbox[2]!, yc: (b.bbox[1]! + b.bbox[3]!) / 2, h: b.bbox[3]! - b.bbox[1]! })).sort((a, b) => a.yc - b.yc);
   const out: { yc: number; h: number; parts: typeof items }[] = [];
   for (const it of items) {
     const last = out.at(-1);
     if (last && Math.abs(it.yc - last.yc) < Math.max(last.h, it.h) / 2) last.parts.push(it); else out.push({ yc: it.yc, h: it.h, parts: [it] });
   }
-  return out.map((r) => ({ yc: r.yc, text: r.parts.sort((a, b) => a.x - b.x).map((p) => p.t).join(" ") }));
+  // 같은 줄이라도 글자 높이의 8배 넘게 떨어진 덩어리는 좌우로 나란한 다른 글(그림 설명 두 개 등)이라 " / "로 구분 (과천 12쪽 실측)
+  return out.map((r) => {
+    const ps = r.parts.sort((a, b) => a.x - b.x);
+    return { yc: r.yc, text: ps.map((p, i) => (i === 0 ? p.t : `${p.x - ps[i - 1]!.x1 > GAP_RATIO * Math.max(r.h, p.h) ? " / " : " "}${p.t}`)).join("") };
+  });
 }
