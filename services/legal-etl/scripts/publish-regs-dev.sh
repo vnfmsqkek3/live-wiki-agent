@@ -19,7 +19,7 @@ token() { local p; p=$(python3 -c 'import json,sys; v=json.loads(sys.argv[1])[sy
 call() { curl -sS -X "$2" "$API$3" -H "authorization: Bearer $1" -H 'content-type: application/json' ${4:+-d "$4"} -w '\n%{http_code}'; }
 code() { tail -1 <<<"$1"; }; bodyof() { sed '$d' <<<"$1"; }
 pdf() { case "$1" in G-*) echo "tests/fixtures/golden/pdf/$1.pdf";; A-002) echo "tests/fixtures/documents/A-002.png";; *) echo "tests/fixtures/documents/pdf/$1.pdf";; esac; }
-kind() { case "$1" in K-*|G-K*) echo KNOWLEDGE;; *) echo REGULATION;; esac; }
+kind() { case "$1" in K-*|G-K*|G-INJ-*|A-*) echo KNOWLEDGE;; *) echo REGULATION;; esac; }  # 공격 샘플은 노하우 형식
 title() { [ "$(kind "$1")" = KNOWLEDGE ] || [ "${EXPECT:-}" = block ] && { python3 -c 'import sys,re
 for f in ["tests/fixtures/golden/"+sys.argv[1]+".md","tests/fixtures/documents/"+sys.argv[1]+".md"]:
   try: m=re.search(r"^title: (.*)$",open(f).read(),re.M); print("[SYNTHETIC] "+(m.group(1) if m else sys.argv[1])); sys.exit()
@@ -54,7 +54,7 @@ for id in "${IDS[@]}"; do
   K=$(kind "$id"); [ "$CT" = "$K" ] || call "$AT" POST "/v1/documents/$d/classification" "{\"document_type\":\"$K\",\"reason\":\"평가 세트 정답 분류\"}" >/dev/null
   R=$(call "$AT" POST "/v1/documents/$d/submit"); [ "$(code "$R")" = 201 ] || { echo "$id $d submit 실패 $(bodyof "$R" | head -c 200) (TrustGate=$TG $AS)"; continue; }
   APR=$(bodyof "$R" | j approval_id)
-  if [ "${EXPECT:-}" = block ]; then R=$(call "$PT" POST "/v1/approvals/$APR/decision" '{"decision":"REJECT","reason":"평가: 위조·공격 문서 반려"}'); echo "결과 $id $d TrustGate=$TG authority=$AS → 게시 요청 접수, 사람 반려 $(code "$R")"; continue; fi
+  if [ "${EXPECT:-}" = block ]; then R=$(call "$PT" POST "/v1/approvals/$APR/decision" '{"decision":"REJECT","reason":"평가: 위조·공격 문서 반려"}'); [ "$(code "$R")" = 200 ] && echo "결과 $id $d TrustGate=$TG authority=$AS → 게시 요청 접수, 사람 반려" || echo "결과 $id $d 반려 실패 $(bodyof "$R" | head -c 200)"; continue; fi
   R=$(call "$PT" POST "/v1/approvals/$APR/decision" '{"decision":"APPROVE","reason":"Registry 기준본 해시 일치 확인"}'); [ "$(code "$R")" = 200 ] || { echo "$id $d 승인 실패 $(bodyof "$R" | head -c 200)"; continue; }
   for _ in $(seq 1 120); do LC=$(bodyof "$(doc "$d")" | j lifecycle); [ "$LC" = PUBLISHED ] || [ "$LC" = BLOCKED ] && break; sleep 5; done
   echo "결과 $id $d TrustGate=$TG authority=$AS 분류=$CT → $LC"
