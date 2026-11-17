@@ -6,9 +6,11 @@ import { DynamoDBDocumentClient, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 import { makeHandler } from "@hanaeum/mcp-kit";
 import { DynamoClauseStore, regulationTools } from "@hanaeum/regulation-server";
 import { BedrockRetriever, searchTools } from "./search.ts";
+import { BedrockRewriter } from "./rewrite.ts";
 import type { DocState, DocStates } from "./search.ts";
 
 export * from "./search.ts";
+export * from "./rewrite.ts";
 
 /** 거버넌스 저장소 PostgreSQL (GOV_STORE=postgres, interfaces.md 10장). 시행일·조건부는 attrs(jsonb) */
 export class PgDocStates implements DocStates {
@@ -60,6 +62,7 @@ export const handler = makeHandler(e["KB_ID"] && (e["TABLE_DOCUMENTS"] || e["GOV
     retriever: new BedrockRetriever(e["KB_ID"], e["MODEL_RERANK"]),
     states: e["GOV_STORE"] === "postgres" ? new PgDocStates(db().query) : new DynamoDocStates(e["TABLE_DOCUMENTS"]!),
     regulation: regulationTools(new DynamoClauseStore(e["TABLE_REGULATIONS"])),
+    ...(e["MODEL_HAIKU"] ? { rewriter: new BedrockRewriter(e["MODEL_HAIKU"]) } : {}), // 없으면 규칙만
   })
   : {});
 export * from "./memory.ts";

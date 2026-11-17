@@ -8,12 +8,15 @@
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 API=${API:-http://localhost:8080}
-ssm() { aws ssm get-parameter --name "/hanaeum-mvp/dev/$1" --query Parameter.Value --output text; }
+# HANAEUM_ENV=prod 이면 prod (SSM /hanaeum-mvp/prod/, Secret hanaeum-mvp/demo-users). 기본 dev
+ENV_NAME=${HANAEUM_ENV:-dev}
+case "$ENV_NAME" in dev|prod) ;; *) echo "HANAEUM_ENV: dev|prod" >&2; exit 1;; esac
+ssm() { aws ssm get-parameter --name "/hanaeum-mvp/$ENV_NAME/$1" --query Parameter.Value --output text; }
 CLIENT=$(ssm COGNITO_CLIENT_ID)
 j() { python3 -c 'import json,sys; d=json.load(sys.stdin)
 for k in sys.argv[1].split("."): d=d.get(k) if isinstance(d,dict) else None
 print("" if d is None else d)' "$1"; }
-secret=$(aws secretsmanager get-secret-value --secret-id hanaeum-mvp/demo-users-dev --query SecretString --output text)
+secret=$(aws secretsmanager get-secret-value --secret-id "hanaeum-mvp/demo-users$([ "$ENV_NAME" = prod ] || echo -dev)" --query SecretString --output text)
 token() { local p; p=$(python3 -c 'import json,sys; v=json.loads(sys.argv[1])[sys.argv[2]]; print(v["password"] if isinstance(v,dict) else v)' "$secret" "$1")
   aws cognito-idp initiate-auth --client-id "$CLIENT" --auth-flow USER_PASSWORD_AUTH --auth-parameters "USERNAME=$1,PASSWORD=$p" --query AuthenticationResult.AccessToken --output text; }
 call() { curl -sS -X "$2" "$API$3" -H "authorization: Bearer $1" -H 'content-type: application/json' ${4:+-d "$4"} -w '\n%{http_code}'; }

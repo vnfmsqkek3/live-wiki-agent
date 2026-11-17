@@ -76,6 +76,10 @@
             "REVIEW_REQUIRED"
           ],
           "description": "최신성 필터 (현행 / 재검토 필요). 현재 상태로 거르므로 상위 결과 밖 문서는 빠질 수 있음"
+        },
+        "rewrite": {
+          "type": "boolean",
+          "description": "기본 true: 문장형 질의를 핵심 질의(core)와 다른 표현(alternates)으로 재구성해 검색하고 응답 rewritten에 남긴다. false면 원래 질의 그대로"
         }
       },
       "required": [

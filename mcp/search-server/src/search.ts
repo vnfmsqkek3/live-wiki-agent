@@ -7,6 +7,8 @@ import type { AuthorityStatus, Freshness, Lifecycle, SearchStatus } from "@hanae
 import { ToolError, aclKeys, asOfYmd, maskPii, str } from "@hanaeum/mcp-kit";
 import type { Actor } from "@hanaeum/mcp-kit";
 import type { regulationTools } from "@hanaeum/regulation-server";
+import { cleanQuery } from "./rewrite.ts";
+import type { Rewriter, Rewritten } from "./rewrite.ts";
 
 // ── 필터 ───────────────────────────────────────────────
 export interface FilterOpts {
@@ -46,7 +48,7 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
 
 // ── KB Retrieve ────────────────────────────────────────
 /** weak: 재정렬 1위가 근거 기준(RERANK_TOP1_MIN) 미만이지만 RELATED_MIN 이상 — 근거로 쓰지 않고 "관련 가능 문서"로만 보여 준다 */
-export interface Hit { text: string; score: number; metadata: Record<string, unknown>; weak?: boolean }
+export interface Hit { text: string; score: number; metadata: Record<string, unknown>; weak?: boolean; matched_query?: string }
 /** filter 없음 = 운영자 시점 원시 조회 (측정 전용, Tool은 항상 필터를 넣는다) */
 export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> }
 
@@ -127,6 +129,8 @@ export interface Result {
   search_status: "FOUND" | "HISTORICAL" | "DELETED";
   /** 근거 기준 미달, 참고용 (related에만 들어감) */
   weak?: boolean;
+  /** 이 결과의 점수를 낸 질의 (재구성 질의 중 하나). 화면 "이 검색어로 찾았습니다"·평가 재현용 */
+  matched_query?: string;
   // 추가 정보
   document_type: string; provision_id: string; path_label: string; provision_status: string;
   conditional: boolean; effective_to: string; score: number;
@@ -173,7 +177,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
-      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(h.weak ? { weak: true } : {}),
+      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -203,22 +207,57 @@ const classArgs = (args: Record<string, unknown>) => {
 const topK = (args: Record<string, unknown>) => Math.min(Math.max(Number(args["top_k"] ?? 5) || 5, 1), RERANKED);
 const CLAUSE_IN_QUERY = /(?:「([^」]+)」|([가-힣A-Za-z0-9·\s]+?))\s*((?:부칙\s*)?제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?(?:\s*제\s*\d+\s*호(?:\s*의\s*\d+)?)?(?:\s*[가-하]\s*목)?)/u;
 
-export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools> }) {
-  async function run(query: string, actor: Actor, o: FilterOpts, k: number) {
+/** 재구성 질의 각각으로 검색(각자 Rerank) → 같은 청크는 최고 점수 하나만, 점수를 낸 질의를 남긴다.
+ *  core만으로 Rerank하지 않는 이유 (11/17 dev 실측): "개인정보 처리방법" 0.284 탈락, 같은 뜻 "개인정보 처리" 0.486·"처리 기준" 0.498 통과.
+ *  안전장치 (PR #24 리뷰): ① primary는 사람이 쓴 질의(원문·규칙 정리본)만. 모델 질의(core·alternates)에서 나온 결과는
+ *  primary 결과(weak 포함)에 같은 문서가 있을 때만 근거, 아니면 weak(참고) — 모델이 주제를 바꿔도 새 문서를 근거로 끌어오지 못한다
+ *  ② 합친 뒤 1위 대비 RERANK_RATIO를 다시 적용 ③ 일부 질의 실패는 건너뛰고(로그) 전부 실패할 때만 오류.
+ *  ponytail: Rerank 호출이 질의당 최대 5회(중복 제거 후). 비용·쿼터가 문제면 alternates를 1개로 */
+export async function retrieveMany(r: Retriever, primary: string[], model: string[], filter: RetrievalFilter): Promise<Hit[]> {
+  const qs = [...new Set([...primary, ...model])];
+  const settled = await Promise.allSettled(qs.map(async (q) => (await r.retrieve(q, filter)).map((h) => ({ ...h, matched_query: q }))));
+  const ok = settled.flatMap((x, i) => {
+    if (x.status === "fulfilled") return [{ q: qs[i]!, hits: x.value }];
+    console.warn(JSON.stringify({ msg: "재구성 질의 1건 검색 실패 → 건너뜀", error: (x.reason as Error)?.name })); // 질의 원문은 남기지 않는다
+    return [];
+  });
+  if (!ok.length) throw (settled[0] as PromiseRejectedResult).reason;
+  const isPrimary = (q: string) => primary.includes(q);
+  const primaryDocs = new Set(ok.filter((x) => isPrimary(x.q)).flatMap((x) => x.hits.map((h) => String(h.metadata["doc_id"]))));
+  const best = new Map<string, Hit>();
+  for (const x of ok) for (const h0 of x.hits) {
+    const h = isPrimary(x.q) || primaryDocs.has(String(h0.metadata["doc_id"])) ? h0 : { ...h0, weak: true };
+    const key = `${String(h.metadata["doc_id"])}\u0000${String(h.metadata["provision_id"] ?? "")}\u0000${h.text}`;
+    const prev = best.get(key);
+    // 근거 기준을 넘은 결과가 weak보다 우선, 같으면 점수
+    if (!prev || (prev.weak && !h.weak) || (!!prev.weak === !!h.weak && h.score > prev.score)) best.set(key, h);
+  }
+  const all = [...best.values()];
+  const top = Math.max(0, ...all.filter((h) => !h.weak).map((h) => h.score));
+  return all.filter((h) => h.weak || h.score >= top * RERANK_RATIO).sort((a, b) => Number(!!a.weak) - Number(!!b.weak) || b.score - a.score);
+}
+
+export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools>; rewriter?: Rewriter }) {
+  async function run(query: string, actor: Actor, o: FilterOpts, k: number, rewrite = false) {
     const q = maskPii(query);
-    const hits = await deps.retriever.retrieve(q.text, buildFilter(actor, o));
+    // 재구성: 규칙(항상) + 모델(있으면). rewrite=false("원래 질의로 찾기")면 원문 그대로
+    const rw: Rewritten | undefined = !rewrite ? undefined : deps.rewriter ? await deps.rewriter.rewrite(q.text) : { core: cleanQuery(q.text), alternates: [] };
+    // primary = 원문(정리가 틀려도 원문보다 나빠지지 않게) + 규칙 정리본(11/17 실측: 모델이 "개인정보 관련 문서"를 core로 남겨 0.249, 정리본 "개인정보"는 0.630)
+    const hits = rw
+      ? await retrieveMany(deps.retriever, [q.text, cleanQuery(q.text)], [rw.core, ...rw.alternates], buildFilter(actor, o))
+      : await deps.retriever.retrieve(q.text, buildFilter(actor, o));
     const states = await deps.states.get([...new Set(hits.map((h) => String(h.metadata["doc_id"])))]);
     const { kept, dropped } = revalidate(hits, states, actor, o);
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
     const top = kept.filter((r) => !r.weak).slice(0, k);
     const related = kept.filter((r) => r.weak).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
-    return { search_status, items: top, ...(related.length ? { related } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
+    return { search_status, items: top, ...(related.length ? { related } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
   }
 
   return {
     async search_wiki(args: Record<string, unknown>, actor: Actor) {
-      return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true, ...classArgs(args) }, topK(args));
+      return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true, ...classArgs(args) }, topK(args), args["rewrite"] !== false);
     },
 
     async retrieve_evidence(args: Record<string, unknown>, actor: Actor) {
