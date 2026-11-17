@@ -212,8 +212,8 @@ export async function pageImageList(doc_id: string) {
 /** AI로 다시 배치한 쪽 본문 (Classify, masked/structured/{nnnn}.json). page_index → markdown */
 export async function structuredPages(doc_id: string) {
   const keys = (await listKeys(`${doc_id}/masked/structured/`)).filter((k) => k.endsWith('.json'));
-  const rows = await Promise.all(keys.map((k) => getJson<{ page_index: number; markdown: string }>(k).catch(() => undefined)));
-  return new Map(rows.filter((r): r is { page_index: number; markdown: string } => !!r).map((r) => [r.page_index, r.markdown]));
+  const rows = await Promise.all(keys.map((k) => getJson<{ page_index: number; markdown: string; source?: string }>(k).catch(() => undefined)));
+  return new Map(rows.filter((r): r is { page_index: number; markdown: string; source?: string } => !!r).map((r) => [r.page_index, { markdown: r.markdown, source: r.source === 'VISION' ? 'VISION' as const : 'TEXT' as const }]));
 }
 export async function pageSummary(doc_id: string) {
   return getJson<{ pages?: import('./app.ts').PageMeta[] }>(`${doc_id}/masked/summary.json`);

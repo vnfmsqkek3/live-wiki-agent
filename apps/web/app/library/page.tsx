@@ -437,7 +437,9 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           <div className="document-columns"><div className={`sheet page${hasFig ? ' has-figure' : ''}`} onClick={(e) => { if ((e.target as HTMLElement).closest('.fig-ref')) setZoom(true); }}>
             {hasFig && <PageFigure docId={d.doc_id} page={page.page + 1} zoom={zoom} setZoom={setZoom} />}
             <div className="page-body">
-            {page.structured && !raw ? <><p className="note">AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. '(그림 n)'이 붙은 문장은 AI가 그림을 보고 쓴 설명이라 근거로 인용하지 않습니다. 고칠 곳 밑줄은 원문에서 보입니다.</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
+            {page.structured && !raw ? <><p className="note">{page.structured_source === 'VISION'
+                ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원문 글자는 \'원문\'에서 확인하세요.'
+                : "AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. '(그림 n)'이 붙은 문장은 AI가 그림을 보고 쓴 설명이라 근거로 인용하지 않습니다. 고칠 곳 밑줄은 원문에서 보입니다."}</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
             </div>
           </div>
           <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>

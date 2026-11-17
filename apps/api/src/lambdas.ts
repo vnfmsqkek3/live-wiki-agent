@@ -54,7 +54,8 @@ export interface SegmentDeps {
   getBytes?(key: string): Promise<Uint8Array>;
   putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
-type Seg = { page_index: number; text: string; figures?: import('./steps/structure.ts').PageFigure[] };
+/** page_markdown: 그림 쪽을 Vision 이 쪽 이미지 기준으로 쓴 정리본 (ImageDescribe, 사용자 결정 11/17 A). 원문 대조 대상 아님 */
+type Seg = { page_index: number; text: string; figures?: import('./steps/structure.ts').PageFigure[]; page_markdown?: string };
 const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
 
 async function maskedSegments(deps: SegmentDeps, doc_id: string) {
@@ -114,7 +115,8 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
 export function makeInjectionScan(deps: SegmentDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
-    const r = injectionScan((await maskedSegments(deps, i.doc_id)).map((s) => ({ page: s.page_index, text: s.text })));
+    // Vision 정리본(page_markdown)도 검사: 모델 출력이지만 이미지 속 지시문이 옮겨질 수 있다
+    const r = injectionScan((await maskedSegments(deps, i.doc_id)).map((s) => ({ page: s.page_index, text: s.page_markdown ? `${s.text}\n${s.page_markdown}` : s.text })));
     await deps.store.putDoc(addFindings(d, r.findings));
     return r;
   };
@@ -160,7 +162,12 @@ export function makeClassify(deps: SegmentDeps) {
 
 /** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)·이미 마크다운인 쪽은 건너뜀. 원문 대조를 통과한 정리본만 저장 */
 export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
-  const todo = segs.filter((s) => needsStructure(s.text, s.figures)).slice(0, 40);
+  // 그림 쪽 Vision 정리본은 모델을 다시 부르지 않고 그대로 쓴다 (다시 가린 뒤). 원문 대조 대상 아님 → 화면에 '그림 기준' 표시
+  for (const s of segs) if (s.page_markdown?.trim()) {
+    const md = mask(s.page_markdown, detectPii(s.page_markdown)).replace(/_\((그림\s*\d+)\)_/gu, '($1)').slice(0, 6000); // '_(그림 n)_' → 화면 단추가 되는 '(그림 n)'
+    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, source: 'VISION', at: now() }).catch(() => {});
+  }
+  const todo = segs.filter((s) => !s.page_markdown?.trim() && needsStructure(s.text, s.figures)).slice(0, 40);
   let saved = 0, rejected = 0, failed = 0;
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
