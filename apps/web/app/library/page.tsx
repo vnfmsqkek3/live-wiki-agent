@@ -45,6 +45,18 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
 function CardLabel({ title, filled }: { title: string; filled: boolean }) {
   return <>{title}{filled && <span className="card-state">내용 있음</span>}</>;
 }
+type Basis = { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string };
+/** 비교한 대상: 같은 조문은 한 묶음으로, 그 아래에 비교한 문서 문장마다 판정 (사용자 지적 11/17: 같은 조문이 반복돼 무엇이 다른지 모름) */
+function groupBasis(basis: Basis[]) {
+  const by = new Map<string, Basis & { key: string; rows: Basis[] }>();
+  for (const b of basis) {
+    const key = `${b.what}|${b.label}`;
+    const g = by.get(key) ?? { ...b, key, rows: [] };
+    if (!g.rows.some((r) => r.statement === b.statement && r.result === b.result)) g.rows.push(b);
+    by.set(key, g);
+  }
+  return [...by.values()];
+}
 function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
   const [open, setOpen] = useState(false);
   return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
@@ -420,13 +432,20 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         <DetailCard title="비교한 대상">
           {d.verification.basis.length > 0 && (
             <>
-              <p className="note" style={{ margin: '10px 0 4px' }}>비교한 대상</p>
+              <p className="note" style={{ margin: '10px 0 4px' }}>이 문서의 문장을 어느 조문과 비교했고 결과가 어땠는지입니다. 같은 조문은 한 번만 보여 줍니다.</p>
               <ul className="fixes">
-                {d.verification.basis.map((b, i) => (
-                  <li key={i} className="fix">
-                    <p className="fix-head">{b.what} · {b.label}{b.effective_from && ` · ${b.effective_from} 시행`}</p>
-                    <p>{b.result}</p>
-                    {b.quote && <blockquote className="basis"><p>{b.quote}</p></blockquote>}
+                {groupBasis(d.verification.basis).map((g) => (
+                  <li key={g.key} className="fix">
+                    <p className="fix-head">{g.what} · {g.label}{g.effective_from && ` · ${g.effective_from} 시행`}</p>
+                    {g.quote && <blockquote className="basis"><p>{g.quote}</p></blockquote>}
+                    {g.rows.some((r) => r.statement) ? (
+                      <ol className="compare-rows">{g.rows.map((r, i) => (
+                        <li key={i}>
+                          <p className="stmt">“{r.statement}”</p>
+                          <p><span className={`verdict ${r.relation === 'CONFLICTS' ? 'bad' : r.relation === 'INSUFFICIENT' ? 'wait' : 'ok'}`}>{r.result}</span>{r.reason && <span className="note"> — {r.reason}</span>}</p>
+                        </li>
+                      ))}</ol>
+                    ) : <p>{g.rows.map((r) => r.result).join(' · ')}</p>}
                   </li>
                 ))}
               </ul>

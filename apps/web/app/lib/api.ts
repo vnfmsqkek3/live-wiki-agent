@@ -231,7 +231,7 @@ export interface LibraryCard {
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string; document_type?: string }[];
 }
 export interface Verification {
-  method: string; basis: { what: string; label: string; result: string; quote?: string; effective_from?: string }[];
+  method: string; basis: { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string }[];
   checks: { trust_gate: string | null; verdict: string | null; checked_at: string | null };
   approved_by: string | null; approved_at: string | null; approval_reason: string | null;
 }
