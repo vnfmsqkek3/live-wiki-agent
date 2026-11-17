@@ -58,7 +58,7 @@ module "sfn" {
   table_documents   = module.ddb.tables["documents"]
   ocr_endpoint_name = module.ocr.endpoint_name
   quarantine_bucket = module.s3.buckets["quarantine"]
-  step_functions    = merge(local.team_steps, local.lambda_arn)
+  step_functions    = merge(local.team_steps, local.lambda_arn, { convert_to_pdf = aws_lambda_function.convert.arn })
   gov_env           = local.gov_env
   gov_statements    = module.aurora.app_statements
 }
@@ -114,7 +114,7 @@ module "webapp" {
   tables               = module.ddb.tables
   quarantine_bucket    = module.s3.buckets["quarantine"]
   runtime_arn_patterns = [module.pipeline.runtime_arn_pattern, module.user.runtime_arn_pattern]
-  extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn]
+  extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn, aws_ecr_repository.convert.arn]
   kb_arn               = local.kb_arn
   extra_api_statements = module.aurora.app_statements
   api_env = merge(local.gov_env, {

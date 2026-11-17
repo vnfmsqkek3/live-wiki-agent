@@ -1,6 +1,6 @@
 // 단계 3b PageRender (docs/04 1.1·1.3, Owner yoyo0704).
 // 텍스트 레이어가 부족한 페이지와 이미지(사진·캡처·도표)가 든 페이지를 PNG(가로 2000px)로 렌더링하고 OCR 대상 목록을 만든다.
-// 기준: 페이지 글자 수 < 50 또는 깨진 문자 비율 > 20% (실측 후 조정), 또는 이미지 그리기 연산이 있음.
+// 11/17 사용자 결정 이후: work/document.pdf(ConvertToPdf) 또는 원본 PDF 의 모든 쪽을 렌더링(reason "all"). 아래 needsOcr 기준은 TextLayerExtract 호환용으로만 남김.
 // 이미지 페이지는 OCR(이미지 속 글자·bbox) → PiiScan 마스킹 이미지 → ImageDescribe(묘사·의도) 로 이어진다 (13항 13).
 // DOCX·HWPX 는 본문 글은 구조화 텍스트(TextLayerExtract)로 쓰고, 안에 든 그림만 쪽별로 세로로 이어 붙여 PNG 한 장으로 만든다
 //   → 같은 OCR → PiiScan 마스킹 → ImageDescribe 경로 (사용자 결정 11/17). 분석할 수 없는 형식(EMF·WMF 등)은 Finding 으로 알린다.
@@ -93,6 +93,8 @@ export type Deps = {
   saveFindings?: FindingsStore;
   findOriginal: (bucket: string, doc_id: string) => Promise<string | undefined>;
   get: (bucket: string, key: string) => Promise<Uint8Array>;
+  /** 없으면 undefined (ConvertToPdf 결과 work/document.pdf 확인용) */
+  tryGet: (bucket: string, key: string) => Promise<Uint8Array | undefined>;
   put: (bucket: string, key: string, body: Uint8Array | string, contentType: string) => Promise<void>;
   openPdf: (data: Uint8Array) => Promise<Pdf>;
 };
@@ -106,26 +108,28 @@ export function makeHandler(d: Deps) {
     const out: OcrTargets = { doc_id: e.doc_id, page_count: 0, pages: [] };
     const findings: Finding[] = [];
 
-    if (ext === "pdf") {
-      const pdf = await d.openPdf(await d.get(e.bucket, key));
+    // 사용자 결정 11/17 "모든 형식을 PDF 로 변환한 뒤 전부 OCR": ConvertToPdf 결과(work/document.pdf), 없으면 원본 PDF 의 **모든 쪽** 렌더링.
+    // 텍스트 레이어는 쓰지 않는다(디지털 글자가 다른 글자로 바뀐 경우·섞인 쪽의 사진 속 글자·숨긴 글자를 텍스트 레이어로는 못 잡음, let522mj dev 실측)
+    const converted = await d.tryGet(e.bucket, `${e.doc_id}/work/document.pdf`);
+    if (converted || ext === "pdf") {
+      const pdf = await d.openPdf(converted ?? await d.get(e.bucket, key));
       out.page_count = pdf.pageCount;
       for (let i = 0; i < pdf.pageCount; i++) {
         const has_images = await pdf.hasImages(i);
-        const reason = needsOcr(await pdf.pageText(i)) ?? (has_images ? "images" : undefined);
-        if (!reason) continue;
+        const reason = "all";
         const r = await pdf.render(i);
         const pk = `${pagesDir}/${String(i).padStart(4, "0")}.png`;
         await d.put(e.bucket, pk, r.png, "image/png");
         out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason, has_images });
       }
     } else if (ext === "png" || ext === "jpg" || ext === "jpeg") {
-      // 이미지는 work/pages/ 로 복사해 OCR 대상으로. OCR(SageMaker) Role 은 원본 경로를 읽지 않는다
+      // (ConvertToPdf 배포 전 호환) 이미지는 work/pages/ 로 복사해 OCR 대상으로. OCR(SageMaker) Role 은 원본 경로를 읽지 않는다
       out.page_count = 1;
       const pk = `${pagesDir}/0000.${ext === "jpeg" ? "jpg" : ext}`;
       await d.put(e.bucket, pk, await d.get(e.bucket, key), ext === "png" ? "image/png" : "image/jpeg");
       out.pages.push({ page_index: 0, key: pk, width: 0, height: 0, reason: "image", has_images: true });
     } else if (ext === "docx" || ext === "hwpx") {
-      // 본문 글은 TextLayerExtract(let522mj). 여기서는 그림만. 손상 파일은 TextLayerExtract 가 차단 사유로 안내
+      // (ConvertToPdf 가 변환하지 못한 경우 호환) 본문 글은 TextLayerExtract(let522mj). 여기서는 그림만. 손상 파일은 TextLayerExtract 가 차단 사유로 안내
       let figs: OfficeFigure[] = [];
       try { figs = officeFigures(await d.get(e.bucket, key), ext); } catch { /* 손상 ZIP: TextLayerExtract CORRUPT_OFFICE */ }
       const byPage = new Map<number, OfficeFigure[]>();
@@ -162,6 +166,10 @@ export const handler = makeHandler({
   findOriginal: async (bucket, doc_id) =>
     (await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: `${doc_id}/original.`, MaxKeys: 1 }))).Contents?.[0]?.Key,
   get: async (bucket, key) => (await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))).Body!.transformToByteArray(),
+  tryGet: async (bucket, key) => {
+    try { return await (await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }))).Body!.transformToByteArray(); }
+    catch (err) { if ((err as { name?: string }).name === "NoSuchKey") return undefined; throw err; }
+  },
   put: async (bucket, key, body, contentType) => {
     await s3.send(new PutObjectCommand({ Bucket: bucket, Key: key, Body: body, ContentType: contentType, ServerSideEncryption: "aws:kms" }));
   },

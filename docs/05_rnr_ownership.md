@@ -19,6 +19,7 @@
 | `package-lock.json` | 수정한 사람 | — | 충돌 시 main으로 rebase 후 `npm install`로 재생성 (손으로 병합 금지) |
 | `hanaeum-terraform/` | yoyo0704 | let522mj | 다른 사람이 필요한 리소스는 `요청기록/`으로 |
 | `services/ocr/` (Python 컨테이너) | yoyo0704 | let522mj | 출력 스키마는 `04` 2.1 |
+| `services/convert-pdf/` (LibreOffice 컨테이너 Lambda) | yoyo0704 | let522mj | ConvertToPdf 단계 (11/17) |
 | `workflows/` (Step Functions 정의·에러 처리·failure-catcher) | yoyo0704 | dhxorb96 | 단계 Lambda 코드는 3장 Owner |
 | `mcp/observability-server/` | yoyo0704 | dhxorb96 | |
 | `tests/evaluations/runner/`, `observability/` | yoyo0704 | let522mj | 평가 실행·결과 집계 |
