@@ -251,8 +251,9 @@ test('ReferenceCheck: 안전한 검색어만 웹 검색, 일치한 결과만 참
   const searched: string[][] = [];
   const step = makeReferenceCheck({ ...t.deps,
     findRefs: async () => ({ value: { refs: [
-      { item: '삼성전자 다운로드 자료실 링크', reason: 'MISSING_LINK', query: '삼성전자 프린터 드라이버 다운로드 자료실', page: 1 },
-      { item: '사내 메신저', reason: 'MISSING_LINK', query: '하나은행 메신저 설치' },
+      { item: '삼성전자 다운로드 자료실 링크', reason: 'MISSING_LINK', query: '삼성전자 프린터 드라이버 다운로드 자료실', page: 1, official_sites: ['samsungsvc.co.kr'] },
+      { item: '사내 메신저', reason: 'MISSING_LINK', query: '하나은행 메신저 설치', official_sites: ['messenger.example.com'] },
+      { item: '공식 사이트 모름', reason: 'MISSING_LINK', query: '어떤 프로그램 다운로드', official_sites: [] },
     ] }, model: 'm' }),
     web: { search: async (qs) => { searched.push(qs); return new Map(qs.map((q) => [q, [{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }]])); } },
   });

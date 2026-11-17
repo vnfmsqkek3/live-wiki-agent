@@ -12,7 +12,7 @@ import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
-import { bestHit, findPrompt, isOfficial, unsafeQuery } from './steps/reference-check.ts';
+import { bestHit, findPrompt, sitesOf, unsafeQuery } from './steps/reference-check.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -149,26 +149,27 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       }
       const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
       const cands = ((await deps.findRefs(findPrompt(d.title, pages))).value.refs ?? []).slice(0, 3); // 최대 3건: 직렬 단계라 사용자 대기 ~2.5분 이내 (yoyo0704 11/18)
-      console.log(JSON.stringify({ msg: 'refcheck candidates', doc_id: d.doc_id, n: cands.length, reasons: cands.map((c) => c.reason) }));
+      console.log(JSON.stringify({ msg: 'refcheck candidates', doc_id: d.doc_id, n: cands.length, reasons: cands.map((c) => c.reason), official_sites: cands.map((c) => sitesOf(c)) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const safe = cands.filter((c) => { const why = unsafeQuery(c.query, internal); if (why) console.warn(JSON.stringify({ msg: 'refcheck query skipped', doc_id: d.doc_id, why })); return !why; });
-      const sites = new Map(safe.filter((c) => c.official_site && !unsafeQuery(c.official_site, internal)).map((c) => [c.query.trim(), c.official_site!]));
-      const hits = await deps.web.search([...new Set(safe.map((c) => c.query.trim()))], sites);
+      // 공식 도메인 추정이 없는 대상은 검색하지 않는다(제안할 수 있는 주소가 없음)
+      const withSites = safe.filter((c) => { const ok = sitesOf(c).length > 0; if (!ok) console.log(JSON.stringify({ msg: 'refcheck drop', doc_id: d.doc_id, reason: 'no_official_site' })); return ok; });
+      const sites = new Map(withSites.map((c) => [c.query.trim(), sitesOf(c)[0]!]));
+      const hits = await deps.web.search([...new Set(withSites.map((c) => c.query.trim()))], sites);
       const checked_at = now();
       const findings: Finding[] = [];
       for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
         detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
-      for (const c of safe) {
+      for (const c of withSites) {
         const got = hits.get(c.query.trim()) ?? [];
         const h = bestHit(c, got);
         // 탈락 사유는 원문 없이 남긴다 (검색어·제목·본문은 쓰지 않음)
-        if (!h) { console.log(JSON.stringify({ msg: 'refcheck drop', doc_id: d.doc_id, reason: got.length ? 'no_match' : 'only_ugc_or_none', results: got.length, text_lens: got.map((x) => x.text.length) })); continue; }
+        if (!h) { console.log(JSON.stringify({ msg: 'refcheck drop', doc_id: d.doc_id, reason: got.length ? 'no_official_match' : 'only_ugc_or_none', official_sites: sitesOf(c), results: got.length, text_lens: got.map((x) => x.text.length) })); continue; }
         findings.push({ finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: 'LOW', /* 계약상 INFO: Severity·DB CHECK 에 INFO 가 없어 LOW(게시 비차단) */ code: 'REFERENCE_SUGGESTION', message: `참조 확인: ${c.reason}`, evidence_ref: h.url,
           location: { ...(c.page ? { page: c.page } : {}), excerpt: c.item.slice(0, 120) },
-          // 공식 도메인(모델 추정·공공)이 아니면 '(비공식 출처)' 표시
-          user_message: `${c.item}: 공개 웹에서 확인한 주소가 있습니다${isOfficial(h.url, c.official_site) ? '' : ' (비공식 출처)'} — ${h.title} (${h.url})`,
+          user_message: `${c.item}: 공개 웹에서 확인한 주소가 있습니다 — ${h.title} (${h.url})`,
           fix_hint: '맞으면 "정리본에 넣기"로 이 주소를 문서에 넣으세요. 웹에서 찾은 정보라 근거로 인용하지 않습니다.',
-          details: { item: c.item, reason: c.reason, query: c.query, url: h.url, title: h.title, checked_at, unofficial: !isOfficial(h.url, c.official_site) } });
+          details: { item: c.item, reason: c.reason, query: c.query, url: h.url, title: h.title, checked_at, official_sites: sitesOf(c) } });
       }
       if (findings.length) await deps.store.putDoc(addFindings(await mustDoc(deps.store, i.doc_id), findings)); // 검색 중 다른 단계가 바꾼 문서 위에 더함
       console.log(JSON.stringify({ msg: 'refcheck done', doc_id: d.doc_id, searched: hits.size, suggestions: findings.length }));
