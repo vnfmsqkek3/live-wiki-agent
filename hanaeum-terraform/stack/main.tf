@@ -123,6 +123,7 @@ module "webapp" {
     USER_GATEWAY_URL     = module.user.gateway_url # 상세 '외부 법령 최신본': 사용자 토큰으로 regulation___fetch_official_law (NAT 경유 HTTPS)
     KB_ID                = module.kb.kb_id         # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
     MODEL_RERANK         = var.models["MODEL_RERANK"]
+    MODEL_HAIKU          = var.models["MODEL_HAIKU"] # 검색·가이드 질의 재구성 (API 가 search-server 를 함께 묶음)
   })
 }
 
