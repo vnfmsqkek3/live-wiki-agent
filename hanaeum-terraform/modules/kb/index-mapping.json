@@ -1,14 +1,52 @@
 {
-  "settings": { "index": { "knn": true, "knn.algo_param.ef_search": 512 } },
+  "settings": {
+    "index": {
+      "knn": true,
+      "knn.algo_param.ef_search": 512
+    },
+    "analysis": {
+      "tokenizer": {
+        "ko_tok": {
+          "type": "nori_tokenizer",
+          "decompound_mode": "mixed"
+        }
+      },
+      "analyzer": {
+        "ko": {
+          "type": "custom",
+          "tokenizer": "ko_tok",
+          "filter": [
+            "nori_part_of_speech",
+            "nori_readingform",
+            "lowercase"
+          ]
+        }
+      }
+    }
+  },
   "mappings": {
     "properties": {
       "embedding": {
         "type": "knn_vector",
         "dimension": 1024,
-        "method": { "name": "hnsw", "engine": "faiss", "space_type": "l2", "parameters": { "ef_construction": 512, "m": 16 } }
+        "method": {
+          "name": "hnsw",
+          "engine": "faiss",
+          "space_type": "l2",
+          "parameters": {
+            "ef_construction": 512,
+            "m": 16
+          }
+        }
       },
-      "text": { "type": "text" },
-      "bedrock_metadata": { "type": "text", "index": false }
+      "text": {
+        "type": "text",
+        "analyzer": "ko"
+      },
+      "bedrock_metadata": {
+        "type": "text",
+        "index": false
+      }
     }
   }
 }

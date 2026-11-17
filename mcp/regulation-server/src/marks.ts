@@ -25,7 +25,7 @@ export interface MarkSources {
   /** 규정 문서: registryMatch 결과 (해시 불일치일 때 claimed.clauses 포함) */
   registry?: RegistryMatch;
   /** 단계 Finding. evidence_ref "page:n" 이면 그 페이지 */
-  findings?: { step?: string; severity: string; code: string; message: string; evidence_ref: string }[];
+  findings?: { step?: string; severity: string; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string }[];
 }
 
 const SKIP = /[\s「」"'“”‘’·ㆍ]/u;
@@ -79,6 +79,17 @@ async function basisOf(store: ClauseStore, pid: string): Promise<Basis | undefin
 
 const at = (pages: string[], needle: string) => locate(pages, needle) ?? { page: null, start: null, end: null };
 
+/** 두 문장의 다른 부분만 앞뒤 8자와 함께: "분기마다" vs "매월" 처럼 무엇이 바뀌었는지 한눈에 */
+export function diffSpan(a: string, b: string): { mine: string; official: string } {
+  const x = [...a], y = [...b];
+  let i = 0; while (i < x.length && i < y.length && x[i] === y[i]) i++;
+  let j = 0; while (j < x.length - i && j < y.length - i && x[x.length - 1 - j] === y[y.length - 1 - j]) j++;
+  const cut = (c: string[]) => { const s = Math.max(0, i - 8), e = Math.min(c.length, c.length - j + 8);
+    return `${s > 0 ? "…" : ""}${c.slice(s, e).join("")}${e < c.length ? "…" : ""}`; };
+  return { mine: cut(x), official: cut(y) };
+}
+const subtree = (c: Record<string, string>, k: string) => Object.keys(c).filter((x) => x === k || x.startsWith(`${k}/`)).sort().map((x) => c[x]).join(" ").trim();
+
 export async function buildMarks(pages: string[], src: MarkSources, store: ClauseStore): Promise<Mark[]> {
   const marks: Mark[] = [];
   for (const it of src.knowhow?.items ?? []) {
@@ -108,6 +119,13 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       ...(basis ? { basis } : {}), fix: basis ? `현행 ${basis.label}(${basis.effective_from ?? ""} 시행)으로 수정: "${basis.text}"` : "현행 조문으로 수정",
     });
   }
+  /** 어느 조문이 어떻게 다른지 한 문장으로 (사용자 요청 11/17: 결재함에서 무엇이 잘못됐는지 자세히) */
+  const reasonOf = (label: string, mine: string, official: string) => {
+    if (!mine) return `올린 문서에서 빠진 조문입니다: ${label}. 공식 원문: "${official}"`;
+    if (!official) return `공식 원본에 없는 조문입니다: ${label}. 올린 문서: "${mine}"`;
+    const d = diffSpan(mine, official);
+    return `${label}의 내용이 공식 원본과 다릅니다. 올린 문서 "${d.mine}" ↔ 공식 원본 "${d.official}"`;
+  };
   const reg = src.registry;
   if (reg?.registry && reg.claimed?.clauses) {
     const official = reg.registry.clauses; const uploaded = reg.claimed.clauses;
@@ -123,7 +141,7 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       marks.push({
         ...(uploaded[path] ? at(pages, uploaded[path]) : { page: null, start: null, end: null }),
         kind: "REGISTRY_MISMATCH", label: MARK_LABEL.REGISTRY_MISMATCH, severity: "HIGH",
-        reason: uploaded[path] ? (inOfficial ? "공식 원본과 내용이 다름" : "공식 원본에 없는 조문") : "공식 원본의 조문이 빠짐",
+        reason: reasonOf(basis?.label ?? path, uploaded[path] ? subtree(uploaded, path) : "", inOfficial ? subtree(official, path) : ""),
         ...(basis ? { basis } : {}), fix: inOfficial ? `공식 원문으로 수정: "${basis?.text ?? official[path]}"` : "출처 확인 후 삭제 또는 근거 제시",
       });
     }
@@ -134,8 +152,13 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       : f.code.startsWith("PII_UNCERTAIN") || f.code === "PII_GUARDRAIL" ? "PII_UNCERTAIN" : undefined;
     if (!kind) continue;
     const m = /^page:(\d+)$/u.exec(f.evidence_ref);
-    marks.push({ page: m ? Number(m[1]) : null, start: null, end: null, kind, label: MARK_LABEL[kind], severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM", reason: f.message,
-      fix: kind === "PII_UNCERTAIN" ? "개인정보 여부 확인 후 삭제 또는 가림" : "지시문 형태 문구 삭제" });
+    // 사용자 문장(user_message)의 따옴표 안 문구를 그 쪽에서 찾아 밑줄. 못 찾으면 쪽 단위
+    const quoted = /\("([^"]{4,})"\)/u.exec(f.user_message ?? "")?.[1];
+    const page = m ? Number(m[1]) : null;
+    const hit = quoted && page !== null && pages[page] !== undefined ? locate([pages[page]!], quoted) : null;
+    marks.push({ page, start: hit?.start ?? null, end: hit?.end ?? null, kind, label: MARK_LABEL[kind], severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM",
+      reason: f.user_message ?? f.message,
+      fix: f.fix_hint ?? (kind === "PII_UNCERTAIN" ? "개인정보 여부 확인 후 삭제 또는 가림" : "지시문 형태 문구 삭제") });
   }
   return marks.sort((a, b) => (a.page ?? 1e9) - (b.page ?? 1e9) || (a.start ?? 0) - (b.start ?? 0));
 }

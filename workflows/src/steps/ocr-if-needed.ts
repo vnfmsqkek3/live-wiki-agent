@@ -17,7 +17,7 @@ export const CHUNK = 10;
 export const LOW_BLOCK = 0.85;
 export const LOW_PAGE = 0.9;
 
-type Block = { confidence: number };
+type Block = { confidence: number; bbox: number[] }; // bbox: 렌더 PNG 픽셀 [x0,y0,x1,y1] (services/ocr convert.py)
 type Page = { page_index: number; blocks: Block[] };
 type ChunkResult = { model: string; model_version: string; pages: Page[] };
 
@@ -36,10 +36,16 @@ export function lowConfidence(doc_id: string, pages: Page[]): Finding[] {
   for (const p of pages) {
     if (p.blocks.length === 0) continue;
     const avg = p.blocks.reduce((s, b) => s + b.confidence, 0) / p.blocks.length;
-    const low = p.blocks.filter((b) => b.confidence < LOW_BLOCK).length;
+    const lowBlocks = p.blocks.filter((b) => b.confidence < LOW_BLOCK);
+    const low = lowBlocks.length;
     if (avg < LOW_PAGE || low > 0) {
       out.push(finding(STEP, avg < LOW_PAGE ? "MEDIUM" : "LOW", "OCR_LOW_CONFIDENCE",
-        `저신뢰 페이지 ${p.page_index + 1}: 평균 ${avg.toFixed(2)}, 저신뢰 블록 ${low}개`, `${doc_id}/work/ocr/result.json#page=${p.page_index}`));
+        `저신뢰 페이지 ${p.page_index + 1}: 평균 ${avg.toFixed(2)}, 저신뢰 블록 ${low}개`, `${doc_id}/work/ocr/result.json#page=${p.page_index}`, {
+          // 글자 내용은 마스킹 전이라 넣지 않고 위치만 (가장 불확실한 5곳)
+          location: { page: p.page_index + 1, bbox: [...lowBlocks].sort((a, b) => a.confidence - b.confidence).slice(0, 5).map((b) => b.bbox) },
+          user_message: `${p.page_index + 1}쪽에서 글자를 확실히 읽지 못한 부분이 ${low}곳 있습니다 (평균 인식 신뢰도 ${(avg * 100).toFixed(0)}%). 표시된 영역의 글자가 원문과 다를 수 있습니다.`,
+          fix_hint: "표시된 영역이 흐리거나 기울어졌거나 손글씨인지 확인해 주세요. 300dpi 이상으로 반듯하게 다시 스캔하거나, 가능하면 글자가 선택되는 PDF 원본을 올려 주세요.",
+        }));
     }
   }
   return out;

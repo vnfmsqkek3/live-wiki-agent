@@ -81,7 +81,17 @@ describe("OcrIfNeeded", () => {
 
 describe("lowConfidence", () => {
   it("LOW when only some blocks are low but page average is fine", () => {
-    const f = lowConfidence("d", [{ page_index: 0, blocks: [{ confidence: 0.99 }, { confidence: 0.99 }, { confidence: 0.84 }] }]);
+    const b = (confidence: number, y: number) => ({ confidence, bbox: [40, y, 900, y + 40] });
+    const f = lowConfidence("d", [{ page_index: 0, blocks: [b(0.99, 100), b(0.99, 200), b(0.84, 300)] }]);
     expect(f[0]!.severity).toBe("LOW");
+  });
+
+  it("tells the uploader which page and where (1-based page, low-confidence block boxes), never the raw text", () => {
+    const b = (confidence: number, y: number, text: string) => ({ confidence, bbox: [40, y, 900, y + 40], text });
+    const f = lowConfidence("d", [{ page_index: 2, blocks: [b(0.6, 100, "010-1234-5678"), b(0.95, 200, "ok"), b(0.7, 300, "흐림")] }]);
+    expect(f[0]!.location).toEqual({ page: 3, bbox: [[40, 100, 900, 140], [40, 300, 900, 340]] });
+    expect(f[0]!.user_message).toMatch(/^3쪽에서 .* 2곳/);
+    expect(f[0]!.fix_hint).toBeTruthy();
+    expect(JSON.stringify(f[0])).not.toContain("1234");
   });
 });
