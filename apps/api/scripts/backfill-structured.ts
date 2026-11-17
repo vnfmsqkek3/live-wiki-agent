@@ -19,7 +19,7 @@ type Seg = { page_index: number; text: string; figures?: import('../src/steps/st
 const only = process.argv.includes('--doc') ? process.argv[process.argv.indexOf('--doc') + 1] : undefined;
 const overwrite = arg('--overwrite');
 const docs = (await storeFromEnv().listDocs()).filter((d) => d.lifecycle !== 'DELETED' && (!only || d.doc_id === only));
-const n = { docs: docs.length, target: 0, skipped_done: 0, no_segments: 0, pages: 0, saved: 0, rejected: 0, failed: 0 };
+const n = { docs: docs.length, target: 0, skipped_done: 0, no_segments: 0, pages: 0, saved: 0, rejected: 0, failed: 0, fallback: 0 };
 const structure = (prompt: string) => structured<{ markdown: string }>('HAIKU', STRUCTURE_SYSTEM, prompt, 'submit_page', STRUCTURE_SCHEMA as unknown as Record<string, unknown>);
 
 for (let k = 0; k < docs.length; k += 4) {
@@ -30,12 +30,12 @@ for (let k = 0; k < docs.length; k += 4) {
     if (!keys.length) { n.no_segments++; return; }
     const segs = (await Promise.all(keys.map((x) => getJson<Seg>(x)))).sort((a, b) => a.page_index - b.page_index);
     const todo = segs.filter((s) => needsStructure(s.text, s.figures)).length;
-    if (!todo) return;
+    // 재구성할 쪽이 없어도 structurePages 가 정리본 대체(TEXT)를 쓴다
     n.target++;
     if (!apply) { n.pages += todo; return; }
     // structurePages 안에서 쪽 단위로 다시 동시 4 (문서 4 × 쪽 4 = 최대 16 호출)
     const r = await structurePages({ structure, putJson }, d.doc_id, segs);
-    n.pages += r.pages; n.saved += r.saved; n.rejected += r.rejected; n.failed += r.failed;
+    n.pages += r.pages; n.saved += r.saved; n.rejected += r.rejected; n.failed += r.failed; n.fallback += r.fallback;
   }));
 }
 console.log(JSON.stringify({ env: envName, mode: apply ? 'apply' : 'check', ...n }));
