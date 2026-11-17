@@ -6,11 +6,11 @@ const REASON: Record<string, string> = { MISSING_LINK: '주소가 문서에 없�
 
 export const withReference = (text: string, s: RefSuggestion) => `${text.trimEnd()}\n\n- 참고 주소 (${s.item}): ${s.url}`;
 
-export function RefSuggestions({ items, onInsert }: { items: RefSuggestion[]; onInsert?: (s: RefSuggestion) => void }) {
+export function RefSuggestions({ items, onInsert, heading }: { items: RefSuggestion[]; onInsert?: (s: RefSuggestion) => void; heading?: string }) {
   if (!items.length) return null;
   return (
     <section aria-labelledby="ref-h" className="ref-suggestions">
-      <h3 className="section" id="ref-h">확인할 것: 웹에서 찾은 참고 주소 {items.length}건</h3>
+      <h3 className="section" id="ref-h">{heading ?? `확인할 것: 웹에서 찾은 참고 주소 ${items.length}건`}</h3>
       <p className="note">문서가 가리키지만 주소가 없거나 바뀌었을 수 있는 대상을 공개 웹에서 찾았습니다. 웹 정보라 근거로 인용하지 않습니다. 맞는지 확인한 뒤 넣으세요.</p>
       <ul className="fixes">{items.map((s) => (
         <li key={s.finding_id} className="fix">

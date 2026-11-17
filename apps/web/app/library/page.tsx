@@ -7,10 +7,10 @@ import { PageHeader } from '../page-header';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, apiBlobUrl, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
+import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
-import { RefSuggestions, withReference } from '../ref-suggestions';
+import { RefSuggestions, withReference, type RefSuggestion } from '../ref-suggestions';
 import { Changes, PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
 
@@ -59,29 +59,6 @@ function groupBasis(basis: Basis[]) {
     by.set(key, g);
   }
   return [...by.values()];
-}
-/** 그림이 있는 쪽의 이미지(개인정보 가린 쪽 이미지). 누르거나 본문의 '(그림 n)'을 누르면 크게 */
-function PageFigure({ docId, page, zoom, setZoom, thumb = true }: { docId: string; page: number; zoom: boolean; setZoom: (v: boolean) => void; thumb?: boolean }) {
-  const [url, setUrl] = useState<string | null>(null);
-  const ref = useRef<HTMLDialogElement>(null);
-  useEffect(() => {
-    let u: string | null = null;
-    setUrl(null);
-    apiBlobUrl(`/v1/library/${encodeURIComponent(docId)}/pages/${page}/image`).then((x) => { u = x; setUrl(x); }).catch(() => setUrl(''));
-    return () => { if (u) URL.revokeObjectURL(u); };
-  }, [docId, page]);
-  useEffect(() => { const dlg = ref.current; if (!dlg) return; if (zoom && !dlg.open) dlg.showModal(); if (!zoom && dlg.open) dlg.close(); }, [zoom]);
-  if (url === '') return null;
-  return (
-    <figure className={thumb ? 'page-figure' : 'page-figure-hidden'}>
-      {!thumb ? null : url ? <button type="button" className="fig-thumb" onClick={() => setZoom(true)} aria-label={`${page}쪽 그림 크게 보기`}><img src={url} alt={`${page}쪽 이미지 (개인정보는 가림)`} /></button> : <p className="note">그림을 불러오는 중입니다.</p>}
-      {thumb && <figcaption className="note">{page}쪽 그림 · 누르면 크게 봅니다. 개인정보는 가렸습니다.</figcaption>}
-      <dialog ref={ref} className="fig-zoom" onClose={() => setZoom(false)} onClick={(e) => { if (e.target === ref.current) setZoom(false); }}>
-        {url && <img src={url} alt={`${page}쪽 이미지 크게 (개인정보는 가림)`} />}
-        <form method="dialog"><button className="btn">닫기</button></form>
-      </dialog>
-    </figure>
-  );
 }
 
 /** 원본: 모든 쪽을 원래 모습 그대로(개인정보만 검게) 세로로. 쪽별 파일 presigned URL(5분), 지연 로딩, 누르면 크게 */
@@ -262,15 +239,16 @@ const REVIEW_STATE: Record<string, string> = {
 };
 
 /** 결재 대상: 맨 위에 '확인이 필요한 이유'. 누르면 그 쪽·밑줄로 이동 */
-function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) => void }) {
-  const r = d.review!;
-  const located = d.pages.flatMap((pg, pi) => pg.marks.filter((m) => m.severity !== 'LOW').map((m, k) => ({ pi, n: k + 1, m })));
-  const total = located.length + d.doc_marks.length + (d.pages.length ? 0 : r.findings.length);
+function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n: number) => void; onInsert?: (s: RefSuggestion) => void }) {
+  const r = d.review;
+  const located = r ? d.pages.flatMap((pg, pi) => pg.marks.filter((m) => m.severity !== 'LOW').map((m, k) => ({ pi, n: k + 1, m }))) : [];
+  const total = located.length + (r ? d.doc_marks.length : 0) + (r && !d.pages.length ? r.findings.length : 0);
+  const refs = d.suggestions ?? []; // 참조 확인(웹 참고 주소): 게시는 막지 않는 참고 묶음 (사용자 요청 11/18)
   return (
     <section aria-labelledby="why-h" className="notice" style={{ display: 'block' }}>
-      <h3 className="section" id="why-h" style={{ marginTop: 0 }}>확인이 필요한 이유 <span className="danger-text">{total}건</span></h3>
-      <p className="note">{r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>
-      {total === 0 && <p className="note">자동 검사에서 찾은 문제가 없습니다. 본문을 읽고 판단하세요.</p>}
+      <h3 className="section" id="why-h" style={{ marginTop: 0 }}>확인이 필요한 이유 <span className="danger-text">{total}건</span>{refs.length > 0 && <span className="note"> · 참고 {refs.length}건</span>}</h3>
+      {r && <p className="note">{r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>}
+      {total === 0 && <p className="note">{refs.length ? '게시를 막는 문제는 없습니다. 아래 참고를 확인하세요.' : '자동 검사에서 찾은 문제가 없습니다. 본문을 읽고 판단하세요.'}</p>}
       <ul className="fixes">
         {located.map(({ pi, n, m }) => (
           <li key={`${pi}-${n}`} className={`fix${m.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
@@ -281,7 +259,7 @@ function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) =
         {d.doc_marks.map((m, i) => (
           <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p>{m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}</li>
         ))}
-        {!d.pages.length && r.findings.map((f, i) => (
+        {r && !d.pages.length && r.findings.map((f, i) => (
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
             <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : '확인 필요'}</p>
             <p style={{ margin: 0 }}>{f.message}</p>
@@ -289,6 +267,7 @@ function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) =
           </li>
         ))}
       </ul>
+      <RefSuggestions items={refs} onInsert={onInsert} heading={`참고 (게시는 막지 않음): 웹에서 찾은 참고 주소 ${refs.length}건`} />
     </section>
   );
 }
@@ -405,7 +384,6 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const [zoomUrl, setZoomUrl] = useState<string | null>(null); // 정리본 인라인 그림 크게 보기
   const [images, setImages] = useState(false); // 필터링된 원문: 쪽 이미지(개인정보만 가림). 탭은 정리본·필터링된 원문 두 개 (사용자 결정 11/18)
   const [editing, setEditing] = useState<string | false>(false); // 위키 수정 (규칙 1). 문자열이면 그 본문으로 연다
-  const [zoom, setZoom] = useState(false); // 쪽 그림 크게 보기
   const [fixOpen, setFixOpen] = useState(false);
   const [reasonsOpen, setReasonsOpen] = useState(false);
   useEffect(() => {
@@ -424,8 +402,6 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const page = d.pages[p];
   // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
   // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
-  // 그림이 있는 쪽: 글 옆(모바일은 위)에 쪽 이미지. 목록(image_pages)이 비어도 Vision 정리본·'(그림 n)'이 있으면 시도한다(없으면 PageFigure 가 숨김)
-  const hasFig = !!page && ((d.image_pages ?? []).includes(page.page) || page.structured_source === 'VISION' || /[([]그림\s*\d/u.test(page.structured ?? page.text));
   const figMap = Object.fromEntries((page?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
   const showImages = images || !page?.structured;
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
@@ -484,16 +460,12 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             const t = e.target as HTMLElement;
             const z = t.closest<HTMLElement>('[data-zoom]')?.dataset.zoom;
             if (z) { setZoomUrl(z); return; }
-            const ref = t.closest<HTMLElement>('.fig-ref');
-            if (ref) { const u = figMap[Number(ref.dataset.fig)]; if (u) setZoomUrl(u); else setZoom(true); }
           }}>
-            {/* 정리본에는 쪽 전체 이미지를 두지 않는다(사용자 요청 11/18). '(그림 n)'은 잘라낸 그림, 없을 때만 쪽 이미지 확대 */}
-            {hasFig && <PageFigure docId={d.doc_id} page={page.page + 1} zoom={zoom} setZoom={setZoom} thumb={false} />}
             <div className="page-body">
             <p className="note">{page.structured_source === 'VISION'
               ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원래 모습은 \'필터링된 원문\'에서 확인하세요.'
-              : "AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. '(그림 n)'이 붙은 문장은 AI가 그림을 보고 쓴 설명이라 근거로 인용하지 않습니다."}</p>
-            <DocText text={page.structured!} figures={figMap} />
+              : "AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. 그림을 보고 쓴 설명은 근거로 인용하지 않습니다. 그림을 누르면 크게 봅니다."}</p>
+            <DocText text={page.structured!} figures={figMap} hideFigRefs />
             <ZoomDialog url={zoomUrl} onClose={() => setZoomUrl(null)} />
             </div>
           </div>
@@ -505,13 +477,13 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       )}
 
       </div><div className="document-more">
-      <RefSuggestions items={d.suggestions ?? []} onInsert={canWikiEdit ? (sg) => { setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); window.scrollTo({ top: 0, behavior: 'smooth' }); } : undefined} />
       <div className="detail-cards" aria-label="문서 상세 항목">
       {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
       {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
       {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
-      {d.review && <><button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump} /></DetailPopup></>}
+      {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
+        onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); window.scrollTo({ top: 0, behavior: 'smooth' }); } : undefined} /></DetailPopup></>}
       <Versions id={d.doc_id} />      {d.verification && (
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>

@@ -65,7 +65,8 @@ export function parseDocText(text: string): DocBlock[] {
 
 type Numbered = { m: Mark; n: number };
 /** figures: 그림 k(1부터) → 잘라낸 그림 URL. 있으면 '(그림 k)'가 처음 나온 문단·단계 바로 아래에 그림을 넣는다 (사용자 요청 11/18) */
-export function DocText({ text, marks = [], active = 0, onPick = () => {}, figures }: { text: string; marks?: Numbered[]; active?: number; onPick?: (n: number) => void; figures?: Record<number, string> }) {
+/** hideFigRefs: '(그림 n)' 글자는 화면에서 지운다(그림 위치 결정에만 쓰고, 그림은 그 단계 아래에 나옴, 사용자 요청 11/18) */
+export function DocText({ text, marks = [], active = 0, onPick = () => {}, figures, hideFigRefs = false }: { text: string; marks?: Numbered[]; active?: number; onPick?: (n: number) => void; figures?: Record<number, string>; hideFigRefs?: boolean }) {
   const spans = marks.filter(({ m }) => m.start !== null && m.end !== null).slice().sort((a, b) => a.m.start! - b.m.start!);
   function marked(start: number, end: number): ReactNode {
     const out: ReactNode[] = [];
@@ -89,7 +90,7 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {}, figur
       const s = start + match.index!;
       out.push(<Fragment key={`plain-${at}`}>{marked(at, s)}</Fragment>);
       out.push(match[1] !== undefined ? <strong key={s}>{inline(s + 2, s + match[0].length - 2)}</strong>
-        : match[2] !== undefined ? <button type="button" className="fig-ref" data-fig={match[2]} key={s} aria-label={`그림 ${match[2]} 크게 보기`}>{marked(s, s + match[0].length)}</button>
+        : match[2] !== undefined ? (hideFigRefs ? null : <button type="button" className="fig-ref" data-fig={match[2]} key={s} aria-label={`그림 ${match[2]} 크게 보기`}>{marked(s, s + match[0].length)}</button>)
         : <span className="pii" key={s}>{marked(s, s + match[0].length)}</span>);
       at = s + match[0].length;
     }
