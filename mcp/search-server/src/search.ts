@@ -151,6 +151,8 @@ export interface Result {
   business_path: string[]; tags: string[];
   /** 업무 분류 경로 (색인 시점) */
   category_path?: string;
+  /** 근거 조각이 있는 쪽 (1부터). 화면 쪽 썸네일용 */
+  page?: number;
   quotable: boolean; // false = 그림 묘사 등 원문이 아닌 결과. 근거 인용 금지
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
@@ -193,7 +195,8 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
-      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(typeof m["category_path"] === "string" ? { category_path: m["category_path"] } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
+      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(typeof m["category_path"] === "string" ? { category_path: m["category_path"] } : {}),
+      ...(typeof m["source_page"] === "number" && Number.isInteger(m["source_page"]) && m["source_page"] >= 0 ? { page: m["source_page"] + 1 } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
     });
   }
   return { kept, dropped: hits.length - kept.length };
