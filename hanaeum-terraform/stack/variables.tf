@@ -42,8 +42,41 @@ variable "web_origins" {
   default = ["http://localhost:3000"]
 }
 
-# 문서 처리 오케스트레이터 이미지 (dhxorb96 agents/, linux/arm64). ECR: SSM PIPELINE_ECR_REPO. null 이면 Runtime 미생성
-variable "pipeline_runtime_image" {
+# 문서 처리 오케스트레이터 이미지 태그 (dhxorb96 agents/, linux/arm64, ECR SSM PIPELINE_ECR_REPO). null 이면 Runtime 미생성
+variable "pipeline_runtime_image_tag" {
   type    = string
   default = null
+}
+
+# 계정 단위 X-Ray → CloudWatch Logs (Transaction Search). 계정당 env 하나에서만 true
+variable "enable_transaction_search" {
+  type    = bool
+  default = false
+}
+
+# 웹·API 이미지로 빌드할 커밋 (dhxorb96 apps/web·apps/api). null 이면 웹·API 미배포
+variable "webapp_source_ref" {
+  type    = string
+  default = null
+}
+
+# Lambda 빌드 커밋 (공개 저장소). yoyo0704 는 필수 (workflows·auth-triggers), dhxorb96·let522mj 는 공유 이름 Lambda 를 배포할 때
+variable "lambda_refs" { type = map(string) }
+
+# OCR 이미지 커밋을 Lambda 커밋과 분리 (OCR 측정 중 엔드포인트 교체 방지). null 이면 lambda_refs.yoyo0704
+variable "ocr_source_ref" {
+  type    = string
+  default = null
+}
+
+# agents/ 이미지(파이프라인·가이드) 커밋. null 이면 webapp_source_ref
+variable "agents_source_ref" {
+  type    = string
+  default = null
+}
+
+variable "demo_password" {
+  type      = string
+  default   = null
+  sensitive = true
 }

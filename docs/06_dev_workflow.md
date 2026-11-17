@@ -52,6 +52,9 @@
 - 실패 집계는 **기능 × 원인** 단위로 센다. AWS 일시 오류(Throttling, 5xx)는 세지 않는다.
 - 같은 기능이 같은 원인으로 3회 실패하면 그 기능을 멈추고 재현 방법·로그·막힌 의존성을 사용자에게 보고한다. 독립된 다른 작업은 계속한다.
 - QA agent는 직접 고치지 않고 Owner에게 `요청기록/`으로 요청한다.
+- **개인 dev 원칙** (사용자 지시 11/16, 요청기록 2242): 개인 dev(`-{닉네임}`)는 기능 테스트용이다. 공유 dev·prod는 개인 자원을 참조하지 않는다 (팀원 Lambda도 공유 dev·prod는 `lambda_refs` 커밋으로 CodeBuild가 빌드한 공유 이름 Lambda). 각자 정리 스크립트를 둔다: 기본은 점검, 공유 자원이 참조하면 중단, `--apply`로 삭제 (`hanaeum-terraform/scripts/personal-dev-check.sh <닉네임>`, let522mj `services/legal-etl/scripts/destroy-dev-let522mj.sh`). 공유 테이블·버킷의 데이터는 정리 대상이 아니다.
+- **배포 원칙** (사용자 지시 11/16): 공유 dev·prod는 `terraform apply`만으로 AWS(CodeBuild 등) 안에서 빌드·배포한다. 로컬에서 빌드한 zip·이미지를 올리지 않는다. 빌드할 커밋은 원격에 push된 것이어야 한다.
+- **공유 dev 변경 규칙** (11/16 합의, let522mj·yoyo0704): 파이프라인 실행 중에는 단계 Lambda 재배포와 Gateway 정책(AgentCore Policy) 변경을 피한다. 해야 하면 `공통기록/`에 변경 시각을 남기고, 변경 직후 `workflows/scripts/smoke-agentcore.sh`(허용)와 비허용 호출(거부)을 함께 확인한다. 근거: 11/16 12:56~13:07 UTC Policy 조건 오류로 G-REV-04 Promote 가 거부됨
 
 ## 5. 보안 (public 저장소)
 

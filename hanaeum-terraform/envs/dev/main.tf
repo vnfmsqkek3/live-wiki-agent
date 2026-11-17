@@ -9,31 +9,44 @@ terraform {
   }
 }
 
-module "stack" {
-  source      = "../../stack"
-  env         = "dev"
-  name_suffix = "-dev"
-  owner       = "team"
+# 데모 계정 공통 비밀번호: TF_VAR_demo_password (.env.local, git 제외)
+variable "demo_password" {
+  type      = string
+  default   = null
+  sensitive = true
+}
 
-  # dev: 각 Owner 의 개인 Lambda 연결 (요청기록 11/16 dhxorb96_to_yoyo0704 1809, let522mj_to_yoyo0704_lambda배포)
-  step_functions = {
-    file_structure_check = "hanaeum-mvp-lambda-file-structure-check-dhxorb96"
-    pii_scan             = "hanaeum-mvp-lambda-pii-scan-dhxorb96"
-    injection_scan       = "hanaeum-mvp-lambda-injection-scan-dhxorb96"
-    classify             = "hanaeum-mvp-lambda-classify-dhxorb96"
-    trust_gate           = "hanaeum-mvp-lambda-trust-gate-dhxorb96"
-    wait_for_approval    = "hanaeum-mvp-lambda-wait-for-approval-dhxorb96"
-    finalize             = "hanaeum-mvp-lambda-finalize-dhxorb96"
-    text_layer_extract   = "hanaeum-mvp-lambda-text-layer-extract-let522mj"
-    segment_build        = "hanaeum-mvp-lambda-segment-build-let522mj"
-    promote              = "hanaeum-mvp-lambda-promote-let522mj"
-    kb_ingest            = "hanaeum-mvp-lambda-kb-ingest-let522mj"
+module "stack" {
+  source        = "../../stack"
+  demo_password = var.demo_password
+  env           = "dev"
+  name_suffix   = "-dev"
+  owner         = "team"
+
+  # 공유 dev 는 개인 dev 자원을 참조하지 않는다 (사용자 지시 11/16, 요청기록 2242, docs/06).
+  # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
+  team_lambdas = [
+    "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "interceptor", "mcp-privacy", "mcp-approval",
+  ]
+  lambda_refs = {
+    yoyo0704 = "9244d28" # workflows·auth-triggers·services/ocr
+    dhxorb96 = "9fd2a05" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    let522mj = "dc1ba61" # PR #12 병합 (실무 보완 밑줄·색인 실패 문장)
   }
-  kb_chunker_lambda_arn = "hanaeum-mvp-lambda-kb-chunker-let522mj"
-  kb_reader_role_arns   = ["hanaeum-mvp-role-mcp-let522mj"]
-  # SQS 트리거는 공유 이름 type-detection (dhxorb96 개인 Role 에 SQS 권한 없음). zip: scripts/build-team-lambdas.sh
-  team_lambdas = ["type-detection"]
+
+  ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
+
+  # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
+  # null: webapp_source_ref 커밋으로 오케스트레이터 이미지를 CodeBuild 빌드. 지정하면 그 태그 고정(빌드 안 함)
+  pipeline_runtime_image_tag = null
+  enable_transaction_search  = true
+
+  # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
+  webapp_source_ref = "9fd2a05" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  agents_source_ref = "9fd2a05" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
 output "demo_users_secret" { value = module.stack.demo_users_secret }
+output "web_url" { value = module.stack.web_url }

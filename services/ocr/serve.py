@@ -19,12 +19,16 @@ def load():
     try:
         from paddleocr import PaddleOCR  # 무거운 import 는 백그라운드에서
 
+        import paddle
+
+        # 장치는 paddle 이 고른다 (GPU 가 보이면 GPU). 참고 구현처럼 시작 시 인식 결과를 남겨 진단에 쓴다
+        print("paddle", paddle.__version__, "cuda_compiled", paddle.is_compiled_with_cuda(),
+              "gpu_count", paddle.device.cuda.device_count(), "device", paddle.device.get_device(), flush=True)
         MODEL["ocr"] = PaddleOCR(
             lang="korean",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
-            device=os.environ.get("OCR_DEVICE", "gpu"),
         )
         print("model loaded", flush=True)
     except Exception as e:  # noqa: BLE001
@@ -42,7 +46,8 @@ def run(req):
             s3.download_file(req["bucket"], p["key"], path)
             with Image.open(path) as im:
                 w, h = im.size
-            res = MODEL["ocr"].predict(path)[0]
+            r = MODEL["ocr"].predict(input=path)[0]
+            res = r.json.get("res", {}) if hasattr(r, "json") else r  # 참고 구현과 같은 결과 접근
             pages.append(to_page(p["page_index"], w, h, res))
     return {"doc_id": req["doc_id"], "model": "paddleocr-korean-PP-OCRv5", "model_version": "paddleocr==3.7.0", "pages": pages}
 
