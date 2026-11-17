@@ -154,3 +154,23 @@ test('여러 번 찾기: 1차 근거의 항목마다 2차 검색(같은 문서 �
   assert.equal(r.steps.length, 1);
   assert.match(r.uncertainty, /삼성 절차는 근거에서 더 찾지 못했습니다/);
 });
+
+test('섹션 형식: 종류×갈래 조합마다 2차 검색, 섹션 단계 출처 검증, 근거 없는 조합은 안내만 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = (id: string, snippet: string) => ({ doc_id: 'doc_M', provision_id: id, title: '과천 매뉴얼', snippet, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const });
+  const calls: string[] = [];
+  const r = await guide('4층 프린터 연결', { model: 'm',
+    search: async (q) => { calls.push(q); return q.startsWith('macOS 삼성') ? [E('doc_M#p20', '삼성 macOS 설치')] : q.startsWith('4층') ? [E('doc_M#p8', '4층 목록')] : []; },
+    expand: async () => ({ items: ['삼성', '브라더'], variants: ['macOS', 'Windows'] }),
+    draft: async () => ({ steps: [], uncertainty: '', sections: [
+      { title: '4층 프린터 목록', note: '', steps: [{ text: '⑧ 삼성', sources: ['doc_M#p8'] }] },
+      { title: 'macOS에서 삼성 프린터 연결', note: '', steps: [{ text: '설치 파일 실행', sources: ['doc_M#p20'] }, { text: '지어낸 단계', sources: ['none'] }] },
+      { title: 'macOS에서 브라더 프린터 연결', note: '매뉴얼에 해당 절차 없음', steps: [] },
+    ] }) });
+  assert.deepEqual(calls.slice(1).map((c) => c.split(' ').slice(0, 2).join(' ')), ['macOS 삼성', 'Windows 삼성', 'macOS 브라더', 'Windows 브라더']);
+  assert.equal(r.sections?.length, 3);
+  assert.equal(r.sections![1]!.steps.length, 1);
+  assert.equal(r.sections![2]!.note, '매뉴얼에 해당 절차 없음');
+  assert.equal(r.steps.length, 2);
+  assert.equal(r.dropped_steps, 1);
+});

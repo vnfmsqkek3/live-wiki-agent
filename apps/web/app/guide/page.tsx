@@ -53,8 +53,12 @@ function GuideView() {
           </p>
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}
           {g.status === 'NO_EVIDENCE' ? <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
-            <ol className="steps">
-              {g.steps.map((s, i) => (
+            <>{(g.sections?.length ? g.sections : [{ title: '', note: '', steps: g.steps }]).map((sec, k) => { const list = sec.steps; return (
+              <section key={k} className="guide-section" aria-label={sec.title || '가이드'}>
+                {sec.title && <h2 className="section">{sec.title}</h2>}
+                {sec.note && <p className="note">{sec.note}</p>}
+                {list.length > 0 && <ol className="steps">
+              {list.map((s, i) => (
                 <li key={i}>
                   <p style={{ margin: 0 }}>{s.text}</p>
                   {s.sources.map((e) => (
@@ -65,7 +69,8 @@ function GuideView() {
                   ))}
                 </li>
               ))}
-            </ol>
+                </ol>}
+              </section>); })}</>
           )}
           {g.uncertainty && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}>{g.uncertainty}</p></>}
           <div className="actions">
