@@ -5,7 +5,7 @@ import { Gate, Tabs } from './tabs';
 export const metadata: Metadata = { title: 'Hanaeum Wiki', description: 'Hanaeum Wiki — 근거 조문과 검증 상태로 확인하는 사내 업무 지식. 하나은행 가상 데이터 시연 서비스입니다.' };
 export const viewport: Viewport = {
   width: 'device-width', initialScale: 1,
-  themeColor: [{ media: '(prefers-color-scheme: light)', color: '#ffffff' }, { media: '(prefers-color-scheme: dark)', color: '#0A1C36' }],
+  themeColor: '#ffffff',
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

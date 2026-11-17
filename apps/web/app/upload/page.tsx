@@ -60,9 +60,9 @@ export default function Upload() {
     <>
       <PageHeader title="문서 등록" description="파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다." action={<button className="btn solid" type="submit" form="upload-form" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button>} />
       <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
-      <div className="layout-a"><div className="primary"><form id="upload-form" onSubmit={submit} className="sheet" noValidate>
+      <div className="layout-a upload-layout"><div className="primary"><form id="upload-form" onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
-        <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />
+        <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" />
         <p id="f-help" className={fileErr ? 'error' : 'note'}>{fileErr || 'PDF, DOCX, HWPX, PNG, JPG 파일, 50MB 이하'}</p>
 
         <label className="lbl" htmlFor="t">문서명 <span className="note">(선택)</span></label>

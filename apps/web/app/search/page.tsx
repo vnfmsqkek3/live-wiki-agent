@@ -90,13 +90,13 @@ function Results() {
         recent === null ? <p className="note">불러오는 중입니다.</p> : recent.length === 0 ? <p className="note">볼 수 있는 게시 문서가 아직 없습니다.</p> : (
           <>
             <p className="note">전체 게시 문서 {recent.length}건 (최근 변경 순). 검색어를 넣으면 관련도 순으로 좁혀집니다.</p>
-            <ul className="ledger card-grid">
+            <ul className="ledger result-list">
               {recent.map((i) => (
                 <li className="entry" key={i.doc_id}>
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
                   <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                   <FreshnessFlag freshness={i.freshness} />
-                  {i.summary && <p className="note" style={{ margin: 0 }}>{i.summary}</p>}
+                  {i.summary && <p className="card-summary">{i.summary}</p>}
                 </li>
               ))}
             </ul>
@@ -107,13 +107,12 @@ function Results() {
       ) : (
         <>
           <p className="note">{items.length ? `열람 권한이 있는 승인 문서 ${items.length}건, 관련도 높은 순` : '정확한 근거로 확인된 문서는 없습니다. 아래 관련 있을 수 있는 문서를 참고하세요.'}</p>
-          <ul className="ledger card-grid">
+          <ul className="ledger result-list">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
                 <Seal i={i} />
                 <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
-                <p className="quote">{i.snippet}</p>
-                <FreshnessFlag freshness={i.freshness} />
+                                <FreshnessFlag freshness={i.freshness} />
                 <dl>
                   {i.basis && <><dt>근거</dt><dd>{i.basis}</dd></>}
                   {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
@@ -122,6 +121,8 @@ function Results() {
                   {i.stars !== undefined && <><dt>평점</dt><dd><span className="num">{i.stars.toFixed(1)} / 5</span></dd></>}
                   <dt>찾은 이유</dt><dd>{i.reason}</dd>
                 </dl>
+                <p className="card-summary">{i.snippet}</p>
+                <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
               </li>
             ))}
           </ul>
@@ -129,13 +130,14 @@ function Results() {
           {related.length > 0 && (
             <section aria-labelledby="rel-h" className="weak-results">
               <h2 className="section" id="rel-h">관련 있을 수 있는 문서 <span className="note">정확한 근거로 확인되지는 않음</span></h2>
-              <ul className="ledger card-grid">
+              <ul className="ledger result-list">
                 {related.map((i, n) => (
                   <li className="entry" key={`w-${i.doc_id}-${n}`}>
                     <Seal i={i} />
                     <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
-                    <p className="quote">{i.snippet}</p>
-                    <dl>{i.basis && <><dt>관련 조문</dt><dd>{i.basis}</dd></>}<dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
+                                        <dl>{i.basis && <><dt>관련 조문</dt><dd>{i.basis}</dd></>}<dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
+                    <p className="card-summary">{i.snippet}</p>
+                    <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
                   </li>
                 ))}
               </ul>
