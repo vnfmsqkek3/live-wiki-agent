@@ -55,7 +55,7 @@ async function setup() {
 test('목록: 권한 내 게시 문서 + 본인 문서만, 타인 미게시·권한 밖 제외', async () => {
   const t = await setup();
   const ids = ((await (await t.get('author', '/v1/library')).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id).sort();
-  assert.deepEqual(ids, ['DRAFT', 'KH', 'REG', 'REG_NEXT']);
+  assert.deepEqual(ids, ['DRAFT', 'KH', 'REG']); // 같은 law_id의 개정본(REG_NEXT, 시행 전)은 REG 카드 하나로 묶임
 });
 
 test('카드: 요약·태그·연관(권한 밖 규정 제외)·밑줄 수(대조 통과분만)', async () => {
@@ -221,4 +221,22 @@ test('검색 related(근거로 확인되지 않은 관련 문서): items와 나�
   const s = searchVia(async () => ({ items: [hit('A')], related: [{ ...hit('B'), search_status: 'UNVERIFIED' }, { ...hit('A') }] }));
   const out = await s('q', { sub: 'u', groups: ['USER'] }, { tags: [] }) as { doc_id: string; weak?: boolean }[];
   assert.deepEqual(out.map((x) => [x.doc_id, !!x.weak]), [['A', false], ['B', true], ['A', true]]);
+});
+
+test('한 규정 = 한 문서: 같은 law_id 개정본은 카드 1장(오늘 시행 중인 판이 대표, 버전 수), 상세에서 버전 목록·직전 판과 바뀐 곳 (사용자 지적 11/17)', async () => {
+  const t = await setup();
+  const { items } = (await (await t.get('user', '/v1/library?type=REGULATION')).json()) as { items: { doc_id: string; version_count: number }[] };
+  assert.deepEqual(items.map((i) => [i.doc_id, i.version_count]), [['REG', 2]]);
+  t.setPages((id) => [{ page: 0, text: id === 'REG_NEXT' ? '제12조(승인) ① 여신 금액이 3억원 이상인 경우 본부 승인을 받아야 한다.\n제13조 a\n제14조 b' : '제12조(승인) ① 여신 금액이 5억원 이상인 경우 본부 승인을 받아야 한다.\n제13조 a\n제14조 b' }]);
+  const v = (await (await t.get('user', '/v1/library/REG_NEXT/versions')).json()) as { items: { doc_id: string; version_no: number; current: boolean }[]; diff: { previous: { doc_id: string; version_no: number }; count: number } };
+  assert.deepEqual(v.items.map((i) => [i.doc_id, i.version_no, i.current]), [['REG', 1, true], ['REG_NEXT', 2, false]]);
+  assert.equal(v.diff.previous.doc_id, 'REG');
+  assert.ok(v.diff.count >= 1);
+});
+
+test('검색 결과 문서 단위: 같은 문서의 조문 조각은 카드 1장 + 맞은 조문 목록, 순서는 문서의 최고 순위 (사용자 지적 11/17)', async () => {
+  const { groupByDoc } = await import('../src/search.ts');
+  const h = (doc_id: string, basis: string) => ({ doc_id, basis, snippet: `${basis} 내용` });
+  const g = groupByDoc([h('REG', '제12조제1항'), h('KH', '-'), h('REG', '제14조제1항'), h('REG', '제12조제1항')]);
+  assert.deepEqual(g.map((x) => [x.doc_id, x.matches.map((m) => m.basis)]), [['REG', ['제12조제1항', '제14조제1항']], ['KH', ['-']]]);
 });

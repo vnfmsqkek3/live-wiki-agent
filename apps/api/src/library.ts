@@ -152,3 +152,28 @@ export function keywordItem(d: DocumentRecord) {
     search_status: 'FOUND', reason: '제목·요약에 검색어가 들어 있습니다',
   };
 }
+
+// ---- 한 문서 = 한 묶음 (사용자 지적 11/17 "공식규정이 여러 문서로 쪼개져 보인다", let522mj 요청) ----
+const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
+/** 묶음 키: 작성자가 연결한 series_id, 공식 규정은 Registry law_id(공식 근거라 자동), 그 밖은 문서 자신 */
+export const seriesKey = (d: DocumentRecord) => d.series_id ?? (typeOf(d) === 'REGULATION' && d.law_id ? `LAW#${d.law_id}` : d.doc_id);
+const day = (s?: string) => (s ? String(s).slice(0, 10) : '');
+/** 묶음 안 버전 순서(오래된 것 → 새것): 규정은 시행일·개정 ID, 그 밖은 version_no·등록일. version_no가 없으면 순서대로 매긴다 */
+export function orderVersions(series: DocumentRecord[]) {
+  const key = (d: DocumentRecord) => typeOf(d) === 'REGULATION' ? `${day(d.effective_from) || day(d.revision_id)}|${d.revision_id ?? ''}` : `${String(d.version_no ?? 1).padStart(4, '0')}|${d.created_at}`;
+  return [...series].sort((a, b) => key(a).localeCompare(key(b))).map((d, i) => ({ d, version_no: d.version_no ?? i + 1 }));
+}
+/** 대표 버전: 오늘 시행 중인 게시본(시행일 ≤ 오늘, 대체·종료 안 됨). 없으면 가장 새 게시본, 그것도 없으면 가장 새 것 */
+export function representative(series: DocumentRecord[], today = new Date().toISOString().slice(0, 10)) {
+  const ord = orderVersions(series).map((x) => x.d);
+  const pub = ord.filter((d) => d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED');
+  // 시행일이 없으면 개정 ID(날짜 형식)를 시행일로 본다 (Registry revision_id = 'YYYY-MM-DD')
+  const from = (d: DocumentRecord) => day(d.effective_from) || (/^\d{4}-\d{2}-\d{2}/.test(d.revision_id ?? '') ? day(d.revision_id) : '');
+  const inForce = pub.filter((d) => (!from(d) || from(d) <= today) && (!d.effective_to || day(d.effective_to) >= today));
+  return inForce.at(-1) ?? pub.at(-1) ?? ord.at(-1)!;
+}
+export function groupSeries(docs: DocumentRecord[]) {
+  const by = new Map<string, DocumentRecord[]>();
+  for (const d of docs) (by.get(seriesKey(d)) ?? by.set(seriesKey(d), []).get(seriesKey(d))!).push(d);
+  return by;
+}

@@ -4,8 +4,9 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/legal-parser';
-import { card, detailFilter, docDatesOf, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
+import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
+import { groupByDoc } from './search.ts';
 import {
   ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
@@ -392,9 +393,9 @@ export function createApp(deps: Deps) {
   const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
   const texts = async (id: string) => (deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page).map((p) => p.text) : []);
   /** 직전 버전과 바뀐 곳. 직전 버전을 볼 권한이 없으면 내용 없이 개수만 */
-  const versionDiff = async (a: Actor, d: DocumentRecord) => {
-    if (!d.previous_doc_id) return null;
-    const prev = await store.getDoc(d.previous_doc_id);
+  const versionDiff = async (a: Actor, d: DocumentRecord, prevDoc?: DocumentRecord) => {
+    if (!d.previous_doc_id && !prevDoc) return null;
+    const prev = prevDoc ?? await store.getDoc(d.previous_doc_id!);
     if (!prev) return null;
     const changes = diffDocuments(await texts(prev.doc_id), await texts(d.doc_id));
     const canSee = prev.owner === a.sub || hasRole(a, APPROVERS) || canRead(a, prev.acl_groups);
@@ -403,7 +404,10 @@ export function createApp(deps: Deps) {
   app.get('/v1/library', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
     const f = { type: c.req.query('type'), tag: c.req.query('tag'), q: c.req.query('q')?.slice(0, 200), ...detailFilter((k) => c.req.query(k)) };
-    const items = vis.filter((d) => d.lifecycle !== 'BLOCKED' && matches(d, f)).sort((x, y) => y.updated_at.localeCompare(x.updated_at)).map((d) => card(d, vis));
+    // 같은 문서의 여러 버전(규정 개정본, 작성자가 연결한 새 버전)은 카드 1장: 오늘 시행 중인 버전이 대표
+    const groups = [...groupSeries(vis.filter((d) => d.lifecycle !== 'BLOCKED')).values()];
+    const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f))
+      .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n }));
     return c.json({ items });
   });
   // 외부 법령 최신본 참고 (미검증). 첫 조회는 Browser라 수십 초 → 상세 본문과 따로 부른다
@@ -424,12 +428,18 @@ export function createApp(deps: Deps) {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
     const d = await libraryDoc(c, vis);
-    const sid = d.series_id ?? d.doc_id;
-    const series = vis.filter((x) => (x.series_id ?? x.doc_id) === sid || x.doc_id === sid);
+    const sid = seriesKey(d);
+    const series = vis.filter((x) => seriesKey(x) === sid || x.doc_id === d.series_id);
     if (!series.some((x) => x.doc_id === d.doc_id)) series.push(d);
-    const items = series.sort((x, y) => (x.version_no ?? 1) - (y.version_no ?? 1))
-      .map((x) => ({ doc_id: x.doc_id, title: x.title, version_no: x.version_no ?? 1, lifecycle: x.lifecycle, freshness: x.freshness, updated_at: x.updated_at, current: x.lifecycle === 'PUBLISHED' && x.freshness !== 'SUPERSEDED' }));
-    return c.json({ items, diff: await versionDiff(a, d) });
+    const ord = orderVersions(series);
+    const rep = representative(series);
+    const items = ord.map(({ d: x, version_no }) => ({ doc_id: x.doc_id, title: x.title, version_no, lifecycle: x.lifecycle, freshness: x.freshness, updated_at: x.updated_at,
+      effective_from: x.effective_from ?? null, current: x.doc_id === rep.doc_id }));
+    // 직전 버전: 작성자가 연결한 previous_doc_id, 없으면(규정 개정본) 순서상 바로 앞 버전
+    const i = ord.findIndex((x) => x.d.doc_id === d.doc_id);
+    const prev = d.previous_doc_id ? undefined : ord[i - 1]?.d;
+    const diff = await versionDiff(a, d, prev);
+    return c.json({ items, diff: diff && prev ? { ...diff, previous: { ...diff.previous, version_no: ord[i - 1]!.version_no } } : diff });
   });
 
   // 원본 내려받기 (사용자 요청 11/17): 상세를 볼 수 있는 사람만, 감사 기록. 차단·반려·삭제로 원본을 지운 문서는 없음
@@ -502,13 +512,15 @@ export function createApp(deps: Deps) {
     // 의미 검색은 조문 조각 상위 몇 개만 남는다 → 제목·요약·업무·태그에 검색어가 있는 게시 문서를 뒤에 더한다 (짧은 단어 검색 보완)
     const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
     const seen = new Set(sem.map((i) => i.doc_id));
-    const kw = (await visibleDocs(a)).filter((d) => d.lifecycle === 'PUBLISHED' && !seen.has(d.doc_id)
+    // 키워드 보완은 묶음 대표(오늘 시행 중인 판)만: 같은 규정의 개정본이 따로 나오지 않게
+    const reps = [...groupSeries((await visibleDocs(a)).filter((d) => d.lifecycle === 'PUBLISHED')).values()].map((g) => representative(g));
+    const kw = reps.filter((d) => !seen.has(d.doc_id)
       && matches(d, { type, ...df })
       && words.length > 0 && words.every((w) => `${d.title} ${d.summary ?? ''} ${(d.classification?.business_path ?? []).join(' ')} ${(d.classification?.tags ?? []).join(' ')} ${d.law_name ?? ''}`.toLowerCase().includes(w)))
       .slice(0, 20).map((d) => keywordItem(d));
-    const items = [...(type ? sem.filter((i) => i.document_type === type) : sem), ...kw];
+    const items = [...groupByDoc((type ? sem.filter((i) => i.document_type === type) : sem) as unknown as { doc_id: string; basis?: string; snippet: string }[]), ...kw];
     const shown = new Set(items.map((i) => i.doc_id));
-    const related = all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type));
+    const related = groupByDoc(all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type)) as unknown as { doc_id: string; basis?: string; snippet: string }[]);
     return c.json({ items, related });
   });
 

@@ -28,3 +28,15 @@ export function searchVia(searchWiki: SearchWiki) {
     return [...(r.items ?? []).map(toItem), ...(r.related ?? []).map((h) => ({ ...toItem(h), weak: true as const, reason: '관련 있을 수 있지만 정확한 근거로 확인되지는 않았습니다' }))];
   };
 }
+
+/** 검색 결과를 문서 단위로 묶는다 (search_wiki는 근거 인용용 조문 단위). 순서는 각 문서의 최고 순위,
+ *  카드 안에는 맞은 조문(조문 표기·인용) 목록. 가이드 근거는 조문 단위 그대로 쓴다 (사용자 지적 11/17) */
+export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string }>(hits: T[]) {
+  const by = new Map<string, T & { matches: { basis?: string; snippet: string }[] }>();
+  for (const h of hits) {
+    const g = by.get(h.doc_id);
+    if (g) { if (!g.matches.some((m) => m.basis === h.basis && m.snippet === h.snippet)) g.matches.push({ basis: h.basis, snippet: h.snippet }); }
+    else by.set(h.doc_id, { ...h, matches: [{ basis: h.basis, snippet: h.snippet }] });
+  }
+  return [...by.values()];
+}
