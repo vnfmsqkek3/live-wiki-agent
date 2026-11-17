@@ -238,4 +238,24 @@ test("업무 분류 필터 (interfaces 10.1): 하위 포함 KB 필터 + 현재 �
   assert.equal(inCategory("여신심사/기타", "여신"), false);
   assert.equal(inCategory("여신", "여신"), true);
   await assert.rejects(t.search_wiki({ query: "x", category: "가".repeat(201) }, user), /category/u);
+  for (const bad of [123, "/", " / "]) await assert.rejects(t.search_wiki({ query: "x", category: bad }, user), /category/u);
+});
+
+test("업무 분류: 현재 분류의 doc_id로 KB를 거르므로 재분류·병합된 문서도 새 분류에서 찾음 (PR #32 리뷰)", async () => {
+  const { retriever, states } = setup();
+  // K-001의 색인 시점 경로는 옛 칸, 현재는 '여신/담보·감정평가'로 병합됨
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "K-001") c.metadata["category_path"] = "여신/담보";
+  const cur = new Map([["K-001", "여신/담보·감정평가"]]);
+  const st = Object.assign(states, {
+    categoryDocIds: async (cat: string) => [...cur].filter(([, p]) => inCategory(p, cat)).map(([d]) => d),
+    categoryPaths: async (ids: string[]) => new Map(ids.flatMap((i) => (cur.has(i) ? [[i, cur.get(i)!] as [string, string]] : []))),
+  });
+  const t = searchTools({ retriever, states: st, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "담보 감정평가 현장 실사", as_of: "2026-12-15", category: "여신/담보·감정평가", rewrite: false }, user);
+  const all = [...r.items, ...(r.related ?? [])];
+  assert.ok(all.length && all.every((x) => x.doc_id === "K-001" && x.category_path === "여신/담보·감정평가"));
+  // 분류에 문서가 하나도 없으면 KB를 부르지 않고 확인 불가
+  const empty = await t.search_wiki({ query: "담보", as_of: "2026-12-15", category: "카드", rewrite: false }, user);
+  assert.equal(empty.search_status, "UNVERIFIED");
+  assert.equal(empty.items.length, 0);
 });

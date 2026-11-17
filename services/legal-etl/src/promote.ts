@@ -85,7 +85,16 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
 
   const contentHash = sha256(content);
   // 분류 경로는 탐색용 부가 정보라 조회 실패(스키마 배포 전 등)로 게시를 막지 않는다. 검색은 현재 분류로 다시 거른다
-  const category = await records.categoryPath?.(input.doc_id).catch((e: unknown) => { console.warn(JSON.stringify({ msg: "분류 경로 조회 실패 → 생략", error: (e as Error).name })); return undefined; });
+  // 스키마 배포 전(테이블·열 없음)만 생략하고, 그 밖의 오류(스로틀·SQL 버그)는 던져 재시도에 맡긴다 (승인 소비 전이라 안전, PR #32 리뷰)
+  const path = await records.categoryPath?.(input.doc_id).catch((e: unknown) => {
+    const msg = String((e as Error).message ?? "");
+    if (!/42P01|42703|does not exist/u.test(msg)) throw e;
+    console.warn(JSON.stringify({ msg: "분류 테이블 없음 → 경로 생략", error: msg.slice(0, 200) }));
+    return undefined;
+  });
+  // 경로가 너무 길면(AI가 만든 3단계 이름) 생략. 게시를 막지 않는다
+  const category = path && path.length <= 200 ? path : undefined;
+  if (path && !category) console.warn(JSON.stringify({ msg: "분류 경로 200자 초과 → 생략", length: path.length }));
   const parsed = MetadataSidecar.safeParse({ metadataAttributes: buildMetadata(doc, apr.approval_id, contentHash, dateOf(texts), category) });
   if (!parsed.success) {
     const fields = parsed.error.issues.map((i) => i.message).join(", ");

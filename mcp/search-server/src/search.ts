@@ -17,6 +17,8 @@ export interface FilterOpts {
   dept?: string; dateFrom?: number; dateTo?: number; authority?: "VERIFIED" | "UNVERIFIED"; freshness?: "CURRENT" | "REVIEW_REQUIRED";
   /** 업무 분류 경로 (하위 포함). 예 "경영지원" → "경영지원", "경영지원/사무기기·시설" */
   category?: string;
+  /** false면 KB 경로 필터를 빼고(doc_id로 이미 좁힘) 현재 분류 재검증만 */
+  kbCategory?: boolean;
 }
 
 export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
@@ -42,7 +44,7 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
   if (o.dept) conds.push({ equals: { key: "dept", value: o.dept } });
   // 하위 포함: 같은 경로 또는 "경로/"로 시작 (OpenSearch Serverless KB는 startsWith 지원). 현재 분류로 다시 거른다(revalidate)
-  if (o.category) conds.push({ orAll: [{ equals: { key: "category_path", value: o.category } }, { startsWith: { key: "category_path", value: `${o.category}/` } }] });
+  if (o.category && o.kbCategory !== false) conds.push({ orAll: [{ equals: { key: "category_path", value: o.category } }, { startsWith: { key: "category_path", value: `${o.category}/` } }] });
   if (o.authority) conds.push({ equals: { key: "authority_status", value: o.authority } }); // KB에서 먼저 거르고 현재 상태로 다시 확인 (상위 N건 밖 누락 방지)
   if (o.dateFrom) conds.push({ greaterThanOrEquals: { key: "doc_date", value: o.dateFrom } });
   if (o.dateTo) conds.push({ lessThanOrEquals: { key: "doc_date", value: o.dateTo } });
@@ -125,6 +127,8 @@ export interface DocStates {
   get(docIds: string[]): Promise<Map<string, DocState>>;
   /** 현재 분류 경로 (분류 필터를 쓸 때만, PostgreSQL). 재분류·병합 뒤 KB 메타데이터가 낡아도 현재 분류로 거르기 위해 */
   categoryPaths?(docIds: string[]): Promise<Map<string, string>>;
+  /** 현재 그 분류(하위 포함)에 속한 게시 문서 doc_id. 재분류된 문서도 찾도록 KB를 doc_id로 거른다 (PR #32 리뷰) */
+  categoryDocIds?(category: string): Promise<string[]>;
 }
 /** 경로가 분류(하위 포함) 안인지 */
 export const inCategory = (path: string | undefined, cat: string) => !!path && (path === cat || path.startsWith(`${cat}/`));
@@ -211,7 +215,11 @@ const classArgs = (args: Record<string, unknown>) => {
     return Number(v.replaceAll("-", "")); };
   const pick = <T extends string>(k: string, ok: readonly T[]) => { const v = str(args, k, false); if (!v) return undefined; if (!ok.includes(v as T)) throw new ToolError("INVALID_ARGUMENT", `${k}: ${ok.join("|")}`); return v as T; };
   const dept = str(args, "dept", false), dateFrom = day("date_from"), dateTo = day("date_to");
-  const category = str(args, "category", false)?.trim().replace(/^\/+|\/+$/gu, "");
+  // 분류 경로 정규화 ("여신 / 기업여신/" → "여신/기업여신"). 지정했는데 비거나 문자열이 아니면 거부 (전체 검색으로 새지 않게)
+  const rawCat = args["category"];
+  if (rawCat !== undefined && typeof rawCat !== "string") throw new ToolError("INVALID_ARGUMENT", "category: 문자열");
+  const category = typeof rawCat === "string" ? rawCat.split("/").map((x) => x.trim()).filter(Boolean).join("/") : undefined;
+  if (rawCat !== undefined && !category) throw new ToolError("INVALID_ARGUMENT", "category: 비어 있음");
   if (category && category.length > 200) throw new ToolError("INVALID_ARGUMENT", "category: 200자 이하");
   if (dateFrom && dateTo && dateFrom > dateTo) throw new ToolError("INVALID_ARGUMENT", "date_from이 date_to보다 늦음");
   const authority = pick("authority_status", ["VERIFIED", "UNVERIFIED"] as const), freshness = pick("freshness", ["CURRENT", "REVIEW_REQUIRED"] as const);
@@ -252,8 +260,16 @@ export async function retrieveMany(r: Retriever, primary: string[], model: strin
 }
 
 export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools>; rewriter?: Rewriter }) {
-  async function run(query: string, actor: Actor, o: FilterOpts, k: number, rewrite = false) {
+  // ponytail: 분류 문서가 이보다 많으면 doc_id 대신 색인 시점 경로로 KB를 거른다 (재분류 문서는 다시 게시해야 잡힘)
+  const CATEGORY_DOC_IDS_MAX = 200;
+  async function run(query: string, actor: Actor, o0: FilterOpts, k: number, rewrite = false) {
     const q = maskPii(query);
+    let o = o0;
+    if (o.category && deps.states.categoryDocIds) {
+      const ids = await deps.states.categoryDocIds(o.category);
+      if (!ids.length) return { search_status: "UNVERIFIED" as SearchStatus, items: [] as Result[], related: undefined as Result[] | undefined, dropped_after_revalidation: 0, pii_masked: q.masked };
+      if (ids.length <= CATEGORY_DOC_IDS_MAX) o = { ...o, docIds: o.docIds ? o.docIds.filter((d) => ids.includes(d)) : ids, kbCategory: false };
+    }
     // 재구성: 규칙(항상) + 모델(있으면). rewrite=false("원래 질의로 찾기")면 원문 그대로
     const rw: Rewritten | undefined = !rewrite ? undefined : deps.rewriter ? await deps.rewriter.rewrite(q.text) : { core: cleanQuery(q.text), alternates: [] };
     // primary = 원문(정리가 틀려도 원문보다 나빠지지 않게) + 규칙 정리본(11/17 실측: 모델이 "개인정보 관련 문서"를 core로 남겨 0.249, 정리본 "개인정보"는 0.630)
