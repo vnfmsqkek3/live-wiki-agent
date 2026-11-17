@@ -1,6 +1,8 @@
-// AgentCore Browser로 최신 공식 법령 원문 참조 (docs/01 540행: 내부 인덱스·공식 API 우선, Browser는 허용 사이트 한정 보조 수단).
-// 허용 사이트는 국가법령정보센터 하나. 입력은 법령명만 받고 URL은 코드가 만든다 (임의 URL 접근 차단).
-// 결과는 참고용(UNVERIFIED): Trusted Registry·승인을 거치지 않았으므로 게시 근거나 VERIFIED 판정에 쓰지 않는다.
+// AgentCore Browser로 공개 웹 페이지 읽기 (docs/01 540행: 내부 인덱스·공식 API 우선, Browser는 보조 수단).
+// - 법령 원문(fetch_official_law): 허용 호스트는 국가법령정보센터 하나. 입력은 법령명만 받고 URL은 코드가 만든다.
+// - 범용 readPage(참조 확인, interfaces 6.4): http(s)만, 내부 주소(IP 리터럴·localhost·사설 이름) 거부, allowHosts로 더 좁힐 수 있음.
+//   방어선은 AWS 관리형 샌드박스(공개 모드)다. DNS·리다이렉트 우회는 여기서 완전히 막지 못한다.
+// 결과는 신뢰할 수 없는 입력(UNVERIFIED): 게시 근거·VERIFIED 판정에 쓰지 않고, 모델에 넘길 때는 지시문 검사를 거친다.
 import WebSocket from "ws";
 import { Browser } from "bedrock-agentcore/browser";
 import { parseLaw, diffLaws } from "@hanaeum/legal-parser";
@@ -10,6 +12,20 @@ import { relPath } from "./store.ts";
 import { clausePath } from "./clause.ts";
 
 export const LAW_SITE = "https://www.law.go.kr";
+const CDP_TIMEOUT_MS = 15_000;
+/** 세션 timeout(120초) 안에서만 기다린다 */
+const MAX_WAIT_SEC = 100;
+
+/** 열어도 되는 주소인지: http(s), 내부 주소 아님, allowHosts가 있으면 그 안. 아니면 BlockedUrl */
+export function checkUrl(url: string, allowHosts?: string[]): URL {
+  let u: URL;
+  try { u = new URL(url); } catch { throw Object.assign(new Error("주소 형식이 올바르지 않음"), { name: "BlockedUrl" }); }
+  const h = u.hostname.toLowerCase().replace(/^\[|\]$/gu, "");
+  const internal = /^(localhost|.*\.local|.*\.internal|metadata\.google\.internal)$/u.test(h) || /^\d{1,3}(\.\d{1,3}){3}$/u.test(h) || h.includes(":") || !h.includes(".");
+  if (!["http:", "https:"].includes(u.protocol) || internal) throw Object.assign(new Error(`열 수 없는 주소: ${u.protocol}//${h}`), { name: "BlockedUrl" });
+  if (allowHosts && !allowHosts.some((a) => h === a || h.endsWith(`.${a}`))) throw Object.assign(new Error(`허용 목록 밖 호스트: ${h}`), { name: "BlockedUrl" });
+  return u;
+}
 export const lawUrl = (lawName: string) => `${LAW_SITE}/법령/${encodeURIComponent(lawName.trim())}`;
 
 export interface LawPage { url: string; header: string; body: string; fetched_at?: string; from_cache?: boolean }
@@ -53,46 +69,70 @@ function cdp(ws: WebSocket) {
     pending.delete(m.id!);
     if (m.error) p.ng(new Error(`CDP ${m.error.message}`)); else p.ok(m.result ?? {});
   });
-  return (method: string, params: Record<string, unknown> = {}, sessionId?: string) =>
+  // 명령마다 시간 제한 (페이지 스크립트가 멈추거나 연결이 끊겨도 영원히 기다리지 않게)
+  return (method: string, params: Record<string, unknown> = {}, sessionId?: string, timeoutMs = CDP_TIMEOUT_MS) =>
     new Promise<Record<string, unknown>>((ok, ng) => {
       const n = ++id;
-      pending.set(n, { ok, ng });
+      const t = setTimeout(() => { pending.delete(n); ng(Object.assign(new Error(`CDP ${method} 시간 초과`), { name: "CdpTimeout" })); }, timeoutMs);
+      pending.set(n, { ok: (v) => { clearTimeout(t); ok(v); }, ng: (e) => { clearTimeout(t); ng(e); } });
       ws.send(JSON.stringify({ id: n, method, params, ...(sessionId ? { sessionId } : {}) }));
     });
 }
 
-/** AgentCore 관리형 Browser(aws.browser.v1) 세션 → SigV4 서명 WebSocket(CDP)으로 페이지 텍스트 추출. 세션은 매 호출 종료 */
+/** AgentCore 관리형 Browser(aws.browser.v1)로 페이지 하나를 열어 `expression`(브라우저에서 평가, 문자열 반환)이 `done`을 만족할 때까지
+ *  1초 간격으로 읽는다. 세션은 매 호출 열고 닫는다. 법령 원문 조회와 참조 확인(dhxorb96, interfaces 6.4)이 같이 쓴다.
+ *  ponytail: 호출마다 세션 1개 (재사용 풀 없음). 동시 호출이 많아지면 세션 풀 */
+export async function readPage(url: string, o: { expression: string; done: (value: string) => boolean; maxWaitSec?: number; region?: string; identifier?: string; sessionName?: string; allowHosts?: string[] }): Promise<string> {
+  const u = checkUrl(url, o.allowHosts); // 세션을 열기 전에 주소부터 검사
+  const wait = Math.min(Math.max(Math.floor(o.maxWaitSec ?? 30), 1), MAX_WAIT_SEC);
+  const id = o.identifier ?? process.env["BROWSER_ID"];
+  const b = new Browser({ region: o.region ?? process.env["AWS_REGION"] ?? "us-east-1", ...(id ? { identifier: id } : {}) });
+  await b.startSession({ sessionName: o.sessionName ?? "hanaeum-read", timeout: 120 });
+  let ws: WebSocket | undefined;
+  try {
+    const { url: wsUrl, headers } = await b.generateWebSocketUrl();
+    ws = new WebSocket(wsUrl, { headers });
+    await new Promise((ok, ng) => { ws!.once("open", ok); ws!.once("error", ng); });
+    const send = cdp(ws);
+    const { targetId } = await send("Target.createTarget", { url: "about:blank" });
+    const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true }) as { sessionId: string };
+    await send("Page.navigate", { url: u.href }, sessionId);
+    let last = "";
+    for (let i = 0; i < wait; i++) {
+      const r = await send("Runtime.evaluate", { expression: o.expression, returnByValue: true }, sessionId) as { result: { value?: unknown } };
+      last = typeof r.result.value === "string" ? r.result.value : "";
+      if (o.done(last)) return last;
+      await new Promise((res) => setTimeout(res, 1000));
+    }
+    const err = Object.assign(new Error(`페이지 내용을 기다리다 시간 초과: ${u.host}`), { name: "PageNotReady" });
+    // 마지막으로 읽은 내용은 앞부분만, 열거되지 않게 (로그에 페이지 전문이 찍히지 않게)
+    Object.defineProperty(err, "last", { value: last.slice(0, 500), enumerable: false });
+    throw err;
+  } finally {
+    ws?.close();
+    // 세션 종료 실패가 결과나 원래 오류를 덮지 않게 (세션은 timeout으로도 닫힘)
+    await b.stopSession().catch((e: unknown) => console.warn(JSON.stringify({ msg: "Browser 세션 종료 실패", error: (e as Error).name })));
+  }
+}
+
+/** 법령 원문 페이지 (law.go.kr): 본문에 "제1조"가 그려질 때까지 */
 export class AgentCoreLawFetcher implements LawPageFetcher {
   private readonly region: string;
   private readonly identifier: string | undefined;
   constructor(region = process.env["AWS_REGION"] ?? "us-east-1", identifier = process.env["BROWSER_ID"]) { this.region = region; this.identifier = identifier; }
   async fetch(lawName: string): Promise<LawPage> {
     const url = lawUrl(lawName);
-    const b = new Browser({ region: this.region, ...(this.identifier ? { identifier: this.identifier } : {}) });
-    await b.startSession({ sessionName: "hanaeum-law", timeout: 120 });
-    let ws: WebSocket | undefined;
     try {
-      const { url: wsUrl, headers } = await b.generateWebSocketUrl();
-      ws = new WebSocket(wsUrl, { headers });
-      await new Promise((ok, ng) => { ws!.once("open", ok); ws!.once("error", ng); });
-      const send = cdp(ws);
-      const { targetId } = await send("Target.createTarget", { url: "about:blank" });
-      const { sessionId } = await send("Target.attachToTarget", { targetId, flatten: true }) as { sessionId: string };
-      await send("Page.navigate", { url }, sessionId);
-      // ponytail: 본문이 그려질 때까지 1초 간격 폴링(최대 30초). 사이트 구조 변경 시 선택자 갱신
-      for (let i = 0; i < 30; i++) {
-        const r = await send("Runtime.evaluate", {
-          expression: `JSON.stringify({ h: document.querySelector("#conTop")?.innerText ?? "", b: document.querySelector("#conScroll")?.innerText ?? "" })`,
-          returnByValue: true,
-        }, sessionId) as { result: { value?: string } };
-        const v = JSON.parse(r.result.value ?? "{}") as { h?: string; b?: string };
-        if (v.b && /제1조/u.test(v.b)) return { url, header: v.h ?? "", body: v.b };
-        await new Promise((res) => setTimeout(res, 1000));
-      }
-      throw Object.assign(new Error(`법령 본문을 찾지 못함: ${lawName}`), { name: "LawPageNotFound" });
-    } finally {
-      ws?.close();
-      await b.stopSession();
+      // ponytail: 사이트 구조 변경 시 선택자 갱신
+      const v = JSON.parse(await readPage(url, {
+        expression: `JSON.stringify({ h: document.querySelector("#conTop")?.innerText ?? "", b: document.querySelector("#conScroll")?.innerText ?? "" })`,
+        done: (x) => /제1조/u.test((JSON.parse(x || "{}") as { b?: string }).b ?? ""),
+        region: this.region, ...(this.identifier ? { identifier: this.identifier } : {}), sessionName: "hanaeum-law", allowHosts: ["www.law.go.kr"],
+      })) as { h?: string; b?: string };
+      return { url, header: v.h ?? "", body: v.b ?? "" };
+    } catch (e) {
+      if ((e as Error).name === "PageNotReady") throw Object.assign(new Error(`법령 본문을 찾지 못함: ${lawName}`), { name: "LawPageNotFound" });
+      throw e;
     }
   }
 }
