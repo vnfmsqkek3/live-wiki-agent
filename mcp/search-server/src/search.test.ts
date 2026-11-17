@@ -5,7 +5,7 @@ import { chunkDocument } from "@hanaeum/kb-chunker";
 import { regulationTools } from "@hanaeum/regulation-server";
 import { fixtureClauseStore } from "../../regulation-server/src/fixtures.ts";
 import type { DocumentMetadata } from "@hanaeum/schemas";
-import { buildFilter, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
+import { buildFilter, inCategory, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const H = (c: string) => "sha256:" + c.repeat(64);
@@ -67,10 +67,11 @@ test("재검증: KB에 남은 청크라도 현재 상태가 PUBLISHED 아님·�
 
 test("결과 0건은 UNVERIFIED (부재 단정 금지), 질의 PII 마스킹", async () => {
   const { tools, retriever } = setup();
-  const r = await tools.search_wiki({ query: "zzqx 010-1234-5678", as_of: "2026-12-15" }, user);
-  assert.equal(r.search_status, "UNVERIFIED");
+  // 0건: 어떤 문서와도 겹치지 않는 질의 (로컬 KB 에뮬레이터는 글자 두 개 단위로 점수를 매겨 "[주민등록번호]"도 개인정보 규정과 겹친다)
+  assert.equal((await tools.search_wiki({ query: "zzqx qqzz", as_of: "2026-12-15" }, user)).search_status, "UNVERIFIED");
+  const r = await tools.search_wiki({ query: "zzqx 900101-1234568", as_of: "2026-12-15" }, user);
   assert.equal(r.pii_masked, true);
-  assert.ok(!retriever.lastQuery.includes("010") && retriever.lastQuery.includes("[전화번호]"));
+  assert.ok(!retriever.lastQuery.includes("1234568") && retriever.lastQuery.includes("[주민등록번호]"));
 });
 
 test("search_legal_clause: 조문 번호 질의는 Exact Lookup 먼저, 삭제 조항은 DELETED", async () => {
@@ -209,8 +210,8 @@ test("search_wiki 질의 재구성: rewritten·matched_query 응답, rewrite=fal
   const seen: string[] = [];
   const t2 = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }),
     rewriter: { rewrite: async (q) => { seen.push(q); return { core: "본부 여신심사위원회 승인 기준", alternates: ["여신심사위원회 승인 금액"] }; } } });
-  const r = await t2.search_wiki({ query: "010-1234-5678 본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown; items: { matched_query?: string }[] };
-  assert.ok(!seen[0]!.includes("010") && seen[0]!.includes("[전화번호]"));
+  const r = await t2.search_wiki({ query: "900101-1234568 본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown; items: { matched_query?: string }[] };
+  assert.ok(!seen[0]!.includes("1234568") && seen[0]!.includes("[주민등록번호]"));
   assert.deepEqual(r.rewritten, { core: "본부 여신심사위원회 승인 기준", alternates: ["여신심사위원회 승인 금액"] });
   assert.ok(r.items.length && r.items.every((i) => ["본부 여신심사위원회 승인 기준", "여신심사위원회 승인 금액"].includes(i.matched_query!)));
   const raw = await t2.search_wiki({ query: "본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15", rewrite: false }, user) as { rewritten?: unknown };
@@ -219,4 +220,42 @@ test("search_wiki 질의 재구성: rewritten·matched_query 응답, rewrite=fal
   // 모델 없으면 규칙만
   const r3 = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown };
   assert.deepEqual(r3.rewritten, { core: "본부 여신심사위원회 승인 기준", alternates: [] });
+});
+
+test("업무 분류 필터 (interfaces 10.1): 하위 포함 KB 필터 + 현재 분류로 다시 거름(재분류·병합 뒤 낡은 메타데이터 차단)", async () => {
+  const f = JSON.stringify(buildFilter(user, { asOf: 20261215, category: "여신" }));
+  assert.ok(f.includes('"equals":{"key":"category_path","value":"여신"}') && f.includes('"startsWith":{"key":"category_path","value":"여신/"}'));
+  const { retriever, states } = setup();
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "F-002") c.metadata["category_path"] = "여신/기업여신";
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "K-001") c.metadata["category_path"] = "여신/담보·감정평가";
+  // 현재 분류: K-001은 그 뒤 '수신'으로 재분류됨
+  const cur = new Map([["F-002", "여신/기업여신"], ["K-001", "수신/창구·현금"]]);
+  const t = searchTools({ retriever, states: Object.assign(states, { categoryPaths: async (ids: string[]) => new Map(ids.flatMap((i) => (cur.has(i) ? [[i, cur.get(i)!] as [string, string]] : []))) }), regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "본부 여신심사위원회 승인 기준 담보 감정평가", as_of: "2026-12-15", category: "여신", rewrite: false }, user);
+  const all = [...r.items, ...(r.related ?? [])];
+  assert.ok(all.length && all.every((x) => x.doc_id === "F-002" && x.category_path === "여신/기업여신"));
+  // "여신"이 "여신심사" 같은 다른 칸 이름의 앞부분일 때 섞이지 않음
+  assert.equal(inCategory("여신심사/기타", "여신"), false);
+  assert.equal(inCategory("여신", "여신"), true);
+  await assert.rejects(t.search_wiki({ query: "x", category: "가".repeat(201) }, user), /category/u);
+  for (const bad of [123, "/", " / "]) await assert.rejects(t.search_wiki({ query: "x", category: bad }, user), /category/u);
+});
+
+test("업무 분류: 현재 분류의 doc_id로 KB를 거르므로 재분류·병합된 문서도 새 분류에서 찾음 (PR #32 리뷰)", async () => {
+  const { retriever, states } = setup();
+  // K-001의 색인 시점 경로는 옛 칸, 현재는 '여신/담보·감정평가'로 병합됨
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "K-001") c.metadata["category_path"] = "여신/담보";
+  const cur = new Map([["K-001", "여신/담보·감정평가"]]);
+  const st = Object.assign(states, {
+    categoryDocIds: async (cat: string) => [...cur].filter(([, p]) => inCategory(p, cat)).map(([d]) => d),
+    categoryPaths: async (ids: string[]) => new Map(ids.flatMap((i) => (cur.has(i) ? [[i, cur.get(i)!] as [string, string]] : []))),
+  });
+  const t = searchTools({ retriever, states: st, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "담보 감정평가 현장 실사", as_of: "2026-12-15", category: "여신/담보·감정평가", rewrite: false }, user);
+  const all = [...r.items, ...(r.related ?? [])];
+  assert.ok(all.length && all.every((x) => x.doc_id === "K-001" && x.category_path === "여신/담보·감정평가"));
+  // 분류에 문서가 하나도 없으면 KB를 부르지 않고 확인 불가
+  const empty = await t.search_wiki({ query: "담보", as_of: "2026-12-15", category: "카드", rewrite: false }, user);
+  assert.equal(empty.search_status, "UNVERIFIED");
+  assert.equal(empty.items.length, 0);
 });

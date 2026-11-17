@@ -41,6 +41,13 @@ export class PgRecords implements Records {
     if (!row) throw bindingError(a.approval_id);
     return row;
   }
+  async categoryPath(docId: string) {
+    // 병합된 칸이면 병합 대상 칸의 경로 (ponytail: 한 단계만 따라감, 주기 정리가 문서를 옮기므로 보통 0단계)
+    const [row] = await this.q<{ path: string }>(
+      `SELECT COALESCE(m.path, c.path) AS path FROM documents d JOIN categories c ON c.category_id = d.category_id
+       LEFT JOIN categories m ON m.category_id = c.merged_into WHERE d.doc_id = :id`, { id: docId });
+    return row?.path;
+  }
   async setPublishedHash(docId: string, hash: string, at = new Date().toISOString()) {
     // published_at은 attrs(jsonb). 처음 게시할 때만 기록
     const rows = await this.q(

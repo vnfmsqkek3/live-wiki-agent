@@ -80,6 +80,10 @@
         "rewrite": {
           "type": "boolean",
           "description": "기본 true: 문장형 질의를 핵심 질의(core)와 다른 표현(alternates)으로 재구성해 검색하고 응답 rewritten에 남긴다. false면 원래 질의 그대로"
+        },
+        "category": {
+          "type": "string",
+          "description": "업무 분류 경로(하위 포함). 예: \"경영지원\" 또는 \"경영지원/사무기기·시설\""
         }
       },
       "required": [

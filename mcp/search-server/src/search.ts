@@ -15,6 +15,10 @@ export interface FilterOpts {
   asOf: number; indexGroups?: IndexGroup[]; includeHistory?: boolean; docIds?: string[]; business?: string; tags?: string[];
   /** 세부 필터 (사용자 요청 11/17): 부서, 문서 일자 기간(YYYYMMDD, 본문 대표 일자), 검증 상태·최신성(Documents 현재 상태로 거름) */
   dept?: string; dateFrom?: number; dateTo?: number; authority?: "VERIFIED" | "UNVERIFIED"; freshness?: "CURRENT" | "REVIEW_REQUIRED";
+  /** 업무 분류 경로 (하위 포함). 예 "경영지원" → "경영지원", "경영지원/사무기기·시설" */
+  category?: string;
+  /** false면 KB 경로 필터를 빼고(doc_id로 이미 좁힘) 현재 분류 재검증만 */
+  kbCategory?: boolean;
 }
 
 export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
@@ -39,6 +43,8 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   // 업무 분류(1단계 일치)·태그(하나라도 일치)
   if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
   if (o.dept) conds.push({ equals: { key: "dept", value: o.dept } });
+  // 하위 포함: 같은 경로 또는 "경로/"로 시작 (OpenSearch Serverless KB는 startsWith 지원). 현재 분류로 다시 거른다(revalidate)
+  if (o.category && o.kbCategory !== false) conds.push({ orAll: [{ equals: { key: "category_path", value: o.category } }, { startsWith: { key: "category_path", value: `${o.category}/` } }] });
   if (o.authority) conds.push({ equals: { key: "authority_status", value: o.authority } }); // KB에서 먼저 거르고 현재 상태로 다시 확인 (상위 N건 밖 누락 방지)
   if (o.dateFrom) conds.push({ greaterThanOrEquals: { key: "doc_date", value: o.dateFrom } });
   if (o.dateTo) conds.push({ lessThanOrEquals: { key: "doc_date", value: o.dateTo } });
@@ -117,7 +123,15 @@ export interface DocState {
   published_content_hash: string; // Promote가 기록한 게시본 해시 (Documents.content_hash는 원본 해시라 다름)
   effective_from?: number; effective_to?: number; // 현재 유효기간 (새 버전 시행 시 갱신). KB 메타데이터보다 우선
 }
-export interface DocStates { get(docIds: string[]): Promise<Map<string, DocState>> }
+export interface DocStates {
+  get(docIds: string[]): Promise<Map<string, DocState>>;
+  /** 현재 분류 경로 (분류 필터를 쓸 때만, PostgreSQL). 재분류·병합 뒤 KB 메타데이터가 낡아도 현재 분류로 거르기 위해 */
+  categoryPaths?(docIds: string[]): Promise<Map<string, string>>;
+  /** 현재 그 분류(하위 포함)에 속한 게시 문서 doc_id. 재분류된 문서도 찾도록 KB를 doc_id로 거른다 (PR #32 리뷰) */
+  categoryDocIds?(category: string): Promise<string[]>;
+}
+/** 경로가 분류(하위 포함) 안인지 */
+export const inCategory = (path: string | undefined, cat: string) => !!path && (path === cat || path.startsWith(`${cat}/`));
 
 /** 검색 결과 항목. 앞 8개 필드는 dhxorb96 가이드 Agent Evidence 계약 (agents/src/guide.ts) */
 export interface Result {
@@ -135,6 +149,8 @@ export interface Result {
   document_type: string; provision_id: string; path_label: string; provision_status: string;
   conditional: boolean; effective_to: string; score: number;
   business_path: string[]; tags: string[];
+  /** 업무 분류 경로 (색인 시점) */
+  category_path?: string;
   quotable: boolean; // false = 그림 묘사 등 원문이 아닌 결과. 근거 인용 금지
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
@@ -177,7 +193,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
-      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
+      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(typeof m["category_path"] === "string" ? { category_path: m["category_path"] } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -199,9 +215,15 @@ const classArgs = (args: Record<string, unknown>) => {
     return Number(v.replaceAll("-", "")); };
   const pick = <T extends string>(k: string, ok: readonly T[]) => { const v = str(args, k, false); if (!v) return undefined; if (!ok.includes(v as T)) throw new ToolError("INVALID_ARGUMENT", `${k}: ${ok.join("|")}`); return v as T; };
   const dept = str(args, "dept", false), dateFrom = day("date_from"), dateTo = day("date_to");
+  // 분류 경로 정규화 ("여신 / 기업여신/" → "여신/기업여신"). 지정했는데 비거나 문자열이 아니면 거부 (전체 검색으로 새지 않게)
+  const rawCat = args["category"];
+  if (rawCat !== undefined && typeof rawCat !== "string") throw new ToolError("INVALID_ARGUMENT", "category: 문자열");
+  const category = typeof rawCat === "string" ? rawCat.split("/").map((x) => x.trim()).filter(Boolean).join("/") : undefined;
+  if (rawCat !== undefined && !category) throw new ToolError("INVALID_ARGUMENT", "category: 비어 있음");
+  if (category && category.length > 200) throw new ToolError("INVALID_ARGUMENT", "category: 200자 이하");
   if (dateFrom && dateTo && dateFrom > dateTo) throw new ToolError("INVALID_ARGUMENT", "date_from이 date_to보다 늦음");
   const authority = pick("authority_status", ["VERIFIED", "UNVERIFIED"] as const), freshness = pick("freshness", ["CURRENT", "REVIEW_REQUIRED"] as const);
-  return { ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
+  return { ...(category ? { category } : {}), ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
     ...(authority ? { authority } : {}), ...(freshness ? { freshness } : {}) };
 };
 const topK = (args: Record<string, unknown>) => Math.min(Math.max(Number(args["top_k"] ?? 5) || 5, 1), RERANKED);
@@ -238,8 +260,16 @@ export async function retrieveMany(r: Retriever, primary: string[], model: strin
 }
 
 export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools>; rewriter?: Rewriter }) {
-  async function run(query: string, actor: Actor, o: FilterOpts, k: number, rewrite = false) {
+  // ponytail: 분류 문서가 이보다 많으면 doc_id 대신 색인 시점 경로로 KB를 거른다 (재분류 문서는 다시 게시해야 잡힘)
+  const CATEGORY_DOC_IDS_MAX = 200;
+  async function run(query: string, actor: Actor, o0: FilterOpts, k: number, rewrite = false) {
     const q = maskPii(query);
+    let o = o0;
+    if (o.category && deps.states.categoryDocIds) {
+      const ids = await deps.states.categoryDocIds(o.category);
+      if (!ids.length) return { search_status: "UNVERIFIED" as SearchStatus, items: [] as Result[], related: undefined as Result[] | undefined, dropped_after_revalidation: 0, pii_masked: q.masked };
+      if (ids.length <= CATEGORY_DOC_IDS_MAX) o = { ...o, docIds: o.docIds ? o.docIds.filter((d) => ids.includes(d)) : ids, kbCategory: false };
+    }
     // 재구성: 규칙(항상) + 모델(있으면). rewrite=false("원래 질의로 찾기")면 원문 그대로
     const rw: Rewritten | undefined = !rewrite ? undefined : deps.rewriter ? await deps.rewriter.rewrite(q.text) : { core: cleanQuery(q.text), alternates: [] };
     // primary = 원문(정리가 틀려도 원문보다 나빠지지 않게) + 규칙 정리본(11/17 실측: 모델이 "개인정보 관련 문서"를 core로 남겨 0.249, 정리본 "개인정보"는 0.630)
@@ -247,7 +277,14 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
       ? await retrieveMany(deps.retriever, [q.text, cleanQuery(q.text)], [rw.core, ...rw.alternates], buildFilter(actor, o))
       : await deps.retriever.retrieve(q.text, buildFilter(actor, o));
     const states = await deps.states.get([...new Set(hits.map((h) => String(h.metadata["doc_id"])))]);
-    const { kept, dropped } = revalidate(hits, states, actor, o);
+    const rv = revalidate(hits, states, actor, o);
+    let { kept, dropped } = rv;
+    if (o.category && deps.states.categoryPaths) {
+      const cur = await deps.states.categoryPaths([...new Set(kept.map((r) => r.doc_id))]);
+      const before = kept.length;
+      kept = kept.filter((r) => inCategory(cur.get(r.doc_id), o.category!)).map((r) => ({ ...r, category_path: cur.get(r.doc_id)! }));
+      dropped += before - kept.length;
+    }
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
     const top = kept.filter((r) => !r.weak).slice(0, k);
     const related = kept.filter((r) => r.weak).slice(0, k);

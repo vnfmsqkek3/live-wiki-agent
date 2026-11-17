@@ -30,6 +30,24 @@ export class PgDocStates implements DocStates {
     }
     return out;
   }
+  /** 현재 그 분류(하위 포함)에 속한 게시 문서. 병합된 칸은 대상 칸 경로로 본다. LIKE 대신 접두사 비교(이름 속 %·_ 안전) */
+  async categoryDocIds(category: string) {
+    const rows = await this.q<{ doc_id: string }>(
+      `SELECT d.doc_id FROM documents d JOIN categories c ON c.category_id = d.category_id LEFT JOIN categories m ON m.category_id = c.merged_into
+       WHERE d.lifecycle = 'PUBLISHED' AND (COALESCE(m.path, c.path) = :cat OR left(COALESCE(m.path, c.path), char_length(:cat) + 1) = :cat || '/')
+       LIMIT 1000`, { cat: category });
+    return rows.map((r) => r.doc_id);
+  }
+  /** 현재 분류 경로 (병합된 칸은 대상 칸 경로). 분류 필터를 쓸 때만 호출 */
+  async categoryPaths(ids: string[]) {
+    const out = new Map<string, string>();
+    if (!ids.length) return out;
+    const rows = await this.q<{ doc_id: string; path: string }>(
+      `SELECT d.doc_id, COALESCE(m.path, c.path) AS path FROM documents d JOIN categories c ON c.category_id = d.category_id
+       LEFT JOIN categories m ON m.category_id = c.merged_into WHERE d.doc_id = ANY(ARRAY(SELECT jsonb_array_elements_text(:ids::jsonb)))`, { ids });
+    for (const r of rows) out.set(r.doc_id, r.path);
+    return out;
+  }
 }
 /** "YYYY-MM-DD" 또는 YYYYMMDD → YYYYMMDD 숫자 */
 const day = (v: unknown) => (v === null || v === undefined || v === "" ? undefined : typeof v === "string" ? Number(v.replaceAll("-", "")) : (v as number));
