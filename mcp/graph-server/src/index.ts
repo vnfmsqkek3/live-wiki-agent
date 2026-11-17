@@ -1,6 +1,6 @@
 // Graph MCP 서버 + 단계 13 GraphUpsert
 import { makeHandler } from "@hanaeum/mcp-kit";
-import { S3ObjectStore, DynamoRecords, publishedPrefix } from "@hanaeum/legal-etl";
+import { S3ObjectStore, publishedPrefix, recordsFromEnv } from "@hanaeum/legal-etl";
 import type { DocumentRecord, ObjectStore, Records } from "@hanaeum/legal-etl";
 import { StepInput } from "@hanaeum/schemas";
 import type { ClauseStore } from "@hanaeum/regulation-server";
@@ -21,10 +21,11 @@ export * from "./tools.ts";
 export * from "./upsert-step.ts";
 
 const e = process.env;
-const records = () => new DynamoRecords({ documents: e["TABLE_DOCUMENTS"]!, approvals: "" });
+let recs: Records | undefined;
+const records = () => (recs ??= recordsFromEnv());
 const deps = () => ({ graph: new NeptuneGraphStore(e["NEPTUNE_ENDPOINT"]!), clauses: new DynamoClauseStore(e["TABLE_REGULATIONS"]!),
   // 레코드 없음 = 제외. 조회 실패(분류 전 레코드·스로틀링)는 영향 대상에 남긴다 (한 건 때문에 전체 분석이 실패하지 않게, 놓치는 쪽보다 안전)
-  ...(e["TABLE_DOCUMENTS"] ? { live: async (id: string) => { try { const r = await records().getDocument(id); return !!r && r.lifecycle !== "DELETED"; } catch { return true; } } } : {}) });
+  ...(e["TABLE_DOCUMENTS"] || e["GOV_STORE"] === "postgres" ? { live: async (id: string) => { try { const r = await records().getDocument(id); return !!r && r.lifecycle !== "DELETED"; } catch { return true; } } } : {}) });
 export const handler = makeHandler(e["NEPTUNE_ENDPOINT"] && e["TABLE_REGULATIONS"] ? graphTools(deps()) : {});
 
 /** 단계 13 Lambda: ASL은 공통 입력 6필드만 넘긴다 → Documents 레코드·게시본을 직접 읽어 GraphUpsertInput을 만든다 */
@@ -57,7 +58,7 @@ export async function graphDeleteStep(docId: string, records: Pick<Records, "get
 
 export const graphUpsertHandler = async (event: unknown) => {
   const d = deps();
-  const records = new DynamoRecords({ documents: e["TABLE_DOCUMENTS"]!, approvals: e["TABLE_APPROVALS"]! });
+  const records = recordsFromEnv();
   const input = StepInput.parse(event); // action은 공통 입력 밖의 값이라 parse가 지움 → 원본 event에서 읽는다
   if ((event as { action?: unknown }).action === "delete") return graphDeleteStep(input.doc_id, records, d.graph);
   return graphUpsertStep(await buildUpsertInput(input, records, new S3ObjectStore(), d.clauses, e["BUCKET_PUBLISHED"]!), d.graph, d.clauses);
