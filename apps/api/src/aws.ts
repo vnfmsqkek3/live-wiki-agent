@@ -24,6 +24,12 @@ export function storeFromEnv(): Store {
   return dynamoStore({ documents: env('TABLE_DOCUMENTS'), approvals: env('TABLE_APPROVALS'), feedback: env('TABLE_FEEDBACK'), audit: env('TABLE_AUDIT_EVENTS') });
 }
 
+/** 원본 내려받기 (사용자 요청 11/17): 승인된 버전 그대로, 60초, 첨부로 저장. URL은 로그·감사에 남기지 않는다 */
+export const presignGet = (key: string, versionId: string | undefined, filename: string) =>
+  getSignedUrl(s3(), new GetObjectCommand({
+    Bucket: env('BUCKET_QUARANTINE'), Key: key, ...(versionId ? { VersionId: versionId } : {}),
+    ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
+  }), { expiresIn: 60 });
 export const presignPut = (key: string, len: number) =>
   getSignedUrl(s3(), new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ContentLength: len }), { expiresIn: 300 });
 

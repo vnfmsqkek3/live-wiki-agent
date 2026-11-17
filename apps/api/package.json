@@ -17,6 +17,7 @@
     "@aws-sdk/lib-dynamodb": "3.1169.0",
     "@aws-sdk/s3-request-presigner": "3.1169.0",
     "@hanaeum/graph-server": "*",
+    "@hanaeum/legal-parser": "*",
     "@hanaeum/pii": "*",
     "@hanaeum/regulation-server": "*",
     "@hanaeum/search-server": "*",

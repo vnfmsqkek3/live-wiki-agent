@@ -142,6 +142,8 @@ function mockProgress(): Progress {
 }
 
 // ---------- 05 검토 · 03 가이드 ----------
+/** 본문에 적힌 일자 (시행·개정·제정·작성·발행·기준). page는 0부터 */
+export interface DocDate { kind: string; date: string; page: number }
 /** PageSummarize 쪽 메타데이터 (masked/summary.json) */
 export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; page_type?: string }
 export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
@@ -151,6 +153,9 @@ export interface Review {
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
   findings: Finding[]; masked_preview?: string;
   page_summaries?: ({ page_index: number } & PageMeta)[];
+  title_source?: 'AUTO' | 'USER'; can_edit?: boolean;
+  doc_date?: DocDate; doc_dates?: DocDate[];
+  previous_doc_id?: string; version_no?: number;
   knowhow_validation?: KnowhowValidation;
   workflow_failure?: { step: string; error: string };
 }
@@ -204,6 +209,7 @@ export interface LibraryCard {
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
+  doc_dates?: DocDate[]; version_no?: number | null; superseded_by?: string | null;
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string } | null;
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string; document_type?: string }[];
 }
@@ -303,4 +309,12 @@ export async function apiBlobUrl(path: string): Promise<string> {
   if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, `HTTP ${r.status}`);
   return URL.createObjectURL(await r.blob());
+}
+
+/** 본문 일자 한 줄: 종류별 가장 늦은 날짜, 시행 → 개정 → 제정 → 작성 → 발행 → 기준 순 최대 3개. 예 "시행 2026-12-01 · 개정 2026-11-01" */
+export function dateLine(ds: DocDate[]): string {
+  const order = ['시행', '개정', '제정', '작성', '발행', '기준'];
+  const latest = new Map<string, string>();
+  for (const d of ds) if (!latest.has(d.kind) || d.date > latest.get(d.kind)!) latest.set(d.kind, d.date);
+  return order.filter((k) => latest.has(k)).slice(0, 3).map((k) => `${k} ${latest.get(k)}`).join(' · ');
 }

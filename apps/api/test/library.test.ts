@@ -37,6 +37,7 @@ async function setup() {
     verify: async (t: string) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'x'); return u; },
     store, presignPut: async () => '', headObject: async () => undefined, startWorkflow: async () => {}, resume: async () => true,
     search: async () => [], guide: async () => ({}),
+    presignGet: async (key: string, v: string | undefined, name: string) => `https://s3/${key}?v=${v}&n=${name}`,
     deleteWorkflow: async (d: DocumentRecord) => { deleted.push(d.delete_workflow_id!); },
     pages: async () => [{ page: 1, text: '둘째 장' }, { page: 0, text: '1억원 이하는 현장 실사를 생략한다.' }],
     pageSummary: async (id: string) => id === 'KH' ? { pages: [{ page_index: 1, summary: '둘째 장 요약', keywords: ['현장 실사'], clause_refs: ['제14조'], page_type: '본문' }] } : undefined,
@@ -91,9 +92,12 @@ test('상세: 페이지 순서·페이지 요약·밑줄, 권한 밖·타인 미
 });
 
 test('상세 검증 정보: 문서 표기 일자, 노하우 비교 조문·승인자·시각, 매뉴얼은 사람 승인 방식', async () => {
-  const { docDate, verification } = await import('../src/library.ts');
-  assert.deepEqual(docDate([{ page: 0, text: '문서 관리번호 05\n개정일 / 버전 2026.10.15 / 1.0' }]), { label: '개정일', date: '2026-10-15' });
+  const { docDatesOf, verification } = await import('../src/library.ts');
   const base = { doc_id: 'X', version: 1, owner: 'o', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED' as const, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  // 저장된 일자가 없는 이전 문서는 쪽 본문에서 찾는다, 저장된 일자가 있으면 그대로
+  assert.deepEqual(docDatesOf(base, [{ page: 3, text: '문서 관리번호 05\n개정일 / 버전 2026.10.15 / 1.0\n시행일 2026. 12. 1.' }]).doc_date, { label: '시행일', date: '2026-12-01' });
+  assert.equal(docDatesOf(base, [{ page: 3, text: '개정일 2026.10.15' }]).doc_dates[0]!.page, 3);
+  assert.deepEqual(docDatesOf({ ...base, doc_dates: [{ kind: '작성', date: '2026-01-02', page: 0 }], doc_date: { kind: '작성', date: '2026-01-02', page: 0 } }, []).doc_date, { label: '작성일', date: '2026-01-02' });
   const v = verification({ ...base, document_type: 'KNOWHOW', knowhow_validation: { verdict: 'SUPPORTED', model: 'm', checked_at: 'c', outdated: [], items: [{ statement: 's', provision_id: 'p', label: '기업여신 심사규정 제10조제2항', relation: 'SUPPORTS', reason: 'r', quote: '6개월 이내', verified_quote: true }] } },
     { approver_sub: 'abcdefgh123', approver_name: 'admin', decided_at: '2026-11-17T01:00:00Z', reason: '확인' });
   assert.equal(v.approved_by, 'admin');
@@ -154,4 +158,16 @@ test('문서 삭제: 작성자 본인·관리자만, DELETED·사유·감사 후
   assert.ok(!ids.includes('KH'));
   assert.equal((await t.del('author', '/v1/documents/DRAFT', ' ')).status, 422); // 사유 필수 (VALIDATION)
   assert.equal((await t.del('author', '/v1/documents/REG')).status, 403);
+});
+
+test('원본 내려받기: 상세를 볼 수 있는 사람만, 승인된 버전·파일 이름, 감사 기록 / 권한 밖·원본 삭제 문서는 404', async () => {
+  const t = await setup();
+  await t.store.putDoc({ ...(await t.store.getDoc('KH'))!, filename: '소액담보팁.pdf', s3_version_id: 'v7' });
+  const r = await t.get('user', '/v1/library/KH/download');
+  assert.equal(r.status, 200);
+  assert.deepEqual(await r.json(), { url: 'https://s3/KH/original.pdf?v=v7&n=소액담보팁.pdf', filename: '소액담보팁.pdf' });
+  assert.equal(t.store.audits.at(-1)!.action, 'DOCUMENT_DOWNLOAD');
+  assert.equal((await t.get('user', '/v1/library/SECRET/download')).status, 404);
+  await t.store.putDoc({ ...(await t.store.getDoc('KH'))!, purge: { objects: 2, original_at: '2026-11-17' } });
+  assert.equal((await t.get('user', '/v1/library/KH/download')).status, 404);
 });

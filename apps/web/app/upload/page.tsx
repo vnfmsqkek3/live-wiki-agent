@@ -37,11 +37,11 @@ export default function Upload() {
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
-    if (!file || fileErr || !title.trim()) return;
+    if (!file || fileErr) return;
     try {
       setState({ kind: 'busy', msg: '업로드 주소를 받는 중입니다.' });
       const { doc_id, url } = await api<{ doc_id: string; url: string }>('POST', '/v1/documents/upload-url', {
-        filename: file.name, size: file.size, title: title.trim(), dept: acl.startsWith('DEPT#') ? acl.slice(5) : 'all', acl_groups: [acl],
+        filename: file.name, size: file.size, ...(title.trim() ? { title: title.trim() } : {}), dept: acl.startsWith('DEPT#') ? acl.slice(5) : 'all', acl_groups: [acl],
       });
       setState({ kind: 'busy', msg: '검사 전용 저장소에 올리는 중입니다.' });
       setProg(null); setSent(0);
@@ -63,8 +63,9 @@ export default function Upload() {
         <input id="f" type="file" accept={ACCEPT} onChange={(e) => setFile(e.target.files?.[0] ?? null)} aria-describedby="f-help" style={{ padding: '10px 0' }} />
         <p id="f-help" className={fileErr ? 'error' : 'note'}>{fileErr || 'PDF, DOCX, HWPX, PNG, JPG 파일, 50MB 이하'}</p>
 
-        <label className="lbl" htmlFor="t">문서명</label>
-        <input id="t" className="field" type="text" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} />
+        <label className="lbl" htmlFor="t">문서명 <span className="note">(선택)</span></label>
+        <input id="t" className="field" type="text" maxLength={200} value={title} onChange={(e) => setTitle(e.target.value)} aria-describedby="t-help" />
+        <p id="t-help" className="note">비워 두면 분석이 끝난 뒤 문서 내용으로 제목을 붙입니다. 검토 화면에서 고칠 수 있습니다.</p>
 
         <label className="lbl" htmlFor="a">열람 범위</label>
         <select id="a" className="field" value={acl} onChange={(e) => setAcl(e.target.value)}>{SCOPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}</select>
@@ -73,7 +74,7 @@ export default function Upload() {
         <p className="note" style={{ margin: '6px 0 0' }}>분석이 끝나면 규정, 노하우, 매뉴얼 중 하나로 제안합니다. 검토할 때 바꿀 수 있습니다.</p>
 
         <div className="actions" style={{ marginTop: 24 }}>
-          <button className="btn solid" type="submit" disabled={!file || !!fileErr || !title.trim() || state.kind === 'busy'}>분석 시작</button>
+          <button className="btn solid" type="submit" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button>
         </div>
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
         {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}

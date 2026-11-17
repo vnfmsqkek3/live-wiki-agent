@@ -1,5 +1,6 @@
 // 문서보관함 (let522mj 요청 2220, 데이터 계약 v0). 카드·연관성은 저장된 결과만으로 조합한다 (모델 호출 없음).
 // 밑줄(marks)은 let522mj buildMarks(@hanaeum/regulation-server)가 페이지·글자 위치로 바꾼다 (Deps.marks). 없으면 빈 목록.
+import { docDates, primaryDate, type DocDate } from '@hanaeum/legal-parser';
 import type { DocumentRecord } from './contracts.ts';
 
 export type Relation = 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR';
@@ -59,6 +60,7 @@ export function card(d: DocumentRecord, visible: DocumentRecord[]) {
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
     uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null,
     mark_count: markCount(d), related: related(d, visible),
+    doc_dates: d.doc_dates ?? [], version_no: d.version_no ?? null, superseded_by: d.superseded_by ?? null,
   };
 }
 
@@ -70,13 +72,12 @@ export function matches(d: DocumentRecord, f: { type?: string; business?: string
     && (!f.q || `${d.title} ${d.summary ?? ''}`.toLowerCase().includes(f.q.toLowerCase()));
 }
 
-/** 본문에 적힌 문서 자체 일자 (개정일·시행일·작성일·제정일). 업로드 시각과 다르다 */
-export function docDate(pages: Page[]): { label: string; date: string } | null {
-  for (const p of pages) {
-    const m = /(개정일|시행일|작성일|제정일|발행일)[^\d\n]{0,20}(\d{4})\s*[.\-/년]\s*(\d{1,2})\s*[.\-/월]\s*(\d{1,2})/.exec(p.text);
-    if (m) return { label: m[1]!, date: `${m[2]}-${m[3]!.padStart(2, '0')}-${m[4]!.padStart(2, '0')}` };
-  }
-  return null;
+/** 본문에 적힌 문서 자체 일자 (시행·개정·제정·작성·발행·기준, legal-parser). 업로드 시각과 다르다.
+ *  Classify가 저장한 doc_dates가 없으면(이전 문서) 쪽 본문에서 바로 찾는다. 대표 일자는 시행 > 개정 > … 순 */
+export function docDatesOf(d: DocumentRecord, pages: Page[]) {
+  const dates = d.doc_dates ?? docDates(pages.map((p) => p.text)).map((x) => ({ ...x, page: pages[x.page]?.page ?? x.page }));
+  const main = d.doc_date ?? primaryDate(dates as DocDate[]);
+  return { doc_dates: dates, doc_date: main ? { label: `${main.kind}일`, date: main.date } : null };
 }
 
 /** 상세 '검증 정보': 누가·언제 승인했는지, 무엇과 비교해 검증했는지 */

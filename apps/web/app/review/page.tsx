@@ -2,7 +2,7 @@
 // 05 OCR·PII 검토: 작성자가 자동 분석 결과를 확인·수정하고 게시를 요청한다.
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, type Finding, type Review } from '../lib/api';
+import { api, ApiError, dateLine, type Finding, type Review } from '../lib/api';
 import { IssueList, PageFacts } from '../issues';
 
 const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
@@ -35,6 +35,7 @@ function ReviewView() {
   const [reason, setReason] = useState('');
   const [msg, setMsg] = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [editTitle, setEditTitle] = useState<string | null>(null);
 
   useEffect(() => {
     if (!id) { setErr('검토할 문서를 찾을 수 없습니다. 문서 등록 화면에서 다시 시작하세요.'); return; }
@@ -57,6 +58,13 @@ function ReviewView() {
       setReason(''); setMsg('문서 종류를 바꿨습니다. 수정 이력이 함께 저장됩니다.');
     } catch (e) { setMsg((e as ApiError).message); }
   }
+  async function saveTitle() {
+    if (!editTitle?.trim()) return;
+    try {
+      const x = await api<{ title: string }>('POST', `/v1/documents/${encodeURIComponent(id)}/title`, { title: editTitle.trim() });
+      setR((v) => v && { ...v, title: x.title, title_source: 'USER' }); setEditTitle(null); setMsg('제목을 바꿨습니다. 수정 이력이 함께 저장됩니다.');
+    } catch (e) { setMsg((e as ApiError).message); }
+  }
   async function submit() {
     try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true); setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.'); }
     catch (e) { setMsg((e as ApiError).status === 409 ? '지금 상태에서는 게시를 요청할 수 없습니다. 분석이 끝났는지 확인하세요.' : (e as ApiError).message); }
@@ -65,7 +73,22 @@ function ReviewView() {
   const stage = submitted ? 4 : 3;
   return (
     <>
-      <h1 className="title" style={{ marginBottom: 8 }}>{r.title ?? '문서 검토'}</h1>
+      {editTitle === null ? (
+        <>
+          <h1 className="title" style={{ marginBottom: 4 }}>{r.title ?? '문서 검토'}</h1>
+          <p className="meta" style={{ marginTop: 0 }}>
+            {r.title_source === 'AUTO' && '문서 내용으로 붙인 제목입니다. '}
+            {r.doc_dates?.length ? `본문 일자: ${dateLine(r.doc_dates)} ` : ''}
+            {r.can_edit && <button type="button" className="linklike" onClick={() => setEditTitle(r.title ?? '')}>제목 고치기</button>}
+          </p>
+        </>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <label className="lbl" htmlFor="title-edit">문서 제목</label>
+          <input id="title-edit" className="field" maxLength={200} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <div className="actions"><button className="btn solid" onClick={saveTitle} disabled={!editTitle.trim()}>제목 저장</button><button className="btn" onClick={() => setEditTitle(null)}>취소</button></div>
+        </div>
+      )}
       <ol className="stages" aria-label="등록 진행 단계">
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>

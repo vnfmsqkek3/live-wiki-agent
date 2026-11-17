@@ -10,6 +10,7 @@ import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
+import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
 export interface StepInput { workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string; actor: { sub: string; groups: string[] } }
@@ -119,8 +120,15 @@ export function makeClassify(deps: SegmentDeps) {
     const findings: Finding[] = v.confidence < 0.7
       ? [{ finding_id: newId.fnd(), step: 'CLASSIFY', severity: 'MEDIUM', code: 'CLASSIFY_LOW_CONFIDENCE', message: `분류 신뢰도 ${v.confidence.toFixed(2)} → 작성자 확인 필요`, evidence_ref: r.model }]
       : [];
+    // 본문 일자(시행·개정·작성 …)와 자동 제목 (사용자 요청 11/17). 제목은 작성자가 비워 둔 경우만 바꾼다
+    const texts = segs.map((s) => s.text);
+    const dates = docDates(texts).map((x) => ({ ...x, page: segs[x.page]?.page_index ?? x.page }));
+    const main = primaryDate(dates);
+    const autoTitle = d.title_source === 'AUTO' ? (sum?.value.title?.replace(/^\[?SYNTHETIC\]?\s*/u, '').trim().slice(0, 60) || titleCandidate(texts, d.filename ?? '') || d.title) : undefined;
     await deps.store.putDoc({
       ...addFindings(d, findings),
+      ...(autoTitle ? { title: autoTitle } : {}),
+      ...(dates.length ? { doc_dates: dates, ...(main ? { doc_date: main } : {}) } : {}),
       document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
       classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
       ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),

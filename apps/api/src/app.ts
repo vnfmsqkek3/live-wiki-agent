@@ -3,10 +3,10 @@ import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
-import { card, docDate, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
+import { card, docDatesOf, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, progress } from './progress.ts';
 import {
-  ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
+  ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
@@ -26,6 +26,8 @@ export interface Deps {
   startWorkflow(doc: DocumentRecord): Promise<void>;
   /** 사람 결정 후 워크플로 재개 (AgentCore 오케스트레이터 resume). 재개했으면 true. APPROVE만 게시 단계로 진행 */
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
+  /** 원본 내려받기 presigned GET (quarantine original, 승인된 s3 버전) */
+  presignGet?(key: string, versionId: string | undefined, filename: string): Promise<string>;
   /** 사용자 삭제 정리 실행 (오케스트레이터 action=delete). 없으면 DELETED 표시만 */
   deleteWorkflow?(doc: DocumentRecord): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
@@ -124,7 +126,9 @@ export function createApp(deps: Deps) {
       throw new ApiError('VALIDATION', `허용 형식: ${ALLOWED_EXT.join(', ')}`);
     const now = new Date().toISOString();
     const doc: DocumentRecord = {
-      doc_id: newId.doc(), version: 1, owner: a.sub, title: b.title, dept: b.dept, acl_groups: b.acl_groups,
+      doc_id: newId.doc(), version: 1, owner: a.sub, dept: b.dept, acl_groups: b.acl_groups,
+      // 제목을 비우면 파일 이름으로 두고 분석(Classify)이 문서 내용으로 바꾼다
+      title: b.title || b.filename.replace(/\.[^.]+$/, '').slice(0, 200), title_source: b.title ? 'USER' : 'AUTO', filename: b.filename.split(/[\\/]/).pop()!.slice(0, 200),
       ext: ext === 'jpeg' ? 'jpg' : ext, lifecycle: 'QUARANTINED', authority_status: 'UNVERIFIED', freshness: 'CURRENT',
       workflow_id: newId.wf(), findings: [], created_at: now, updated_at: now,
     };
@@ -154,6 +158,19 @@ export function createApp(deps: Deps) {
     return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // 이전 SFN 문서에 남은 task_token은 숨김
   });
 
+  // 제목 고치기: 작성자, 게시 요청 전까지. 이력 남김 (자동 제목을 사람이 바로잡는 경우)
+  app.post('/v1/documents/:id/title', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    if (!['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle)) throw new ApiError('CONFLICT', '게시 요청 뒤에는 제목을 바꿀 수 없습니다');
+    const b = await body(c, TitleBody);
+    const at = new Date().toISOString();
+    await store.putDoc({ ...d, title: b.title, title_source: 'USER', title_history: [...(d.title_history ?? []), { from: d.title, to: b.title, by: a.sub, at }].slice(-20), updated_at: at });
+    await audit(c, 'TITLE_EDIT', d.doc_id);
+    return c.json({ title: b.title });
+  });
+
   // 문서 삭제 (사용자 결정 11/17 B, interfaces 6.0): 작성자 본인 또는 관리자. DELETED 표시·감사 → KB·그래프·저장소 정리는 오케스트레이터.
   // 이미 DELETED면 정리만 다시 (재시도). Documents·Approvals·감사 기록은 남긴다
   app.delete('/v1/documents/:id', async (c) => {
@@ -180,7 +197,8 @@ export function createApp(deps: Deps) {
     if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
-    return c.json({ workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
+    return c.json({ workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings, knowhow_validation: d.knowhow_validation });
   });
 
   app.get('/v1/documents/:id/progress', async (c) => {
@@ -344,6 +362,16 @@ export function createApp(deps: Deps) {
     return c.json({ items });
   });
 
+  // 원본 내려받기 (사용자 요청 11/17): 상세를 볼 수 있는 사람만, 감사 기록. 차단·반려·삭제로 원본을 지운 문서는 없음
+  app.get('/v1/library/:id/download', async (c) => {
+    const d = await libraryDoc(c, await visibleDocs(c.get('actor')));
+    if (!deps.presignGet || d.purge?.original_at || d.purge?.deleted_at) throw new ApiError('NOT_FOUND', '원본 파일이 없습니다 (검증 실패·삭제로 지워짐)');
+    const filename = d.filename ?? `${d.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)}.${d.ext}`;
+    const url = await deps.presignGet(quarantineKey(d), d.s3_version_id, filename);
+    await audit(c, 'DOCUMENT_DOWNLOAD', d.doc_id);
+    return c.json({ url, filename });
+  });
+
   // 다른 유형의 비슷한 문서 (매뉴얼·규정·노하우 상호 보완). 검색 2회라 상세 본문과 따로 부른다
   app.get('/v1/library/:id/similar', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
@@ -379,7 +407,7 @@ export function createApp(deps: Deps) {
         source_mismatch: d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review,
         findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: f.user_message ?? f.message, fix_hint: f.fix_hint, page: f.location?.page })),
       },
-      doc_date: docDate(pages),
+      ...docDatesOf(d, pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
       pages: pages.map((p, i) => ({ page: p.page, text: p.text, ...meta.get(p.page), summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),

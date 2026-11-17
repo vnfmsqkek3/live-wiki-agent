@@ -4,7 +4,7 @@
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
+import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
@@ -64,6 +64,8 @@ function List() {
                 {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
                 {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
+                {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
+                {d.version_no && d.version_no > 1 && <><dt>버전</dt><dd>v{d.version_no}</dd></>}
                 <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
                 {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => `${r.title} (${REL[r.relation]})`).join(', ')}</dd></>}
                 {d.mark_count > 0 && <><dt>고칠 곳</dt><dd className="danger-text">{d.mark_count}곳</dd></>}
@@ -217,6 +219,21 @@ function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: str
 }
 
 /** 문서 삭제 (작성자·관리자): 사유 → 확인 → 저장소·검색 색인·관계 그래프 정리 진행 표시 (interfaces 6.0) */
+/** 원본 파일 내려받기 (사용자 요청 11/17). 60초짜리 주소를 받아 바로 저장. 주소는 화면·저장소에 남기지 않는다 */
+function Download({ id }: { id: string }) {
+  const [msg, setMsg] = useState('');
+  async function go() {
+    setMsg('');
+    try {
+      const r = await api<{ url: string; filename: string }>('GET', `/v1/library/${encodeURIComponent(id)}/download`);
+      const a = document.createElement('a');
+      a.href = r.url; a.rel = 'noopener'; a.download = r.filename;
+      document.body.appendChild(a); a.click(); a.remove();
+    } catch (e) { setMsg((e as ApiError).status === 404 ? '원본 파일이 없습니다. 검증 실패나 삭제로 지워진 문서입니다.' : (e as ApiError).message); }
+  }
+  return <><button type="button" className="btn" onClick={go}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+}
+
 function DeleteDoc({ d }: { d: LibraryDoc }) {
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'slow' | 'error'>('idle');
   const [info, setInfo] = useState('');
@@ -286,6 +303,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
     <>
       <p>{back}</p>
       <h2 className="doc-title lg">{d.title}</h2>
+      <div className="actions" style={{ marginTop: 0 }}><Download id={d.doc_id} /></div>
       <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
       <FreshnessFlag freshness={d.freshness} />
       {d.freshness_reason?.deleted_doc ? (
@@ -303,7 +321,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <dl className="meta-grid">
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
-        {d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
+        {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
         <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd>{day(d.updated_at)}</dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
