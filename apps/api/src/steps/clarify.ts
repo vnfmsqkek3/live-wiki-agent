@@ -2,7 +2,7 @@
 // 문서 속 애매한 곳(담당자·빠진 값·링크·불일치)을 찾아 → 사내 위키(게시 문서)에서 먼저 제안 → 링크류만 공개 웹 → 없으면 질문만.
 // 적용은 화면이 항목별 before→after 를 모아 /edit 한 번(새 버전 → 재검사 → 사람 승인). 이 단계는 문서를 고치지 않는다.
 import { detectPii } from './pii-detect.ts';
-import { unsafeQuery, type RefCandidate } from './reference-check.ts';
+import { isCommunity, isOfficial, unsafeQuery, type RefCandidate } from './reference-check.ts';
 
 export type ClarifyKind = 'VAGUE_ACTOR' | 'MISSING_VALUE' | 'MISSING_LINK' | 'INCONSISTENT' | 'OUTDATED';
 export interface ClarifyCandidate {
@@ -23,11 +23,10 @@ export const WEB_KINDS = new Set<ClarifyKind>(['MISSING_LINK', 'INCONSISTENT', '
 
 export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc>는 개인정보를 가린 문서 정리본의 일부 쪽이다. 아래 체크리스트 항목에 해당하는 곳만 골라 submit_clarify 도구로 낸다(자유 판단 금지). 최대 5건, 없으면 빈 배열.
 체크리스트(이것만 본다):
- 1) 주소 없이 '링크·사이트·홈페이지·다운로드·자료실'을 가리키는 문장 → MISSING_LINK
- 2) 누가 하는지 '담당자·관련 부서·책임자'로만 적힌 절차 문장 → VAGUE_ACTOR
- 3) 기한·금액·한도·기준이 '기한 내·일정 금액·별도 기준'처럼 비어 있는 절차 문장, 표의 빈 칸 → MISSING_VALUE
- 4) 같은 문서 안에서 이름·번호·버전이 서로 다른 곳(표끼리, 표와 본문) → INCONSISTENT
- 5) 오래된 프로그램·드라이버 버전 → OUTDATED
+ 1) 누가 하는지 '담당자·관련 부서·책임자'로만 적힌 절차 문장 → VAGUE_ACTOR
+ 2) 같은 문서 안에서 이름·번호·버전이 서로 다른 곳(표끼리, 표와 본문) → INCONSISTENT
+ 3) 오래된 프로그램·드라이버 버전 → OUTDATED
+ (주소 없는 링크·표의 빈 칸은 코드가 따로 찾으니 고르지 않는다)
  고르지 않는 것: 용어 뜻을 묻는 것(같은 문서 다른 곳에 설명이 있을 수 있음), '예시'·'예:'로 든 값, 일반 서술.
 - VAGUE_ACTOR: "담당자", "관련 부서", "책임자"처럼 누가 하는지 조직·부서·직책을 알 수 없는 곳
 - MISSING_VALUE: 기한·금액·한도·기준·연락처·장소처럼 꼭 있어야 할 값이 빠진 곳 ("기한 내", "일정 금액 이상")
@@ -99,17 +98,79 @@ export function reallyIncomplete(before: string, text: string) {
   return !/[.!?。]\s*(\(그림 \d+\))?$|(다|요|함|음|임|됨)\s*$/.test(b);
 }
 /** 후보 정리: before 가 실제 문서(쪽이 있으면 그 쪽)에 있어야 하고, 같은 문장은 한 번만. '미완성' 주장은 원문으로 확인되지 않으면 버림 (11/18 dev 오탐) */
-export function keepCandidates(cands: ClarifyCandidate[], docText: string, pageText?: (page: number) => string | undefined): ClarifyCandidate[] {
+export function keepCandidates(cands: ClarifyCandidate[], docText: string, pageText?: (page: number) => string | undefined, pages: { page: number; text: string }[] = []): ClarifyCandidate[] {
   const seen = new Set<string>();
-  return cands.filter((c) => {
-    const b = c.before?.trim();
-    if (!b || b.length > 300 || !docText.includes(b) || seen.has(b) || isBlankTemplateRow(b)) return false;
+  const out: ClarifyCandidate[] = [];
+  for (const c0 of cands) {
+    const b = c0.before?.trim();
+    if (!b || b.length > 300 || !docText.includes(b) || seen.has(b) || isBlankTemplateRow(b)) continue;
+    // 쪽 번호가 없거나 틀리면 before 가 실제로 있는 쪽으로 채운다 (Fable 진단: 잠금 원문 검사가 생략되던 문제)
+    let c = c0;
+    const at = pages.find((p) => p.text.includes(b))?.page;
+    if (at && (!c.page || !pageText?.(c.page)?.includes(b))) c = { ...c, page: at };
     const pt = c.page && pageText ? pageText(c.page) : undefined;
-    if (pt !== undefined && !pt.includes(b) && clarifySeverity(c) === 'MEDIUM') return false; // 잠금 항목은 그 쪽 원문에 그대로 있어야
-    if (claimsIncomplete(c) && !reallyIncomplete(b, pt ?? docText)) return false;
-    seen.add(b); return true;
-  }).slice(0, 5);
+    if (clarifySeverity(c, pt) === 'MEDIUM' && !pt?.includes(b)) continue; // 잠금 항목은 그 쪽 원문에 그대로 있어야
+    if (claimsIncomplete(c) && !reallyIncomplete(b, pt ?? docText)) continue;
+    seen.add(b); out.push(c);
+  }
+  return out;
 }
+
+/** 코드 탐지 (Fable 진단 D): 주소 없는 링크 언급, 표의 빈 칸. 질문은 고정 문구 — 실행마다 같은 결과 */
+const LINK_RE = /(링크|사이트|홈페이지|자료실|다운로드 ?(페이지|센터)).{0,10}(접속|이동|클릭|에서)/;
+const URL_RE = /https?:\/\/|www\./i;
+export function ruleCandidates(pages: { page: number; text: string }[]): ClarifyCandidate[] {
+  const out: ClarifyCandidate[] = [];
+  for (const p of pages) {
+    const lines = p.text.split('\n').map((l) => l.trim()).filter(Boolean);
+    if (!URL_RE.test(p.text)) for (const l of lines) {
+      const m = LINK_RE.exec(l); if (!m || isTableRow(l)) continue;
+      out.push({ kind: 'MISSING_LINK', item: makerOf(l) ? `${makerOf(l)} ${m[1]}` : m[1]!, page: p.page, before: l.slice(0, 300), question: '이 링크의 주소는 무엇인가요?', in_procedure: false, query: '' });
+    }
+    const header = lines.find(isTableRow);
+    for (const l of lines) {
+      if (!isTableRow(l) || l === header || /^\|?\s*:?-{2,}/.test(l) || isBlankTemplateRow(l)) continue;
+      const cells = l.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim());
+      if (cells.length >= 2 && cells.some((x) => x === '')) out.push({ kind: 'MISSING_VALUE', item: '표의 빈 칸', page: p.page, before: l.slice(0, 300), question: '이 표 행의 빈 칸에 들어갈 값은 무엇인가요? 비워 둔 사유가 있으면 적어 주세요.', in_procedure: false, query: '' });
+    }
+  }
+  return out;
+}
+/** 할당 (Fable 진단 D): 링크 2건 + 나머지 3건, 같은 제조사 링크·같은 item 은 한 건 */
+export function allocate(cands: ClarifyCandidate[], pageText?: (page: number) => string | undefined): ClarifyCandidate[] {
+  const key = (c: ClarifyCandidate) => (c.kind === 'MISSING_LINK' ? `L:${makerOf(c.before) ?? c.item}` : `${c.kind}:${c.item}`);
+  const seen = new Set<string>(); const uniq = cands.filter((c) => { const k = key(c); if (seen.has(k)) return false; seen.add(k); return true; });
+  const rank = (c: ClarifyCandidate) => (clarifySeverity(c, c.page ? pageText?.(c.page) : undefined) === 'MEDIUM' ? 0 : 1);
+  const byPage = (a: ClarifyCandidate, b: ClarifyCandidate) => rank(a) - rank(b) || (a.page ?? 0) - (b.page ?? 0);
+  return [...uniq.filter((c) => c.kind === 'MISSING_LINK').sort(byPage).slice(0, 2), ...uniq.filter((c) => c.kind !== 'MISSING_LINK').sort(byPage).slice(0, 3)];
+}
+
+/** 제조사 → 공식 도메인 (Fable 진단 C). 모델 추정보다 우선. 특정 페이지 주소는 넣지 않는다(과적합 방지). 필요하면 늘린다 */
+export const MAKER_SITES: [RegExp, string, string[]][] = [
+  [/삼성|samsung/i, '삼성', ['samsungsvc.co.kr', 'samsung.com']],
+  [/신도|sindoh/i, '신도리코', ['sindoh.com']],
+  [/브라더|brother/i, '브라더', ['brother.co.kr', 'support.brother.com']],
+  [/캐논|canon/i, '캐논', ['canon-ci.co.kr', 'canon.co.kr']],
+  [/엡손|epson/i, '엡손', ['epson.co.kr']],
+  [/\bHP\b|휴렛팩커드/i, 'HP', ['hp.com']],
+  [/후지|fuji ?(xerox|film)/i, '후지필름', ['fujifilm.com']],
+  [/교세라|kyocera/i, '교세라', ['kyoceradocumentsolutions.co.kr']],
+  [/리코|ricoh/i, '리코', ['ricoh.co.kr']],
+  [/마이크로소프트|microsoft|윈도우/i, '마이크로소프트', ['microsoft.com']],
+  [/한글과컴퓨터|한컴|hancom/i, '한컴', ['hancom.com']],
+  [/어도비|adobe/i, '어도비', ['adobe.com']],
+];
+export const makerOf = (s: string) => MAKER_SITES.find(([re]) => re.test(s))?.[1];
+export const sitesFor = (s: string, guessed: string[] = []) => [...new Set([...(MAKER_SITES.find(([re]) => re.test(s))?.[2] ?? []), ...guessed])].slice(0, 4);
+/** 웹 검색어는 코드로: 모델 토큰을 빼고 '{제조사} 드라이버 다운로드' (사내 위키용 query 를 웹에 쓰지 않는다) */
+export const webQuery = (c: ClarifyCandidate, pageText = '') => {
+  const maker = makerOf(c.before) ?? makerOf(c.item) ?? makerOf(pageText);
+  if (!maker) return undefined;
+  return `${maker} ${/드라이버|driver/i.test(`${c.before} ${pageText}`) ? '드라이버 ' : ''}다운로드`;
+};
+/** 링크 제안 채택: 공식 도메인 + 경로·제목에 download·다운로드·자료실·support + 문서에 없는 모델 토큰 없음 */
+export const linkAcceptable = (docText: string, sites: string[]) => (h: { url: string; title: string }) =>
+  isOfficial(h.url, sites) && !isCommunity(h.url) && /download|다운로드|자료실|support/i.test(`${decodeURIComponent(h.url)} ${h.title}`) && sameModelPage(docText, h);
 
 /** 제안 검사: after 가 before 를 바꾼 것이어야 하고, 개인정보(사람 이름·연락처 등)가 없어야 한다. 담당자는 부서+직책만 */
 export function safeSuggestion(c: ClarifyCandidate, s: { value: string; after: string }): boolean {
@@ -126,8 +187,18 @@ export const isTableRow = (s: string) => /^\s*\|.*\|\s*$/.test(s) || (s.match(/\
 /** 빈 양식 행: 번호·기호를 빼면 칸이 모두 비었거나 '—'·'-' 뿐 (11/18 dev 과천 B1층 ③~⑪) */
 export const isBlankTemplateRow = (s: string) => isTableRow(s) && s.split('|').map((x) => x.trim()).filter(Boolean)
   .filter((x) => !/^([①-⑳]|\d{1,2}[.)]?|[—\-–·]+)$/.test(x)).length === 0;
-/** 잠금 규칙: 절차·승인·한도 '문장'의 담당자·빠진 값만 MEDIUM(게시 요청 잠금). 표 빈 칸은 LOW(권고) — 계약 6.5, 11/18 dev 과차단 보정 */
-export const clarifySeverity = (c: ClarifyCandidate): 'MEDIUM' | 'LOW' => ((c.kind === 'VAGUE_ACTOR' || c.kind === 'MISSING_VALUE') && c.in_procedure && !isTableRow(c.before) ? 'MEDIUM' : 'LOW');
+/** 잠금 규칙 (Fable 진단 B, 11/18): 모델의 in_procedure 대신 코드 규칙. 표 행이 아니고
+ *  VAGUE_ACTOR = before 에 '담당자·관련 부서·책임자·유관 부서'가 있고 같은 쪽에 '○○부/팀/센터'가 없을 때,
+ *  MISSING_VALUE = before 에 '기한 내·일정 금액/기간·별도 기준·추후·미정·TBD·○○'가 있을 때만 MEDIUM. 나머지 LOW */
+const ACTOR_VAGUE = /담당자|관련 ?부서|책임자|유관 ?부서/;
+const VALUE_VAGUE = /기한 내|일정 ?(금액|기간)|별도 기준|추후|미정|TBD|○○/;
+const ORG_NAMED = /[가-힣A-Za-z]{2,}(부|팀|센터)(?=[\s.,)은는이가의에를과와]|$)/;
+export const clarifySeverity = (c: ClarifyCandidate, pageText?: string): 'MEDIUM' | 'LOW' => {
+  if (isTableRow(c.before)) return 'LOW';
+  if (c.kind === 'VAGUE_ACTOR') return ACTOR_VAGUE.test(c.before) && !ORG_NAMED.test((pageText ?? c.before).replace(/관련 ?부서|유관 ?부서/g, '')) ? 'MEDIUM' : 'LOW';
+  if (c.kind === 'MISSING_VALUE') return VALUE_VAGUE.test(c.before) ? 'MEDIUM' : 'LOW';
+  return 'LOW';
+};
 
 /** 모델 모양 토큰: 영문+숫자가 섞인 4자 이상(하이픈 포함 가능). 예 SL-K3250NR, NT301E5C-S55M, MFC-L5700DN (11/18 dev: 다른 모델 페이지 3번 제안) */
 export const modelsIn = (s: string) => [...new Set((s.toUpperCase().match(/[A-Z0-9]+(?:-[A-Z0-9]+)*/g) ?? [])

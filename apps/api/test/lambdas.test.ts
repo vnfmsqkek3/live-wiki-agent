@@ -243,40 +243,6 @@ test('그림 쪽 Vision 정리본(page_markdown): 모델 재호출 없이 정리
   assert.equal((await makeInjectionScan(t.deps)(t.input)).status, 'BLOCKED');
 });
 
-test('Clarify(ReferenceCheck 6.5): 위키 먼저 제안·담당자는 부서+직책만·웹은 링크류만·절차 문장 담당자는 MEDIUM, 실패해도 OK', async () => {
-  const { makeReferenceCheck } = await import('../src/lambdas.ts');
-  const body = '대출 신청서는 담당자의 승인을 받은 뒤 접수한다.\n삼성 복합기 드라이버는 다운로드 자료실 링크에서 받는다.\n문의는 관련 부서로 한다.';
-  const t = segSetup([body]);
-  await t.store.putDoc(t.doc);
-  t.objects.set(`${t.doc.doc_id}/masked/segments/0000.json`, { doc_id: t.doc.doc_id, page_index: 0, text: body });
-  const searched: string[][] = []; const wikiQ: string[] = [];
-  const step = makeReferenceCheck({ ...t.deps,
-    findClarify: async () => ({ value: { items: [
-      { kind: 'VAGUE_ACTOR', item: '담당자', before: '대출 신청서는 담당자의 승인을 받은 뒤 접수한다.', question: '어느 부서의 어떤 직책인가요?', in_procedure: true, query: '대출 신청서 승인 부서', page: 1 },
-      { kind: 'MISSING_LINK', item: '다운로드 자료실', before: '삼성 복합기 드라이버는 다운로드 자료실 링크에서 받는다.', question: '주소가 무엇인가요?', in_procedure: false, query: '삼성전자 프린터 드라이버 다운로드 자료실', official_sites: ['samsungsvc.co.kr'] },
-      { kind: 'VAGUE_ACTOR', item: '관련 부서', before: '문의는 관련 부서로 한다.', question: '어느 부서인가요?', in_procedure: false, query: '문의 부서' },
-      { kind: 'MISSING_VALUE', item: '없는 문장', before: '문서에 없는 문장', question: '?', in_procedure: true, query: 'x' },
-    ] }, model: 'm' }),
-    wiki: async (q) => { wikiQ.push(q); return q.startsWith('대출') ? [{ id: 'w1', doc_id: 'doc_other', title: '여신 업무 분장', text: '대출 신청서 승인: 여신심사부 심사역' }] : q.startsWith('문의') ? [{ id: 'w2', doc_id: 'doc_other', title: '조직', text: '문의: 홍길동 대리' }] : []; },
-    suggestClarify: async () => ({ value: { suggestions: [
-      { n: 0, value: '여신심사부 심사역', after: '대출 신청서는 여신심사부 심사역의 승인을 받은 뒤 접수한다.', source_id: 'w1' },
-      { n: 1, value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' }, // 사람 이름 → 버림 (정렬: 잠금 → 담당자 → 링크)
-    ] } }),
-    web: { search: async (qs) => { searched.push(qs); return new Map(qs.map((q) => [q, [{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }]])); } },
-  });
-  const r = await step(t.input);
-  assert.equal(r.status, 'OK');
-  assert.equal(r.findings!.length, 3); // 문서에 없는 before 는 버림
-  const [actor, dept, link] = r.findings!.map((f) => ({ sev: f.severity, code: f.code, d: f.details as { suggestions: { value: string; source: { type: string } }[]; status: string } }));
-  assert.deepEqual([actor!.code, actor!.sev, actor!.d.suggestions[0]!.value, actor!.d.suggestions[0]!.source.type, actor!.d.status], ['CLARIFY_NEEDED', 'MEDIUM', '여신심사부 심사역', 'WIKI', 'OPEN']);
-  assert.deepEqual([link!.sev, link!.d.suggestions[0]!.source.type], ['LOW', 'WEB']);
-  assert.deepEqual([dept!.sev, dept!.d.suggestions.length], ['LOW', 0]);
-  assert.deepEqual(searched, [['삼성전자 프린터 드라이버 다운로드 자료실']]); // 담당자·값은 웹 금지
-  assert.equal((t.store as unknown as { audits: { action: string }[] }).audits.filter((a) => a.action === 'WEB_SEARCH').length, 1);
-  const bad = makeReferenceCheck({ ...t.deps, findClarify: async () => { throw new Error('x'); } });
-  assert.equal((await bad(t.input)).status, 'OK');
-});
-
 test('applyClarify: before 첫 등장만 바꾸고 못 찾은 것은 돌려줌', async () => {
   const { applyClarify } = await import('../src/steps/clarify.ts');
   const r = applyClarify('가. 담당자 승인\n나. 담당자 확인', [{ before: '가. 담당자 승인', after: '가. 여신심사부 심사역 승인' }, { before: '없음', after: 'x' }]);
@@ -292,22 +258,6 @@ test('structurePages: 재구성을 건너뛴 짧은 쪽도 정리본(TEXT)을 �
   assert.equal(saved.get('doc_t/masked/structured/0000.json')?.markdown, '## 01. 표지');
 });
 
-test('Clarify 보정(11/18 dev): 표 빈 칸은 LOW, 빈 양식 행은 항목 아님, 웹 제안은 같은 모델·모델 무관 페이지만', async () => {
-  const { clarifySeverity, keepCandidates, sameModelPage } = await import('../src/steps/clarify.ts');
-  const doc = '| ③ | — | — | — |\n| ⑨ | 임원실 |  |  |\n결재는 담당자가 한다.';
-  const C = (before: string) => ({ kind: 'MISSING_VALUE' as const, item: 'x', before, question: '?', in_procedure: true, query: 'q' });
-  assert.deepEqual(keepCandidates([C('| ③ | — | — | — |'), C('| ⑨ | 임원실 |  |  |'), C('결재는 담당자가 한다.')], doc).map((c) => c.before), ['| ⑨ | 임원실 |  |  |', '결재는 담당자가 한다.']);
-  assert.equal(clarifySeverity(C('| ⑨ | 임원실 |  |  |')), 'LOW');
-  assert.equal(clarifySeverity(C('결재는 담당자가 한다.')), 'MEDIUM');
-  const text = '삼성 SL-K3250NR 드라이버';
-  assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/SL-C563W', title: 'SL-C563W' }), false);
-  assert.equal(sameModelPage(text, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실' }), true);
-  assert.equal(sameModelPage(text, { url: 'https://x.com/SL-K3250NR', title: '드라이버' }), true);
-  assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/NT301E5C-S55M/', title: '노트북 NT301E5C-S55M' }), false);
-  assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/', title: '지원' }), false); // /model/ 인데 문서 모델 없음
-  assert.equal(sameModelPage('브라더 MFC-L5700DN', { url: 'https://support.brother.co.kr/MFC-L5700DN/download', title: 'MFC-L5700DN 드라이버' }), true);
-});
-
 test('Clarify 보정(11/18 dev): 줄 경계에서 자르고 표시, 미완성 주장은 원문으로 확인', async () => {
   const { cutAtLine, keepCandidates, reallyIncomplete } = await import('../src/steps/clarify.ts');
   const long = '첫 줄 문장이다.\n' + '가'.repeat(2000) + '\n등록된 자신에게 전송한다.';
@@ -320,18 +270,115 @@ test('Clarify 보정(11/18 dev): 줄 경계에서 자르고 표시, 미완성 �
   assert.equal(keepCandidates([c], text, () => text).length, 0);
 });
 
-test('Clarify 보정(11/18 dev): 잠금 후보가 같은 문서 다른 쪽에 답이 있으면 LOW + n~m쪽 참조, 쪽 묶음마다 찾기', async () => {
-  const { makeReferenceCheck } = await import('../src/lambdas.ts');
-  const pagesT = ['## 01 층별 복합기 정보\n4층 근무 복합기 IP 주소 10.0.4.15', '4층 근무 복합기 IP 주소 표 계속', '브라더 스캔 설정에서 근무 층 복합기 IP 주소를 입력한다.'];
-  const t = segSetup(pagesT);
-  await t.store.putDoc(t.doc);
-  pagesT.forEach((x, i) => t.objects.set(`${t.doc.doc_id}/masked/segments/${String(i).padStart(4, '0')}.json`, { doc_id: t.doc.doc_id, page_index: i, text: x }));
-  let calls = 0;
-  const step = makeReferenceCheck({ ...t.deps, findClarify: async () => { calls++; return { value: { items: calls > 1 ? [] : [
-    { kind: 'MISSING_VALUE', item: '근무 층 복합기 IP 주소', page: 3, before: '브라더 스캔 설정에서 근무 층 복합기 IP 주소를 입력한다.', question: '무슨 뜻인가요?', in_procedure: true, query: 'q' },
-  ] }, model: 'm' }; } });
-  const r = await step(t.input);
-  assert.equal(r.findings!.length, 1);
-  assert.equal(r.findings![0]!.severity, 'LOW');
-  assert.match((r.findings![0]!.details as { suggestions: { value: string }[] }).suggestions[0]!.value, /^1~2쪽 '01 층별 복합기 정보' 참조$/);
+// ---- Clarify: Fable 진단(11/18) 보고서 E 테스트 9개 + 흐름 ----
+const C0 = (o: Partial<import('../src/steps/clarify.ts').ClarifyCandidate>) => ({ kind: 'MISSING_VALUE' as const, item: 'x', before: 'x', question: '?', in_procedure: true, query: 'q', ...o });
+
+test('E1 keepCandidates: page 없는 후보에 before 가 있는 쪽 번호를 채운다', async () => {
+  const { keepCandidates } = await import('../src/steps/clarify.ts');
+  const pages = [{ page: 1, text: '표지' }, { page: 2, text: '대출은 담당자에게 승인 요청한다.' }];
+  const r = keepCandidates([C0({ kind: 'VAGUE_ACTOR', before: '대출은 담당자에게 승인 요청한다.' })], pages.map((p) => p.text).join('\n'), (n) => pages.find((p) => p.page === n)?.text, pages);
+  assert.equal(r[0]!.page, 2);
 });
+
+test('E2 clarifySeverity: 코드 규칙 — 근무 층 IP 는 LOW, 담당자 승인 요청은 MEDIUM, 표 행은 LOW', async () => {
+  const { clarifySeverity } = await import('../src/steps/clarify.ts');
+  assert.equal(clarifySeverity(C0({ before: '본인 근무 층 프린트 IP를 입력한다.' })), 'LOW');
+  assert.equal(clarifySeverity(C0({ kind: 'VAGUE_ACTOR', before: '담당자에게 승인 요청한다.' })), 'MEDIUM');
+  assert.equal(clarifySeverity(C0({ kind: 'VAGUE_ACTOR', before: '| 승인 | 담당자에게 승인 요청 |' })), 'LOW');
+  assert.equal(clarifySeverity(C0({ kind: 'VAGUE_ACTOR', before: '담당자에게 승인 요청한다.' }), '여신심사부 담당자에게 승인 요청한다.'), 'LOW'); // 같은 쪽에 부서 이름
+  assert.equal(clarifySeverity(C0({ before: '서류는 기한 내 제출한다.' })), 'MEDIUM');
+});
+
+test('E3 규칙 탐지: 주소 없는 링크 언급은 MISSING_LINK, 같은 쪽에 URL 이 있으면 0건, 다운로드 페이지도', async () => {
+  const { ruleCandidates } = await import('../src/steps/clarify.ts');
+  const one = ruleCandidates([{ page: 1, text: '삼성전자 다운로드 자료실 링크 접속 후 드라이버를 받는다.' }]).filter((c) => c.kind === 'MISSING_LINK');
+  assert.equal(one.length, 1);
+  assert.equal(one[0]!.question, '이 링크의 주소는 무엇인가요?');
+  assert.equal(ruleCandidates([{ page: 1, text: '삼성전자 다운로드 자료실 링크 접속\nhttps://www.samsungsvc.co.kr/download' }]).filter((c) => c.kind === 'MISSING_LINK').length, 0);
+  assert.equal(ruleCandidates([{ page: 1, text: '신도 다운로드 페이지에서 받는다.' }]).filter((c) => c.kind === 'MISSING_LINK').length, 1);
+});
+
+test('E4 표 탐지: 일부 칸만 빈 행은 1건, 빈 양식 행은 0건', async () => {
+  const { ruleCandidates } = await import('../src/steps/clarify.ts');
+  const t = '| 번호 | 위치 | IP |\n|---|---|---|\n| ⑨ | 임원실 |  |\n| ③ | — | — |';
+  const r = ruleCandidates([{ page: 4, text: t }]).filter((c) => c.kind === 'MISSING_VALUE');
+  assert.deepEqual(r.map((c) => c.before), ['| ⑨ | 임원실 |  |']);
+});
+
+test('E5 웹 검색어: before 에 모델명이 있어도 검색어에는 모델 토큰이 없다', async () => {
+  const { webQuery, modelsIn } = await import('../src/steps/clarify.ts');
+  const q = webQuery(C0({ kind: 'MISSING_LINK', before: '삼성 SL-K3250NR 드라이버는 다운로드 자료실 링크에서 받는다.' }))!;
+  assert.equal(q, '삼성 드라이버 다운로드');
+  assert.equal(modelsIn(q).length, 0);
+});
+
+test('E6 채택: 다른 모델 페이지 대신 다운로드 자료실, 제3자·노트북 모델 페이지만 있으면 제안 없음', async () => {
+  const { linkAcceptable } = await import('../src/steps/clarify.ts');
+  const ok = linkAcceptable('삼성 SL-K3250NR', ['samsungsvc.co.kr', 'samsung.com']);
+  const hits = [{ url: 'https://www.samsung.com/sec/support/model/SL-C563W', title: 'SL-C563W' }, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실' }];
+  assert.deepEqual(hits.filter(ok).map((h) => h.url), ['https://www.samsungsvc.co.kr/download']);
+  assert.equal([{ url: 'https://www.solvusoft.com/ko/download/samsung', title: '삼성 드라이버 다운로드' }, { url: 'https://www.samsung.com/sec/support/model/NT301E5C-S55M/', title: '노트북 지원' }].filter(ok).length, 0);
+});
+
+test('E7 가짜 WebSearcher: 모델 페이지 3건 뒤에 정답이 있어도 정답까지 도달 → 제안', async () => {
+  const { makeReferenceCheck } = await import('../src/lambdas.ts');
+  const body = '삼성 SL-K3250NR 드라이버는 다운로드 자료실 링크 접속 후 받는다.';
+  const t = segSetup([body]); await t.store.putDoc(t.doc);
+  t.objects.set(`${t.doc.doc_id}/masked/segments/0000.json`, { doc_id: t.doc.doc_id, page_index: 0, text: body });
+  let accepted = false;
+  const step = makeReferenceCheck({ ...t.deps, findClarify: async () => ({ value: { items: [] }, model: 'm' }),
+    web: { search: async (qs, sites, accept) => {
+      const all = ['A1111', 'B2222', 'C3333'].map((m) => ({ url: `https://www.samsung.com/sec/support/model/SL-${m}`, title: m, text: '' })).concat([{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실', text: '' }]);
+      const ok = accept?.get(qs[0]!); const got: typeof all = [];
+      for (const h of all) { got.push(h); if (ok?.(h)) { accepted = true; break; } }
+      assert.deepEqual(sites?.get(qs[0]!), ['samsungsvc.co.kr', 'samsung.com']);
+      return new Map([[qs[0]!, got]]);
+    } } });
+  const r = await step(t.input);
+  assert.ok(accepted);
+  const link = r.findings!.find((f) => (f.details as { kind: string }).kind === 'MISSING_LINK')!;
+  assert.equal((link.details as { suggestions: { value: string }[] }).suggestions[0]!.value, 'https://www.samsungsvc.co.kr/download');
+});
+
+test('E8 할당: 빈 값 6건 + 링크 2건 → 링크 2건이 남는다', async () => {
+  const { allocate } = await import('../src/steps/clarify.ts');
+  const vals = [1, 2, 3, 4, 5, 6].map((n) => C0({ item: `빈 칸 ${n}`, before: `| ${n} | x |  |`, page: n }));
+  const links = [C0({ kind: 'MISSING_LINK', item: '삼성 자료실', before: '삼성 자료실 링크 접속', page: 9 }), C0({ kind: 'MISSING_LINK', item: '신도 다운로드', before: '신도 다운로드 페이지에서', page: 10 })];
+  const r = allocate([...vals, ...links]);
+  assert.equal(r.filter((c) => c.kind === 'MISSING_LINK').length, 2);
+  assert.equal(r.length, 5);
+});
+
+test('E9 같은 입력 두 번이면 규칙 기반 항목이 같다', async () => {
+  const { ruleCandidates } = await import('../src/steps/clarify.ts');
+  const pages = [{ page: 1, text: '삼성 다운로드 자료실 링크 접속\n| ⑨ | 임원실 |  |' }];
+  assert.deepEqual(ruleCandidates(pages), ruleCandidates(pages));
+});
+
+test('Clarify 흐름: 위키 제안(부서+직책, 사람 이름 버림), 담당자·값은 웹 금지, 같은 문서 다른 쪽 참조, 실패해도 OK', async () => {
+  const { makeReferenceCheck } = await import('../src/lambdas.ts');
+  const pagesT = ['## 01 층별 복합기 정보\n근무 층 복합기 IP 주소 10.0.4.15', '대출 신청서는 담당자의 승인을 받은 뒤 접수한다.\n문의는 관련 부서로 한다.'];
+  const t = segSetup(pagesT); await t.store.putDoc(t.doc);
+  pagesT.forEach((x, i) => t.objects.set(`${t.doc.doc_id}/masked/segments/${String(i).padStart(4, '0')}.json`, { doc_id: t.doc.doc_id, page_index: i, text: x }));
+  const searched: string[][] = [];
+  const step = makeReferenceCheck({ ...t.deps,
+    findClarify: async () => ({ value: { items: [
+      C0({ kind: 'VAGUE_ACTOR', item: '담당자', before: '대출 신청서는 담당자의 승인을 받은 뒤 접수한다.', query: '대출 신청서 승인 부서' }),
+      C0({ kind: 'VAGUE_ACTOR', item: '관련 부서', before: '문의는 관련 부서로 한다.', query: '문의 부서' }),
+    ] }, model: 'm' }),
+    wiki: async (q) => (q.startsWith('대출') ? [{ id: 'w1', doc_id: 'doc_other', title: '여신 업무 분장', text: '대출 신청서 승인: 여신심사부 심사역' }] : [{ id: 'w2', doc_id: 'doc_other', title: '조직', text: '문의: 홍길동 대리' }]),
+    suggestClarify: async () => ({ value: { suggestions: [
+      { n: 0, value: '여신심사부 심사역', after: '대출 신청서는 여신심사부 심사역의 승인을 받은 뒤 접수한다.', source_id: 'w1' },
+      { n: 1, value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' },
+    ] } }),
+    web: { search: async (qs) => { searched.push(qs); return new Map(); } },
+  });
+  const r = await step(t.input);
+  const [actor, dept] = r.findings!.map((f) => ({ sev: f.severity, d: f.details as { suggestions: { value: string; source: { type: string } }[]; page: number } }));
+  assert.deepEqual([actor!.sev, actor!.d.suggestions[0]!.value, actor!.d.suggestions[0]!.source.type, actor!.d.page], ['MEDIUM', '여신심사부 심사역', 'WIKI', 2]);
+  assert.equal(dept!.d.suggestions.length, 0); // 사람 이름 제안은 버림
+  assert.deepEqual(searched, []); // 담당자는 웹 금지
+  const bad = makeReferenceCheck({ ...t.deps, findClarify: async () => { throw new Error('x'); } });
+  assert.equal((await bad(t.input)).status, 'OK');
+});
+

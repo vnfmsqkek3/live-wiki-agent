@@ -8,7 +8,8 @@ import { isCommunity, resultUrl } from './steps/reference-check.ts';
 
 export interface WebHit { url: string; title: string; text: string }
 /** 검색어 → 공식 사이트 추정(있으면 그 사이트부터 site: 검색) */
-export interface WebSearcher { search(queries: string[], officialSites?: Map<string, string>): Promise<Map<string, WebHit[]>> }
+/** officialSites: 검색어 → 공식 도메인(여러 개면 순서대로 site: 검색). accept: 채택 가능한 결과가 나올 때만 멈춘다 (Fable 진단 C, 11/18) */
+export interface WebSearcher { search(queries: string[], officialSites?: Map<string, string | string[]>, accept?: Map<string, (h: WebHit) => boolean>): Promise<Map<string, WebHit[]>> }
 
 function cdp(ws: WebSocket) {
   let id = 0;
@@ -31,7 +32,7 @@ export class AgentCoreWebSearcher implements WebSearcher {
   private readonly identifier: string | undefined;
   private readonly perQuery: number;
   constructor(region = process.env.AWS_REGION ?? 'us-east-1', identifier = process.env.BROWSER_ID, perQuery = 3) { this.region = region; this.identifier = identifier; this.perQuery = perQuery; }
-  async search(queries: string[], officialSites: Map<string, string> = new Map()) {
+  async search(queries: string[], officialSites: Map<string, string | string[]> = new Map(), accept: Map<string, (h: WebHit) => boolean> = new Map()) {
     const out = new Map<string, WebHit[]>();
     if (!queries.length) return out;
     const b = new Browser({ region: this.region, ...(this.identifier ? { identifier: this.identifier } : {}) });
@@ -49,11 +50,14 @@ export class AgentCoreWebSearcher implements WebSearcher {
       for (const q of queries) {
         // 공식 사이트 추정이 있으면 그 사이트 안에서 먼저(site:). Google 은 낱말이 많으면 site: 를 무시해 짧은 검색어로 한 번 더(11/18 실측).
         // 결과 칸 글자에 표시 주소(https://도메인 › 경로)가 있어 열기 전에 사용자 게시글을 빼고 공식 도메인을 앞에 둔다
-        const site = officialSites.get(q)?.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+        const raw0 = officialSites.get(q);
+        const siteList = (Array.isArray(raw0) ? raw0 : raw0 ? [raw0] : []).map((x) => x.replace(/^https?:\/\//, '').replace(/\/.*$/, '')).filter(Boolean);
+        const site = siteList[0];
         const short = q.split(/\s+/).slice(-3).join(' ');
         const G = (x: string) => `https://www.google.com/search?hl=ko&num=10&q=${encodeURIComponent(x)}`;
+        const ok = accept.get(q);
         const ENGINES: [string, string][] = [
-          ...(site ? [[G(`${q} site:${site}`), '#search a:has(h3)'], [G(`${short} site:${site}`), '#search a:has(h3)']] as [string, string][] : []),
+          ...siteList.flatMap((st) => [[G(`${q} site:${st}`), '#search a:has(h3)'], [G(`${short} site:${st}`), '#search a:has(h3)']] as [string, string][]),
           [G(q), '#search a:has(h3)'],
           [`https://www.bing.com/search?setlang=ko&q=${encodeURIComponent(q)}`, 'li.b_algo h2 a'],
         ];
@@ -61,18 +65,19 @@ export class AgentCoreWebSearcher implements WebSearcher {
           const r = resultUrl(href); if (r) return new URL(r).hostname.toLowerCase();
           return (/https?:\/\/([a-z0-9.-]+)/i.exec(text)?.[1] ?? '').toLowerCase();
         };
-        const official = (h: string) => !!site && !!h && (h === site || h.endsWith(`.${site}`) || h.replace(/^www\./, '') === site.replace(/^www\./, ''));
+        const official = (h: string) => !!h && siteList.some((st) => h === st || h.endsWith(`.${st}`) || h.replace(/^www\./, '') === st.replace(/^www\./, ''));
+        void site;
         const hits: WebHit[] = [];
         let opened = 0;
         for (const [url, sel] of ENGINES) {
-          if (hits.length) break;
+          if (ok ? hits.some(ok) : hits.length) break; // 채택 판정이 있으면 채택 가능한 결과가 나올 때까지
           await open(url, 3500);
           const raw = JSON.parse(await read(`JSON.stringify([...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, 8).map((a) => ({ href: a.href, text: (a.innerText || '').slice(0, 300), title: (a.querySelector('h3')?.innerText || a.innerText || '').split(String.fromCharCode(10))[0].slice(0, 200) })))`) || '[]') as { href: string; text: string; title: string }[];
           const links = raw.map((l) => ({ ...l, host: hostOf(l.href, l.text) }))
             .filter((l) => !(l.host && isCommunity(`https://${l.host}/`)))
             .sort((x, y) => Number(!official(x.host)) - Number(!official(y.host)));
           for (const { href: u, title: linkText } of links) {
-            if (hits.length >= this.perQuery || opened >= 6) break;
+            if ((ok ? hits.some(ok) : hits.length >= this.perQuery) || opened >= 10) break;
             opened++;
             try {
               await open(u, 2500);

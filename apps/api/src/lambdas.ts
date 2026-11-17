@@ -13,7 +13,7 @@ import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
 import { bestHit, sitesOf, unsafeQuery } from './steps/reference-check.ts';
-import { asRef, findInSameDoc, sameModelPage, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
+import { allocate, asRef, findInSameDoc, linkAcceptable, ruleCandidates, sitesFor, webQuery, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -162,12 +162,13 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       const chunks: (typeof pages)[] = []; for (let k = 0; k < pages.length; k += 8) chunks.push(pages.slice(k, k + 8));
       const results = await Promise.all(chunks.map((ch) => deps.findClarify!(clarifyPrompt(d.title, ch)).catch(() => ({ value: { items: [] as ClarifyCandidate[] }, model: '' }))));
       const found = { model: results.find((r) => r.model)?.model ?? '', value: { items: results.flatMap((r) => r.value.items ?? []) } };
-      const ORDER = ['VAGUE_ACTOR', 'MISSING_VALUE', 'MISSING_LINK', 'INCONSISTENT', 'OUTDATED'];
-      found.value.items.sort((x, y) => Number(clarifySeverity(y) === 'MEDIUM') - Number(clarifySeverity(x) === 'MEDIUM') || ORDER.indexOf(x.kind) - ORDER.indexOf(y.kind) || (x.page ?? 0) - (y.page ?? 0));
-      const cands = keepCandidates(found.value.items, all, (n) => pages.find((p) => p.page === n)?.text);
-      // 잠금 후보는 같은 문서 안에서 먼저 답을 찾는다 → 있으면 권고(LOW) + 'n~m쪽 참조' 제안
+      // 모델은 담당자·불일치·버전만, 링크·표 빈 칸은 코드 탐지 (Fable 진단 D)
+      const llm = found.value.items.filter((c) => ['VAGUE_ACTOR', 'INCONSISTENT', 'OUTDATED'].includes(c.kind));
+      const pageText = (n: number) => pages.find((p) => p.page === n)?.text;
+      const cands = allocate(keepCandidates([...ruleCandidates(pages), ...llm], all, pageText, pages), pageText);
+      // 같은 문서 다른 쪽에 답이 있으면 'n쪽 참조' 제안 (잠금 여부는 바꾸지 않는다)
       const inDoc = new Map<number, { from: number; to: number; heading?: string }>();
-      cands.forEach((c, n) => { if (clarifySeverity(c) === 'MEDIUM') { const f = findInSameDoc(c, pages); if (f) inDoc.set(n, f); } });
+      cands.forEach((c, n) => { if (c.kind === 'VAGUE_ACTOR' || c.kind === 'MISSING_VALUE') { const f = findInSameDoc(c, pages); if (f) inDoc.set(n, f); } });
       console.log(JSON.stringify({ msg: 'clarify candidates', doc_id: d.doc_id, n: cands.length, kinds: cands.map((c) => c.kind) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const sugg = new Map<number, ClarifySuggestion[]>(cands.map((_, n) => [n, []]));
@@ -194,22 +195,28 @@ export function makeReferenceCheck(deps: SegmentDeps) {
         }
       }
       // 3) 공개 웹은 링크·불일치·버전만, 위키 제안이 없을 때, 공식 도메인 추정이 있을 때 (최대 3건)
-      const webC = cands.map((c, n) => ({ c, n })).filter(({ c, n }) => WEB_KINDS.has(c.kind) && !sugg.get(n)!.length && sitesOf(asRef(c)).length && !unsafeQuery(c.query, internal)).slice(0, 3);
+      const webC = cands.map((c, n) => {
+        const pt = c.page ? pageText(c.page) ?? '' : '';
+        const q = webQuery(c, pt);
+        return { c, n, q, sites: sitesFor(`${c.before} ${c.item} ${pt}`, sitesOf(asRef(c))) };
+      }).filter(({ c, n, q, sites }) => WEB_KINDS.has(c.kind) && !sugg.get(n)!.length && q && sites.length && !unsafeQuery(q, internal)).slice(0, 3);
       const checked_at = now();
       if (deps.web && webC.length) {
-        const sites = new Map(webC.map(({ c }) => [c.query.trim(), sitesOf(asRef(c))[0]!]));
-        const hits = await deps.web.search([...new Set(webC.map(({ c }) => c.query.trim()))], sites);
+        // 채택 판정을 검색 안으로: 채택할 수 있는 결과가 나올 때까지 사이트별 site: 검색 → 일반 검색 (Fable 진단 C)
+        const hits = await deps.web.search([...new Set(webC.map(({ q }) => q!))], new Map(webC.map(({ q, sites }) => [q!, sites])),
+          new Map(webC.map(({ q, sites }) => [q!, linkAcceptable(all, sites)])));
         for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
           detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
-        for (const { c, n } of webC) {
-          const h = bestHit(asRef(c), (hits.get(c.query.trim()) ?? []).filter((x) => sameModelPage(all, x)) /* 문서에 나온 모델명 집합 기준 */);
+        for (const { c, n, q, sites } of webC) {
+          const ok = (hits.get(q!) ?? []).filter(linkAcceptable(all, sites)).sort((x, y) => new URL(x.url).pathname.length - new URL(y.url).pathname.length); // 짧은 경로 우선
+          const h = ok[0];
           if (h) sugg.get(n)!.push({ value: h.url, after: `${c.before} (${h.url})`, source: { type: 'WEB', url: h.url, title: h.title } });
         }
       }
       // 4) finding: 제안이 없어도 질문은 남긴다
       const findings: Finding[] = cands.map((c, n) => {
         const data: ClarifyData = { kind: c.kind, item: c.item, ...(c.page ? { page: c.page } : {}), before: c.before, question: c.question, suggestions: sugg.get(n)!, status: 'OPEN' };
-        return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: inDoc.has(n) ? 'LOW' : clarifySeverity(c), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
+        return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: clarifySeverity(c, c.page ? pageText(c.page) : undefined), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
           location: { ...(c.page ? { page: c.page } : {}), excerpt: c.before.slice(0, 120) },
           user_message: c.question, fix_hint: data.suggestions.length ? '제안을 확인하고 [적용]하거나 직접 입력하세요.' : '직접 입력하거나, 해당 없으면 사유를 적어 주세요.',
           details: { ...data, checked_at } };
