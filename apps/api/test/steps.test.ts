@@ -207,3 +207,10 @@ test('쪽 본문 AI 재구성 대조: 배치만 바꾼 정리본은 통과, 글�
   assert.equal(faithful(orig, '## 개인정보 처리 근거\n\n고객정보는 확인한다.').ok, false); // 빠짐
   assert.equal(faithful(orig, good.replace('2026.10.15', '2026.11.15')).ok, false); // 숫자 바뀜
 });
+
+test('AI 재구성 대상: 이미 마크다운인 쪽·짧은 쪽은 건너뜀', async () => {
+  const { needsStructure } = await import('../src/steps/structure.ts');
+  assert.equal(needsStructure('SYNTHETIC — x\n# 제목\n## 절차\n- 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘'), false);
+  assert.equal(needsStructure('짧은 쪽'), false);
+  assert.equal(needsStructure('1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다. 「개인정보 보호법」 제15조제1항: 개인정보처리자는'), true);
+});

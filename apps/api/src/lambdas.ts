@@ -11,7 +11,7 @@ import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
-import { faithful, structurePrompt } from './steps/structure.ts';
+import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
@@ -143,23 +143,23 @@ export function makeClassify(deps: SegmentDeps) {
   };
 }
 
-/** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)은 원문 그대로. 원문 대조를 통과한 정리본만 저장 */
+/** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)·이미 마크다운인 쪽은 건너뜀. 원문 대조를 통과한 정리본만 저장 */
 export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
-  const todo = segs.filter((s) => s.text.trim().length >= 80).slice(0, 40);
-  let saved = 0;
+  const todo = segs.filter((s) => needsStructure(s.text)).slice(0, 40);
+  let saved = 0, rejected = 0, failed = 0;
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
       try {
         const r = await deps.structure!(structurePrompt(s.page_index, s.text));
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
         const f = faithful(s.text, md);
-        if (!f.ok) { console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
+        if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
         await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
         saved++;
-      } catch (e) { console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
+      } catch (e) { failed++; console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
     }));
   }
-  return saved;
+  return { pages: todo.length, saved, rejected, failed };
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;
