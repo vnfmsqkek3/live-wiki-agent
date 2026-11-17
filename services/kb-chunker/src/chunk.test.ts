@@ -168,3 +168,16 @@ test("쪽 맥락은 본문 조각 검색 머리·page_context로만, 쪽 정리�
   const reg = chunkDocument("제1조(목적) 이 규정은 정한다.\n⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 요약", meta({ document_type: "REGULATION", law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" }));
   assert.ok(reg.every((c) => !c.metadata.evidence_kind));
 });
+
+test("장(章): 쪽 첫 줄의 장 번호로 나누고 번호 없는 쪽은 앞 장을 이음, 쪽 범위 (과천 매뉴얼 11/18)", () => {
+  const pages = ["표지 MEGAZONE", "목차", "01.층별 복합기 정보", "01 층별 복합기 정보\n| ① | N620 |", "02.삼성 복합기 드라이버", "02 삼성 복합기 드라이버 설치 방법\n1. 다운로드", "설치 계속 화면", "⑤ 근무지 이동시 복합기 아이피 변경 방법"];
+  const cs = chunkDocument(pages.join("\n\f\n") + "\n⟦그림 p5⟧ 그림 1 속 글자: 다운로드", meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const at = (p: number) => cs.find((c) => !c.metadata.has_figure && c.metadata.source_page === p)!.metadata;
+  assert.equal(at(0).section, undefined);
+  assert.deepEqual([at(3).section, at(3).section_pages], ["01 층별 복합기 정보", "3-4"]);
+  assert.deepEqual([at(6).section, at(6).section_pages], ["02 삼성 복합기 드라이버", "5-7"]); // 번호 없는 7쪽은 2장을 이음
+  assert.equal(at(7).section, "05 근무지 이동시 복합기 아이피 변경 방법");
+  assert.equal(cs.find((c) => c.metadata.has_figure)!.metadata.section, "02 삼성 복합기 드라이버"); // 그림 조각도 같은 장
+  // 규정은 장 메타데이터 없음 (조문 구조가 따로 있음)
+  assert.ok(chunkDocument("제1조(목적) 이 규정은 정한다.", meta()).every((c) => !c.metadata.section));
+});

@@ -279,3 +279,19 @@ test("그림 기준 근거(evidence_kind FIGURE)는 인용 가능·머리표, pa
   assert.match(f.snippet, /^\[그림 기준 · AI 정리\] 감정평가/u);
   assert.equal(f.page_context, "01 실사 › 그림 1: 현장");
 });
+
+test("expand section: 걸린 조각의 같은 장 조각을 쪽 순서로 함께 (재검증 통과분만, 장당 8개)", async () => {
+  const { retriever, states } = setup();
+  const base = retriever.chunks.find((c) => c.metadata["doc_id"] === "K-001")!.metadata;
+  const sec = { section: "02 삼성 복합기 드라이버", section_pages: "11-16" };
+  retriever.add("[매뉴얼] 1. 다운로드 자료실 접속 드라이버 설치", { ...base, ...sec, provision_id: "K-001#p11", source_page: 11, original_text: "1. 다운로드 자료실 접속" });
+  retriever.add("[매뉴얼] 3. 압축 해제 후 설치", { ...base, ...sec, provision_id: "K-001#p13", source_page: 13, original_text: "3. 압축 해제 후 설치" });
+  retriever.add("[매뉴얼] 2. 모델명 입력", { ...base, ...sec, provision_id: "K-001#p12", source_page: 12, original_text: "2. 모델명 입력" });
+  retriever.add("[매뉴얼] 다른 장", { ...base, section: "03 신도", section_pages: "17-21", provision_id: "K-001#p17", source_page: 17, original_text: "다른 장" });
+  const t = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "다운로드 자료실 접속 드라이버 설치", as_of: "2026-12-15", rewrite: false, expand: "section" }, user) as { expanded?: { section: string; section_pages?: string; items: { provision_id: string; page?: number }[] }[] };
+  const e = r.expanded!.find((x) => x.section === "02 삼성 복합기 드라이버")!;
+  assert.equal(e.section_pages, "11-16");
+  assert.deepEqual(e.items.map((i) => i.provision_id), ["K-001#p11", "K-001#p12", "K-001#p13"]); // 쪽 순서, 다른 장 제외
+  await assert.rejects(t.search_wiki({ query: "x", expand: "all" }, user), /expand/u);
+});
