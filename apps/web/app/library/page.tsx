@@ -10,6 +10,7 @@ import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { api, ApiError, apiBlobUrl, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
+import { RefSuggestions, withReference } from '../ref-suggestions';
 import { Changes, PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
 
@@ -403,7 +404,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const [active, setActive] = useState(0);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null); // 정리본 인라인 그림 크게 보기
   const [images, setImages] = useState(false); // 필터링된 원문: 쪽 이미지(개인정보만 가림). 탭은 정리본·필터링된 원문 두 개 (사용자 결정 11/18)
-  const [editing, setEditing] = useState(false); // 위키 수정 (규칙 1)
+  const [editing, setEditing] = useState<string | false>(false); // 위키 수정 (규칙 1). 문자열이면 그 본문으로 연다
   const [zoom, setZoom] = useState(false); // 쪽 그림 크게 보기
   const [fixOpen, setFixOpen] = useState(false);
   const [reasonsOpen, setReasonsOpen] = useState(false);
@@ -438,7 +439,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
       <header className="document-header">
       <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
-      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing(true)}>위키에서 고치기</button>}</div><dl className="meta-grid">
+      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div><dl className="meta-grid">
         {d.category_path && d.category_id && <><dt>분류</dt><dd><Link href={`/library?category=${encodeURIComponent(d.category_id)}`}>{d.category_path.split('/').join(' › ')}</Link></dd></>}
         {!d.category_path && d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
@@ -448,7 +449,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
       </dl></header>
-      {editing && <WikiEditor docId={d.doc_id} initial={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} onCancel={() => setEditing(false)} />}
+      {editing !== false && <WikiEditor docId={d.doc_id} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} onCancel={() => setEditing(false)} />}
 
       <div className="detail-layout"><div className="detail-body">
 
@@ -503,6 +504,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       )}
 
       </div><div className="document-more">
+      <RefSuggestions items={d.suggestions ?? []} onInsert={canWikiEdit ? (sg) => { setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); window.scrollTo({ top: 0, behavior: 'smooth' }); } : undefined} />
       <div className="detail-cards" aria-label="문서 상세 항목">
       {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
       {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}

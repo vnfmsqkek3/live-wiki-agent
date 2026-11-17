@@ -12,6 +12,7 @@ import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
+import { findPrompt, pageMatches, unsafeQuery } from './steps/reference-check.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -48,6 +49,9 @@ export interface SegmentDeps {
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
   /** 업무 분류 칸 배정 (interfaces.md 10.1). 마스킹된 제목·요약만. 없으면 생략 (GOV_STORE=postgres + MODEL_EMBED 일 때만) */
   category?(doc: { doc_id: string; title: string; summary?: string }): Promise<unknown>;
+  /** 참조 확인 (interfaces 6.4): 정리본에서 확인할 대상 찾기(Haiku)와 공개 웹 검색(AgentCore Browser). 없으면 생략 */
+  findRefs?(prompt: string): Promise<{ value: { refs: import('./steps/reference-check.ts').RefCandidate[] }; model: string }>;
+  web?: import('./web-search.ts').WebSearcher;
   /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
   structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
   /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
@@ -127,6 +131,46 @@ export function makeInjectionScan(deps: SegmentDeps) {
     const r = injectionScan((await maskedSegments(deps, i.doc_id)).map((s) => ({ page: s.page_index, text: s.page_markdown ? `${s.text}\n${s.page_markdown}` : s.text })));
     await deps.store.putDoc(addFindings(d, r.findings));
     return r;
+  };
+}
+
+/** 참조 확인 ReferenceCheck (사용자 결정 11/18, interfaces 6.4). Classify 뒤, 게시를 막지 않는다(INFO). 어떤 실패도 OK 로 끝낸다 */
+export function makeReferenceCheck(deps: SegmentDeps) {
+  return async (i: StepInput): Promise<StepOutput> => {
+    if (!deps.findRefs || !deps.web) return { status: 'OK', findings: [] };
+    const d = await mustDoc(deps.store, i.doc_id);
+    try {
+      // 정리본이 있으면 정리본, 없으면 마스킹 본문 (모두 개인정보를 가린 글)
+      const segs = (await maskedSegments(deps, i.doc_id)).sort((a, b) => a.page_index - b.page_index);
+      const structured = new Map<number, string>();
+      for (const k of (await deps.listKeys(`${i.doc_id}/masked/structured/`)).filter((x) => x.endsWith('.json'))) {
+        const v = await deps.getJson<{ page_index: number; markdown: string }>(k).catch(() => undefined);
+        if (v) structured.set(v.page_index, v.markdown);
+      }
+      const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
+      const cands = ((await deps.findRefs(findPrompt(d.title, pages))).value.refs ?? []).slice(0, 5);
+      const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+      const safe = cands.filter((c) => { const why = unsafeQuery(c.query, internal); if (why) console.warn(JSON.stringify({ msg: 'refcheck query skipped', doc_id: d.doc_id, why })); return !why; });
+      const hits = await deps.web.search([...new Set(safe.map((c) => c.query.trim()))]);
+      const checked_at = now();
+      const findings: Finding[] = [];
+      for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
+        detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
+      for (const c of safe) {
+        const h = (hits.get(c.query.trim()) ?? []).find((x) => pageMatches(c, x));
+        if (!h) continue;
+        findings.push({ finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: 'LOW', /* 계약상 INFO: Severity·DB CHECK 에 INFO 가 없어 LOW(게시 비차단) */ code: 'REFERENCE_SUGGESTION', message: `참조 확인: ${c.reason}`, evidence_ref: h.url,
+          location: { ...(c.page ? { page: c.page } : {}), excerpt: c.item.slice(0, 120) },
+          user_message: `${c.item}: 공개 웹에서 확인한 주소가 있습니다 — ${h.title} (${h.url})`,
+          fix_hint: '맞으면 "정리본에 넣기"로 이 주소를 문서에 넣으세요. 웹에서 찾은 정보라 근거로 인용하지 않습니다.',
+          details: { item: c.item, reason: c.reason, query: c.query, url: h.url, title: h.title, checked_at } });
+      }
+      if (findings.length) await deps.store.putDoc(addFindings(d, findings));
+      return { status: 'OK', findings };
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: 'refcheck failed', doc_id: d.doc_id, err: (e as Error).name }));
+      return { status: 'OK', findings: [] };
+    }
   };
 }
 

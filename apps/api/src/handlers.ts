@@ -1,11 +1,13 @@
 // Lambda 진입점 (esbuild로 단일 파일 번들). 함수별 handler 이름: handlers.<name>
 import { applyGuardrail, getJson, getObjectBytes, headObject, listKeys, purgePrefix, putBytes, putJson, startWorkflow, storeFromEnv } from './aws.ts';
 import {
-  makeClassify, makeFileStructureCheck, makeFinalize, makeFreshnessSweep, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
+  makeClassify, makeReferenceCheck, makeFileStructureCheck, makeFinalize, makeFreshnessSweep, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
   type LambdaDeps, type SegmentDeps,
 } from './lambdas.ts';
 import { structured, embed } from './model.ts';
 import { STRUCTURE_SCHEMA, STRUCTURE_SYSTEM } from './steps/structure.ts';
+import { FIND_SCHEMA, FIND_SYSTEM } from './steps/reference-check.ts';
+import { AgentCoreWebSearcher } from './web-search.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
 import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
@@ -82,7 +84,15 @@ export const typeDetection = makeTypeDetection(deps);
 export const fileStructureCheck = makeFileStructureCheck(deps);
 export const piiScan = makePiiScan(seg);
 export const injectionScan = makeInjectionScan(seg);
-export const classify = makeClassify(seg); // 모델 호출 Role (hanaeum-model-caller=true, 원본·work 읽기 거부)
+export const classify = makeClassify(seg);
+// 참조 확인 (6.4): Lambda reference-check, handler handlers.referenceCheck. REFERENCE_CHECK=on 일 때만 웹 검색 (Browser 권한 필요)
+export const referenceCheck = makeReferenceCheck({
+  ...seg,
+  ...(process.env.REFERENCE_CHECK === 'on' ? {
+    findRefs: (prompt: string) => structured<{ refs: import('./steps/reference-check.ts').RefCandidate[] }>('HAIKU', FIND_SYSTEM, prompt, 'submit_refs', FIND_SCHEMA as unknown as Record<string, unknown>),
+    web: new AgentCoreWebSearcher(),
+  } : {}),
+}); // 모델 호출 Role (hanaeum-model-caller=true, 원본·work 읽기 거부)
 export const trustGate = makeTrustGate(deps);
 export const waitForApproval = makeWaitForApproval(deps);
 export const awaitReview = waitForApproval; // AgentCore 오케스트레이터 Tool 이름

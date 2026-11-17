@@ -7,6 +7,7 @@ import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, dateLine, type Finding, type Fix, type Review } from '../lib/api';
 import { WikiEditor } from '../wiki-editor';
+import { RefSuggestions, withReference } from '../ref-suggestions';
 import { IssueList, PageFacts, VersionLink } from '../issues';
 
 const STAGES = ['올리기·고치기', 'AI 검사', '고칠 것 확인', '게시 요청'];
@@ -120,6 +121,7 @@ function ReviewView() {
           {canFix && !open.length && <div className="actions"><button type="button" className="btn" onClick={() => setEditInit(r.text!)}>본문 더 고치기</button></div>}
         </section>
       )}
+      <RefSuggestions items={r.suggestions ?? []} onInsert={canFix ? (sg) => setEditInit(withReference(r.text!, sg)) : undefined} />
       <details className="more"><summary>자세히: 검사별 결과</summary>
       <IssueList docId={r.doc_id} />
       <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />

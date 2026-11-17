@@ -8,6 +8,8 @@ export interface AuditEvent {
   resource: string;
   result: 'OK' | 'DENIED';
   trace_id: string;
+  /** 원문·개인정보 없는 부가 정보 (예: WEB_SEARCH 검색어·URL·결과 수) */
+  detail?: Record<string, unknown>;
 }
 
 /** DynamoDB 조건부 쓰기와 같은 의미를 지켜야 한다 (조건 불일치 → CONFLICT). */

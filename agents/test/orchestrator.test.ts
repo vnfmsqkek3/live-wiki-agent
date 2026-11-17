@@ -120,3 +120,12 @@ test('위키 수정본(text_only): 변환·쪽 이미지·OCR 없이 글자 추�
   assert.ok(!order.includes('convert_to_pdf') && !order.includes('page_render') && !order.includes('ocr_if_needed'));
   assert.equal(order.at(-1), 'await_review');
 });
+
+test('참조 확인(REFERENCE_CHECK=on): classify 뒤 reference_check, 그 뒤 trust_gate', async () => {
+  const t = deps();
+  const d = { ...t.d, referenceCheck: true };
+  await run(ingestGraph(d, input), d, input);
+  const order = t.calls.map((c) => c.step);
+  assert.equal(order[order.indexOf('classify') + 1], 'reference_check');
+  assert.equal(order[order.indexOf('reference_check') + 1], 'trust_gate');
+});

@@ -102,7 +102,7 @@ export function postgresStore(d: Db = connect()): PostgresStore {
     },
     async audit(e) {
       // 감사 기록은 추가만 (테이블 트리거가 수정·삭제를 막는다)
-      await q('INSERT INTO audit_events (at, actor, action, resource, result, trace_id) VALUES (:at::timestamptz, :actor, :action, :resource, :result, :trace_id)', { ...e });
+      await q('INSERT INTO audit_events (at, actor, action, resource, result, trace_id, detail) VALUES (:at::timestamptz, :actor, :action, :resource, :result, :trace_id, :detail::jsonb)', { ...e, detail: e.detail ? JSON.stringify(e.detail) : null });
     },
   };
 }

@@ -322,7 +322,8 @@ export function createApp(deps: Deps) {
     const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? (await texts(d.doc_id).catch(() => [])).join('\n\n') : undefined;
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
-    return c.json({ fixes, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+    const suggestions = d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as Record<string, unknown>) }));
+    return c.json({ fixes, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
@@ -697,6 +698,8 @@ export function createApp(deps: Deps) {
       ...base,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
+      // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
+      suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
       can_delete: d.owner === a.sub || hasRole(a, APPROVERS),

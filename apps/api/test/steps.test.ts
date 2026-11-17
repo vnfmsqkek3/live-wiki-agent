@@ -241,3 +241,21 @@ test('위키 수정분 검수: 바뀐 문장·지운 문장 구분, 지운 중�
   assert.equal(r.onChanged({ location: { excerpt: '마감 1시간 전에 시재표를 출력한다' } } as never), true);
   assert.equal(r.onChanged({ location: { excerpt: '지폐는 띠지를 확인한다' } } as never), false);
 });
+
+test('참조 확인: 검색어 검사(IP·이메일·가림 자리·개인정보·사내 도메인·사람 이름은 검색 안 함), 페이지 일치, 검색 결과 주소', async () => {
+  const { unsafeQuery, pageMatches, resultUrl } = await import('../src/steps/reference-check.ts');
+  assert.equal(unsafeQuery('삼성 SL-K3250NR 드라이버 다운로드'), undefined);
+  assert.equal(unsafeQuery('복합기 10.20.30.41 설정'), 'ipv4');
+  assert.equal(unsafeQuery('문의 hong@corp.example'), 'email');
+  assert.equal(unsafeQuery('[주민등록번호] 확인 방법'), 'masked_placeholder');
+  assert.equal(unsafeQuery('하나은행 인트라넷 다운로드'), 'internal_domain');
+  assert.equal(unsafeQuery('김하나 대리 연락처'), 'person_name');
+  assert.equal(unsafeQuery('x'.repeat(121)), 'length');
+  const c = { item: '삼성전자 다운로드 자료실 링크', reason: 'MISSING_LINK' as const, query: '삼성전자 프린터 드라이버 다운로드 자료실' };
+  assert.equal(pageMatches(c, { title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }), true);
+  assert.equal(pageMatches(c, { title: '날씨', text: '오늘 맑음' }), false);
+  const b64 = Buffer.from('https://www.samsungsvc.co.kr/download').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  assert.equal(resultUrl(`https://www.bing.com/ck/a?!&&p=x&u=a1${b64}&ntb=1`), 'https://www.samsungsvc.co.kr/download');
+  assert.equal(resultUrl('https://www.samsung.com/sec/support/'), 'https://www.samsung.com/sec/support/');
+  assert.equal(resultUrl('https://www.bing.com/aclick?ld=x'), undefined);
+});

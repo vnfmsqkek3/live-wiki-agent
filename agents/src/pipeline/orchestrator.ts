@@ -23,12 +23,14 @@ export interface PipelineDeps {
   imageDescribe?: boolean;
   /** 쪽별 요약·메타데이터 단계(yoyo0704 Lambda, masked/summary.json). env PAGE_SUMMARIZE=on */
   pageSummarize?: boolean;
+  /** 참조 확인 (interfaces 6.4, env REFERENCE_CHECK=on) */
+  referenceCheck?: boolean;
 }
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
 export const STEP_NAMES: Record<string, string> = {
   malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', convert_to_pdf: 'ConvertToPdf', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
-  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify',
+  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify', reference_check: 'ReferenceCheck',
   trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize', purge_document: 'PurgeDocument',
 };
 
@@ -80,7 +82,8 @@ export function ingestGraph(deps: PipelineDeps, input: StepInput, opts: { textOn
   // 차단이 아니면 검토 대기(await_review), 차단이면 finalize(BLOCKED). 둘 다 마지막에 두고 노드 안에서 분기
   const tail = new ReviewOrBlock(deps, input);
   // 선택 단계: ImageDescribe(그림 묘사도 지시문 검사를 받도록 InjectionScan 앞), PageSummarize(지시문 검사 뒤, 요약을 Classify가 쓸 수 있게)
-  const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify'];
+  // ReferenceCheck(6.4): Classify(정리본) 뒤, 게시 비차단. REFERENCE_CHECK=on 일 때만
+  const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify', ...(deps.referenceCheck ? ['reference_check'] : [])];
   // 위키 수정본(글자 문서): ConvertToPdf·PageRender·OCR 없이 text_layer_extract → segment_build (interfaces 6.2)
   if (opts.textOnly) return new Graph({
     nodes: [n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('segment_build'), ...mid.map((k) => n(k)), n('trust_gate'), tail],
