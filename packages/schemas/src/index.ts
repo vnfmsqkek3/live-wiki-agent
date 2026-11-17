@@ -76,6 +76,8 @@ export const DocumentMetadata = z.object({
   // v0.2: Classify 결과 (업무 경로·태그). 문서보관함 카드·검색 필터. 비어 있으면 생략 (KB 목록 메타데이터에 빈 배열 금지)
   business_path: z.array(z.string().min(1)).min(1).max(3).optional(),
   tags: z.array(z.string().min(1)).min(1).max(8).optional(),
+  // v0.4 (사용자 요청 11/17 검색 세부 필터): 본문에 적힌 대표 일자(시행>개정>작성>발행>제정). 없으면 생략
+  doc_date: YmdNumber.optional(),
 }).refine((m) => m.effective_from <= m.effective_to, "effective_from > effective_to")
   .refine((m) => m.document_type !== "REGULATION" || (m.law_id && m.revision_id), "REGULATION은 law_id·revision_id 필수");
 export type DocumentMetadata = z.infer<typeof DocumentMetadata>;

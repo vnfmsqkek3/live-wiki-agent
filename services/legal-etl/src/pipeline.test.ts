@@ -100,6 +100,7 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   const meta = MetadataSidecar.parse(JSON.parse((await s.get(P, `legal/${DOC}/content.txt.metadata.json`)).toString())).metadataAttributes;
   assert.equal(meta.index_group, "legal-clauses");
   assert.equal(meta.effective_from, 20261101);
+  assert.equal(meta.doc_date, 20261101, "본문 머리말 시행일 → 검색 기간 필터용 doc_date");
   assert.equal(meta.content_hash, sha256(await s.get(P, `legal/${DOC}/content.txt`)));
   assert.ok(!(await s.list(P, "")).some((k) => k.includes("original") || k.includes("work")), "원문·중간 산출물 게시 금지");
 });
