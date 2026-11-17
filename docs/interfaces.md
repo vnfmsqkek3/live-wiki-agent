@@ -145,9 +145,10 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 |---|---|
 | 생성 (ImageDescribe, yoyo0704) | 그림 있는 쪽(masked/pages 있는 쪽)마다 마스킹 쪽 이미지 + OCR 글자(참고)를 Sonnet 에 넣어 쪽 전체 마크다운. 이미지가 정답, OCR 은 참고. 절차는 번호 단계, UI 이름 굵게, 그림 근거 문장 끝 `_(그림 n)_`(n = figures 순서). PII 재마스킹, 최대 6000자 |
 | 저장 | `masked/figures/{nnnn}.json`·`masked/segments/{nnnn}.json` 의 `page_markdown` (그림 없는 쪽은 없음) |
-| 사용 (Classify, dhxorb96) | 있으면 그 쪽 정리본으로 그대로(모델 재호출·원문 대조 없음). 화면 표시 "AI 정리(그림 기준) — 근거 인용 불가" |
+| 사용 (Classify, dhxorb96) | 있으면 그 쪽 정리본으로 그대로(모델 재호출·원문 대조 없음). 화면 표시 "AI 정리(그림 기준)" |
+| 인용 (11/18 결정) | **매뉴얼·노하우**는 VISION 정리본을 "그림 기준 근거"로 인용 허용(색인 quotable=true, evidence_kind FIGURE, 출처 "(그림 기준 · N쪽)", 인용 검증은 정리본 원문과 대조). **규정(REGULATION)**·조문 인용·주장 대조는 OCR 본문만. 그림 속 OCR 글자 줄은 계속 인용 불가 |
 | 검사 | InjectionScan 이 page_markdown 도 검사 |
-| 바뀌지 않는 것 | 원문 보기·조문 인용·PII 검사·주장 대조는 OCR `text` 기준 |
+| 바뀌지 않는 것 | 조문 인용·PII 검사·주장 대조는 OCR `text` 기준 |
 
 ### 6.4 참조 확인 (ReferenceCheck, 사용자 결정 11/18)
 
