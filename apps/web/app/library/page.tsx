@@ -5,7 +5,7 @@ import { PageHeader } from '../page-header';
 // 밑줄은 서버(buildMarks)가 찾은 위치만 긋는다. 화면에서 새로 판단하지 않는다.
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
-import { Suspense, useEffect, useState } from 'react';
+import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { Changes, PageFacts } from '../issues';
@@ -21,6 +21,29 @@ const KIND: Record<Mark['kind'], string> = {
   REGISTRY_MISMATCH: '공식 원본과 다름', PII_UNCERTAIN: '개인정보 확인 필요', INJECTION: '의심스러운 지시문',
   CONFIRMED: '근거 확인됨', SUPPLEMENT: '실무 보완(참고)',
 };
+
+/** Native modal: browser focus trap / Escape, explicit return focus and scroll restoration. */
+function DetailPopup({ title, children, open, onClose }: { title: string; children: ReactNode; open: boolean; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  const heading = useId();
+  useEffect(() => {
+    if (!open) return;
+    const dialog = ref.current!;
+    const trigger = document.activeElement as HTMLElement | null;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    dialog.showModal();
+    return () => { dialog.close(); document.body.style.overflow = overflow; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+  }, [open]);
+  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onCancel={(e) => { e.preventDefault(); onClose(); }}>
+    <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" autoFocus onClick={onClose}>닫기</button></div>
+    {open && children}
+  </dialog>;
+}
+function DetailCard({ title, children }: { title: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
+  return <><button type="button" className="detail-card" aria-haspopup="dialog" onClick={() => setOpen(true)}>{title}</button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
+}
 
 function List() {
   const router = useRouter();
@@ -116,7 +139,7 @@ function ExternalLaws({ id }: { id: string }) {
   const [items, setItems] = useState<ExternalLaw[] | null>(null);
   useEffect(() => { api<{ items: ExternalLaw[] }>('GET', `/v1/library/${encodeURIComponent(id)}/external-laws`).then((r) => setItems(r.items)).catch(() => setItems([])); }, [id]);
   if (items === null) return <p className="note" aria-live="polite">본문이 인용한 법령을 국가법령정보센터에서 확인하는 중입니다…</p>;
-  if (!items.length) return null;
+  if (!items.length) return <p className="note" role="status">참고할 외부 법령이 없습니다.</p>;
   return (
     <section aria-labelledby="ext-h">
       <h3 className="section" id="ext-h">외부 법령 최신본 참고 <span className="note">(미검증)</span></h3>
@@ -207,7 +230,7 @@ function Versions({ id }: { id: string }) {
   useEffect(() => { api<{ items: VersionItem[]; diff: VersionDiff | null }>('GET', `/v1/library/${encodeURIComponent(id)}/versions`).then(setV).catch(() => setV(null)); }, [id]);
   if (!v || (v.items.length < 2 && !v.diff)) return null;
   return (
-    <section aria-labelledby="vers-h">
+    <DetailCard title="버전·바뀐 곳"><section aria-labelledby="vers-h">
       <h3 className="section" id="vers-h">버전</h3>
       <div className="version-list" role="list">
         {v.items.map((x) => (
@@ -220,7 +243,7 @@ function Versions({ id }: { id: string }) {
         ))}
       </div>
       {v.diff && <Changes diff={v.diff} />}
-    </section>
+    </section></DetailCard>
   );
 }
 
@@ -284,6 +307,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const [err, setErr] = useState('');
   const [p, setP] = useState(0);
   const [active, setActive] = useState(0);
+  const [fixOpen, setFixOpen] = useState(false);
+  const [reasonsOpen, setReasonsOpen] = useState(false);
   useEffect(() => {
     api<LibraryDoc>('GET', `/v1/library/${encodeURIComponent(id)}`)
       .then((x) => {
@@ -302,7 +327,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
-  const jump = (i: number, n: number) => { setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
+  const jump = (i: number, n: number) => { setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
   return (
     <>
@@ -320,7 +345,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       </dl></header>
 
       <div className="detail-layout"><div className="detail-body">
-      {d.review && <Reasons d={d} jump={jump} />}
+
       {d.superseded_by && <p className="notice" role="status">새 버전이 게시되어 이 문서는 대체되었습니다. <Link href={`/library?id=${encodeURIComponent(d.superseded_by)}`}>최신 버전 보기</Link></p>}
       {d.freshness_reason?.deleted_doc ? (
         <p className="notice" role="status">
@@ -335,13 +360,6 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       )}
 
 
-      {d.doc_marks.length > 0 && (
-        <section aria-labelledby="doc-marks">
-          <h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3>
-          <ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul>
-        </section>
-      )}
-
       {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
         <section aria-label={`${p + 1}쪽`}>
           <div className="pager">
@@ -351,28 +369,23 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           </div>
           {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
           <div className="document-columns"><div className="sheet page">
-            <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }} />
+            <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />
           </div>
-          <div className="page-checks"><h3 className="section">이 쪽 요약</h3>
-          <p>{page.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
-          <PageFacts m={page} />
-          <h3 className="section">고칠 곳 {numbered.length > 0 && <span className="danger-text">{numbered.length}곳</span>}</h3>
-          {numbered.length === 0 ? <p className="note">이 쪽에서 찾은 문제가 없습니다.</p> : (
-            <ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>
-          )}
-          {notes.length > 0 && (
-            <>
-              <h3 className="section">참고: 확인된 근거·실무 보완 <span className="note">{notes.length}건</span></h3>
-              <ul className="fixes">{notes.map((m, i) => <Fix key={`n${i}`} m={m} />)}</ul>
-            </>
-          )}
-          </div></div>
+          <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>
+            <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>
+          </aside>          </div>
         </section>
       )}
 
       </div><div className="document-more">
-      <details><summary>버전·바뀐 곳</summary><Versions id={d.doc_id} /></details>{d.review && <Decide r={d.review} docId={d.doc_id} />}      {d.verification && (
-        <section aria-labelledby="verify-h">
+      <div className="detail-cards" aria-label="문서 상세 항목">
+      {page && <DetailCard title="이 쪽 요약"><h3 className="section">이 쪽 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
+      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card" aria-haspopup="dialog" onClick={() => setFixOpen(true)}>고칠 곳</button>}
+      <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
+      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
+      {d.review && <><button type="button" className="detail-card" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}>확인이 필요한 이유</button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump} /></DetailPopup></>}
+      <Versions id={d.doc_id} />      {d.verification && (
+        <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
           <dl className="meta-grid">
             <dt>검증한 사람</dt><dd>{d.verification.approved_by ?? '아직 승인 전'}</dd>
@@ -380,6 +393,10 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             {d.verification.approval_reason && <><dt>승인 의견</dt><dd>{d.verification.approval_reason}</dd></>}
             <dt>검증 방법</dt><dd>{d.verification.method}</dd>
           </dl>
+        </section></DetailCard>
+      )}
+      {d.verification && d.verification.basis.length > 0 && (
+        <DetailCard title="비교한 대상">
           {d.verification.basis.length > 0 && (
             <>
               <p className="note" style={{ margin: '10px 0 4px' }}>비교한 대상</p>
@@ -394,11 +411,11 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
               </ul>
             </>
           )}
-        </section>
+        </DetailCard>
       )}
 
       {d.related.length > 0 && (
-        <details><summary>관련 문서</summary><section aria-labelledby="rel-h">
+        <DetailCard title="관련 문서"><section aria-labelledby="rel-h">
           <h3 className="section" id="rel-h">함께 보면 좋은 문서</h3>
           {(['REGULATION', 'KNOWHOW', 'MANUAL'] as const).map((t) => {
             const rs = d.related.filter((r) => (r.document_type ?? 'KNOWHOW') === t);
@@ -415,9 +432,10 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
               </div>
             );
           })}
-        </section></details>
+        </section></DetailCard>
       )}
-      <details className="external-laws"><summary>외부 법령 참고</summary><ExternalLaws id={d.doc_id} /></details>
+      <DetailCard title="외부 법령 참고"><ExternalLaws id={d.doc_id} /></DetailCard>
+      </div>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
 <DeleteDoc d={d} /></div></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}

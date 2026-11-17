@@ -35,6 +35,17 @@ const setInput = (sel, v) => ev(`(() => { const el = document.querySelector(${JS
 const click = (label, scope = 'document') => ev(`(() => { const b = [...${scope}.querySelectorAll('button,a')].find((x) => x.textContent.trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
 const api = (path) => ev(`(async () => { const s = JSON.parse(sessionStorage.getItem('hanaeum.session') || 'null'); const r = await fetch(${JSON.stringify(path)}, { headers: s ? { authorization: 'Bearer ' + s.token } : {} }); return { status: r.status, body: await r.json().catch(() => null) }; })()`);
 
+// Read the rendered modal content, then return to the detail cards.
+const closeDetail = async () => { await ev("document.querySelector('dialog[open] .popup-header button')?.click()"); };
+const readDetail = async (title) => {
+  const opened = await click(title);
+  if (!opened) return '';
+  await sleep(200);
+  const content = await ev("document.querySelector('dialog[open]')?.innerText ?? ''");
+  await closeDetail();
+  return content;
+};
+
 await send('Page.enable'); await send('Runtime.enable'); await send('Network.enable');
 await send('Emulation.setDeviceMetricsOverride', { width: 520, height: 1200, deviceScaleFactor: 1, mobile: false });
 
@@ -122,22 +133,34 @@ for (const file of FILES) {
   const detailUrl = await ev('location.href');
   check('F8', clicked && detailUrl.includes('id='), clicked ? (detailUrl.includes('id=') ? '카드 빈 곳 클릭 → 상세' : '카드 빈 곳 클릭해도 이동 안 함') : '보관함에 카드 없음');
   const dt = await ev("Object.fromEntries([...document.querySelectorAll('dl.meta-grid dt')].map((x) => [x.textContent.trim(), x.nextElementSibling?.textContent.trim()]))");
-  const body2 = await text();
+  const verification = await readDetail('검증 정보');
+  const comparison = await readDetail('비교한 대상');
+  const body2 = verification + '\n' + comparison;
   const det = (await api(`/v1/library/${docId}`)).body;
   const evShot = await shot(`${tag}-D-detail`);
   check('D1', dt['등록일'] ? (/(작성|개정|문서 일자)/.test(Object.keys(dt).join()) ? true : 'partial') : false, `등록일 ${dt['등록일'] ?? '없음'} · 문서 자체 작성·개정일 ${/(작성|개정|문서 일자)/.test(Object.keys(dt).join()) ? '있음' : '표시 없음'}`, evShot);
-  const hasBasis = /검증 근거|비교한|대조한/.test(body2);
+  const hasBasis = /비교한 대상/.test(comparison) && comparison.trim().length > '비교한 대상 닫기'.length;
   check('D2', hasBasis ? true : (det?.related?.length ? 'partial' : false), hasBasis ? '검증 근거 구역 있음' : `검증 근거 구역 없음 (연관 ${det?.related?.length ?? 0}건, 리뷰 판정 ${reviewInfo.verdict ?? '-'})`);
-  check('D3', (det?.pages?.length ?? 0) > 0 && det.pages.every((p) => p.text?.length > 0), `쪽 ${det?.pages?.length ?? 0}개 본문`);
+  const renderedPages = [];
+  const renderedSummaries = [];
+  for (let pi = 0; pi < (det?.pages?.length ?? 0); pi++) {
+    renderedPages.push(await ev("document.querySelector('.sheet.page')?.innerText.trim() ?? ''"));
+    renderedSummaries.push(await readDetail('이 쪽 요약'));
+    if (pi + 1 < det.pages.length) { await click('다음 쪽'); await sleep(200); }
+  }
+  for (let pi = 1; pi < renderedPages.length; pi++) { await click('이전 쪽'); await sleep(100); }
+  check('D3', renderedPages.length > 0 && renderedPages.every(Boolean) && det.pages.every((p) => p.text?.length > 0), `쪽 ${renderedPages.length}개 본문 렌더 확인`);
   check('D4', /승인자|검증한 사람|검증자/.test(body2), /승인자|검증한 사람|검증자/.test(body2) ? '검증한 사람 표시' : '검증한 사람 표시 없음');
   check('D5', /승인 시각|승인일|검증 시각|검증일/.test(body2), /승인 시각|승인일|검증 시각|검증일/.test(body2) ? '검증 시점 표시' : '검증 시점 표시 없음');
-  const sums = det?.pages?.map((p) => !!p.summary) ?? [];
+  const sums = det?.pages?.map((p, i) => !!p.summary && renderedSummaries[i].includes(p.summary)) ?? [];
   check('D6', sums.length > 0 && sums.every(Boolean) ? true : sums.some(Boolean) ? 'partial' : false, `쪽 요약 ${sums.filter(Boolean).length}/${sums.length}`);
   const citesLaw = /「[^」]+법」/.test(det?.pages?.map((p) => p.text).join('\n') ?? '');
+  if (citesLaw) await click('외부 법령 참고');
   const hasExt = citesLaw ? !!(await until(async () => /외부 법령 최신본 참고/.test(await text()) && !/확인하는 중입니다…/.test(await text()), 60_000, 3000)) : false;
   if (hasExt) await shot(`${tag}-D7-external`);
   check('D7', !citesLaw ? 'partial' : hasExt, !citesLaw ? '본문에 「…법」 인용 없음 (해당 없음)' : hasExt ? '외부 법령 참고 표시' : '본문이 「…법」을 인용하지만 외부 법령 참고 없음');
-  const notes = await ev("[...document.querySelectorAll('h3.section')].find((h) => h.textContent.includes('참고: 확인된 근거'))?.nextElementSibling?.innerText ?? ''");
+  await closeDetail();
+  const notes = await readDetail('확인된 근거·실무 보완');
   check('D9', tag === 'K-001' ? /근거 확인됨|실무 보완/.test(notes) : 'partial', tag === 'K-001' ? (notes ? `참고 구역: ${notes.split('\n').filter((l) => /근거 확인됨|실무 보완/.test(l)).slice(0, 3).join(' / ')}` : '참고 구역 없음(근거 확인됨·실무 보완 미표시)') : '해당 없음');
   const seal = await ev("document.querySelector('.seal')?.getAttribute('aria-label') ?? ''");
   check('D8', /검증 완료|공식 규정/.test(seal), `인장 '${seal}'`);
