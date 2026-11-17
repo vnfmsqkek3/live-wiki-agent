@@ -833,3 +833,13 @@ details[open] > summary::after { content:" ▴"; }
 .seg-tabs .btn { border:0; border-bottom:3px solid transparent; border-radius:0; background:none; color:var(--ink-500); min-height:44px; }
 .seg-tabs .btn[aria-pressed="true"] { color:var(--navy-900); border-bottom-color:var(--green-700); background:none; }
 @media (max-width:640px) { .admin-grid .actions .btn { flex:1 1 40%; justify-content:center; } .admin-grid .actions .btn:first-child { flex-basis:100%; } .admin-grid .actions .actions-gap { display:none; } }
+/* 위키 편집 바뀐 부분 (사용자 요청 11/18) */
+.edit-diff { margin:12px 0; }
+.diff-lines { list-style:none; margin:8px 0 0; padding:0; border:1px solid var(--line); border-radius:8px; max-height:260px; overflow:auto; font-size:var(--fs-small); }
+.diff-lines li { display:flex; gap:12px; padding:6px 12px; border-top:1px solid var(--line); }
+.diff-lines li:first-child { border-top:0; }
+.diff-lines li > .num { color:var(--ink-500); min-width:3ch; text-align:right; }
+.diff-lines li.add { background:var(--green-050); } .diff-lines li.add ins { text-decoration:none; }
+.diff-lines li.del { background:var(--coral-050); } .diff-lines li.del del { color:var(--coral-700); }
+.wiki-md::selection { background:#FFE58A; color:var(--navy-900); }
+.diff-lines li.chg ins { text-decoration:none; background:var(--green-050); } .diff-lines li.chg del { color:var(--coral-700); }

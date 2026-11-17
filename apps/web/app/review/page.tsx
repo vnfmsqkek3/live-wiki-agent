@@ -109,6 +109,13 @@ function ReviewView() {
         <p aria-live="polite" className="note submit-msg">{msg}</p>
       </div>
       <div className="layout-a review-layout"><div className="primary">
+      {/* 위키 수정본: 직전 버전과 바뀐 부분 (사용자 요청 11/18) */}
+      {r.version && <section className="edit-diff" aria-labelledby="rv-diff-h">
+        <h2 className="section" id="rv-diff-h">v{r.version.previous.version_no}에서 바뀐 부분 <b className="num">{r.version.count}곳</b></h2>
+        {r.version.changes.length > 0 && <ol className="diff-lines">{r.version.changes.slice(0, 30).map((c, n) => (
+          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.new_page ?? c.old_page ?? ''}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
+        ))}{r.version.count > 30 && <li className="note">외 {r.version.count - 30}곳</li>}</ol>}
+      </section>}
       {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {r.lifecycle === 'QUARANTINED' && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}

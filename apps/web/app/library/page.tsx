@@ -431,7 +431,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
       <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>
       </header>
-      {editing !== false && <WikiEditor docId={d.doc_id} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} onCancel={() => setEditing(false)} />}
+      {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editing ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined} onCancel={() => setEditing(false)} />}
 
       <div className="detail-layout"><div className="detail-body">
 
@@ -491,7 +491,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
       {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완" count={notes.length}><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
       {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
-        onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); window.scrollTo({ top: 0, behavior: 'smooth' }); } : undefined} /></DetailPopup></>}
+        onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); } : undefined} /></DetailPopup></>}
       <Versions id={d.doc_id} />      {d.verification && (
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>

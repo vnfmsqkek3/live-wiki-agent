@@ -324,7 +324,7 @@ export function createApp(deps: Deps) {
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
     const suggestions = d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as Record<string, unknown>) }));
     return c.json({ fixes, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
-      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
+      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
   app.get('/v1/documents/:id/progress', async (c) => {

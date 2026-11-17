@@ -171,6 +171,7 @@ export interface Review {
   title_source?: 'AUTO' | 'USER'; can_edit?: boolean;
   doc_date?: DocDate; doc_dates?: DocDate[];
   previous_doc_id?: string; version_no?: number;
+  version?: { previous: { doc_id: string; title: string; version_no: number }; count: number; changes: DocChange[] } | null;
   knowhow_validation?: KnowhowValidation;
   workflow_failure?: { step: string; error: string };
 }
