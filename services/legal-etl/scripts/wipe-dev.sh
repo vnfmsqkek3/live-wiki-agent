@@ -13,40 +13,47 @@ TD=$(ssm TABLE_DOCUMENTS); TW=hanaeum-mvp-ddb-workflows-dev; BQ=$(ssm BUCKET_QUA
 
 DOCS=$(aws dynamodb scan --table-name "$TD" --filter-expression 'sk = :m' --expression-attribute-values '{":m":{"S":"META"}}' \
   --projection-expression 'pk,lifecycle' --output json | python3 -c 'import json,sys
-for i in json.load(sys.stdin)["Items"]: print(i["pk"]["S"][4:], i.get("lifecycle",{}).get("S",""))')
+for i in json.load(sys.stdin)["Items"]: print(i["pk"]["S"][4:], i.get("lifecycle",{}).get("S",""))' | grep -v '^$' || true)
 count() { aws s3api list-object-versions --bucket "$1" --output json | python3 -c 'import json,sys; d=json.load(sys.stdin); print(len(d.get("Versions") or [])+len(d.get("DeleteMarkers") or []))'; }
 echo "문서 $(wc -l <<<"$DOCS" | tr -d ' ')건 (DELETED 아님 $(grep -vc ' DELETED$' <<<"$DOCS" || true)) · quarantine 객체 버전 $(count "$BQ") · published $(count "$BP")"
 [ $APPLY = 1 ] || { echo "(점검만. 실행하려면 --apply)"; exit 0; }
 
 # 1) Documents 전부 DELETED 표시 (graph 삭제 조건)
 NOW=$(date -u +%FT%TZ)
-grep -v ' DELETED$' <<<"$DOCS" | while read -r d _; do
+{ grep -v ' DELETED$' <<<"$DOCS" || true; } | while read -r d _; do
+  [ -n "$d" ] || continue
   aws dynamodb update-item --table-name "$TD" --key "{\"pk\":{\"S\":\"DOC#$d\"},\"sk\":{\"S\":\"META\"}}" \
-    --update-expression "SET lifecycle = :l, deleted_reason = :r, updated_at = :t" \
+    --update-expression "SET lifecycle = :l, deleted_reason = :r, updated_at = :t" --condition-expression "attribute_exists(pk)" \
     --expression-attribute-values "{\":l\":{\"S\":\"DELETED\"},\":r\":{\"S\":\"공유 dev 전체 초기화 (사용자 지시 11/17)\"},\":t\":{\"S\":\"$NOW\"}}" >/dev/null
 done
 # 2) Neptune: 문서마다 graph-upsert action=delete (끊긴 인용 doc_id는 어차피 함께 지워짐)
 OUT=$(mktemp); FAIL=0
 while read -r d _; do
+  [ -n "$d" ] || continue
   P=$(python3 -c 'import json,sys;print(json.dumps({"workflow_id":"wipe-20261117","doc_id":sys.argv[1],"version":1,"bucket":"-","prefix":"","actor":{"sub":"let522mj","groups":["PLATFORM_OPERATOR"]},"action":"delete"}))' "$d")
   aws lambda invoke --function-name hanaeum-mvp-lambda-graph-upsert-dev --cli-binary-format raw-in-base64-out --payload "$P" "$OUT" >/dev/null
   grep -q '"status":"OK"' "$OUT" || { FAIL=$((FAIL+1)); echo "graph 삭제 실패 $d $(head -c 200 "$OUT")"; }
 done <<<"$DOCS"
 echo "Neptune 정리 완료 (실패 $FAIL)"
+# 그래프가 남은 채 S3만 지우면 고아 노드 → 멈춤 (GOV_STORE=postgres가 먼저 배포됐으면 DynamoDB의 DELETED를 못 봐서 전부 실패함)
+[ "$FAIL" = 0 ] || { echo "Neptune 삭제 실패가 있어 중단합니다. GOV_STORE가 아직 dynamo인지 확인하세요."; exit 1; }
 # 3) S3: 모든 버전·삭제 마커 (versioning on)
 purge() {
   while :; do
     J=$(aws s3api list-object-versions --bucket "$1" --max-items 1000 --output json)
     B=$(python3 -c 'import json,sys; d=json.loads(sys.argv[1]); o=[{"Key":v["Key"],"VersionId":v["VersionId"]} for v in (d.get("Versions") or [])+(d.get("DeleteMarkers") or [])][:1000]; print(json.dumps({"Objects":o,"Quiet":True}) if o else "")' "$J")
     [ -n "$B" ] || break
-    aws s3api delete-objects --bucket "$1" --delete "$B" >/dev/null
+    E=$(aws s3api delete-objects --bucket "$1" --delete "$B" --query 'length(Errors || `[]`)' --output text)
+    [ "$E" = 0 ] || { echo "S3 $1 삭제 오류 $E건, 중단"; exit 1; }
   done
   echo "S3 $1 남은 버전 $(count "$1")"
 }
 purge "$BQ"; purge "$BP"
 # 4) KB: 데이터 소스 재색인 → 지운 객체의 벡터 삭제
 for ds in $(ssm KB_DS_LEGAL_ID) $(ssm KB_DS_KNOWLEDGE_ID); do
-  J=$(aws bedrock-agent start-ingestion-job --knowledge-base-id "$KB" --data-source-id "$ds" --query ingestionJob.ingestionJobId --output text)
+  for _ in $(seq 1 30); do # 이미 도는 색인 작업이 있으면(ConflictException) 끝날 때까지 기다렸다 시작
+    J=$(aws bedrock-agent start-ingestion-job --knowledge-base-id "$KB" --data-source-id "$ds" --query ingestionJob.ingestionJobId --output text 2>/dev/null) && break; sleep 20; done
+  [ -n "${J:-}" ] || { echo "KB 재색인 시작 실패 $ds"; exit 1; }
   for _ in $(seq 1 60); do S=$(aws bedrock-agent get-ingestion-job --knowledge-base-id "$KB" --data-source-id "$ds" --ingestion-job-id "$J" --query 'ingestionJob.[status,statistics.numberOfDocumentsDeleted]' --output text)
     case "$S" in COMPLETE*|FAILED*|STOPPED*) break;; esac; sleep 10; done
   echo "KB 재색인 $ds: $S (상태·삭제)"
@@ -55,5 +62,7 @@ done
 aws dynamodb scan --table-name "$TW" --projection-expression 'pk,sk' --output json | python3 -c 'import json,sys
 items=json.load(sys.stdin)["Items"]
 for i in range(0,len(items),25): print(json.dumps({sys.argv[1]:[{"DeleteRequest":{"Key":k}} for k in items[i:i+25]]}))' "$TW" | while read -r R; do
-  aws dynamodb batch-write-item --request-items "$R" >/dev/null; done
+  for _ in 1 2 3 4 5; do # 미처리 항목 재시도
+    R=$(aws dynamodb batch-write-item --request-items "$R" --query UnprocessedItems --output json)
+    [ "$R" = "{}" ] && break; sleep 1; done; done
 echo "workflows 남은 항목 $(aws dynamodb scan --table-name "$TW" --select COUNT --query Count --output text)"
