@@ -137,7 +137,8 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `POST /v1/documents/{id}/edit` | 로그인 누구나 | 위키 수정 `{markdown}`. 게시 노하우·매뉴얼 → 새 버전(`source=WIKI_EDIT`, `previous_doc_id`, `{doc}/original.md`), 내 IN_REVIEW 문서 → 그 자리 재분석. 규정 409 |
 | `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | 수정에서 지운 중요 문장 '의도한 삭제' 확인 |
 | `GET /v1/documents/{id}` · `/progress` · `/issues` | 권한 내 | 상태·단계 진행(`ConvertToPdf` '문서 변환' 포함)·확인할 내용 |
-| `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18) |
+| `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18), `clarify[]`(확인 필요 6.5: `{finding_id, blocking, severity, kind, item, page, before, question, suggestions[], status, dismiss_reason}`), `text` 는 정리본 기준 |
+| `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | EDIT_REMOVED_KEY_SENTENCE '의도한 삭제' / CLARIFY_NEEDED '해당 없음' `{reason}`(필수, PII 마스킹, 감사 CLARIFY_DISMISS) |
 | `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
 | `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
 | `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
