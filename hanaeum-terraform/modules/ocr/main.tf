@@ -16,6 +16,11 @@ variable "concurrency" {
   type    = number
   default = 3
 }
+# 최소 인스턴스: 상시 1대 (사용자 결정 11/17 21시 "0대 말고 1로"). 0 이면 콜드 스타트 약 10분(실측: 경보 3.5분 + 기동·이미지 5.8분 + 모델 0.5분)
+variable "min_instances" {
+  type    = number
+  default = 1
+}
 # 최대 인스턴스. 계정 한도 ml.g4dn.xlarge endpoint 2대(dev·prod 합) → 상향 신청 11/17 (6대 요청) 승인 뒤 prod 5
 variable "max_instances" {
   type    = number
@@ -205,17 +210,16 @@ resource "aws_appautoscaling_target" "ocr" {
   service_namespace  = "sagemaker"
   resource_id        = "endpoint/${aws_sagemaker_endpoint.ocr.name}/variant/AllTraffic"
   scalable_dimension = "sagemaker:variant:DesiredInstanceCount"
-  min_capacity       = 0
+  min_capacity       = var.min_instances
   max_capacity       = var.max_instances
-  # 업무 시간에는 아래 예약 작업이 최소 1대로 올린다 → plan 이 그 값을 되돌리지 않게
-  lifecycle { ignore_changes = [min_capacity] }
 }
 
 # 업무·데모 시간 예열 (let522mj 11/17 실측: 0대에서 첫 요청까지 약 5분 → 업로드가 '문자 인식 중'에서 멈춘 것처럼 보임)
 # 평일 08:30~19:00 KST 최소 1대, 그 밖에는 0대(요청이 오면 기존 wake 경보로 기동). ponytail: 시간 고정, 데모 일정이 바뀌면 cron 만 수정
+# 상시 1대(min_instances=1)라 예열 예약은 끔. min_instances=0 으로 되돌릴 때만 true
 variable "warm_hours" {
   type    = bool
-  default = true
+  default = false
 }
 resource "aws_appautoscaling_scheduled_action" "warm" {
   count              = var.warm_hours ? 1 : 0
