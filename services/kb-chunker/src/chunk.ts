@@ -121,12 +121,11 @@ export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   for (const line of text.split("\n")) { const m = FIGURE_RE.exec(line); if (m) figs.push({ page: Number(m[1]), text: m[2]! }); else body.push(line); }
   // 쪽 번호: Promote가 넣은 쪽 경계(\f 한 줄). \f만 지우고 줄 수는 그대로 두어, 조문·절이 시작하는 줄의 쪽을 쓴다
   // (반복되는 머리말·목차와 글자가 같아도 위치로 정하므로 앞쪽에 잘못 붙지 않음, PR #37 리뷰)
-  const lines = body;
   const pageAt: number[] = [];
   let pg = 0;
-  for (const l of lines) { pageAt.push(pg); if (l.includes("\f")) pg++; }
+  for (const l of body) { pageAt.push(pg); if (l.includes("\f")) pg++; }
   const pageOfLine = (ln: number) => pageAt[Math.min(Math.max(ln - 1, 0), pageAt.length - 1)] ?? 0;
-  const clean = lines.join("\n").replace(/\f/gu, "");
+  const clean = body.join("\n").replace(/\f/gu, "");
   const main = meta.document_type === "REGULATION" ? chunkLegal(clean, meta, pageOfLine) : chunkKnowledge(clean, meta, pageOfLine);
   return [...main, ...figs.map((f, i) => ({
     augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,

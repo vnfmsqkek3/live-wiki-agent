@@ -196,7 +196,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
       business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(typeof m["category_path"] === "string" ? { category_path: m["category_path"] } : {}),
-      ...(Number.isInteger(Number(m["source_page"])) && m["source_page"] !== undefined ? { page: Number(m["source_page"]) + 1 } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
+      ...(typeof m["source_page"] === "number" && Number.isInteger(m["source_page"]) && m["source_page"] >= 0 ? { page: m["source_page"] + 1 } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
     });
   }
   return { kept, dropped: hits.length - kept.length };

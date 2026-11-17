@@ -79,7 +79,7 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   const texts: string[] = []; const figs: string[] = [];
   for (const [page, k] of segKeys.entries()) {
     const seg = JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string; figures?: Figure[] };
-    texts.push(seg.text);
+    texts.push(seg.text.replaceAll(PAGE_BREAK, "")); // 원문 속 폼피드는 쪽 경계와 헷갈리지 않게 제거
     for (const f of seg.figures ?? []) if (f.description?.trim()) figs.push(figureLine(page, f));
   }
   // 쪽 경계는 폼피드(\f) 한 줄로 남긴다 → kb-chunker가 조각마다 쪽 번호(source_page)를 붙임 (검색 결과·가이드 근거의 쪽 썸네일, 사용자 요청 11/17)
