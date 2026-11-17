@@ -12,7 +12,7 @@ import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
-import { bestHit, sitesOf, unsafeQuery } from './steps/reference-check.ts';
+import { sitesOf, unsafeQuery } from './steps/reference-check.ts';
 import { allocate, asRef, findInSameDoc, linkAcceptable, ruleCandidates, sitesFor, webQuery, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
