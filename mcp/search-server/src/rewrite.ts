@@ -10,8 +10,9 @@ export interface Rewriter { rewrite(maskedQuery: string): Promise<Rewritten> }
 const TAIL = [
   /\s*(?:좀\s*)?(?:찾아|알려|보여|검색해|정리해|설명해)\s*(?:줘요?|주세요|줄래요?|주실래요|주시겠어요|봐)?\s*[.?!~]*$/u,
   /\s*(?:은|는|이|가|을|를)?\s*(?:어떻게|뭐|무엇|어디)(?:\s*(?:해야|하면|되))?\s*(?:하나요|하죠|해요|돼요|되나요|되죠|인가요|있나요|야|지|요)?\s*[.?!~]*$/u,
-  /\s*(?:와|과|에)?\s*관련(?:된|한|해서)?\s*(?:문서|자료|내용|규정)?\s*(?:들)?\s*(?:을|를|이|가)?$/u,
-  /\s*(?:문서|자료)\s*(?:들)?\s*(?:을|를)?$/u,
+  // "관련"·"문서" 앞에는 공백 필수, 조사 "과"는 명사 끝 글자와 구분이 안 돼("성과") 떨어져 있을 때만 (붙여 쓴 "한도초과"·"공문서"·"참고자료"의 꼬리를 자르지 않게, PR #24 리뷰)
+  /(?:와|에|\s+과)?\s+관련(?:된|한|해서)?(?:\s+(?:문서|자료|내용|규정))?\s*(?:들)?\s*(?:을|를|이|가)?$/u,
+  /\s+(?:문서|자료)\s*(?:들)?\s*(?:을|를)?$/u,
   /\s*에\s*(?:대한|대해서?|관한)$/u,
 ];
 /** 규칙만으로 정리. 다 지워지면 원문 */
@@ -37,11 +38,14 @@ const TOOL = {
 
 const MAX_LEN = 100;
 const norm = (v: unknown) => (typeof v === "string" ? v.replace(/\s+/gu, " ").trim().slice(0, MAX_LEN) : "");
-/** 모델 출력 검증: core 없으면 규칙 결과, alternates는 core·서로 중복 제거 후 2개까지 */
-export function sanitize(out: unknown, fallback: string): Rewritten {
+/** 원문과 2글자 이상 겹치는 낱말이 있는지 (주제 이탈 차단. "처리 절차"는 "처리방법"과 "처리"가 겹침) */
+const overlaps = (cand: string, src: string) => cand.split(" ").some((w) => w.length >= 2 && src.includes(w));
+/** 모델 출력 검증: core 없거나 원문과 겹치는 낱말이 없으면 규칙 결과. alternates도 원문과 겹치는 것만, 중복 제거 후 2개까지 */
+export function sanitize(out: unknown, fallback: string, source = fallback): Rewritten {
   const o = (out ?? {}) as { core?: unknown; alternates?: unknown };
-  const core = norm(o.core) || fallback;
-  const alts = Array.isArray(o.alternates) ? o.alternates.map(norm).filter(Boolean) : [];
+  const c0 = norm(o.core);
+  const core = c0 && overlaps(c0, source) ? c0 : fallback;
+  const alts = Array.isArray(o.alternates) ? o.alternates.map(norm).filter((a) => a && overlaps(a, source)) : [];
   return { core, alternates: [...new Set(alts)].filter((a) => a !== core).slice(0, 2) };
 }
 
@@ -50,21 +54,24 @@ export class BedrockRewriter implements Rewriter {
   private readonly model: string;
   // ponytail: Lambda 인스턴스 메모리 캐시(최근 500개, FIFO). 인스턴스 간 공유가 필요해지면 DynamoDB TTL
   private readonly cache = new Map<string, Rewritten>();
-  constructor(model: string, c = new BedrockRuntimeClient({})) { this.model = model; this.c = c; }
+  /** 느린 모델 응답이 검색 전체를 붙잡지 않게 (넘으면 규칙만) */
+  static readonly TIMEOUT_MS = 2000;
+  constructor(model: string, c = new BedrockRuntimeClient({ maxAttempts: 1 })) { this.model = model; this.c = c; }
   async rewrite(masked: string): Promise<Rewritten> {
     const base = cleanQuery(masked);
     const hit = this.cache.get(masked);
-    if (hit) return hit;
+    if (hit) return structuredClone(hit); // 호출자가 응답을 고쳐도 캐시는 그대로
     let r: Rewritten;
     try {
       const res = await this.c.send(new ConverseCommand({
         modelId: this.model,
         system: [{ text: SYSTEM }],
-        messages: [{ role: "user", content: [{ text: `<query>${masked.slice(0, 500)}</query>` }] }],
+        // 질의 안의 <, >는 바꿔 태그를 닫고 지시를 넣지 못하게
+        messages: [{ role: "user", content: [{ text: `<query>${masked.slice(0, 500).replace(/[<>]/gu, " ")}</query>` }] }],
         toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { tool: { name: TOOL.name } } },
         inferenceConfig: { maxTokens: 200, temperature: 0 },
-      }));
-      r = sanitize(res.output?.message?.content?.find((x) => x.toolUse)?.toolUse?.input, base);
+      }), { abortSignal: AbortSignal.timeout(BedrockRewriter.TIMEOUT_MS) });
+      r = sanitize(res.output?.message?.content?.find((x) => x.toolUse)?.toolUse?.input, base, masked);
     } catch (e) {
       // 재구성 실패는 검색 실패가 아니다: 규칙 결과로 계속. 질의는 로그에 남기지 않는다
       console.warn(JSON.stringify({ msg: "질의 재구성 실패 → 규칙만", error: (e as Error).name }));
@@ -72,6 +79,6 @@ export class BedrockRewriter implements Rewriter {
     }
     if (this.cache.size >= 500) this.cache.delete(this.cache.keys().next().value!);
     this.cache.set(masked, r);
-    return r;
+    return structuredClone(r);
   }
 }
