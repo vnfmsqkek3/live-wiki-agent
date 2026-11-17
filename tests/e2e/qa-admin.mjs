@@ -48,7 +48,10 @@ await login('admin');
 await go('/admin', 5000);
 const links = await ev("[...document.querySelectorAll('.doc-title a')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
 check('A1', links.length > 0 && links.every(([, h]) => h.includes('from=admin')), `결재함 제목 링크 ${links.length}개`, await shot('A1-admin'));
-for (const [name, id] of [['G-FORGE-01', 'doc_01M7KJQZRHMNY3WMJ3AK9WSHVD'], ['G-INJ-03', 'doc_01M7KJRVWVJSVGAH0V4W6G0JRY'], ['DOCX-요약', 'doc_01M7KK95GRQB1RSVQ3J7M57AWE']]) {
+// 점검 대상: QA_ADMIN_DOCS(쉼표, doc_id)가 없으면 결재함 목록에 지금 있는 문서 앞에서 3건 (데이터 초기화 뒤에도 동작)
+const targets = process.env.QA_ADMIN_DOCS ? process.env.QA_ADMIN_DOCS.split(',').map((id) => [id.slice(-6), id])
+  : links.slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
+for (const [name, id] of targets) {
   const ok = await ev(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
   if (!ok) await go(`/library?id=${id}&from=admin`);
   await sleep(5000);
