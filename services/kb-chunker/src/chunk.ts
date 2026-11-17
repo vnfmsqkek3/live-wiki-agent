@@ -16,6 +16,10 @@ export interface Chunk {
     evidence_kind?: "FIGURE";
     /** 같은 쪽 그림 제목 (OCR로 확인된 것만). 검색 머리·화면 표시용, 인용 원문 아님 */
     page_context?: string;
+    /** 장(章): 쪽 첫 줄의 장 번호("04 브라더 복합기 드라이버", "⑤ …")로 나눈 묶음. 매뉴얼·노하우만 */
+    section?: string;
+    /** 장의 쪽 범위 "시작-끝" (1부터) */
+    section_pages?: string;
   };
 }
 
@@ -169,6 +173,30 @@ function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
 }
 
 
+/** 장 나누기: 쪽 첫 글자 줄이 "04 …"·"04.…"처럼 두 자리 장 번호로 시작하고, 번호가 앞 장보다 클 때만 새 장 (10 이상은 앞 장 +2까지).
+ *  "1. 다운로드"·"3 / 21"·"① …" 같은 단계·쪽 번호는 장이 아님 (PR #43 리뷰). 번호 없는 쪽(글자 없는 캡처 쪽 포함)은 앞 장을 잇는다.
+ *  장 번호가 하나도 없는 문서는 장 없음.
+ *  ponytail: 번호 붙은 장 표지가 있는 슬라이드형 매뉴얼 기준 (과천 실측). 다른 형식은 "## 제목" 절이 이미 조각 머리로 들어감 */
+function sectionsOf(body: string[], pageAt: number[], lastPage: number): Map<number, { section: string; section_pages: string }> {
+  const first = new Map<number, string>();
+  body.forEach((l, i) => { const t = l.replace(/\f/gu, "").trim(); if (t && !first.has(pageAt[i]!)) first.set(pageAt[i]!, t); });
+  const starts: { n: number; page: number; title: string }[] = [];
+  const chapterOf = new Map<number, number>(); // 쪽 → starts 인덱스
+  for (let p = 0; p <= lastPage; p++) {
+    // 점이나 공백 필수 ("02-1234-5678" 전화번호 제외), 두 자리는 앞 장 +1·+2만 ("10. 설치" 단계가 장을 가로채지 않게)
+    const m = /^(0[1-9]|[1-9]\d)(?:\.\s*|\s+)(\S.*)$/u.exec(first.get(p) ?? "");
+    const n = Number(m?.[1]), prev = starts.at(-1)?.n ?? 0;
+    if (m && n > prev && (m[1]!.startsWith("0") || n <= prev + 2)) starts.push({ n, page: p, title: [...`${m[1]} ${m[2]}`].slice(0, 60).join("") });
+    if (starts.length) chapterOf.set(p, starts.length - 1);
+  }
+  const out = new Map<number, { section: string; section_pages: string }>();
+  for (const [p, i] of chapterOf) {
+    const end = (starts[i + 1]?.page ?? lastPage + 1) - 1;
+    out.set(p, { section: starts[i]!.title, section_pages: `${starts[i]!.page + 1}-${end + 1}` });
+  }
+  return out;
+}
+
 /** Promote가 내는 그림 줄 접두 (@hanaeum/schemas 한 곳에서 정의) */
 const CONTEXT_PREFIX = FIG_CONTEXT_LABEL;
 const SUMMARY_RE = FIG_SUMMARY_RE;
@@ -192,8 +220,10 @@ export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   const clean = body.join("\n").replace(/\f/gu, "");
   const reg = meta.document_type === "REGULATION";
   const main0 = reg ? chunkLegal(clean, meta, pageOfLine) : chunkKnowledge(clean, meta, pageOfLine);
+  const sec = reg ? new Map<number, { section: string; section_pages: string }>() : sectionsOf(body, pageAt, Math.max(pageAt.at(-1) ?? 0, ...figs.map((f) => f.page)));
+  const withSec = <T extends Chunk>(c: T): T => { const s = sec.get(c.metadata.source_page); return s ? { ...c, metadata: { ...c.metadata, ...s } } : c; };
   // 본문 조각에 같은 쪽 맥락을 검색 머리(두 번째 줄)와 page_context로 붙임. original_text(인용)는 그대로
-  const main = reg ? main0 : main0.map((c) => {
+  const main = reg ? main0 : main0.map(withSec).map((c) => {
     const pc = ctx.get(c.metadata.source_page);
     if (!pc) return c;
     const m = /^\[[^\]]*\]\n/u.exec(c.augmented_search_text);
@@ -209,5 +239,5 @@ export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
         parent_id: meta.doc_id, source_page: f.page, original_text: summary ? f.text.replace(SUMMARY_RE, "") : "", has_figure: true,
         ...(summary ? { evidence_kind: "FIGURE" as const } : {}), ...(ctx.get(f.page) ? { page_context: ctx.get(f.page)! } : {}) },
     };
-  })];
+  }).map(withSec)];
 }

@@ -19,6 +19,10 @@ export interface FilterOpts {
   category?: string;
   /** false면 KB 경로 필터를 빼고(doc_id로 이미 좁힘) 현재 분류 재검증만 */
   kbCategory?: boolean;
+  /** 장(章) 하나로 좁힘 (청크 메타데이터 section) */
+  section?: string;
+  /** "section": 걸린 조각과 같은 장의 조각들을 쪽 순서로 함께 (사용자 지적 11/18: 여러 쪽에 걸친 절차) */
+  expand?: "section";
 }
 
 export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
@@ -43,6 +47,7 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   // 업무 분류(1단계 일치)·태그(하나라도 일치)
   if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
   if (o.dept) conds.push({ equals: { key: "dept", value: o.dept } });
+  if (o.section) conds.push({ equals: { key: "section", value: o.section } });
   // 하위 포함: 같은 경로 또는 "경로/"로 시작 (OpenSearch Serverless KB는 startsWith 지원). 현재 분류로 다시 거른다(revalidate)
   if (o.category && o.kbCategory !== false) conds.push({ orAll: [{ equals: { key: "category_path", value: o.category } }, { startsWith: { key: "category_path", value: `${o.category}/` } }] });
   if (o.authority) conds.push({ equals: { key: "authority_status", value: o.authority } }); // KB에서 먼저 거르고 현재 상태로 다시 확인 (상위 N건 밖 누락 방지)
@@ -56,7 +61,11 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
 /** weak: 재정렬 1위가 근거 기준(RERANK_TOP1_MIN) 미만이지만 RELATED_MIN 이상 — 근거로 쓰지 않고 "관련 가능 문서"로만 보여 준다 */
 export interface Hit { text: string; score: number; metadata: Record<string, unknown>; weak?: boolean; matched_query?: string }
 /** filter 없음 = 운영자 시점 원시 조회 (측정 전용, Tool은 항상 필터를 넣는다) */
-export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> }
+export interface Retriever {
+  retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]>;
+  /** 재정렬·관련도 게이트 없이 필터 안 조각을 가져온다 (장 펼치기: 같은 장 조각은 관련도와 상관없이 모두 필요) */
+  retrieveRaw?(query: string, filter: RetrievalFilter): Promise<Hit[]>;
+}
 
 // ponytail: 후보 50 → Rerank 15 → 최종 5 고정 기본값 (docs/01 8.5). 실험 후 조정
 export const CANDIDATES = 50;
@@ -82,6 +91,7 @@ export class BedrockRetriever implements Retriever {
     this.rerankArn = rerankModel && !rerankModel.startsWith("arn:") ? `arn:aws:bedrock:${process.env["AWS_REGION"] ?? "us-east-1"}::foundation-model/${rerankModel}` : rerankModel;
     this.c = c;
   }
+  async retrieveRaw(text: string, filter: RetrievalFilter): Promise<Hit[]> { return this.query(text, filter); }
   async retrieve(text: string, filter?: RetrievalFilter): Promise<Hit[]> {
     try {
       return await this.query(text, filter, this.rerankArn);
@@ -153,6 +163,8 @@ export interface Result {
   category_path?: string;
   /** 근거 조각이 있는 쪽 (1부터). 화면 쪽 썸네일용 */
   page?: number;
+  /** 장(章)과 그 쪽 범위 "시작-끝" (매뉴얼·노하우) */
+  section?: string; section_pages?: string;
   /** "FIGURE" = 그림 기준(AI 정리) 근거. 인용 가능하되 그렇게 표시해야 함 */
   evidence_kind?: "FIGURE";
   /** 같은 쪽 그림 제목 (OCR로 확인된 것만, AI 정리 기준). 인용 원문 아님 */
@@ -198,6 +210,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       quotable: m["has_figure"] !== true || fig,
       ...(fig ? { evidence_kind: "FIGURE" as const } : {}),
       ...(typeof m["page_context"] === "string" && m["page_context"] ? { page_context: m["page_context"] } : {}),
+      ...(typeof m["section"] === "string" && m["section"] ? { section: m["section"], ...(typeof m["section_pages"] === "string" ? { section_pages: m["section_pages"] } : {}) } : {}),
       ...(isReg && pathLabel ? { provision: `${String(m["law_name"] ?? m["title"] ?? "")} ${pathLabel}`.trim() } : {}),
       effective_from: isoDate(st.effective_from ?? Number(m["effective_from"])),
       authority_status: st.authority_status, freshness: st.freshness,
@@ -236,7 +249,8 @@ const classArgs = (args: Record<string, unknown>) => {
   if (category && category.length > 200) throw new ToolError("INVALID_ARGUMENT", "category: 200자 이하");
   if (dateFrom && dateTo && dateFrom > dateTo) throw new ToolError("INVALID_ARGUMENT", "date_from이 date_to보다 늦음");
   const authority = pick("authority_status", ["VERIFIED", "UNVERIFIED"] as const), freshness = pick("freshness", ["CURRENT", "REVIEW_REQUIRED"] as const);
-  return { ...(category ? { category } : {}), ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
+  const expand = pick("expand", ["section"] as const);
+  return { ...(expand ? { expand } : {}), ...(category ? { category } : {}), ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
     ...(authority ? { authority } : {}), ...(freshness ? { freshness } : {}) };
 };
 const topK = (args: Record<string, unknown>) => Math.min(Math.max(Number(args["top_k"] ?? 5) || 5, 1), RERANKED);
@@ -275,6 +289,25 @@ export async function retrieveMany(r: Retriever, primary: string[], model: strin
 export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools>; rewriter?: Rewriter }) {
   // ponytail: 분류 문서가 이보다 많으면 doc_id 대신 색인 시점 경로로 KB를 거른다 (재분류 문서는 다시 게시해야 잡힘)
   const CATEGORY_DOC_IDS_MAX = 200;
+  /** 걸린 조각의 장(최대 2개)마다 같은 장 조각을 현재 상태로 다시 검증해 쪽 순서로 (장당 8조각).
+   *  ponytail: 장 2개·8조각 고정. 장이 길면 앞 8조각만 → 필요하면 가이드가 page로 다시 찾음 */
+  async function expandSections(top: Result[], query: string, actor: Actor, o: FilterOpts) {
+    if (!deps.retriever.retrieveRaw) return [];
+    const keys = [...new Map(top.filter((r) => r.section).map((r) => [`${r.doc_id}\u0000${r.section}`, r] as const)).values()].slice(0, 2);
+    // 장 2개를 동시에 (PR #43 리뷰: 순차 호출 지연)
+    const out = await Promise.all(keys.map(async (r) => {
+      const [hits, states] = await Promise.all([
+        deps.retriever.retrieveRaw!(query, buildFilter(actor, { ...o, docIds: [r.doc_id], section: r.section!, expand: undefined, kbCategory: false })),
+        deps.states.get([r.doc_id])]);
+      // 인용 불가 그림 설명은 빼고(장 자리를 차지하지 않게), 쪽·조각 번호 순 (#s10이 #s2 뒤로)
+      const items = [...new Map(revalidate(hits, states, actor, o).kept.filter((x) => x.quotable).map((x) => [x.provision_id, x] as const)).values()]
+        .sort((a, b) => (a.page ?? 0) - (b.page ?? 0) || a.provision_id.localeCompare(b.provision_id, undefined, { numeric: true })).slice(0, 8)
+        .map((x) => { const y = { ...x }; delete y.weak; return y; }); // 같은 장 조각은 관련도와 무관 (weak 표시 없음)
+      return { doc_id: r.doc_id, section: r.section!, ...(r.section_pages ? { section_pages: r.section_pages } : {}), items };
+    }));
+    return out.filter((x) => x.items.length);
+  }
+
   async function run(query: string, actor: Actor, o0: FilterOpts, k: number, rewrite = false) {
     const q = maskPii(query);
     let o = o0;
@@ -302,7 +335,8 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     const top = kept.filter((r) => !r.weak).slice(0, k);
     const related = kept.filter((r) => r.weak).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
-    return { search_status, items: top, ...(related.length ? { related } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
+    const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
+    return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
   }
 
   return {
