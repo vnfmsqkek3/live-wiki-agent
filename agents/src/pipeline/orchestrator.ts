@@ -27,7 +27,7 @@ export interface PipelineDeps {
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
 export const STEP_NAMES: Record<string, string> = {
-  malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
+  malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', convert_to_pdf: 'ConvertToPdf', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
   ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify',
   trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize', purge_document: 'PurgeDocument',
 };
@@ -83,12 +83,13 @@ export function ingestGraph(deps: PipelineDeps, input: StepInput) {
   const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify'];
   return new Graph({
     nodes: [
-      n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),
+      n('malware_check'), n('file_structure_check'), n('convert_to_pdf'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),
       ...mid.map((k) => n(k)), n('trust_gate'), tail,
     ],
     edges: [
-      ['malware_check', 'file_structure_check'],
-      ['file_structure_check', 'text_layer_extract'], ['file_structure_check', 'page_render'], // 병렬
+      // 모든 형식을 PDF로 바꾼 뒤 전부 OCR (요청기록/20261117-2010). 변환은 동기(최대 600초, callTool 제한 900초 안)
+      ['malware_check', 'file_structure_check'], ['file_structure_check', 'convert_to_pdf'],
+      ['convert_to_pdf', 'text_layer_extract'], ['convert_to_pdf', 'page_render'], // 병렬
       ['text_layer_extract', 'ocr_if_needed'], ['page_render', 'ocr_if_needed'], // 합류 (둘 다 끝나야 실행)
       ...chain(['ocr_if_needed', 'segment_build', ...mid, 'trust_gate', 'review_or_block']),
     ],

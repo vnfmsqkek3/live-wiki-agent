@@ -227,7 +227,7 @@ test('업로드 진행: 작성자·승인자만, 완료 단계 수와 진행 중
   const { doc_id } = (await r.json()) as { doc_id: string };
   const p = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/progress`)).json()) as { done: number; total: number; steps: { key: string; state: string }[] };
   assert.equal(p.done, 2);
-  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'TextLayerExtract');
+  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'ConvertToPdf'); // 파일 구조 검사 다음은 문서 변환 (요청기록/20261117-2010)
   assert.equal((await t.call('author2', 'GET', `/v1/documents/${doc_id}/progress`)).status, 404);
   assert.equal((await t.call('approver', 'GET', `/v1/documents/${doc_id}/progress`)).status, 200);
 });
