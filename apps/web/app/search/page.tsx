@@ -1,4 +1,5 @@
 'use client';
+import { PageHeader } from '../page-header';
 // 02 검색 결과: 권한이 적용된 적합도순. 행마다 인장, 근거 조문, 시행일, 평점(신뢰와 분리)
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
@@ -73,21 +74,21 @@ function Results() {
     router.push(`/search?q=${encodeURIComponent(nq)}${nt ? `&type=${nt}` : ''}${DETAIL.filter((k) => nd[k]).map((k) => `&${k}=${encodeURIComponent(nd[k]!)}`).join('')}`);
   return (
     <>
-      <form role="search" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), type); }}>
+      <form className="search-row" role="search" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), type); }}>
         <input className="field lg" type="search" aria-label="검색어" placeholder="찾을 기준이나 업무 (비우면 전체 문서)" value={input}
           onChange={(e) => { setInput(e.target.value); if (!e.target.value.trim() && q) router.replace(`/search?${type ? `type=${type}` : ''}${dq}`); }} />
         <div className="actions"><button className="btn solid" type="submit">검색</button></div>
       </form>
-      <div className="filter" role="group" aria-label="문서 종류">
+      <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
         {FILTERS.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => nav(q, v)}>{l}</button>)}
       </div>
-      <DetailFilters value={detail} options={options} onApply={(d) => nav(q, type, d)} />
+      <DetailFilters value={detail} options={options} onApply={(d) => nav(q, type, d)} /></div>
       {err && <p className="error" role="alert">{err}</p>}
       {!q ? (
         recent === null ? <p className="note">불러오는 중입니다.</p> : recent.length === 0 ? <p className="note">볼 수 있는 게시 문서가 아직 없습니다.</p> : (
           <>
             <p className="note">전체 게시 문서 {recent.length}건 (최근 변경 순). 검색어를 넣으면 관련도 순으로 좁혀집니다.</p>
-            <ul className="ledger">
+            <ul className="ledger card-grid">
               {recent.map((i) => (
                 <li className="entry" key={i.doc_id}>
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
@@ -104,7 +105,7 @@ function Results() {
       ) : (
         <>
           <p className="note">열람 권한이 있는 승인 문서 {items.length}건, 관련도 높은 순</p>
-          <ul className="ledger">
+          <ul className="ledger card-grid">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
                 <Seal i={i} />
@@ -113,10 +114,10 @@ function Results() {
                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
                   {i.basis && <><dt>근거</dt><dd>{i.basis}</dd></>}
-                  {i.effective_from && <><dt>시행일</dt><dd>{i.effective_from}</dd></>}
+                  {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
                   {i.business_path && i.business_path.length > 0 && <><dt>업무</dt><dd>{i.business_path.join(' › ')}</dd></>}
                   {i.team && <><dt>작성</dt><dd>{i.team}</dd></>}
-                  {i.stars !== undefined && <><dt>평점</dt><dd>{i.stars.toFixed(1)} / 5</dd></>}
+                  {i.stars !== undefined && <><dt>평점</dt><dd><span className="num">{i.stars.toFixed(1)} / 5</span></dd></>}
                   <dt>찾은 이유</dt><dd>{i.reason}</dd>
                 </dl>
               </li>
@@ -130,5 +131,5 @@ function Results() {
 }
 
 export default function SearchPage() {
-  return <><h1 className="title">검색</h1><p className="page-description">필요한 기준을 찾고, 근거와 시행일을 함께 확인하세요.</p><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
+  return <><PageHeader title="검색" description="필요한 기준을 찾고, 근거와 시행일을 함께 확인하세요." action={<a className="btn" href="/guide">업무 가이드</a>} /><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
 }

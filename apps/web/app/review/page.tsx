@@ -1,4 +1,5 @@
 'use client';
+import { PageHeader } from '../page-header';
 // 05 OCR·PII 검토: 작성자가 자동 분석 결과를 확인·수정하고 게시를 요청한다.
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
@@ -74,55 +75,18 @@ function ReviewView() {
   const stage = submitted ? 4 : 3;
   return (
     <>
-      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
-      {editTitle === null ? (
-        <>
-          <h1 className="title" style={{ marginBottom: 4 }}>{r.title ?? '문서 검토'}</h1>
-          <p className="meta" style={{ marginTop: 0 }}>
-            {r.title_source === 'AUTO' && '문서 내용으로 붙인 제목입니다. '}
-            {r.doc_dates?.length ? `본문 일자: ${dateLine(r.doc_dates)} ` : ''}
-            {r.can_edit && <button type="button" className="linklike" onClick={() => setEditTitle(r.title ?? '')}>제목 고치기</button>}
-          </p>
-        </>
-      ) : (
-        <div style={{ marginBottom: 12 }}>
-          <label className="lbl" htmlFor="title-edit">문서 제목</label>
-          <input id="title-edit" className="field" maxLength={200} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
-          <div className="actions"><button className="btn solid" onClick={saveTitle} disabled={!editTitle.trim()}>제목 저장</button><button className="btn" onClick={() => setEditTitle(null)}>취소</button></div>
-        </div>
-      )}
+      <PageHeader title={r.title ?? '문서 검토'} description="분석 결과를 확인하고 문서 종류와 제목을 정리하세요." action={<a className="btn" href={`/library?id=${encodeURIComponent(id)}`}>문서 보기</a>} />
       <ol className="stages" aria-label="등록 진행 단계">
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
+      <div className="layout-a"><div className="primary">
       {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       <IssueList docId={r.doc_id} />
       <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 
-      <h2 className="section">문서 종류</h2>
-      <div className="sheet">
-        {r.classification ? (
-          <p style={{ margin: 0 }}>
-            {r.classification.source === 'HUMAN' ? '작성자가 정한 종류: ' : `AI 제안 (확신도 ${Math.round(r.classification.confidence * 100)}%): `}
-            <strong>{TYPES.find(([v]) => v === r.classification!.document_type)?.[1]}</strong>
-          </p>
-        ) : <p style={{ margin: 0 }}>AI가 종류를 정하지 못했습니다. 직접 골라 주세요.</p>}
-        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale}</p>}
-        <label className="lbl" htmlFor="ty">바꿀 종류</label>
-        <select id="ty" className="field" value={type} onChange={(e) => setType(e.target.value)} disabled={submitted}>
-          <option value="" disabled>선택</option>
-          {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </select>
-        {changed && (
-          <>
-            <label className="lbl" htmlFor="rs">바꾸는 이유</label>
-            <input id="rs" className="field" type="text" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
-            <div className="actions"><button className="btn" onClick={saveType} disabled={!reason.trim()}>문서 종류 저장</button></div>
-          </>
-        )}
-      </div>
 
       {r.knowhow_validation && (() => {
         const k = r.knowhow_validation;
@@ -186,10 +150,52 @@ function ReviewView() {
         </>
       )}
 
+      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
+      {editTitle === null ? (
+        <>
+          <h2 className="section">문서 제목</h2><p>{r.title}</p>
+          <p className="meta" style={{ marginTop: 0 }}>
+            {r.title_source === 'AUTO' && '문서 내용으로 붙인 제목입니다. '}
+            {r.doc_dates?.length ? `본문 일자: ${dateLine(r.doc_dates)} ` : ''}
+            {r.can_edit && <button type="button" className="linklike" onClick={() => setEditTitle(r.title ?? '')}>제목 고치기</button>}
+          </p>
+        </>
+      ) : (
+        <div style={{ marginBottom: 12 }}>
+          <label className="lbl" htmlFor="title-edit">문서 제목</label>
+          <input id="title-edit" className="field" maxLength={200} value={editTitle} onChange={(e) => setEditTitle(e.target.value)} />
+          <div className="actions"><button className="btn solid" onClick={saveTitle} disabled={!editTitle.trim()}>제목 저장</button><button className="btn" onClick={() => setEditTitle(null)}>취소</button></div>
+        </div>
+      )}
+
+      <h2 className="section">문서 종류</h2>
+      <div className="sheet">
+        {r.classification ? (
+          <p style={{ margin: 0 }}>
+            {r.classification.source === 'HUMAN' ? '작성자가 정한 종류: ' : `AI 제안 (확신도 ${Math.round(r.classification.confidence * 100)}%): `}
+            <strong>{TYPES.find(([v]) => v === r.classification!.document_type)?.[1]}</strong>
+          </p>
+        ) : <p style={{ margin: 0 }}>AI가 종류를 정하지 못했습니다. 직접 골라 주세요.</p>}
+        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale}</p>}
+        <label className="lbl" htmlFor="ty">바꿀 종류</label>
+        <select id="ty" className="field" value={type} onChange={(e) => setType(e.target.value)} disabled={submitted}>
+          <option value="" disabled>선택</option>
+          {TYPES.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        {changed && (
+          <>
+            <label className="lbl" htmlFor="rs">바꾸는 이유</label>
+            <input id="rs" className="field" type="text" maxLength={500} value={reason} onChange={(e) => setReason(e.target.value)} />
+            <div className="actions"><button className="btn" onClick={saveType} disabled={!reason.trim()}>문서 종류 저장</button></div>
+          </>
+        )}
+      </div>
+
       <div className="actions" style={{ marginTop: 24 }}>
         <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW'}>검토 마치고 게시 요청</button>
       </div>
       <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
+      </aside></div>
     </>
   );
 }

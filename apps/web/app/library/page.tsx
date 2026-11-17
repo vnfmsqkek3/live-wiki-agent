@@ -1,4 +1,5 @@
 'use client';
+import { PageHeader } from '../page-header';
 // 문서보관함: 카드 목록(요약·연관·태그) → 상세(전체 내용을 한 장씩) → 페이지 하단에 요약과 고칠 곳.
 // 밑줄은 서버(buildMarks)가 찾은 위치만 긋는다. 화면에서 새로 판단하지 않는다.
 import Link from 'next/link';
@@ -38,7 +39,7 @@ function List() {
   const go = (t: string, b: string) => router.push(`/library${qs(t, b) ? `?${qs(t, b)}` : ''}`);
   return (
     <>
-      <div className="filter" role="group" aria-label="문서 종류">
+      <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
         {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, business)}>{l}</button>)}
       </div>
       {businesses.length > 1 && (
@@ -49,11 +50,11 @@ function List() {
           </select>
         </label>
       )}
-      {err && <p className="error" role="alert">{err}</p>}
+      </div>{err && <p className="error" role="alert">{err}</p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
-        <ul className="ledger">
+        <ul className="ledger card-grid">
           {items.map((d) => (
             <li className="entry" key={d.doc_id}>
               <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
@@ -63,10 +64,9 @@ function List() {
               <dl>
                 {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
-                {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
+                {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
                 {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
-                {d.version_no && d.version_no > 1 && <><dt>버전</dt><dd>v{d.version_no}</dd></>}
-                <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
+                <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span></dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
                 {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => `${r.title} (${REL[r.relation]})`).join(', ')}</dd></>}
                 {d.mark_count > 0 && <><dt>고칠 곳</dt><dd className="danger-text">{d.mark_count}곳</dd></>}
                 {d.lifecycle !== 'PUBLISHED' && <><dt>상태</dt><dd>게시 전 (내 문서)</dd></>}
@@ -319,13 +319,12 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
   const jump = (i: number, n: number) => { setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
-  const back = from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함</Link>;
+  const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
   return (
     <>
-      <p>{back}</p>
-      <header className="document-header">
-      <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
-      <FreshnessFlag freshness={d.freshness} /><h2 className="doc-title lg">{d.title}</h2><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p><div className="actions"><Download id={d.doc_id} /></div></header>
+      <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
+      <div className="layout-a"><div className="primary">
+      {d.review && <Reasons d={d} jump={jump} />}
       {d.superseded_by && <p className="notice" role="status">새 버전이 게시되어 이 문서는 대체되었습니다. <Link href={`/library?id=${encodeURIComponent(d.superseded_by)}`}>최신 버전 보기</Link></p>}
       {d.freshness_reason?.deleted_doc ? (
         <p className="notice" role="status">
@@ -339,19 +338,54 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         </p>
       )}
       {d.summary && <p className="lead">{d.summary}</p>}
-      <dl className="meta-grid">
+
+
+      {d.doc_marks.length > 0 && (
+        <section aria-labelledby="doc-marks">
+          <h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3>
+          <ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul>
+        </section>
+      )}
+
+      {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
+        <section aria-label={`${p + 1}쪽`}>
+          <div className="pager">
+            <button className="btn" disabled={p === 0} onClick={() => go(p - 1)}>이전 쪽</button>
+            <span aria-live="polite"><span className="num">{p + 1} / {d.pages.length}</span>쪽</span>
+            <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
+          </div>
+          <div className="document-columns"><div className="sheet page">
+            <Marked text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }} />
+          </div>
+          <div className="page-checks"><h3 className="section">이 쪽 요약</h3>
+          <p>{page.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
+          <PageFacts m={page} />
+          <h3 className="section">고칠 곳 {numbered.length > 0 && <span className="danger-text">{numbered.length}곳</span>}</h3>
+          {numbered.length === 0 ? <p className="note">이 쪽에서 찾은 문제가 없습니다.</p> : (
+            <ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>
+          )}
+          {notes.length > 0 && (
+            <>
+              <h3 className="section">참고: 확인된 근거·실무 보완 <span className="note">{notes.length}건</span></h3>
+              <ul className="fixes">{notes.map((m, i) => <Fix key={`n${i}`} m={m} />)}</ul>
+            </>
+          )}
+          </div></div>
+        </section>
+      )}
+      <Versions id={d.doc_id} />
+      </div><aside className="support-panel"><header className="document-header">
+      <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
+      <FreshnessFlag freshness={d.freshness} /><h2 className="doc-title lg">{d.title}</h2><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p><div className="actions"><Download id={d.doc_id} /></div></header>      <dl className="meta-grid">
         {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
-        {d.effective_from && <><dt>시행일</dt><dd>{d.effective_from}</dd></>}
+        {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
         {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
-        <dt>등록일</dt><dd>{day(d.uploaded_at)}</dd>
-        {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd>{day(d.updated_at)}</dd></>}
+        <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span></dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
+        {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd><span className="num">{day(d.updated_at)}</span></dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
       </dl>
-
-      {d.review && <Reasons d={d} jump={jump} />}
-
-      {d.verification && (
+{d.review && <Decide r={d.review} docId={d.doc_id} />}      {d.verification && (
         <section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
           <dl className="meta-grid">
@@ -376,6 +410,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           )}
         </section>
       )}
+
       {d.related.length > 0 && (
         <section aria-labelledby="rel-h">
           <h3 className="section" id="rel-h">함께 보면 좋은 문서</h3>
@@ -396,43 +431,9 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section>
       )}
-      <Versions id={d.doc_id} />
-      <ExternalLaws id={d.doc_id} />
+      <details className="external-laws"><summary>외부 법령 참고</summary><ExternalLaws id={d.doc_id} /></details>
 
-      {d.doc_marks.length > 0 && (
-        <section aria-labelledby="doc-marks">
-          <h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3>
-          <ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul>
-        </section>
-      )}
-
-      {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
-        <section aria-label={`${p + 1}쪽`}>
-          <div className="pager">
-            <button className="btn" disabled={p === 0} onClick={() => go(p - 1)}>이전 쪽</button>
-            <span aria-live="polite">{p + 1} / {d.pages.length}쪽</span>
-            <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
-          </div>
-          <div className="sheet page">
-            <Marked text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }); }} />
-          </div>
-          <h3 className="section">이 쪽 요약</h3>
-          <p>{page.summary ?? <span className="note">요약이 아직 없습니다.</span>}</p>
-          <PageFacts m={page} />
-          <h3 className="section">고칠 곳 {numbered.length > 0 && <span className="danger-text">{numbered.length}곳</span>}</h3>
-          {numbered.length === 0 ? <p className="note">이 쪽에서 찾은 문제가 없습니다.</p> : (
-            <ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>
-          )}
-          {notes.length > 0 && (
-            <>
-              <h3 className="section">참고: 확인된 근거·실무 보완 <span className="note">{notes.length}건</span></h3>
-              <ul className="fixes">{notes.map((m, i) => <Fix key={`n${i}`} m={m} />)}</ul>
-            </>
-          )}
-        </section>
-      )}
-      {d.review && <Decide r={d.review} docId={d.doc_id} />}
-      <DeleteDoc d={d} />
+<DeleteDoc d={d} /></aside></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
     </>
   );
@@ -441,10 +442,10 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 function View() {
   const sp = useSearchParams();
   const id = sp.get('id');
-  return id ? <Detail key={id} id={id} from={sp.get('from')} /> : <List />;
+  return id ? <Detail key={id} id={id} from={sp.get('from')} /> : <><PageHeader title="문서보관함" description="검증 상태와 현행 여부를 확인한 뒤 업무에 참고하세요." action={<Link className="btn" href="/search">문서 검색</Link>} /><List /></>;
 }
 
 export default function LibraryPage() {
-  return <><h1 className="title">문서보관함</h1><p className="page-description">검증 상태와 현행 여부를 확인한 뒤 업무에 참고하세요.</p><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
+  return <><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><View /></Suspense></>;
 }
 

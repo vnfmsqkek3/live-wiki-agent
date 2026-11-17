@@ -38,12 +38,12 @@ export function SessionBar() {
   const [s, setS] = useState<Session | undefined>();
   useEffect(() => setS(getSession()), [path]);
   if (path === '/login') return null;
-  if (!s) return <p className="session-bar"><Link href="/login">로그인</Link></p>;
+  if (!s) return <div className="session-bar"><Link href="/login">로그인</Link></div>;
   return (
-    <p className="session-bar">
+    <div className="session-bar">
       <span><Icon name="user" /> {s.username} · {accountLabel(s.groups)}</span>
       <button type="button" onClick={() => { logout(); setS(undefined); router.push('/login'); }}>로그아웃</button>
-    </p>
+    </div>
   );
 }
 
@@ -65,11 +65,12 @@ export function Tabs() {
   return (
     <nav className="tabs" aria-label="주요 메뉴" style={{ ['--tab-n' as string]: tabs.length }}>
       <span className="wordmark"><span className="brand-symbol"><Icon name="guide" /></span><span>Hanaeum Wiki<small>근거로 연결하는 업무 지식</small></span></span>
-      {tabs.map((t) => (
+      <div className="nav-links">{tabs.map((t) => (
         <Link key={t.href} href={t.href} aria-current={(t.href === '/' ? path === '/' : path.startsWith(t.href)) ? 'page' : undefined}>
           {t.icon}{t.label}
         </Link>
-      ))}
+      ))}</div>
+      <SessionBar />
     </nav>
   );
 }
