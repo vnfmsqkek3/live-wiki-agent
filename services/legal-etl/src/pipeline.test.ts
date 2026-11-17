@@ -33,11 +33,15 @@ function tinyPdf(pages: string[]): Buffer {
   return Buffer.from(out, "latin1");
 }
 
-test("3a: PDF는 디지털 글자가 있어도 추출하지 않고 모든 쪽 OCR (사용자 결정 11/17), 변환 PDF가 있으면 그 쪽 수, 미지원 형식은 실패", async () => {
+test("3a: 변환 PDF(document.pdf)가 있으면 디지털 글자를 추출하지 않고 모든 쪽 OCR (사용자 결정 11/17), 없으면 지금 방식, 미지원 형식은 실패", async () => {
   const two = tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]);
-  const layer = await extractTextLayer(two, "pdf", DOC);
+  const layer = await extractTextLayer(two, "pdf", DOC, two);
   assert.equal(layer.page_count, 2);
   assert.ok(layer.pages.every((p) => p.needs_ocr && p.text === ""));
+  // 변환 단계 배포 전(document.pdf 없음): 쪽별 글자 수로 판정 (배포 순서가 어긋나도 멈추지 않게)
+  assert.deepEqual((await extractTextLayer(two, "pdf", DOC)).pages.map((p) => p.needs_ocr), [false, true]);
+  // 변환본이 깨졌으면 올린 사람 탓(BLOCKED)이 아니라 시스템 오류
+  await assert.rejects(extractTextLayer(two, "pdf", DOC, Buffer.from("깨진 변환본")), { name: "ConvertedPdfInvalid" });
   // DOCX·이미지: ConvertToPdf 결과(document.pdf)의 쪽 수, 전부 OCR
   assert.deepEqual((await extractTextLayer(Buffer.from("zip 아님"), "docx", DOC, two)).pages.map((p) => p.needs_ocr), [true, true]);
   assert.equal((await extractTextLayer(Buffer.from("png"), "png", DOC, two)).page_count, 2);
@@ -247,6 +251,11 @@ test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔
   assert.equal(ok.status, "OK");
   assert.equal(ok.findings, undefined);
   assert.equal(JSON.parse((await s4.get(Q, `${DOC}/work/text_layer.json`)).toString()).page_count, 3);
+  // DOCX인데 변환본이 깨졌으면 CORRUPT_OFFICE 차단이 아니라 예외(재시도)
+  const s5 = new MemoryObjectStore();
+  await s5.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
+  await s5.put(Q, `${DOC}/work/document.pdf`, Buffer.from("깨진 변환본"));
+  await assert.rejects(textLayerStep(input, s5), { name: "ConvertedPdfInvalid" });
 });
 
 test("조문 구조 이상은 쪽·문장 위치로 안내, 문장 일부는 개인정보를 가린 뒤 담음, 부칙은 제외", async () => {

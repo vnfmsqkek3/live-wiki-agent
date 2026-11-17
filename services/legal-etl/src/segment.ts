@@ -19,6 +19,8 @@ export const BLOCK_MIN = 0.85;
 export const PAGE_AVG_MIN = 0.9;
 
 export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[] {
+  // 3a와 PageRender가 서로 다른 PDF를 봤으면 남는 쪽이 조용히 버려진다 → 멈춘다
+  if (ocr && ocr.page_count !== layer.page_count) throw new Error(`쪽 수 불일치: text_layer ${layer.page_count}, ocr ${ocr.page_count}`);
   return layer.pages.map((p) => {
     if (!p.needs_ocr) {
       const lines = p.text.split(/\r?\n/u).filter((l) => l.trim());
