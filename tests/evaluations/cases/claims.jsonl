@@ -1,3 +1,4 @@
 {"id":"CLM-01","doc":"K-002 소액 부동산 담보대출 빠른 처리 팁 (충돌 노하우)","expected":{"relation":"CONFLICTS","min_count":1,"provision_prefix":"SYN-LOAN-001@"},"why":"현행 규정과 충돌하는 처리 방법 → 노하우 검증이 CONFLICTS 주장으로 저장 (interfaces 10.2)"}
 {"id":"CLM-02","doc":"K-001 부동산 담보평가 실무 노하우","expected":{"relation":"SUPPORTS","min_count":1,"provision_prefix":"SYN-LOAN-001@"},"why":"규정 근거가 있는 노하우 → 검증 통과 주장"}
 {"id":"CLM-03","doc":"기업여신 심사규정 2026-11-01 → 2026-12-01 개정 게시","expected":{"status":"REVIEW_REQUIRED","claims_citing":["ARTICLE:10/PARAGRAPH:2","ARTICLE:12/PARAGRAPH:1"],"unchanged_stay_current":["ARTICLE:11"]},"why":"바뀐 조문에 근거를 둔 주장만 재검토 (GraphUpsert markRevisedClaims)"}
+{"id":"CLM-04","doc":"K-002를 위키에서 AI 제안대로 고침 (interfaces 6.2, source=WIKI_EDIT)","expected":{"edit_conflicts":0,"approve":"버튼 하나","search_after_approve":"새 버전 doc_id만 (이전 버전 freshness=SUPERSEDED는 검색 재검증·영향 분석 live 필터에서 제외)"},"why":"위키 안에서 고치기 → 충돌 0 → 승인 → 검색에 새 버전만 (요청기록 20261117-2330)"}

@@ -24,8 +24,8 @@ const e = process.env;
 let recs: Records | undefined;
 const records = () => (recs ??= recordsFromEnv());
 const deps = () => ({ graph: new NeptuneGraphStore(e["NEPTUNE_ENDPOINT"]!), clauses: new DynamoClauseStore(e["TABLE_REGULATIONS"]!),
-  // 레코드 없음 = 제외. 조회 실패(분류 전 레코드·스로틀링)는 영향 대상에 남긴다 (한 건 때문에 전체 분석이 실패하지 않게, 놓치는 쪽보다 안전)
-  ...(e["TABLE_DOCUMENTS"] || e["GOV_STORE"] === "postgres" ? { live: async (id: string) => { try { const r = await records().getDocument(id); return !!r && r.lifecycle !== "DELETED"; } catch { return true; } } } : {}) });
+  // 레코드 없음·삭제·대체된 이전 버전(SUPERSEDED, 위키 수정 6.2) = 제외. 조회 실패(분류 전 레코드·스로틀링)는 영향 대상에 남긴다 (한 건 때문에 전체 분석이 실패하지 않게, 놓치는 쪽보다 안전)
+  ...(e["TABLE_DOCUMENTS"] || e["GOV_STORE"] === "postgres" ? { live: async (id: string) => { try { const r = await records().getDocument(id); return !!r && r.lifecycle !== "DELETED" && r.freshness !== "SUPERSEDED"; } catch { return true; } } } : {}) });
 export const handler = makeHandler(e["NEPTUNE_ENDPOINT"] && e["TABLE_REGULATIONS"] ? graphTools(deps()) : {});
 
 /** 단계 13 Lambda: ASL은 공통 입력 6필드만 넘긴다 → Documents 레코드·게시본을 직접 읽어 GraphUpsertInput을 만든다 */

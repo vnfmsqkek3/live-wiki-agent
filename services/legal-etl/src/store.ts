@@ -54,6 +54,8 @@ export interface DocumentRecord {
   document_type: DocumentType;
   authority_status: AuthorityStatus;
   conditional?: boolean;
+  /** 새 버전이 게시되면 이전 버전은 SUPERSEDED (위키 수정·버전 관리, interfaces 6.2) */
+  freshness?: "CURRENT" | "REVIEW_REQUIRED" | "SUPERSEDED";
   dept: string;
   acl_groups: string[];
   law_id?: string;
