@@ -1,5 +1,22 @@
 import { describe, expect, it } from "vitest";
-import { makeHandler, sanitize, type Mask } from "./image-describe.js";
+import { makeHandler, normBox, sanitize, snapBox, type Mask } from "./image-describe.js";
+
+describe("snapBox", () => {
+  it("uses the overlapping OCR figure box, keeps the model box otherwise", () => {
+    expect(snapBox([220, 510, 460, 820], [[241, 558, 491, 868], [562, 558, 813, 869]])).toEqual({ box: [241, 558, 491, 868], snapped: true });
+    expect(snapBox([190, 110, 420, 410], [[516, 125, 767, 436]])).toEqual({ box: [190, 110, 420, 410], snapped: false });
+  });
+});
+
+describe("normBox", () => {
+  it("accepts 0-1000 boxes, clamps, rejects tiny or malformed", () => {
+    expect(normBox([10, 20, 500, 600])).toEqual([10, 20, 500, 600]);
+    expect(normBox([-5, 0, 1200, 400])).toEqual([0, 0, 1000, 400]);
+    expect(normBox([10, 10, 20, 500])).toBeUndefined();
+    expect(normBox([1, 2, 3])).toBeUndefined();
+    expect(normBox("x")).toBeUndefined();
+  });
+});
 
 const input = { workflow_id: "wf_1", doc_id: "doc_1", version: 1, bucket: "q", prefix: "doc_1/", actor: { sub: "a", groups: ["AUTHOR"] } };
 // 테스트용 마스크: 전화번호만 (실제 규칙은 dhxorb96 pii-detect)
@@ -17,6 +34,8 @@ function world(files: Record<string, unknown>, modelOut: unknown) {
     getJson: async <T,>(k: string) => (puts.get(k) ?? files[k]) as T | undefined,
     getBytes: async (k: string) => files[k] as Uint8Array | undefined,
     putJson: async (k: string, b: unknown) => { puts.set(k, b); },
+    putPng: async (k: string, b: Uint8Array) => { puts.set(k, b); },
+    crop: async (_p: Uint8Array, box: number[]) => new Uint8Array(box),
     describe: async (png: Uint8Array) => (sent.push(png), modelOut),
     mask,
     saveFindings: async (_d: string, _s: string, f: unknown[]) => { saved.push(...f); },
