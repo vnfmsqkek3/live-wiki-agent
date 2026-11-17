@@ -125,6 +125,7 @@ module "webapp" {
     KB_ID                = module.kb.kb_id         # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
     MODEL_RERANK         = var.models["MODEL_RERANK"]
     MODEL_HAIKU          = var.models["MODEL_HAIKU"] # 검색·가이드 질의 재구성 (API 가 search-server 를 함께 묶음)
+    MODEL_EMBED          = var.models["MODEL_EMBED"] # 업무 분류 관리(이름 수정 시 임베딩 갱신)
   })
 }
 

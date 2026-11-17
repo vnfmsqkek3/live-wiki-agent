@@ -71,7 +71,8 @@ locals {
     # 모델 호출 Role (masked/ 만 읽음, 원본 등급 키는 버킷 정책이 거부)
     classify = {
       zip = local.dz, handler = "handlers.classify", memory = 512, timeout = 120, model_caller = true
-      env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"] })
+      # MODEL_EMBED: 업무 분류 자동화(11/17) 칸 후보 찾기 임베딩
+      env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"], MODEL_EMBED = var.models["MODEL_EMBED"] })
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
         # 쪽 본문 AI 재구성 저장 (dhxorb96 3b5539c)
@@ -173,6 +174,14 @@ locals {
         { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
         { Effect = "Allow", Action = ["s3:ListBucketVersions", "s3:ListBucket"], Resource = local.b["published"].arn },
         { Effect = "Allow", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = ["${local.b["published"].arn}/legal/*", "${local.b["published"].arn}/knowledge/*"] },
+      ])
+    }
+    # 업무 분류 주기 정리 (사용자 결정 11/17 A: 완전 자동). 임베딩 채우기·유사 칸 병합·빈 AI 칸 정리, 매일 03:00 KST
+    category-sweep = {
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "jobs/category-sweep.handler", memory = 256, timeout = 300, model_caller = true
+      env = { MODEL_EMBED = var.models["MODEL_EMBED"] }
+      statements = concat(module.aurora.app_statements, [
+        { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:${var.region}::foundation-model/${var.models["MODEL_EMBED"]}" },
       ])
     }
     # 쪽별 요약·핵심어·조문 표기 (사용자 결정 11/17). model-caller: masked/segments 만 읽고 masked/summaries 작성
