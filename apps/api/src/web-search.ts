@@ -4,9 +4,11 @@
 // 참고: let522mj mcp/regulation-server/src/browser.ts 와 같은 방식. 세션은 호출마다 연다(문서당 1세션, 최대 5건)
 import WebSocket from 'ws';
 import { Browser } from 'bedrock-agentcore/browser';
+import { isCommunity, resultUrl } from './steps/reference-check.ts';
 
 export interface WebHit { url: string; title: string; text: string }
-export interface WebSearcher { search(queries: string[]): Promise<Map<string, WebHit[]>> }
+/** 검색어 → 공식 사이트 추정(있으면 그 사이트부터 site: 검색) */
+export interface WebSearcher { search(queries: string[], officialSites?: Map<string, string>): Promise<Map<string, WebHit[]>> }
 
 function cdp(ws: WebSocket) {
   let id = 0;
@@ -29,7 +31,7 @@ export class AgentCoreWebSearcher implements WebSearcher {
   private readonly identifier: string | undefined;
   private readonly perQuery: number;
   constructor(region = process.env.AWS_REGION ?? 'us-east-1', identifier = process.env.BROWSER_ID, perQuery = 3) { this.region = region; this.identifier = identifier; this.perQuery = perQuery; }
-  async search(queries: string[]) {
+  async search(queries: string[], officialSites: Map<string, string> = new Map()) {
     const out = new Map<string, WebHit[]>();
     if (!queries.length) return out;
     const b = new Browser({ region: this.region, ...(this.identifier ? { identifier: this.identifier } : {}) });
@@ -45,34 +47,49 @@ export class AgentCoreWebSearcher implements WebSearcher {
       const read = async (expr: string) => ((await send('Runtime.evaluate', { expression: expr, returnByValue: true }, sessionId)) as { result: { value?: string } }).result.value ?? '';
       const open = async (url: string, wait = 2500) => { await send('Page.navigate', { url }, sessionId); await sleep(wait); };
       for (const q of queries) {
+        // 공식 사이트 추정이 있으면 그 사이트 안에서 먼저(site:). Google 은 낱말이 많으면 site: 를 무시해 짧은 검색어로 한 번 더(11/18 실측).
+        // 결과 칸 글자에 표시 주소(https://도메인 › 경로)가 있어 열기 전에 사용자 게시글을 빼고 공식 도메인을 앞에 둔다
+        const site = officialSites.get(q)?.replace(/^https?:\/\//, '').replace(/\/.*$/, '');
+        const short = q.split(/\s+/).slice(-3).join(' ');
+        const G = (x: string) => `https://www.google.com/search?hl=ko&num=10&q=${encodeURIComponent(x)}`;
         const ENGINES: [string, string][] = [
-          [`https://www.google.com/search?hl=ko&num=10&q=${encodeURIComponent(q)}`, '#search a:has(h3)'],
+          ...(site ? [[G(`${q} site:${site}`), '#search a:has(h3)'], [G(`${short} site:${site}`), '#search a:has(h3)']] as [string, string][] : []),
+          [G(q), '#search a:has(h3)'],
           [`https://www.bing.com/search?setlang=ko&q=${encodeURIComponent(q)}`, 'li.b_algo h2 a'],
         ];
-        let links: { href: string; text: string }[] = [];
-        for (const [url, sel] of ENGINES) {
-          await open(url, 3500);
-          links = JSON.parse(await read(`JSON.stringify([...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, 6).map((a) => ({ href: a.href, text: (a.querySelector('h3')?.innerText || a.innerText || '').slice(0, 200) })))`) || '[]') as { href: string; text: string }[];
-          if (links.length) break;
-        }
+        const hostOf = (href: string, text: string) => {
+          const r = resultUrl(href); if (r) return new URL(r).hostname.toLowerCase();
+          return (/https?:\/\/([a-z0-9.-]+)/i.exec(text)?.[1] ?? '').toLowerCase();
+        };
+        const official = (h: string) => !!site && !!h && (h === site || h.endsWith(`.${site}`) || h.replace(/^www\./, '') === site.replace(/^www\./, ''));
         const hits: WebHit[] = [];
-        for (const { href: u, text: linkText } of links) {
-          if (hits.length >= this.perQuery) break;
-          try {
-            await open(u, 2500);
-            // 본문이 그려질 때까지 1초 간격 최대 6초 더 (SPA·블로그는 처음엔 비어 있음)
-            let v: { t?: string; b?: string; u?: string } = {};
-            for (let k = 0; k < 7; k++) {
-              v = JSON.parse(await read(`JSON.stringify({ t: document.title, b: (document.body?.innerText ?? '').slice(0, 4000), u: location.href })`) || '{}') as typeof v;
-              if ((v.b ?? '').length > 200) break;
-              await sleep(1000);
-            }
-            const final = new URL(v.u || u);
-            if (!/^https?:$/.test(final.protocol) || /(^|\.)(google\.[a-z.]+|bing\.com|msn\.com)$/.test(final.hostname)) continue; // 도착이 검색 엔진이면 버림
-            // 자동 접속을 막는 사이트(예: 'Access Denied')는 검색 결과 제목·요약으로 대신한다 (주소는 맞음)
-            const blocked = /access denied|forbidden|403|404|not found|attention required|just a moment/i.test(v.t ?? '');
-            hits.push({ url: final.toString(), title: (blocked || !v.t ? linkText : v.t).slice(0, 200), text: blocked ? linkText : v.b ?? '' });
-          } catch { /* 열지 못한 결과는 건너뜀 */ }
+        let opened = 0;
+        for (const [url, sel] of ENGINES) {
+          if (hits.length) break;
+          await open(url, 3500);
+          const raw = JSON.parse(await read(`JSON.stringify([...document.querySelectorAll(${JSON.stringify(sel)})].slice(0, 8).map((a) => ({ href: a.href, text: (a.innerText || '').slice(0, 300), title: (a.querySelector('h3')?.innerText || a.innerText || '').split(String.fromCharCode(10))[0].slice(0, 200) })))`) || '[]') as { href: string; text: string; title: string }[];
+          const links = raw.map((l) => ({ ...l, host: hostOf(l.href, l.text) }))
+            .filter((l) => !(l.host && isCommunity(`https://${l.host}/`)))
+            .sort((x, y) => Number(!official(x.host)) - Number(!official(y.host)));
+          for (const { href: u, title: linkText } of links) {
+            if (hits.length >= this.perQuery || opened >= 6) break;
+            opened++;
+            try {
+              await open(u, 2500);
+              // 본문이 그려질 때까지 1초 간격 최대 6초 더 (SPA·블로그는 처음엔 비어 있음)
+              let v: { t?: string; b?: string; u?: string } = {};
+              for (let k = 0; k < 7; k++) {
+                v = JSON.parse(await read(`JSON.stringify({ t: document.title, b: (document.body?.innerText ?? '').slice(0, 4000), u: location.href })`) || '{}') as typeof v;
+                if ((v.b ?? '').length > 200) break;
+                await sleep(1000);
+              }
+              const final = new URL(v.u || u);
+              if (!/^https?:$/.test(final.protocol) || /(^|\.)(google\.[a-z.]+|bing\.com|msn\.com)$/.test(final.hostname) || isCommunity(final.toString())) continue; // 검색 엔진·사용자 게시글은 버림
+              // 접속 차단·점검 중 페이지는 검색 결과 제목으로 대신한다(주소는 맞음). 일치 판정에는 검색 결과 제목도 함께 쓴다
+              const blocked = /access denied|forbidden|403|404|not found|attention required|just a moment|점검|maintenance/i.test(v.t ?? '');
+              hits.push({ url: final.toString(), title: (blocked || !v.t ? linkText : v.t).slice(0, 200), text: `${linkText}\n${blocked ? '' : v.b ?? ''}` });
+            } catch { /* 열지 못한 결과는 건너뜀 */ }
+          }
         }
         out.set(q, hits);
       }

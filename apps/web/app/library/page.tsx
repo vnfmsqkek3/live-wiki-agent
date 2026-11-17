@@ -61,7 +61,7 @@ function groupBasis(basis: Basis[]) {
   return [...by.values()];
 }
 /** 그림이 있는 쪽의 이미지(개인정보 가린 쪽 이미지). 누르거나 본문의 '(그림 n)'을 누르면 크게 */
-function PageFigure({ docId, page, zoom, setZoom }: { docId: string; page: number; zoom: boolean; setZoom: (v: boolean) => void }) {
+function PageFigure({ docId, page, zoom, setZoom, thumb = true }: { docId: string; page: number; zoom: boolean; setZoom: (v: boolean) => void; thumb?: boolean }) {
   const [url, setUrl] = useState<string | null>(null);
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
@@ -73,9 +73,9 @@ function PageFigure({ docId, page, zoom, setZoom }: { docId: string; page: numbe
   useEffect(() => { const dlg = ref.current; if (!dlg) return; if (zoom && !dlg.open) dlg.showModal(); if (!zoom && dlg.open) dlg.close(); }, [zoom]);
   if (url === '') return null;
   return (
-    <figure className="page-figure">
-      {url ? <button type="button" className="fig-thumb" onClick={() => setZoom(true)} aria-label={`${page}쪽 그림 크게 보기`}><img src={url} alt={`${page}쪽 이미지 (개인정보는 가림)`} /></button> : <p className="note">그림을 불러오는 중입니다.</p>}
-      <figcaption className="note">{page}쪽 그림 · 누르면 크게 봅니다. 개인정보는 가렸습니다.</figcaption>
+    <figure className={thumb ? 'page-figure' : 'page-figure-hidden'}>
+      {!thumb ? null : url ? <button type="button" className="fig-thumb" onClick={() => setZoom(true)} aria-label={`${page}쪽 그림 크게 보기`}><img src={url} alt={`${page}쪽 이미지 (개인정보는 가림)`} /></button> : <p className="note">그림을 불러오는 중입니다.</p>}
+      {thumb && <figcaption className="note">{page}쪽 그림 · 누르면 크게 봅니다. 개인정보는 가렸습니다.</figcaption>}
       <dialog ref={ref} className="fig-zoom" onClose={() => setZoom(false)} onClick={(e) => { if (e.target === ref.current) setZoom(false); }}>
         {url && <img src={url} alt={`${page}쪽 이미지 크게 (개인정보는 가림)`} />}
         <form method="dialog"><button className="btn">닫기</button></form>
@@ -480,14 +480,15 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <button type="button" className="btn" aria-pressed={showImages} onClick={() => setImages(true)}>필터링된 원문</button>
           </div>
           {showImages ? <OriginalPages docId={d.doc_id} start={p + 1} fallback={page.text} /> : (
-          <div className="document-columns"><div className={`sheet page${hasFig ? ' has-figure' : ''}`} onClick={(e) => {
+          <div className="document-columns"><div className="sheet page" onClick={(e) => {
             const t = e.target as HTMLElement;
             const z = t.closest<HTMLElement>('[data-zoom]')?.dataset.zoom;
             if (z) { setZoomUrl(z); return; }
             const ref = t.closest<HTMLElement>('.fig-ref');
             if (ref) { const u = figMap[Number(ref.dataset.fig)]; if (u) setZoomUrl(u); else setZoom(true); }
           }}>
-            {hasFig && <PageFigure docId={d.doc_id} page={page.page + 1} zoom={zoom} setZoom={setZoom} />}
+            {/* 정리본에는 쪽 전체 이미지를 두지 않는다(사용자 요청 11/18). '(그림 n)'은 잘라낸 그림, 없을 때만 쪽 이미지 확대 */}
+            {hasFig && <PageFigure docId={d.doc_id} page={page.page + 1} zoom={zoom} setZoom={setZoom} thumb={false} />}
             <div className="page-body">
             <p className="note">{page.structured_source === 'VISION'
               ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원래 모습은 \'필터링된 원문\'에서 확인하세요.'
