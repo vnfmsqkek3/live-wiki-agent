@@ -21,7 +21,7 @@ for (const c of cases) {
   const q = maskPii(c.query).text;
   const before = top(await r.retrieve(q, f));
   const w = await rw.rewrite(q);
-  const after = top(await retrieveMany(r, [q, cleanQuery(q), w.core], w.alternates, f)); // search.ts run()과 같은 후보
+  const after = top(await retrieveMany(r, [q, cleanQuery(q)], [w.core, ...w.alternates], f)); // search.ts run()과 같은 후보
   const pass = (t: { titles: string[] }) => (c.expect ? t.titles.some((x) => new RegExp(c.expect!, "u").test(x)) : !t.titles.length);
   okBefore += +pass(before); okAfter += +pass(after); if (!c.expect && after.titles.length) fp++;
   console.log([c.id, pass(before) ? "O" : "X", before.score.toFixed(3), "→", pass(after) ? "O" : "X", after.score.toFixed(3),

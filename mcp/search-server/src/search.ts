@@ -209,17 +209,24 @@ const CLAUSE_IN_QUERY = /(?:「([^」]+)」|([가-힣A-Za-z0-9·\s]+?))\s*((?:�
 
 /** 재구성 질의 각각으로 검색(각자 Rerank) → 같은 청크는 최고 점수 하나만, 점수를 낸 질의를 남긴다.
  *  core만으로 Rerank하지 않는 이유 (11/17 dev 실측): "개인정보 처리방법" 0.284 탈락, 같은 뜻 "개인정보 처리" 0.486·"처리 기준" 0.498 통과.
- *  안전장치 (PR #24 리뷰): ① alternates(모델이 만든 다른 표현)에서만 나온 결과는 primary(원문·정리본·core)가 하나도 못 찾았으면 weak(참고)로 내린다
- *  ② 합친 뒤 1위 대비 RERANK_RATIO를 다시 적용 ③ 일부 질의 실패는 건너뛰고 전부 실패할 때만 오류 */
-export async function retrieveMany(r: Retriever, primary: string[], alternates: string[], filter: RetrievalFilter): Promise<Hit[]> {
-  const qs = [...new Set([...primary, ...alternates])];
+ *  안전장치 (PR #24 리뷰): ① primary는 사람이 쓴 질의(원문·규칙 정리본)만. 모델 질의(core·alternates)에서 나온 결과는
+ *  primary 결과(weak 포함)에 같은 문서가 있을 때만 근거, 아니면 weak(참고) — 모델이 주제를 바꿔도 새 문서를 근거로 끌어오지 못한다
+ *  ② 합친 뒤 1위 대비 RERANK_RATIO를 다시 적용 ③ 일부 질의 실패는 건너뛰고(로그) 전부 실패할 때만 오류.
+ *  ponytail: Rerank 호출이 질의당 최대 5회(중복 제거 후). 비용·쿼터가 문제면 alternates를 1개로 */
+export async function retrieveMany(r: Retriever, primary: string[], model: string[], filter: RetrievalFilter): Promise<Hit[]> {
+  const qs = [...new Set([...primary, ...model])];
   const settled = await Promise.allSettled(qs.map(async (q) => (await r.retrieve(q, filter)).map((h) => ({ ...h, matched_query: q }))));
-  const ok = settled.flatMap((x, i) => (x.status === "fulfilled" ? [{ q: qs[i]!, hits: x.value }] : []));
+  const ok = settled.flatMap((x, i) => {
+    if (x.status === "fulfilled") return [{ q: qs[i]!, hits: x.value }];
+    console.warn(JSON.stringify({ msg: "재구성 질의 1건 검색 실패 → 건너뜀", error: (x.reason as Error)?.name })); // 질의 원문은 남기지 않는다
+    return [];
+  });
   if (!ok.length) throw (settled[0] as PromiseRejectedResult).reason;
-  const primaryFound = ok.some((x) => primary.includes(x.q) && x.hits.length);
+  const isPrimary = (q: string) => primary.includes(q);
+  const primaryDocs = new Set(ok.filter((x) => isPrimary(x.q)).flatMap((x) => x.hits.map((h) => String(h.metadata["doc_id"]))));
   const best = new Map<string, Hit>();
   for (const x of ok) for (const h0 of x.hits) {
-    const h = !primaryFound && !primary.includes(x.q) ? { ...h0, weak: true } : h0;
+    const h = isPrimary(x.q) || primaryDocs.has(String(h0.metadata["doc_id"])) ? h0 : { ...h0, weak: true };
     const key = `${String(h.metadata["doc_id"])}\u0000${String(h.metadata["provision_id"] ?? "")}\u0000${h.text}`;
     const prev = best.get(key);
     // 근거 기준을 넘은 결과가 weak보다 우선, 같으면 점수
@@ -235,9 +242,9 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     const q = maskPii(query);
     // 재구성: 규칙(항상) + 모델(있으면). rewrite=false("원래 질의로 찾기")면 원문 그대로
     const rw: Rewritten | undefined = !rewrite ? undefined : deps.rewriter ? await deps.rewriter.rewrite(q.text) : { core: cleanQuery(q.text), alternates: [] };
-    // primary = 원문(정리가 틀려도 원문보다 나빠지지 않게) + 규칙 정리본(11/17 실측: 모델이 "개인정보 관련 문서"를 core로 남겨 0.249, 정리본 "개인정보"는 0.630) + core
+    // primary = 원문(정리가 틀려도 원문보다 나빠지지 않게) + 규칙 정리본(11/17 실측: 모델이 "개인정보 관련 문서"를 core로 남겨 0.249, 정리본 "개인정보"는 0.630)
     const hits = rw
-      ? await retrieveMany(deps.retriever, [q.text, cleanQuery(q.text), rw.core], rw.alternates, buildFilter(actor, o))
+      ? await retrieveMany(deps.retriever, [q.text, cleanQuery(q.text)], [rw.core, ...rw.alternates], buildFilter(actor, o))
       : await deps.retriever.retrieve(q.text, buildFilter(actor, o));
     const states = await deps.states.get([...new Set(hits.map((h) => String(h.metadata["doc_id"])))]);
     const { kept, dropped } = revalidate(hits, states, actor, o);
