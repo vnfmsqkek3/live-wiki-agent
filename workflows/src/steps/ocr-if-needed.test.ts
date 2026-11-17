@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { lowConfidence, makeHandler, type Deps } from "./ocr-if-needed.js";
+
+describe("lowConfidence ignores text inside figures (captures)", () => {
+  it("blurry UI text in a screenshot does not flag the page", () => {
+    const blk = (c: number, label: string) => ({ confidence: c, bbox: [0, 0, 1, 1], label, text: "x", reading_order: 0, block_id: "b" });
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.99, "text"), blk(0.4, "image"), blk(0.5, "image")] }] as never)).toEqual([]);
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.5, "text"), blk(0.99, "image")] }] as never)).toHaveLength(1);
+  });
+});
 import type { Finding } from "./common.js";
 
 const input = { workflow_id: "wf_1", doc_id: "doc_1", version: 1, bucket: "q", prefix: "doc_1/", actor: { sub: "a", groups: ["AUTHOR"] } };

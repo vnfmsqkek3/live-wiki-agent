@@ -15,7 +15,7 @@ export const CHUNK = 10;
 export const LOW_BLOCK = 0.85;
 export const LOW_PAGE = 0.9;
 
-type Block = { confidence: number; bbox: number[] }; // bbox: 렌더 PNG 픽셀 [x0,y0,x1,y1] (services/ocr convert.py)
+type Block = { confidence: number; bbox: number[]; label?: string }; // bbox: 렌더 PNG 픽셀 [x0,y0,x1,y1] (services/ocr convert.py)
 type Page = { page_index: number; blocks: Block[] };
 type ChunkResult = { model: string; model_version: string; pages: Page[] };
 
@@ -28,13 +28,17 @@ export type Deps = {
   saveFindings: FindingsStore;
 };
 
+export const FIGURE_LABELS = new Set(["image", "figure", "chart", "seal", "header_image", "footer_image"]);
+
 // 저신뢰 판정: 블록 < 0.85 또는 페이지 평균 < 0.9 → OCR·PII 검토 화면 표시 (기준치는 실측 후 조정)
 export function lowConfidence(doc_id: string, pages: Page[]): Finding[] {
   const out: Finding[] = [];
   for (const p of pages) {
-    if (p.blocks.length === 0) continue;
-    const avg = p.blocks.reduce((s, b) => s + b.confidence, 0) / p.blocks.length;
-    const lowBlocks = p.blocks.filter((b) => b.confidence < LOW_BLOCK);
+    // 그림(캡처·사진) 안 글자는 본문이 아니라 그림의 일부 → 본문 신뢰도 판정에서 뺀다 (11/17 과천사옥 매뉴얼: 캡처 속 작은 UI 글자 1,823줄 평균 0.74가 쪽마다 경고)
+    const body = p.blocks.filter((b) => !FIGURE_LABELS.has(b.label ?? ""));
+    if (body.length === 0) continue;
+    const avg = body.reduce((s, b) => s + b.confidence, 0) / body.length;
+    const lowBlocks = body.filter((b) => b.confidence < LOW_BLOCK);
     const low = lowBlocks.length;
     if (avg < LOW_PAGE || low > 0) {
       out.push(finding(STEP, avg < LOW_PAGE ? "MEDIUM" : "LOW", "OCR_LOW_CONFIDENCE",
