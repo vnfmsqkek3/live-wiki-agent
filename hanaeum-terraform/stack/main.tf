@@ -177,12 +177,13 @@ module "neptune" {
 
 # 거버넌스 저장소 Aurora PostgreSQL (사용자 결정 11/17). 접근은 Data API 만 (VPC 밖 Lambda·ECS 그대로)
 module "aurora" {
-  source              = "../modules/aurora"
-  n                   = local.n
-  kms_key_arn         = module.kms.key_arn
-  vpc_id              = module.network.vpc_id
-  data_subnet_ids     = module.network.subnet_ids["data"]
-  min_acu             = var.env == "prod" ? 0.5 : 0
+  source          = "../modules/aurora"
+  n               = local.n
+  kms_key_arn     = module.kms.key_arn
+  vpc_id          = module.network.vpc_id
+  data_subnet_ids = module.network.subnet_ids["data"]
+  # dev 도 0.5: 0 ACU 자동 일시정지에서 깨는 데 수십 초(11/17 실측 DatabaseResumingException) → 화면 QA 중 첫 요청이 느려짐
+  min_acu             = 0.5
   deletion_protection = var.env == "prod"
 }
 
