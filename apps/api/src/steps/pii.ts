@@ -68,7 +68,7 @@ export async function piiScan(
 }
 
 /** Guardrail 탐지 중 확인 항목·그림 칠하기에서 빼는 유형 (사용자 결정 11/17) */
-export const GUARD_SKIP = new Set(['IP_ADDRESS', 'USERNAME']);
+export const GUARD_SKIP = new Set(['IP_ADDRESS', 'USERNAME', 'PHONE', 'EMAIL']); // 전화·이메일도 제외 (사용자 결정 11/17 22시)
 const GUARD_NAME: Record<string, string> = { PHONE: '전화번호', EMAIL: '이메일', CREDIT_DEBIT_CARD_NUMBER: '카드번호', IP_ADDRESS: 'IP 주소', LICENSE_PLATE: '차량번호', USERNAME: '사용자 ID' };
 
 function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {

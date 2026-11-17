@@ -116,11 +116,11 @@ function segSetup(pages: string[], classify?: SegmentDeps['classify']) {
 }
 
 test('PiiScan: work/segments → masked/segments 페이지별 기록, 원문 PII 없음', async () => {
-  const t = segSetup(['담당 010-1234-5678', '시행일 2026-11-01 기준']);
+  const t = segSetup(['담당 010-1234-5678 주민 900101-1234568', '시행일 2026-11-01 기준']); // 전화는 그대로 (사용자 결정 11/17 22시)
   await t.store.putDoc(t.doc);
   const r = await makePiiScan(t.deps)(t.input);
   assert.equal(r.status, 'OK');
-  assert.deepEqual(t.objects.get(`${t.doc.doc_id}/masked/segments/0000.json`), { doc_id: t.doc.doc_id, page_index: 0, text: '담당 [전화번호]' });
+  assert.deepEqual(t.objects.get(`${t.doc.doc_id}/masked/segments/0000.json`), { doc_id: t.doc.doc_id, page_index: 0, text: '담당 010-1234-5678 주민 [주민등록번호]' });
   assert.equal((t.objects.get(`${t.doc.doc_id}/masked/segments/0001.json`) as { text: string }).text, '시행일 2026-11-01 기준');
 });
 
@@ -134,7 +134,7 @@ test('InjectionScan: masked만 읽고 공격 문구면 BLOCKED, segments 없으�
 
 test('Classify: 마스킹 텍스트만 모델에 전달, 최상위 document_type 기록, 저신뢰면 Sonnet 에스컬레이션 후 REVIEW_REQUIRED', async () => {
   const calls: { tier: string; prompt: string }[] = [];
-  const t = segSetup(['고객 010-9999-8888 담보 실사 생략 팁'], async (tier, prompt) => {
+  const t = segSetup(['고객 900101-1234568 담보 실사 생략 팁'], async (tier, prompt) => {
     calls.push({ tier, prompt });
     return { model: tier, value: { document_type: 'KNOWHOW', business_path: ['여신'], tags: ['담보'], confidence: tier === 'HAIKU' ? 0.5 : 0.65, rationale: 'r' } };
   });
@@ -142,7 +142,7 @@ test('Classify: 마스킹 텍스트만 모델에 전달, 최상위 document_type
   await makePiiScan(t.deps)(t.input);
   const r = await makeClassify(t.deps)(t.input);
   assert.deepEqual(calls.map((c) => c.tier), ['HAIKU', 'SONNET']);
-  assert.ok(calls.every((c) => !c.prompt.includes('9999-8888')), '원문 PII가 모델에 전달됨');
+  assert.ok(calls.every((c) => !c.prompt.includes('1234568')), '원문 PII가 모델에 전달됨');
   assert.equal(r.status, 'REVIEW_REQUIRED');
   const d = (await t.store.getDoc(t.doc.doc_id))!;
   assert.deepEqual([d.document_type, d.classification?.source, d.classification?.confidence], ['KNOWHOW', 'MODEL', 0.65]);
@@ -150,13 +150,13 @@ test('Classify: 마스킹 텍스트만 모델에 전달, 최상위 document_type
 
 test('Classify 요약: 마스킹본 페이지만 Haiku에 전달·문서/페이지 요약 저장, 요약 실패는 분류를 막지 않음', async () => {
   const cls: SegmentDeps['classify'] = async () => ({ model: 'h', value: { document_type: 'KNOWHOW', business_path: ['여신'], tags: [], confidence: 0.9, rationale: 'r' } });
-  const t = segSetup(['고객 010-9999-8888 담보 팁', '둘째 장'], cls);
+  const t = segSetup(['고객 900101-1234568 담보 팁', '둘째 장'], cls);
   let prompt = '';
   t.deps.summarize = async (p) => { prompt = p; return { model: 'h', value: { summary: '요약', pages: [{ page: 0, summary: '첫 장' }, { page: 1, summary: '둘째' }] } }; };
   await t.store.putDoc(t.doc);
   await makePiiScan(t.deps)(t.input);
   assert.equal((await makeClassify(t.deps)(t.input)).status, 'OK');
-  assert.ok(!prompt.includes('9999-8888') && prompt.includes('<page n="1">'));
+  assert.ok(!prompt.includes('1234568') && prompt.includes('<page n="1">'));
   const d = (await t.store.getDoc(t.doc.doc_id))!;
   assert.deepEqual([d.summary, d.page_summaries?.length], ['요약', 2]);
   t.deps.summarize = async () => { throw new Error('throttled'); };

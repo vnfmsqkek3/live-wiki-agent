@@ -22,12 +22,12 @@ test('PII: 주민번호 체크섬 일치는 확실, 불일치는 불확실, 날�
   assert.deepEqual(s.map((x) => [x.type, x.certain]), [['RRN', true], ['RRN', false]]);
 });
 
-test('PII: 전화·이메일·카드(Luhn)·계좌 문맥 마스킹, 원문 미노출', async () => {
+test('PII: 카드(Luhn)·계좌 문맥 마스킹, 전화·이메일은 그대로 (사용자 결정 11/17 22시)', async () => {
   const text = '연락처 010-1234-5678, hong@hanbit.example, 카드 4111 1111 1111 1111, 계좌번호: 110-123-456789';
   const spans = detectPii(text);
-  assert.deepEqual(spans.map((x) => x.type), ['PHONE', 'EMAIL', 'CARD', 'ACCOUNT']);
+  assert.deepEqual(spans.map((x) => x.type), ['CARD', 'ACCOUNT']);
   const m = mask(text, spans);
-  assert.ok(!/\d{4}/.test(m), m);
+  assert.equal(m, '연락처 010-1234-5678, hong@hanbit.example, 카드 [카드번호], 계좌번호: [계좌번호]');
   const r = await piiScan([{ page: 1, text }]);
   assert.ok(r.findings!.every((f) => !f.message.includes('1234')));
   assert.equal(r.masked[0]!.text, m);
@@ -37,9 +37,11 @@ test('PII: 불확실 구간이 있으면 REVIEW_REQUIRED, Guardrail 추가 탐�
   assert.equal((await piiScan([{ page: 1, text: '참조 123-45-678901' }])).status, 'REVIEW_REQUIRED');
   const clean = await piiScan([{ page: 1, text: '제12조 담보평가는 감정평가서를 따른다.' }], async (t) => ({ text: t, detected: 0 }));
   assert.equal(clean.status, 'OK');
-  const g = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
+  const g = await piiScan([{ page: 1, text: '담당 김하나' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'NAME', match: '김하나' }] }));
   assert.equal(g.status, 'REVIEW_REQUIRED');
-  assert.equal(g.masked[0]!.text, '연락 1588-1111'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
+  assert.equal(g.masked[0]!.text, '담당 김하나'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
+  const ph = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
+  assert.equal(ph.status, 'OK'); // 전화·이메일·IP·사용자명은 확인 항목에서 제외
 });
 
 test('PII: 날짜(시행일)는 계좌로 오탐하지 않음', () => {
