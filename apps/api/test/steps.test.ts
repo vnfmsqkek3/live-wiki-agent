@@ -46,7 +46,8 @@ test('PII: 불확실 구간이 있으면 REVIEW_REQUIRED, Guardrail 추가 탐�
 
 test('PII: 날짜(시행일)는 계좌로 오탐하지 않음', () => {
   assert.deepEqual(detectPii('시행일 2026-11-01, 개정 2025-01-01'), []);
-  assert.equal(detectPii('참조번호 2026-13-01')[0]?.type, 'ACCOUNT'); // 날짜가 아니면 불확실 계좌
+  assert.deepEqual(detectPii('참조번호 2026-13-01'), []); // N-2-2 모양은 날짜·버전으로 보고 계좌로 잡지 않음 (OCR 깨진 날짜, 11/17)
+  assert.equal(detectPii('참조번호 2026-130-01')[0]?.type, 'ACCOUNT'); // 그 밖의 형태는 불확실 계좌
 });
 
 test('Injection: A-001 유형 차단, 정상 규정 통과', () => {
@@ -215,4 +216,16 @@ test('AI 재구성 대상: 이미 마크다운인 쪽·짧은 쪽은 건너뜀',
   assert.equal(needsStructure('SYNTHETIC — x\n# 제목\n## 절차\n- 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘'), false);
   assert.equal(needsStructure('짧은 쪽'), false);
   assert.equal(needsStructure('1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다. 「개인정보 보호법」 제15조제1항: 개인정보처리자는'), true);
+});
+
+test('쪽 전체 맥락 재구성: 그림 줄(⟦그림 pN⟧)은 본문 대조에서 빼고, 그림 설명에서 온 문장·숫자는 허용, 지어낸 숫자는 거부', async () => {
+  const { faithful, splitPage, needsStructure } = await import('../src/steps/structure.ts');
+  const text = '드라이버 설치 방법\n다운로드 자료실에서 모델명을 입력하고 검색한다. [그림 1]\n⟦그림 p3⟧ 그림 1 속 글자: Myo1z1s Wiotaes11Prrt 2024-06-21';
+  assert.equal(splitPage(text).body.includes('Myo1z1s'), false);
+  const figures = [{ kind: 'screenshot', description: '모델명 검색창과 검색 버튼이 보이는 화면', overlay_text: 'SL-K3250NR' }];
+  assert.equal(needsStructure('짧은 쪽', figures), true); // 그림이 있으면 짧아도 맥락 정리
+  const good = '## 드라이버 설치 방법\n\n1. **다운로드 자료실**에서 모델명을 입력하고 검색한다.\n   - 모델명 검색창과 검색 버튼이 보이는 화면 (그림 1)';
+  assert.equal(faithful(text, good, figures).ok, true);
+  assert.equal(faithful(text, good + '\n- 버전 9.99 설치 (그림 1)', figures).ok, false); // 그림에도 없는 숫자
+  assert.equal(faithful(text, '## 드라이버 설치 방법', figures).ok, false); // 본문 문장 빠짐
 });

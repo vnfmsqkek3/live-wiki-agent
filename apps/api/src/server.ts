@@ -56,6 +56,11 @@ const app = createApp({
   workflowFailure,
   workflowSteps,
   workflowRuns,
+  ...(process.env.GOV_STORE === 'postgres' ? { categories: await (async () => {
+    const c = await import('./categories.ts');
+    const d = db();
+    return { list: () => c.listCategories(d.query), docMap: () => c.docCategories(d.query), rename: (id: string, name: string, actor: string) => c.renameCategory(d, id, name, actor), merge: (from: string, into: string, actor: string) => c.mergeCategory(d, from, into, actor) };
+  })() } : {}),
   ...(process.env.USER_GATEWAY_URL ? { traceImpact: (a: { law: string }, t: string) => userTool('graph___trace_impact', a, t) } : {}),
   pages,
   marks,

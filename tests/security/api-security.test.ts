@@ -138,9 +138,9 @@ test('질의 PII: 가이드 질문의 개인정보는 가려서 처리하고 감
   const r = await call('demo-user', 'POST', '/v1/guides', { question: '고객 900101-1234568 연락처 010-2222-3333 담보 승인 기준' });
   assert.equal(r.status, 200);
   assert.equal(r.json.query_masked, true);
-  assert.ok(!JSON.stringify(r.json).includes('2222-3333'));
+  assert.ok(!JSON.stringify(r.json).includes('1234568')); // 전화번호는 가리지 않음 (사용자 결정 11/17 22시), 주민등록번호는 가림
   const day = since.slice(0, 10);
   const items = aws('dynamodb', 'query', '--table-name', env('TABLE_AUDIT_EVENTS'), '--key-condition-expression', 'pk = :p AND sk >= :s',
     '--expression-attribute-values', JSON.stringify({ ':p': { S: `AUDIT#${day}` }, ':s': { S: since } }));
-  assert.ok(!items.includes('2222-3333') && !items.includes('900101'), '감사 기록에 원문 PII');
+  assert.ok(!items.includes('900101') && !items.includes('2222-3333'), '감사 기록에 질의 원문'); // 감사에는 질의 원문 자체를 남기지 않는다
 });

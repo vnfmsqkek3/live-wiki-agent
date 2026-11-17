@@ -1,12 +1,12 @@
 // @ts-check
 // 개인정보 탐지·마스킹 순수 함수 (의존성 없음). API 단계 6, Agent 질의 검사, ImageDescribe(yoyo0704)가 함께 쓴다.
 // Lambda zip의 node_modules에서도 실행되도록 빌드 없는 JS + 타입 선언(index.d.ts).
-/** @typedef {'RRN' | 'FOREIGNER_NO' | 'PASSPORT' | 'DRIVER_LICENSE' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO' | 'IP_ADDRESS'} PiiType */
+/** @typedef {'RRN' | 'FOREIGNER_NO' | 'PASSPORT' | 'DRIVER_LICENSE' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO'} PiiType */
 /** @typedef {{ type: PiiType; start: number; end: number; certain: boolean }} PiiSpan */
 
 /** 화면·Finding 메시지용 한글 이름 */
 /** @type {Record<PiiType, string>} */
-export const PII_NAME = { RRN: '주민등록번호', FOREIGNER_NO: '외국인등록번호', PASSPORT: '여권번호', DRIVER_LICENSE: '운전면허번호', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호', IP_ADDRESS: 'IP 주소' };
+export const PII_NAME = { RRN: '주민등록번호', FOREIGNER_NO: '외국인등록번호', PASSPORT: '여권번호', DRIVER_LICENSE: '운전면허번호', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호' };
 
 /** @type {Record<PiiType, string>} */
 const LABEL = {
@@ -17,7 +17,6 @@ const LABEL = {
   CARD: '[카드번호]',
   ACCOUNT: '[계좌번호]',
   CUSTOMER_NO: '[고객번호]',
-  IP_ADDRESS: '[IP 주소]',
 };
 
 /** 주민등록번호(외국인등록번호 포함) 체크섬. 2020-10 이후 발급분은 체크섬이 없어 실패할 수 있다. */
@@ -48,9 +47,7 @@ export function luhnOk(d) {
 
 /** @type {{ type: PiiType; re: RegExp; judge?: (digits: string) => boolean | 'uncertain' }[]} */
 const RULES = [
-  // IPv4 (사용자 결정 11/17): 값은 가리되 '[IP 주소]' 자리 표시로 남겨 가이드가 "이 칸에 장비 IP를 넣는다"를 알 수 있게.
-  // 검게 칠하거나 {IP_ADDRESS}로 지우지 않는다. 버전 번호(1.2.3)·날짜(2026.11.17)와 겹치지 않게 네 마디·0~255만
-  { type: 'IP_ADDRESS', re: /(?<![\d.])(?:(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)\.){3}(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?!\d|\.\d)/g }, // 뒤 '.'은 다음 마디(숫자)가 올 때만 막음: 문장 끝 마침표 허용
+  // IP 주소는 가리지 않는다 (사용자 결정 11/17 22시 "IP 제한은 풀어줘", 장비 설정 안내용)
   // 운전면허번호: 지역번호(11~28) 또는 지역명 - 2 - 6 - 2. 계좌 형태 규칙보다 먼저
   { type: 'DRIVER_LICENSE', re: /(?<![\d-])(?:1[1-9]|2[0-8]|서울|부산|경기|강원|충북|충남|전북|전남|경북|경남|제주|대구|인천|광주|대전|울산)[- ]?\d{2}-\d{6}-\d{2}(?![\d-])/g },
   // 여권번호: 영문 1자 + 숫자 8자리(구) 또는 영문 1 + 숫자 3 + 영문 1 + 숫자 4(2021~). "여권" 문맥이 있으면 확실, 없으면 불확실(사람 검토)
@@ -73,8 +70,9 @@ const RULES = [
   { type: 'ACCOUNT', re: /(?<=계좌\s*(번호)?\s*[:：]?\s*)\d[\d-]{8,18}\d/g },
   { type: 'CUSTOMER_NO', re: /(?<=고객\s*(번호|ID)\s*[:：]?\s*)[A-Z]{0,3}\d{6,12}/g },
   // 문맥 없는 계좌 형태(3-2~6-2~8) → 불확실
+  // 날짜 모양(N-2자리-2자리: OCR이 깨뜨린 '202-06-21'·'3002-16-06' 등, 과천 매뉴얼 실측)과
   // 전화번호 모양(010-1234-5678, 02-123-4567, 031-123-4567)은 계좌로 보지 않는다 (전화는 가리지 않음, 사용자 결정 11/17 22시)
-  { type: 'ACCOUNT', re: /(?<!\d)(?!01[016789]-\d{3,4}-\d{4}(?!\d))(?!0(?:2|[3-6][1-5])-\d{3,4}-\d{4}(?!\d))\d{3,6}-\d{2,6}-\d{2,8}(?!\d)/g, judge: (d) => (isDate(d) ? false : 'uncertain') },
+  { type: 'ACCOUNT', re: /(?<!\d)(?!01[016789]-\d{3,4}-\d{4}(?!\d))(?!0(?:2|[3-6][1-5])-\d{3,4}-\d{4}(?!\d))(?!\d{3,4}-\d{2}-\d{2}(?![\d-]))\d{3,6}-\d{2,6}-\d{2,8}(?!\d)/g, judge: (d) => (isDate(d) ? false : 'uncertain') },
 ];
 
 /** YYYYMMDD 형태의 실제 날짜 (시행일 2026-11-01 등을 계좌로 오탐하지 않도록) */
