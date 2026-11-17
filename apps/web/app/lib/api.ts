@@ -162,7 +162,7 @@ export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: 
 export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
 export interface Fix { finding_id: string; code: string; message: string; excerpt: string; suggestion: string | null; fix_hint: string | null; acknowledged: boolean }
 export interface Review {
-  fixes?: Fix[]; text?: string; source?: 'UPLOAD' | 'WIKI_EDIT'; suggestions?: import('../ref-suggestions').RefSuggestion[];
+  fixes?: Fix[]; clarify?: import('../clarify').ClarifyItem[]; text?: string; source?: 'UPLOAD' | 'WIKI_EDIT'; suggestions?: import('../ref-suggestions').RefSuggestion[];
   doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
   authority_status: string;
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
@@ -182,6 +182,9 @@ export interface KnowhowValidation {
   model?: string;
 }
 const MOCK_REVIEW: Review = {
+  text: '1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 담당자의 확인을 받아 나중에 작성한다.',
+  clarify: [{ finding_id: 'fnd_C1', kind: 'VAGUE_ACTOR', item: '담당자', page: 1, before: '실사 보고서는 담당자의 확인을 받아 나중에 작성한다.', question: "이 '담당자'는 어느 부서의 어떤 직책인가요?", blocking: true, severity: 'MEDIUM', status: 'OPEN',
+    suggestions: [{ value: '여신심사부 심사역', after: '실사 보고서는 여신심사부 심사역의 확인을 받아 나중에 작성한다.', source: { type: 'WIKI', doc_id: 'doc_F001', title: '[SYNTHETIC] 기업여신 심사규정', page: 3 } }] }],
   doc_id: 'doc_MOCK', title: '소액 부동산 담보대출 빠른 처리 팁', lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', authority_status: 'UNVERIFIED',
   classification: { document_type: 'KNOWHOW', confidence: 0.82, rationale: '절차·체크 항목 중심의 실무 문서이며 공식 규정 번호 체계가 없습니다.', source: 'MODEL' },
   knowhow_validation: {

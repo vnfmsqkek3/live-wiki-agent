@@ -243,29 +243,45 @@ test('그림 쪽 Vision 정리본(page_markdown): 모델 재호출 없이 정리
   assert.equal((await makeInjectionScan(t.deps)(t.input)).status, 'BLOCKED');
 });
 
-test('ReferenceCheck: 안전한 검색어만 웹 검색, 일치한 결과만 참고 제안(LOW·게시 비차단), 감사 WEB_SEARCH, 실패해도 OK', async () => {
+test('Clarify(ReferenceCheck 6.5): 위키 먼저 제안·담당자는 부서+직책만·웹은 링크류만·절차 문장 담당자는 MEDIUM, 실패해도 OK', async () => {
   const { makeReferenceCheck } = await import('../src/lambdas.ts');
-  const t = segSetup(['삼성 복합기 드라이버는 다운로드 자료실 링크에서 받는다']);
+  const body = '대출 신청서는 담당자의 승인을 받은 뒤 접수한다.\n삼성 복합기 드라이버는 다운로드 자료실 링크에서 받는다.\n문의는 관련 부서로 한다.';
+  const t = segSetup([body]);
   await t.store.putDoc(t.doc);
-  t.objects.set(`${t.doc.doc_id}/masked/segments/0000.json`, { doc_id: t.doc.doc_id, page_index: 0, text: '삼성 복합기 드라이버는 다운로드 자료실 링크에서 받는다' });
-  const searched: string[][] = [];
+  t.objects.set(`${t.doc.doc_id}/masked/segments/0000.json`, { doc_id: t.doc.doc_id, page_index: 0, text: body });
+  const searched: string[][] = []; const wikiQ: string[] = [];
   const step = makeReferenceCheck({ ...t.deps,
-    findRefs: async () => ({ value: { refs: [
-      { item: '삼성전자 다운로드 자료실 링크', reason: 'MISSING_LINK', query: '삼성전자 프린터 드라이버 다운로드 자료실', page: 1, official_sites: ['samsungsvc.co.kr'] },
-      { item: '사내 메신저', reason: 'MISSING_LINK', query: '하나은행 메신저 설치', official_sites: ['messenger.example.com'] },
-      { item: '공식 사이트 모름', reason: 'MISSING_LINK', query: '어떤 프로그램 다운로드', official_sites: [] },
+    findClarify: async () => ({ value: { items: [
+      { kind: 'VAGUE_ACTOR', item: '담당자', before: '대출 신청서는 담당자의 승인을 받은 뒤 접수한다.', question: '어느 부서의 어떤 직책인가요?', in_procedure: true, query: '대출 신청서 승인 부서', page: 1 },
+      { kind: 'MISSING_LINK', item: '다운로드 자료실', before: '삼성 복합기 드라이버는 다운로드 자료실 링크에서 받는다.', question: '주소가 무엇인가요?', in_procedure: false, query: '삼성전자 프린터 드라이버 다운로드 자료실', official_sites: ['samsungsvc.co.kr'] },
+      { kind: 'VAGUE_ACTOR', item: '관련 부서', before: '문의는 관련 부서로 한다.', question: '어느 부서인가요?', in_procedure: false, query: '문의 부서' },
+      { kind: 'MISSING_VALUE', item: '없는 문장', before: '문서에 없는 문장', question: '?', in_procedure: true, query: 'x' },
     ] }, model: 'm' }),
+    wiki: async (q) => { wikiQ.push(q); return q.startsWith('대출') ? [{ id: 'w1', doc_id: 'doc_other', title: '여신 업무 분장', text: '대출 신청서 승인: 여신심사부 심사역' }] : q.startsWith('문의') ? [{ id: 'w2', doc_id: 'doc_other', title: '조직', text: '문의: 홍길동 대리' }] : []; },
+    suggestClarify: async () => ({ value: { suggestions: [
+      { n: 0, value: '여신심사부 심사역', after: '대출 신청서는 여신심사부 심사역의 승인을 받은 뒤 접수한다.', source_id: 'w1' },
+      { n: 2, value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' }, // 사람 이름 → 버림
+    ] } }),
     web: { search: async (qs) => { searched.push(qs); return new Map(qs.map((q) => [q, [{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }]])); } },
   });
   const r = await step(t.input);
   assert.equal(r.status, 'OK');
-  assert.deepEqual(searched, [['삼성전자 프린터 드라이버 다운로드 자료실']]); // 사내 검색어는 빠짐
-  assert.equal(r.findings!.length, 1);
-  assert.equal(r.findings![0]!.code, 'REFERENCE_SUGGESTION');
-  assert.equal(r.findings![0]!.severity, 'LOW');
-  assert.equal((t.store as unknown as { audits: { action: string; detail?: { results: number } }[] }).audits.filter((a) => a.action === 'WEB_SEARCH')[0]!.detail!.results, 1);
-  const bad = makeReferenceCheck({ ...t.deps, findRefs: async () => { throw new Error('x'); }, web: { search: async () => new Map() } });
+  assert.equal(r.findings!.length, 3); // 문서에 없는 before 는 버림
+  const [actor, link, dept] = r.findings!.map((f) => ({ sev: f.severity, code: f.code, d: f.details as { suggestions: { value: string; source: { type: string } }[]; status: string } }));
+  assert.deepEqual([actor!.code, actor!.sev, actor!.d.suggestions[0]!.value, actor!.d.suggestions[0]!.source.type, actor!.d.status], ['CLARIFY_NEEDED', 'MEDIUM', '여신심사부 심사역', 'WIKI', 'OPEN']);
+  assert.deepEqual([link!.sev, link!.d.suggestions[0]!.source.type], ['LOW', 'WEB']);
+  assert.deepEqual([dept!.sev, dept!.d.suggestions.length], ['LOW', 0]);
+  assert.deepEqual(searched, [['삼성전자 프린터 드라이버 다운로드 자료실']]); // 담당자·값은 웹 금지
+  assert.equal((t.store as unknown as { audits: { action: string }[] }).audits.filter((a) => a.action === 'WEB_SEARCH').length, 1);
+  const bad = makeReferenceCheck({ ...t.deps, findClarify: async () => { throw new Error('x'); } });
   assert.equal((await bad(t.input)).status, 'OK');
+});
+
+test('applyClarify: before 첫 등장만 바꾸고 못 찾은 것은 돌려줌', async () => {
+  const { applyClarify } = await import('../src/steps/clarify.ts');
+  const r = applyClarify('가. 담당자 승인\n나. 담당자 확인', [{ before: '가. 담당자 승인', after: '가. 여신심사부 심사역 승인' }, { before: '없음', after: 'x' }]);
+  assert.equal(r.text, '가. 여신심사부 심사역 승인\n나. 담당자 확인');
+  assert.deepEqual(r.missing, ['없음']);
 });
 
 test('structurePages: 재구성을 건너뛴 짧은 쪽도 정리본(TEXT)을 남긴다', async () => {

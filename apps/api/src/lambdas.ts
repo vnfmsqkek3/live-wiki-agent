@@ -12,7 +12,8 @@ import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
-import { bestHit, findPrompt, sitesOf, unsafeQuery } from './steps/reference-check.ts';
+import { bestHit, sitesOf, unsafeQuery } from './steps/reference-check.ts';
+import { asRef, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -50,7 +51,14 @@ export interface SegmentDeps {
   /** 업무 분류 칸 배정 (interfaces.md 10.1). 마스킹된 제목·요약만. 없으면 생략 (GOV_STORE=postgres + MODEL_EMBED 일 때만) */
   category?(doc: { doc_id: string; title: string; summary?: string }): Promise<unknown>;
   /** 참조 확인 (interfaces 6.4): 정리본에서 확인할 대상 찾기(Haiku)와 공개 웹 검색(AgentCore Browser). 없으면 생략 */
-  findRefs?(prompt: string): Promise<{ value: { refs: import('./steps/reference-check.ts').RefCandidate[] }; model: string }>;
+  /** 확인 필요 찾기 (계약 6.5) */
+  findClarify?(prompt: string): Promise<{ value: { items: ClarifyCandidate[] }; model: string }>;
+  /** 위키 조각으로 채울 값 제안 */
+  suggestClarify?(prompt: string): Promise<{ value: { suggestions: { n: number; value: string; after: string; source_id: string }[] } }>;
+  /** 사내 위키 검색 (게시 문서, 같은 분류 우선) */
+  wiki?(query: string, categoryPath?: string): Promise<WikiHit[]>;
+  /** 이 문서의 업무 분류 경로 (위키 검색 같은 분류 우선) */
+  categoryOf?(doc_id: string): Promise<string | undefined>;
   web?: import('./web-search.ts').WebSearcher;
   /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
   structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
@@ -137,10 +145,10 @@ export function makeInjectionScan(deps: SegmentDeps) {
 /** 참조 확인 ReferenceCheck (사용자 결정 11/18, interfaces 6.4). Classify 뒤, 게시를 막지 않는다(INFO). 어떤 실패도 OK 로 끝낸다 */
 export function makeReferenceCheck(deps: SegmentDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
-    if (!deps.findRefs || !deps.web) return { status: 'OK', findings: [] };
+    if (!deps.findClarify) return { status: 'OK', findings: [] };
     const d = await mustDoc(deps.store, i.doc_id);
     try {
-      // 정리본이 있으면 정리본, 없으면 마스킹 본문 (모두 개인정보를 가린 글)
+      // 정리본이 있으면 정리본, 없으면 마스킹 본문 (모두 개인정보를 가린 글). 적용은 화면이 이 글 기준으로 before→after
       const segs = (await maskedSegments(deps, i.doc_id)).sort((a, b) => a.page_index - b.page_index);
       const structured = new Map<number, string>();
       for (const k of (await deps.listKeys(`${i.doc_id}/masked/structured/`)).filter((x) => x.endsWith('.json'))) {
@@ -148,34 +156,57 @@ export function makeReferenceCheck(deps: SegmentDeps) {
         if (v) structured.set(v.page_index, v.markdown);
       }
       const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
-      const cands = ((await deps.findRefs(findPrompt(d.title, pages))).value.refs ?? []).slice(0, 3); // 최대 3건: 직렬 단계라 사용자 대기 ~2.5분 이내 (yoyo0704 11/18)
-      console.log(JSON.stringify({ msg: 'refcheck candidates', doc_id: d.doc_id, n: cands.length, reasons: cands.map((c) => c.reason), official_sites: cands.map((c) => sitesOf(c)) }));
+      const all = pages.map((p) => p.text).join('\n\n');
+      // 1) 찾기 (최대 5건, 계약 6.5)
+      const found = await deps.findClarify(clarifyPrompt(d.title, pages));
+      const cands = keepCandidates(found.value.items ?? [], all);
+      console.log(JSON.stringify({ msg: 'clarify candidates', doc_id: d.doc_id, n: cands.length, kinds: cands.map((c) => c.kind) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
-      const safe = cands.filter((c) => { const why = unsafeQuery(c.query, internal); if (why) console.warn(JSON.stringify({ msg: 'refcheck query skipped', doc_id: d.doc_id, why })); return !why; });
-      // 공식 도메인 추정이 없는 대상은 검색하지 않는다(제안할 수 있는 주소가 없음)
-      const withSites = safe.filter((c) => { const ok = sitesOf(c).length > 0; if (!ok) console.log(JSON.stringify({ msg: 'refcheck drop', doc_id: d.doc_id, reason: 'no_official_site' })); return ok; });
-      const sites = new Map(withSites.map((c) => [c.query.trim(), sitesOf(c)[0]!]));
-      const hits = await deps.web.search([...new Set(withSites.map((c) => c.query.trim()))], sites);
-      const checked_at = now();
-      const findings: Finding[] = [];
-      for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
-        detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
-      for (const c of withSites) {
-        const got = hits.get(c.query.trim()) ?? [];
-        const h = bestHit(c, got);
-        // 탈락 사유는 원문 없이 남긴다 (검색어·제목·본문은 쓰지 않음)
-        if (!h) { console.log(JSON.stringify({ msg: 'refcheck drop', doc_id: d.doc_id, reason: got.length ? 'no_official_match' : 'only_ugc_or_none', official_sites: sitesOf(c), results: got.length, text_lens: got.map((x) => x.text.length) })); continue; }
-        findings.push({ finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: 'LOW', /* 계약상 INFO: Severity·DB CHECK 에 INFO 가 없어 LOW(게시 비차단) */ code: 'REFERENCE_SUGGESTION', message: `참조 확인: ${c.reason}`, evidence_ref: h.url,
-          location: { ...(c.page ? { page: c.page } : {}), excerpt: c.item.slice(0, 120) },
-          user_message: `${c.item}: 공개 웹에서 확인한 주소가 있습니다 — ${h.title} (${h.url})`,
-          fix_hint: '맞으면 "정리본에 넣기"로 이 주소를 문서에 넣으세요. 웹에서 찾은 정보라 근거로 인용하지 않습니다.',
-          details: { item: c.item, reason: c.reason, query: c.query, url: h.url, title: h.title, checked_at, official_sites: sitesOf(c) } });
+      const sugg = new Map<number, ClarifySuggestion[]>(cands.map((_, n) => [n, []]));
+      // 2) 사내 위키 먼저 (게시 문서만, 자기 문서 제외, 같은 분류 우선). 검색어 검사를 통과한 것만
+      if (deps.wiki && deps.suggestClarify) {
+        const qs: { n: number; c: ClarifyCandidate; hits: WikiHit[] }[] = [];
+        const category = await deps.categoryOf?.(d.doc_id).catch(() => undefined);
+        await Promise.all(cands.map(async (c, n) => {
+          const why = unsafeQuery(c.query); if (why && why !== 'internal_domain') return; // 사내 검색이라 '하나은행'·사내 도메인 낱말은 허용, 개인정보·사람 이름은 금지
+          const hits = (await deps.wiki!(c.query, category).catch(() => [] as WikiHit[])).filter((h) => h.doc_id !== d.doc_id && h.doc_id !== d.previous_doc_id).slice(0, 4);
+          if (hits.length) qs.push({ n, c, hits });
+        }));
+        if (qs.length) {
+          const out = (await deps.suggestClarify(suggestPrompt(qs)).catch(() => ({ value: { suggestions: [] } }))).value.suggestions ?? [];
+          for (const s of out) {
+            const q = qs.find((x) => x.n === s.n); const h = q?.hits.find((x) => x.id === s.source_id);
+            if (!q || !h || !safeSuggestion(q.c, s)) continue;
+            sugg.get(s.n)!.push({ value: s.value.trim(), after: s.after.trim(), source: { type: 'WIKI', doc_id: h.doc_id, title: h.title, ...(h.page ? { page: h.page } : {}) } });
+          }
+        }
       }
+      // 3) 공개 웹은 링크·불일치·버전만, 위키 제안이 없을 때, 공식 도메인 추정이 있을 때 (최대 3건)
+      const webC = cands.map((c, n) => ({ c, n })).filter(({ c, n }) => WEB_KINDS.has(c.kind) && !sugg.get(n)!.length && sitesOf(asRef(c)).length && !unsafeQuery(c.query, internal)).slice(0, 3);
+      const checked_at = now();
+      if (deps.web && webC.length) {
+        const sites = new Map(webC.map(({ c }) => [c.query.trim(), sitesOf(asRef(c))[0]!]));
+        const hits = await deps.web.search([...new Set(webC.map(({ c }) => c.query.trim()))], sites);
+        for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
+          detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
+        for (const { c, n } of webC) {
+          const h = bestHit(asRef(c), hits.get(c.query.trim()) ?? []);
+          if (h) sugg.get(n)!.push({ value: h.url, after: `${c.before} (${h.url})`, source: { type: 'WEB', url: h.url, title: h.title } });
+        }
+      }
+      // 4) finding: 제안이 없어도 질문은 남긴다
+      const findings: Finding[] = cands.map((c, n) => {
+        const data: ClarifyData = { kind: c.kind, item: c.item, ...(c.page ? { page: c.page } : {}), before: c.before, question: c.question, suggestions: sugg.get(n)!, status: 'OPEN' };
+        return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: clarifySeverity(c), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
+          location: { ...(c.page ? { page: c.page } : {}), excerpt: c.before.slice(0, 120) },
+          user_message: c.question, fix_hint: data.suggestions.length ? '제안을 확인하고 [적용]하거나 직접 입력하세요.' : '직접 입력하거나, 해당 없으면 사유를 적어 주세요.',
+          details: { ...data, checked_at } };
+      });
       if (findings.length) await deps.store.putDoc(addFindings(await mustDoc(deps.store, i.doc_id), findings)); // 검색 중 다른 단계가 바꾼 문서 위에 더함
-      console.log(JSON.stringify({ msg: 'refcheck done', doc_id: d.doc_id, searched: hits.size, suggestions: findings.length }));
+      console.log(JSON.stringify({ msg: 'clarify done', doc_id: d.doc_id, items: findings.length, with_suggestion: findings.filter((f) => (f.details as unknown as ClarifyData).suggestions.length).length, blocking: findings.filter((f) => f.severity === 'MEDIUM').length }));
       return { status: 'OK', findings };
     } catch (e) {
-      console.warn(JSON.stringify({ msg: 'refcheck failed', doc_id: d.doc_id, err: (e as Error).name }));
+      console.warn(JSON.stringify({ msg: 'clarify failed', doc_id: d.doc_id, err: (e as Error).name }));
       return { status: 'OK', findings: [] };
     }
   };

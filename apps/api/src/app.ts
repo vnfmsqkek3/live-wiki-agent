@@ -13,7 +13,8 @@ import {
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
-import { FIX_CODES, hasSourceMismatch, submitForApproval } from './submit.ts';
+import { FIX_CODES, hasSourceMismatch, isOpenFix, submitForApproval } from './submit.ts';
+import { detectPii, mask } from './steps/pii-detect.ts';
 
 export interface Deps {
   /** 브라우저 허용 출처 (CORS). 와일드카드 금지 (운영 교훈 #3) */
@@ -210,10 +211,17 @@ export function createApp(deps: Deps) {
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
     const f = d.findings.find((x) => x.finding_id === c.req.param('fid'));
-    if (!f || f.code !== 'EDIT_REMOVED_KEY_SENTENCE') throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
+    if (!f || !['EDIT_REMOVED_KEY_SENTENCE', 'CLARIFY_NEEDED'].includes(f.code)) throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
     const at = new Date().toISOString();
-    await store.putDoc({ ...d, findings: d.findings.map((x) => (x === f ? { ...x, acknowledged: { by: a.sub, at } } : x)), updated_at: at });
-    await audit(c, 'FINDING_ACK', d.doc_id);
+    // 확인 필요 '해당 없음': 사유 한 줄 필수, 감사 기록, 승인 화면 '자세히'에 보인다 (계약 6.5)
+    let details = f.details;
+    if (f.code === 'CLARIFY_NEEDED') {
+      const reason = String(((await c.req.json().catch(() => ({}))) as { reason?: unknown }).reason ?? '').trim().slice(0, 200);
+      if (!reason) throw new ApiError('VALIDATION', '해당 없음 사유를 적어 주세요');
+      details = { ...(f.details ?? {}), status: 'DISMISSED', dismiss_reason: mask(reason, detectPii(reason)) };
+    }
+    await store.putDoc({ ...d, findings: d.findings.map((x) => (x === f ? { ...x, acknowledged: { by: a.sub, at }, ...(details ? { details } : {}) } : x)), updated_at: at });
+    await audit(c, f.code === 'CLARIFY_NEEDED' ? 'CLARIFY_DISMISS' : 'FINDING_ACK', d.doc_id);
     return c.json({ ok: true });
   });
 
@@ -319,11 +327,14 @@ export function createApp(deps: Deps) {
       const st = [...sugg.keys()].find((s) => s.includes(ex.slice(0, 40)) || ex.includes(s.slice(0, 40)));
       return { finding_id: f.finding_id, code: f.code, message: f.user_message ?? f.message, excerpt: st ?? ex, suggestion: st ? sugg.get(st) ?? null : null, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged };
     });
-    const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? (await texts(d.doc_id).catch(() => [])).join('\n\n') : undefined;
+    // 고칠 본문 = 정리본(없으면 원문 글) — 위키 편집기·확인 필요 적용과 같은 기준 (before 가 이 글에 있어야 바꿀 수 있다)
+    const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? await editText(d.doc_id) : undefined;
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
     const suggestions = d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as Record<string, unknown>) }));
-    return c.json({ fixes, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+    // 확인 필요 (계약 6.5): 질문·원문·제안·잠금 여부. 화면이 항목별 적용을 모아 /edit 한 번
+    const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...(f.details as Record<string, unknown>) }));
+    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
@@ -581,6 +592,11 @@ export function createApp(deps: Deps) {
 
   // ---- 버전 관리 (사용자 요청 11/17, let522mj 요청 1211). 연결은 작성자가 확인한 경우에만 ----
   const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
+  const editText = async (id: string) => {
+    const ps = deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
+    const st = deps.structuredPages ? await deps.structuredPages(id).catch(() => new Map<number, { markdown: string }>()) : new Map<number, { markdown: string }>();
+    return ps.map((p) => st.get(p.page)?.markdown ?? p.text).join('\n\n');
+  };
   const texts = async (id: string) => (deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page).map((p) => p.text) : []);
   /** 직전 버전과 바뀐 곳. 직전 버전을 볼 권한이 없으면 내용 없이 개수만 */
   const versionDiff = async (a: Actor, d: DocumentRecord, prevDoc?: DocumentRecord) => {
@@ -699,6 +715,7 @@ export function createApp(deps: Deps) {
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
+      clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...(f.details as Record<string, unknown>) })),
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],

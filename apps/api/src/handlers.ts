@@ -6,7 +6,8 @@ import {
 } from './lambdas.ts';
 import { structured, embed } from './model.ts';
 import { STRUCTURE_SCHEMA, STRUCTURE_SYSTEM } from './steps/structure.ts';
-import { FIND_SCHEMA, FIND_SYSTEM } from './steps/reference-check.ts';
+import { InvokeCommand, LambdaClient } from '@aws-sdk/client-lambda';
+import { CLARIFY_SCHEMA, CLARIFY_SYSTEM, SUGGEST_CLARIFY_SCHEMA, SUGGEST_CLARIFY_SYSTEM, type ClarifyCandidate, type WikiHit } from './steps/clarify.ts';
 import { AgentCoreWebSearcher } from './web-search.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
@@ -85,11 +86,31 @@ export const fileStructureCheck = makeFileStructureCheck(deps);
 export const piiScan = makePiiScan(seg);
 export const injectionScan = makeInjectionScan(seg);
 export const classify = makeClassify(seg);
-// 참조 확인 (6.4): Lambda reference-check, handler handlers.referenceCheck. REFERENCE_CHECK=on 일 때만 웹 검색 (Browser 권한 필요)
+// 확인 필요 Clarify (6.5, 6.4 확장): Lambda reference-check, handler handlers.referenceCheck. REFERENCE_CHECK=on 일 때만.
+// 위키 검색은 KB_ID 가 있을 때(search-server search_wiki, 일반 직원 권한으로 게시 문서만), 웹은 Browser 권한
+const clarifyWiki = process.env.MCP_SEARCH_FN
+  ? (() => {
+    // mcp-search Lambda 직접 Invoke (let522mj 제안·yoyo0704 확정 11/18). __actor groups [] = ACL ALL 공개 문서만. 원문·검색어는 로그에 남기지 않는다
+    const lambda = new LambdaClient({});
+    const call = async (query: string, category?: string): Promise<WikiHit[]> => {
+      const r = await lambda.send(new InvokeCommand({ FunctionName: process.env.MCP_SEARCH_FN,
+        ClientContext: Buffer.from(JSON.stringify({ custom: { bedrockAgentCoreToolName: 'search_wiki' } })).toString('base64'),
+        Payload: Buffer.from(JSON.stringify({ query, top_k: 5, rewrite: false, ...(category ? { category } : {}), __actor: { sub: 'system:reference-check', groups: [] } })) }));
+      const out = JSON.parse(Buffer.from(r.Payload ?? new Uint8Array()).toString('utf8') || '{}') as { error?: string; items?: { doc_id: string; title: string; page?: number; snippet: string; quotable?: boolean }[] };
+      if (out.error) throw new Error('mcp-search error');
+      return (out.items ?? []).filter((h) => h.quotable !== false).map((h, n) => ({ id: `w${n + 1}`, doc_id: h.doc_id, title: h.title, text: h.snippet, ...(h.page ? { page: h.page } : {}) }));
+    };
+    // 같은 분류에서 한 번, 비면 분류 없이 한 번
+    return async (query: string, category?: string) => { const first = category ? await call(query, category) : []; return first.length ? first : call(query); };
+  })()
+  : undefined;
 export const referenceCheck = makeReferenceCheck({
   ...seg,
   ...(process.env.REFERENCE_CHECK === 'on' ? {
-    findRefs: (prompt: string) => structured<{ refs: import('./steps/reference-check.ts').RefCandidate[] }>('HAIKU', FIND_SYSTEM, prompt, 'submit_refs', FIND_SCHEMA as unknown as Record<string, unknown>),
+    findClarify: (prompt: string) => structured<{ items: ClarifyCandidate[] }>('HAIKU', CLARIFY_SYSTEM, prompt, 'submit_clarify', CLARIFY_SCHEMA as unknown as Record<string, unknown>),
+    suggestClarify: (prompt: string) => structured<{ suggestions: { n: number; value: string; after: string; source_id: string }[] }>('HAIKU', SUGGEST_CLARIFY_SYSTEM, prompt, 'submit_suggestions', SUGGEST_CLARIFY_SCHEMA as unknown as Record<string, unknown>),
+    ...(clarifyWiki ? { wiki: clarifyWiki } : {}),
+    ...(e.GOV_STORE === 'postgres' ? { categoryOf: async (id: string) => (await db().query<{ path: string }>('SELECT c.path FROM documents d JOIN categories c ON c.category_id = d.category_id WHERE d.doc_id = :id', { id }))[0]?.path } : {}),
     web: new AgentCoreWebSearcher(),
   } : {}),
 }); // 모델 호출 Role (hanaeum-model-caller=true, 원본·work 읽기 거부)
