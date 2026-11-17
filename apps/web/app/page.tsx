@@ -8,13 +8,18 @@ import { api, getSession, MOCK, type LibraryCard, type Session } from './lib/api
 import { accountLabel, isAdmin } from './lib/roles';
 import { FreshnessFlag, Seal } from './seal';
 
-// 자주 찾는 주제: 검색어로 찾는다 (태그 일치 필터는 결과가 비기 쉬움)
-const TOPICS = ['담보 현장 실사', '고액 현금 인출', '개인정보 수집', '외국환 송금'];
+/** 게시 문서가 많은 업무 (업무 분류 1단계, 많은 순 6개). 검색 기록은 없어서 '자주 찾는'이 아니라 실제 게시 문서 기준. 문서가 없으면 숨긴다 */
+const topBusinesses = (docs: LibraryCard[]) => {
+  const n = new Map<string, number>();
+  for (const d of docs) { const b = d.business_path[0]; if (b) n.set(b, (n.get(b) ?? 0) + 1); }
+  return [...n].sort((a, b) => b[1] - a[1]).slice(0, 6);
+};
 
 export default function Home() {
   const router = useRouter();
   const [q, setQ] = useState('');
   const [items, setItems] = useState<LibraryCard[]>([]);
+  const [topics, setTopics] = useState<[string, number][]>([]);
   const [mine, setMine] = useState<LibraryCard[]>([]);
   const [todo, setTodo] = useState<{ approvals: number; mismatch: number } | null>(null);
   const [s, setS] = useState<Session | undefined>();
@@ -24,7 +29,9 @@ export default function Home() {
     const g = cur?.groups ?? [];
     // 목록 API는 권한 내 게시 문서 + 본인 문서. 게시 전 문서는 본인 것만 온다
     api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => {
-      setItems(r.items.filter((i) => i.lifecycle === 'PUBLISHED').slice(0, 5));
+      const pub = r.items.filter((i) => i.lifecycle === 'PUBLISHED');
+      setItems(pub.slice(0, 5));
+      setTopics(topBusinesses(pub));
       setMine(r.items.filter((i) => i.lifecycle !== 'PUBLISHED'));
     }).catch(() => setItems([]));
     if (isAdmin(g)) {
@@ -80,8 +87,12 @@ export default function Home() {
         </section>
       )}
 
-      <h2 className="section">자주 찾는 주제</h2>
-      <ul className="tags">{TOPICS.map((t) => <li key={t}><button onClick={() => go(t)}>{t}</button></li>)}</ul>
+      {topics.length > 0 && (
+        <>
+          <h2 className="section">게시 문서가 많은 업무</h2>
+          <ul className="tags">{topics.map(([b, c]) => <li key={b}><button onClick={() => router.push(`/search?business=${encodeURIComponent(b)}`)}>{b} <span className="note">{c}건</span></button></li>)}</ul>
+        </>
+      )}
 
       <h2 className="section">최근 게시된 문서</h2>
       {items.length === 0 ? <p className="note">아직 볼 수 있는 게시 문서가 없습니다.</p> : (
