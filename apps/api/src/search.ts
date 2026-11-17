@@ -8,6 +8,7 @@ export interface SearchHit {
   authority_status: string; freshness: string; search_status: string; document_type: string; business_path?: string[]; tags?: string[];
   /** 근거가 나온 쪽 (1부터, let522mj). 그림 썸네일용 */
   page?: number;
+  quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string;
 }
 /** 질의 재구성 (let522mj search_wiki, 요청기록/20261117-1910 1장): 문장형 질의를 핵심 검색어 + 대안 ≤2로 */
 export interface Rewritten { core: string; alternates: string[] }
@@ -18,6 +19,8 @@ export const toItem = (h: SearchHit) => ({
   doc_id: h.doc_id, title: h.title, snippet: h.snippet, document_type: h.document_type,
   authority_status: h.authority_status, freshness: h.freshness, effective_from: h.effective_from || undefined,
   basis: h.provision, tags: h.tags ?? [], business_path: h.business_path ?? [], search_status: h.search_status, ...(h.page ? { page: h.page } : {}),
+  // 가이드·화면이 그림 기준 근거를 구분하도록 버리지 않는다 (let522mj PR #42)
+  quotable: h.quotable, ...(h.evidence_kind ? { evidence_kind: h.evidence_kind } : {}), ...(h.page_context ? { page_context: h.page_context } : {}),
   reason: h.search_status === 'HISTORICAL' ? '현재 시행 중이 아닌 과거 조문입니다'
     : h.freshness === 'REVIEW_REQUIRED' ? '근거 규정이 바뀌어 재검토 중인 문서입니다'
     : h.provision ? '찾는 내용과 조문이 일치합니다' : '찾는 내용과 관련된 승인 문서입니다',

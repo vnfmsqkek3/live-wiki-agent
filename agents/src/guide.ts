@@ -20,12 +20,16 @@ export interface Evidence {
   quotable?: boolean;
   document_type?: string;
   page?: number;
-  /** 그림 기준 근거: 매뉴얼·노하우의 그림·화면 정리본(quotable=false). 인용은 하되 '(그림 기준)' 표시 (11/18 결정, 규정은 제외) */
+  /** let522mj PR #42: 매뉴얼·노하우의 그림 기준 근거는 quotable=true + evidence_kind FIGURE (규정은 검색 단계에서 차단) */
+  evidence_kind?: 'FIGURE';
+  page_context?: string;
+  /** 그림 기준 근거: 인용은 하되 '(그림 기준)' 표시 (11/18 결정) */
   figure?: boolean;
 }
-/** 매뉴얼·노하우의 그림·화면 정리본은 '그림 기준 근거'로 인용 허용. 규정(REGULATION)·종류 모름은 지금처럼 인용 금지 */
-export const figureCitable = (e: Evidence) => e.quotable === false && !!e.document_type && e.document_type !== 'REGULATION';
-const asCitable = (e: Evidence): Evidence => (figureCitable(e) ? { ...e, figure: true } : e);
+/** quotable=false 는 계속 인용 금지. 그림 기준 근거는 evidence_kind FIGURE 로 오며, 규정이면 한 번 더 막는다 */
+export const figureCitable = (e: Evidence) => e.evidence_kind === 'FIGURE' && e.quotable !== false && e.document_type !== 'REGULATION';
+const asCitable = (e: Evidence): Evidence => (e.evidence_kind === 'FIGURE' ? { ...e, figure: true } : e);
+const citableOk = (e: Evidence) => e.quotable !== false && (e.evidence_kind !== 'FIGURE' || figureCitable(e));
 
 export const GuideDraft = z.object({
   steps: z.array(z.object({
@@ -90,7 +94,7 @@ export function citableFrom(result: unknown): Evidence[] {
   }
   const items = (result as { items?: Evidence[] } | null)?.items;
   if (!Array.isArray(items)) return [];
-  return items.filter((e) => e && typeof e.doc_id === 'string' && (e.quotable !== false || figureCitable(e)) && e.search_status !== 'HISTORICAL' && e.search_status !== 'DELETED'
+  return items.filter((e) => e && typeof e.doc_id === 'string' && citableOk(e) && e.search_status !== 'HISTORICAL' && e.search_status !== 'DELETED'
     && e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED').map(asCitable);
 }
 
@@ -149,7 +153,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   // 삭제 조항은 근거로 쓰지 않는다 (삭제 조항 오인용 0건, docs/02 4장). 과거 버전은 쓰되 불확실로 알린다
   say(PROGRESS.search);
   const all = await deps.search(q);
-  const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && (e.quotable !== false || figureCitable(e))).map(asCitable);
+  const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && citableOk(e)).map(asCitable);
   // 여러 번 찾기: 표의 항목마다 2차 검색(같은 문서 조각 우선)으로 다른 쪽·장의 절차를 모은다. 검색 총 4회·항목당 15초 상한
   const missing: string[] = [];
   let hopItems: string[] = [];
@@ -166,7 +170,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
     const seen = new Set(evidence.map(evidenceKey));
     const found = await Promise.all(hopItems.map((it) => within(deps.search(`${it} ${q}`.slice(0, 200)), 15_000, [] as Evidence[])));
     hopItems.forEach((it, n) => {
-      const ok = found[n]!.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && (e.quotable !== false || figureCitable(e)))
+      const ok = found[n]!.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && citableOk(e))
         .map(asCitable).sort((a, b) => Number(!docs.has(a.doc_id)) - Number(!docs.has(b.doc_id)))
         .filter((e) => !seen.has(evidenceKey(e))).slice(0, 4);
       if (!ok.length) missing.push(it);
@@ -180,7 +184,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   const ev = evidence.map((e) => ({ id: evidenceKey(e), ...(e.figure ? { figure: true, page: e.page } : {}), title: e.title, provision: e.provision, effective_from: e.effective_from, authority_status: e.authority_status, freshness: e.freshness, text: e.snippet }));
   say(PROGRESS.draft(evidence.length));
   // 그림·쪽 맥락(quotable=false): 출처로는 못 쓰고 위치 찾기에만 (yoyo0704 요청 11/18, 과천 4층 표가 배치도 그림에만 표시)
-  const context = all.filter((e) => e.quotable === false && !figureCitable(e) && e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED')
+  const context = all.filter((e) => e.quotable === false && e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED')
     .slice(0, 5).map((e) => ({ doc_id: e.doc_id, title: e.title, text: e.snippet.slice(0, 1500) }));
   const ctx = context.length ? `\n\n<context note="그림·쪽 맥락. 출처로 쓰지 않는다">\n${JSON.stringify(context, null, 1)}\n</context>` : '';
   const items = hopItems.length ? `\n\n<items note="질문에 걸린 갈래(조합). sections 로 조합마다 한 섹션">${JSON.stringify(hopItems)}</items>` : '';
@@ -218,7 +222,8 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
     return { title: mask(sec.title, detectPii(sec.title)), note: mask(note, detectPii(note)), steps: ss };
   }).filter((sec) => sec.steps.length || sec.note);
   if (sections.length) steps.push(...sections.flatMap((sec) => sec.steps));
-  const uncertainty = [draft.uncertainty, missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
+  const usedFigure = steps.some((st) => st.sources.some((e) => e.figure));
+  const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
   return { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)), tool_calls: draft.tool_calls ?? [] };
 }
