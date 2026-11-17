@@ -214,3 +214,11 @@ test('세부 필터: 보관함·검색 모두 업무·부서·문서 일자·검
   assert.deepEqual((await r.json() as { items: { doc_id: string }[] }).items.map((i) => i.doc_id), ['KH']); // 키워드 보완도 같은 조건
   assert.deepEqual(t.searched.at(-1), { tags: [], as_of: undefined, dept: 'loan', date_from: '2026-10-01', authority_status: 'UNVERIFIED' });
 });
+
+test('검색 related(근거로 확인되지 않은 관련 문서): items와 나눠 related로, 이미 보인 문서·다른 종류는 빼고 (let522mj PR #22)', async () => {
+  const { searchVia } = await import('../src/search.ts');
+  const hit = (doc_id: string, document_type = 'REGULATION') => ({ doc_id, title: doc_id, snippet: 's', effective_from: '', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND', document_type });
+  const s = searchVia(async () => ({ items: [hit('A')], related: [{ ...hit('B'), search_status: 'UNVERIFIED' }, { ...hit('A') }] }));
+  const out = await s('q', { sub: 'u', groups: ['USER'] }, { tags: [] }) as { doc_id: string; weak?: boolean }[];
+  assert.deepEqual(out.map((x) => [x.doc_id, !!x.weak]), [['A', false], ['B', true], ['A', true]]);
+});

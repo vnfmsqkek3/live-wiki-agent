@@ -411,3 +411,5 @@ main { max-width:1200px; padding-inline:32px; }
 .board-col > .section:first-child { margin-top:0; }
 .ledger.stack { display:grid; gap:16px; }
 @media (min-width:1024px) { .board { grid-template-columns:minmax(0,7fr) minmax(0,5fr); } }
+/* 근거로 확인되지 않은 관련 문서: 본 결과보다 한 단계 낮춰 보인다 */
+.weak-results .entry { background:var(--navy-050, transparent); border-style:dashed; }

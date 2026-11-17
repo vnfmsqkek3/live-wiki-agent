@@ -52,6 +52,7 @@ function Results() {
   }, []);
   const [input, setInput] = useState(q);
   const [items, setItems] = useState<SearchItem[] | null>(null);
+  const [related, setRelated] = useState<SearchItem[]>([]);
   const [recent, setRecent] = useState<LibraryCard[] | null>(null);
   const [err, setErr] = useState('');
   useEffect(() => { setInput(q); }, [q]);
@@ -66,8 +67,9 @@ function Results() {
       return;
     }
     setItems(null);
-    api<{ items: SearchItem[] }>('GET', `/v1/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}`)
-      .then((r) => setItems(r.items))
+    setRelated([]);
+    api<{ items: SearchItem[]; related?: SearchItem[] }>('GET', `/v1/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}`)
+      .then((r) => { setItems(r.items); setRelated(r.related ?? []); })
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 검색하세요.' : e.message); setItems([]); });
   }, [q, type, dq]);
   const nav = (nq: string, nt: string, nd: Detail = detail) =>
@@ -100,11 +102,11 @@ function Results() {
             </ul>
           </>
         )
-      ) : items === null ? <p className="note">찾는 중입니다.</p> : items.length === 0 && !err ? (
+      ) : items === null ? <p className="note">찾는 중입니다.</p> : items.length === 0 && related.length === 0 && !err ? (
         <p className="note">열람 권한이 있는 승인 문서 중에 맞는 결과가 없습니다. 다른 표현으로 찾거나 종류를 '전체'로 바꿔 보세요.</p>
       ) : (
         <>
-          <p className="note">열람 권한이 있는 승인 문서 {items.length}건, 관련도 높은 순</p>
+          <p className="note">{items.length ? `열람 권한이 있는 승인 문서 ${items.length}건, 관련도 높은 순` : '정확한 근거로 확인된 문서는 없습니다. 아래 관련 있을 수 있는 문서를 참고하세요.'}</p>
           <ul className="ledger card-grid">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
@@ -124,6 +126,21 @@ function Results() {
             ))}
           </ul>
           {items.length > 0 && <div className="actions"><button className="btn solid" onClick={() => router.push(`/guide?q=${encodeURIComponent(q)}`)}>이 내용으로 업무 가이드 만들기</button></div>}
+          {related.length > 0 && (
+            <section aria-labelledby="rel-h" className="weak-results">
+              <h2 className="section" id="rel-h">관련 있을 수 있는 문서 <span className="note">정확한 근거로 확인되지는 않음</span></h2>
+              <ul className="ledger card-grid">
+                {related.map((i, n) => (
+                  <li className="entry" key={`w-${i.doc_id}-${n}`}>
+                    <Seal i={i} />
+                    <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
+                    <p className="quote">{i.snippet}</p>
+                    <dl>{i.basis && <><dt>관련 조문</dt><dd>{i.basis}</dd></>}<dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
         </>
       )}
     </>

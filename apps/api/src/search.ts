@@ -7,7 +7,7 @@ export interface SearchHit {
   doc_id: string; title: string; snippet: string; provision?: string; effective_from: string;
   authority_status: string; freshness: string; search_status: string; document_type: string; business_path?: string[]; tags?: string[];
 }
-export type SearchWiki = (args: Record<string, unknown>, actor: { sub: string; groups: string[]; dept?: string }) => Promise<{ items?: SearchHit[] }>;
+export type SearchWiki = (args: Record<string, unknown>, actor: { sub: string; groups: string[]; dept?: string }) => Promise<{ items?: SearchHit[]; related?: SearchHit[] }>;
 
 /** 화면 검색 항목. 이유는 결과 상태로만 설명한다 (모델 생성 아님) */
 export const toItem = (h: SearchHit) => ({
@@ -24,6 +24,7 @@ export function searchVia(searchWiki: SearchWiki) {
     const { tags, ...rest } = o; // 세부 필터는 search_wiki 인자 이름 그대로 (값이 있는 것만)
     const r = await searchWiki({ query: q, top_k: 10, ...(tags.length ? { tags } : {}), ...Object.fromEntries(Object.entries(rest).filter(([, v]) => v)) },
       { sub: a.sub, groups: a.groups, ...(a.dept ? { dept: a.dept } : {}) });
-    return (r.items ?? []).map(toItem);
+    // related: 재정렬 점수가 약해(0.10~0.30) 근거로 확인되지 않은 관련 문서 (let522mj PR #22). weak 표시로 뒤에 붙인다
+    return [...(r.items ?? []).map(toItem), ...(r.related ?? []).map((h) => ({ ...toItem(h), weak: true as const, reason: '관련 있을 수 있지만 정확한 근거로 확인되지는 않았습니다' }))];
   };
 }

@@ -452,7 +452,7 @@ export function createApp(deps: Deps) {
     const hits = (await Promise.all([
       deps.search(q, c.get('actor'), { tags: [] }),
       ...(isReg ? [deps.search(q, c.get('actor'), { tags: [], index_groups: ['wiki-knowledge', 'official-manuals'] })] : []),
-    ].map((p) => p.catch(() => [])))).flat().reverse() as { doc_id: string; title: string; document_type?: string }[];
+    ].map((p) => p.catch(() => [])))).flat().filter((h) => !(h as { weak?: boolean }).weak).reverse() as { doc_id: string; title: string; document_type?: string }[];
     return c.json({ items: similar(d, hits, vis, card(d, vis).related) });
   });
 
@@ -497,7 +497,8 @@ export function createApp(deps: Deps) {
     const type = c.req.query('type');
     if (type && !['REGULATION', 'KNOWHOW', 'MANUAL'].includes(type)) throw new ApiError('VALIDATION', 'type: REGULATION|KNOWHOW|MANUAL');
     const groups = type === 'REGULATION' ? ['legal-clauses'] : type ? ['wiki-knowledge', 'official-manuals'] : undefined;
-    const sem = await deps.search(q, a, { tags, as_of, ...df, ...(groups ? { index_groups: groups } : {}) }) as { doc_id: string; document_type?: string }[];
+    const all = await deps.search(q, a, { tags, as_of, ...df, ...(groups ? { index_groups: groups } : {}) }) as { doc_id: string; document_type?: string; weak?: boolean }[];
+    const sem = all.filter((i) => !i.weak);
     // 의미 검색은 조문 조각 상위 몇 개만 남는다 → 제목·요약·업무·태그에 검색어가 있는 게시 문서를 뒤에 더한다 (짧은 단어 검색 보완)
     const words = q.toLowerCase().split(/\s+/).filter((w) => w.length >= 2);
     const seen = new Set(sem.map((i) => i.doc_id));
@@ -506,7 +507,9 @@ export function createApp(deps: Deps) {
       && words.length > 0 && words.every((w) => `${d.title} ${d.summary ?? ''} ${(d.classification?.business_path ?? []).join(' ')} ${(d.classification?.tags ?? []).join(' ')} ${d.law_name ?? ''}`.toLowerCase().includes(w)))
       .slice(0, 20).map((d) => keywordItem(d));
     const items = [...(type ? sem.filter((i) => i.document_type === type) : sem), ...kw];
-    return c.json({ items });
+    const shown = new Set(items.map((i) => i.doc_id));
+    const related = all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type));
+    return c.json({ items, related });
   });
 
   app.post('/v1/guides', async (c) => {
