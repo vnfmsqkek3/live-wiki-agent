@@ -13,7 +13,7 @@ import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
 import { bestHit, sitesOf, unsafeQuery } from './steps/reference-check.ts';
-import { asRef, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
+import { asRef, modelsIn, sameModelPage, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -190,7 +190,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
         for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
           detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
         for (const { c, n } of webC) {
-          const h = bestHit(asRef(c), hits.get(c.query.trim()) ?? []);
+          const h = bestHit(asRef(c), (hits.get(c.query.trim()) ?? []).filter((x) => sameModelPage(modelsIn(`${c.item} ${c.before}`).length ? `${c.item} ${c.before}` : all, x)) /* 그 문장의 모델명 우선, 없으면 문서 전체 */);
           if (h) sugg.get(n)!.push({ value: h.url, after: `${c.before} (${h.url})`, source: { type: 'WEB', url: h.url, title: h.title } });
         }
       }

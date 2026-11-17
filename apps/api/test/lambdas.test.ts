@@ -291,3 +291,16 @@ test('structurePages: 재구성을 건너뛴 짧은 쪽도 정리본(TEXT)을 �
   assert.deepEqual(saved.get('doc_t/masked/structured/0000.json')?.source, 'TEXT');
   assert.equal(saved.get('doc_t/masked/structured/0000.json')?.markdown, '## 01. 표지');
 });
+
+test('Clarify 보정(11/18 dev): 표 빈 칸은 LOW, 빈 양식 행은 항목 아님, 웹 제안은 같은 모델·모델 무관 페이지만', async () => {
+  const { clarifySeverity, keepCandidates, sameModelPage } = await import('../src/steps/clarify.ts');
+  const doc = '| ③ | — | — | — |\n| ⑨ | 임원실 |  |  |\n결재는 담당자가 한다.';
+  const C = (before: string) => ({ kind: 'MISSING_VALUE' as const, item: 'x', before, question: '?', in_procedure: true, query: 'q' });
+  assert.deepEqual(keepCandidates([C('| ③ | — | — | — |'), C('| ⑨ | 임원실 |  |  |'), C('결재는 담당자가 한다.')], doc).map((c) => c.before), ['| ⑨ | 임원실 |  |  |', '결재는 담당자가 한다.']);
+  assert.equal(clarifySeverity(C('| ⑨ | 임원실 |  |  |')), 'LOW');
+  assert.equal(clarifySeverity(C('결재는 담당자가 한다.')), 'MEDIUM');
+  const text = '삼성 SL-K3250NR 드라이버';
+  assert.equal(sameModelPage(text, { url: 'https://www.samsung.com/sec/support/model/SL-C563W', title: 'SL-C563W' }), false);
+  assert.equal(sameModelPage(text, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실' }), true);
+  assert.equal(sameModelPage(text, { url: 'https://x.com/SL-K3250NR', title: '드라이버' }), true);
+});
