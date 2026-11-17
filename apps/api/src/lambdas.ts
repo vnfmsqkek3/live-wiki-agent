@@ -13,7 +13,7 @@ import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
 import { bestHit, sitesOf, unsafeQuery } from './steps/reference-check.ts';
-import { asRef, sameModelPage, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
+import { asRef, findInSameDoc, sameModelPage, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
@@ -158,11 +158,23 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
       const all = pages.map((p) => p.text).join('\n\n');
       // 1) 찾기 (최대 5건, 계약 6.5)
-      const found = await deps.findClarify(clarifyPrompt(d.title, pages));
-      const cands = keepCandidates(found.value.items ?? [], all, (n) => pages.find((p) => p.page === n)?.text);
+      // 쪽 묶음(8쪽)마다 같은 체크리스트로 훑는다: 긴 입력의 자유 판단을 줄여 실행마다 달라지는 것을 줄인다 (11/18 dev)
+      const chunks: (typeof pages)[] = []; for (let k = 0; k < pages.length; k += 8) chunks.push(pages.slice(k, k + 8));
+      const results = await Promise.all(chunks.map((ch) => deps.findClarify!(clarifyPrompt(d.title, ch)).catch(() => ({ value: { items: [] as ClarifyCandidate[] }, model: '' }))));
+      const found = { model: results.find((r) => r.model)?.model ?? '', value: { items: results.flatMap((r) => r.value.items ?? []) } };
+      const ORDER = ['VAGUE_ACTOR', 'MISSING_VALUE', 'MISSING_LINK', 'INCONSISTENT', 'OUTDATED'];
+      found.value.items.sort((x, y) => Number(clarifySeverity(y) === 'MEDIUM') - Number(clarifySeverity(x) === 'MEDIUM') || ORDER.indexOf(x.kind) - ORDER.indexOf(y.kind) || (x.page ?? 0) - (y.page ?? 0));
+      const cands = keepCandidates(found.value.items, all, (n) => pages.find((p) => p.page === n)?.text);
+      // 잠금 후보는 같은 문서 안에서 먼저 답을 찾는다 → 있으면 권고(LOW) + 'n~m쪽 참조' 제안
+      const inDoc = new Map<number, { from: number; to: number; heading?: string }>();
+      cands.forEach((c, n) => { if (clarifySeverity(c) === 'MEDIUM') { const f = findInSameDoc(c, pages); if (f) inDoc.set(n, f); } });
       console.log(JSON.stringify({ msg: 'clarify candidates', doc_id: d.doc_id, n: cands.length, kinds: cands.map((c) => c.kind) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const sugg = new Map<number, ClarifySuggestion[]>(cands.map((_, n) => [n, []]));
+      for (const [n, f] of inDoc) {
+        const where = `${f.from === f.to ? f.from : `${f.from}~${f.to}`}쪽${f.heading ? ` '${f.heading}'` : ''}`;
+        sugg.get(n)!.push({ value: `${where} 참조`, after: `${cands[n]!.before.replace(/\s+$/, '')} (${where} 참조)`, source: { type: 'WIKI', doc_id: d.doc_id, page: f.from, title: '이 문서' } });
+      }
       // 2) 사내 위키 먼저 (게시 문서만, 자기 문서 제외, 같은 분류 우선). 검색어 검사를 통과한 것만
       if (deps.wiki && deps.suggestClarify) {
         const qs: { n: number; c: ClarifyCandidate; hits: WikiHit[] }[] = [];
@@ -197,7 +209,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       // 4) finding: 제안이 없어도 질문은 남긴다
       const findings: Finding[] = cands.map((c, n) => {
         const data: ClarifyData = { kind: c.kind, item: c.item, ...(c.page ? { page: c.page } : {}), before: c.before, question: c.question, suggestions: sugg.get(n)!, status: 'OPEN' };
-        return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: clarifySeverity(c), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
+        return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: inDoc.has(n) ? 'LOW' : clarifySeverity(c), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
           location: { ...(c.page ? { page: c.page } : {}), excerpt: c.before.slice(0, 120) },
           user_message: c.question, fix_hint: data.suggestions.length ? '제안을 확인하고 [적용]하거나 직접 입력하세요.' : '직접 입력하거나, 해당 없으면 사유를 적어 주세요.',
           details: { ...data, checked_at } };

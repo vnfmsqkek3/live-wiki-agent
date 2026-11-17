@@ -21,7 +21,14 @@ export interface ClarifyData { kind: ClarifyKind; item: string; page?: number; b
 
 export const WEB_KINDS = new Set<ClarifyKind>(['MISSING_LINK', 'INCONSISTENT', 'OUTDATED']); // VAGUE_ACTOR·MISSING_VALUE 는 웹 금지(내부 사정 유출·오답)
 
-export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc>는 개인정보를 가린 문서 정리본이다. 읽는 사람이 그대로 따라 하기 어려운 애매한 곳을 골라 submit_clarify 도구로 낸다. 중요한 순서로 최대 5건, 없으면 빈 배열.
+export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc>는 개인정보를 가린 문서 정리본의 일부 쪽이다. 아래 체크리스트 항목에 해당하는 곳만 골라 submit_clarify 도구로 낸다(자유 판단 금지). 최대 5건, 없으면 빈 배열.
+체크리스트(이것만 본다):
+ 1) 주소 없이 '링크·사이트·홈페이지·다운로드·자료실'을 가리키는 문장 → MISSING_LINK
+ 2) 누가 하는지 '담당자·관련 부서·책임자'로만 적힌 절차 문장 → VAGUE_ACTOR
+ 3) 기한·금액·한도·기준이 '기한 내·일정 금액·별도 기준'처럼 비어 있는 절차 문장, 표의 빈 칸 → MISSING_VALUE
+ 4) 같은 문서 안에서 이름·번호·버전이 서로 다른 곳(표끼리, 표와 본문) → INCONSISTENT
+ 5) 오래된 프로그램·드라이버 버전 → OUTDATED
+ 고르지 않는 것: 용어 뜻을 묻는 것(같은 문서 다른 곳에 설명이 있을 수 있음), '예시'·'예:'로 든 값, 일반 서술.
 - VAGUE_ACTOR: "담당자", "관련 부서", "책임자"처럼 누가 하는지 조직·부서·직책을 알 수 없는 곳
 - MISSING_VALUE: 기한·금액·한도·기준·연락처·장소처럼 꼭 있어야 할 값이 빠진 곳 ("기한 내", "일정 금액 이상")
 - MISSING_LINK: 주소 없이 가리키는 사이트·다운로드·시스템 화면
@@ -132,6 +139,20 @@ export function sameModelPage(docText: string, hit: { url: string; title: string
   const got = modelsIn(`${path} ${hit.title}`);
   if (/\/(model|models|product|products)\//i.test(path) && !got.some((m) => want.has(m))) return false;
   return got.every((m) => want.has(m));
+}
+
+/** 같은 문서 안에서 답 찾기 (11/18 dev: '근무 층 복합기 IP 주소'는 4~10쪽 층별 표에 답이 있는데 잠금).
+ *  대상 낱말(2자 이상) 60% 이상이 다른 쪽에 있으면 그 쪽(여러 쪽이면 연속 범위)을 돌려준다 */
+const STOP = new Set(['무엇', '어디', '누가', '어느', '어떤', '있는', '하는', '경우', '내용', '확인', '관련', '해당', '필요']);
+export function findInSameDoc(c: ClarifyCandidate, pages: { page: number; text: string }[]): { from: number; to: number; heading?: string } | undefined {
+  const words = [...new Set(`${c.item}`.split(/[^0-9A-Za-z가-힣]+/u).filter((w) => w.length >= 2 && !STOP.has(w)))];
+  if (!words.length) return undefined;
+  const hit = pages.filter((p) => p.page !== c.page && !p.text.includes(c.before.trim()))
+    .filter((p) => words.filter((w) => p.text.toLowerCase().includes(w.toLowerCase())).length / words.length >= 0.6).map((p) => p.page).sort((a, b) => a - b);
+  if (!hit.length) return undefined;
+  let to = hit[0]!; for (const n of hit.slice(1)) { if (n === to + 1) to = n; else break; }
+  const heading = pages.find((p) => p.page === hit[0])?.text.match(/^#{1,3}\s*(.+)$/m)?.[1]?.trim().slice(0, 40);
+  return { from: hit[0]!, to, ...(heading ? { heading } : {}) };
 }
 
 /** 웹 검색 대상 → 기존 참조 확인 후보 모양 */

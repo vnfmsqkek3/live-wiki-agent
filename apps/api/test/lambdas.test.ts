@@ -260,14 +260,14 @@ test('Clarify(ReferenceCheck 6.5): 위키 먼저 제안·담당자는 부서+직
     wiki: async (q) => { wikiQ.push(q); return q.startsWith('대출') ? [{ id: 'w1', doc_id: 'doc_other', title: '여신 업무 분장', text: '대출 신청서 승인: 여신심사부 심사역' }] : q.startsWith('문의') ? [{ id: 'w2', doc_id: 'doc_other', title: '조직', text: '문의: 홍길동 대리' }] : []; },
     suggestClarify: async () => ({ value: { suggestions: [
       { n: 0, value: '여신심사부 심사역', after: '대출 신청서는 여신심사부 심사역의 승인을 받은 뒤 접수한다.', source_id: 'w1' },
-      { n: 2, value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' }, // 사람 이름 → 버림
+      { n: 1, value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' }, // 사람 이름 → 버림 (정렬: 잠금 → 담당자 → 링크)
     ] } }),
     web: { search: async (qs) => { searched.push(qs); return new Map(qs.map((q) => [q, [{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }]])); } },
   });
   const r = await step(t.input);
   assert.equal(r.status, 'OK');
   assert.equal(r.findings!.length, 3); // 문서에 없는 before 는 버림
-  const [actor, link, dept] = r.findings!.map((f) => ({ sev: f.severity, code: f.code, d: f.details as { suggestions: { value: string; source: { type: string } }[]; status: string } }));
+  const [actor, dept, link] = r.findings!.map((f) => ({ sev: f.severity, code: f.code, d: f.details as { suggestions: { value: string; source: { type: string } }[]; status: string } }));
   assert.deepEqual([actor!.code, actor!.sev, actor!.d.suggestions[0]!.value, actor!.d.suggestions[0]!.source.type, actor!.d.status], ['CLARIFY_NEEDED', 'MEDIUM', '여신심사부 심사역', 'WIKI', 'OPEN']);
   assert.deepEqual([link!.sev, link!.d.suggestions[0]!.source.type], ['LOW', 'WEB']);
   assert.deepEqual([dept!.sev, dept!.d.suggestions.length], ['LOW', 0]);
@@ -318,4 +318,20 @@ test('Clarify 보정(11/18 dev): 줄 경계에서 자르고 표시, 미완성 �
   assert.equal(reallyIncomplete('설정 화면에서', '설정 화면에서\n다음 줄'), true);
   const c = { kind: 'MISSING_VALUE' as const, item: '미완성 문장', before: '4. 메인 메뉴로 돌아와 스캔을 터치하여 등록된 자신에게 전송한', question: '문장이 미완성입니다', in_procedure: true, query: 'q', page: 35 };
   assert.equal(keepCandidates([c], text, () => text).length, 0);
+});
+
+test('Clarify 보정(11/18 dev): 잠금 후보가 같은 문서 다른 쪽에 답이 있으면 LOW + n~m쪽 참조, 쪽 묶음마다 찾기', async () => {
+  const { makeReferenceCheck } = await import('../src/lambdas.ts');
+  const pagesT = ['## 01 층별 복합기 정보\n4층 근무 복합기 IP 주소 10.0.4.15', '4층 근무 복합기 IP 주소 표 계속', '브라더 스캔 설정에서 근무 층 복합기 IP 주소를 입력한다.'];
+  const t = segSetup(pagesT);
+  await t.store.putDoc(t.doc);
+  pagesT.forEach((x, i) => t.objects.set(`${t.doc.doc_id}/masked/segments/${String(i).padStart(4, '0')}.json`, { doc_id: t.doc.doc_id, page_index: i, text: x }));
+  let calls = 0;
+  const step = makeReferenceCheck({ ...t.deps, findClarify: async () => { calls++; return { value: { items: calls > 1 ? [] : [
+    { kind: 'MISSING_VALUE', item: '근무 층 복합기 IP 주소', page: 3, before: '브라더 스캔 설정에서 근무 층 복합기 IP 주소를 입력한다.', question: '무슨 뜻인가요?', in_procedure: true, query: 'q' },
+  ] }, model: 'm' }; } });
+  const r = await step(t.input);
+  assert.equal(r.findings!.length, 1);
+  assert.equal(r.findings![0]!.severity, 'LOW');
+  assert.match((r.findings![0]!.details as { suggestions: { value: string }[] }).suggestions[0]!.value, /^1~2쪽 '01 층별 복합기 정보' 참조$/);
 });
