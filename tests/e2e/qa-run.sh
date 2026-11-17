@@ -12,5 +12,5 @@ trap 'kill $CPID 2>/dev/null || true' EXIT
 for _ in $(seq 1 20); do curl -s "http://127.0.0.1:${QA_CDP:-9333}/json/version" >/dev/null && break; sleep 0.5; done
 aws secretsmanager get-secret-value --secret-id hanaeum-mvp/demo-users-dev --query SecretString --output text \
   | python3 -c 'import json,sys; d=json.load(sys.stdin); print(json.dumps({k:(v["password"] if isinstance(v,dict) else v) for k,v in d.items()}))' \
-  | node tests/e2e/qa-flow.mjs
+  | node tests/e2e/${QA_SCRIPT:-qa-flow.mjs}
 echo "QA_OUT=$QA_OUT"

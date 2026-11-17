@@ -121,6 +121,8 @@ test('결재함에서 연 문서: 관리자는 남의 게시 전·차단 문서 
   assert.equal(d.review.lifecycle, 'BLOCKED');
   assert.deepEqual(d.review.findings[0], { severity: 'HIGH', code: 'PDF_JAVASCRIPT', step: 'FILE_STRUCTURE', message: '스크립트가 들어 있습니다', fix_hint: '다시 저장', page: 2 });
   assert.equal((await t.get('approver', '/v1/library/OTHERS_DRAFT')).status, 200);
+  assert.equal((await t.get('approver', '/v1/library/BLOCKED_DOC/similar')).status, 200); // 하위 조회도 같은 권한
+  assert.equal((await t.get('user', '/v1/library/BLOCKED_DOC/similar')).status, 404);
   assert.equal((await t.get('user', '/v1/library/BLOCKED_DOC')).status, 404);
   assert.equal((await t.get('user', '/v1/library/OTHERS_DRAFT')).status, 404);
   const ids = ((await (await t.get('approver', '/v1/library')).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id);

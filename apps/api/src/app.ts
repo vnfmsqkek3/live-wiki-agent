@@ -293,6 +293,16 @@ export function createApp(deps: Deps) {
 
   // ---- 문서보관함 (권한 내 PUBLISHED + 본인 문서) ----
   const visibleDocs = async (a: Actor) => (await store.listDocs()).filter((d) => d.owner === a.sub || (d.lifecycle === 'PUBLISHED' && canRead(a, d.acl_groups)));
+  /** 상세용 문서 찾기. 결재함에서 연 결재 대상(게시 전·차단) 문서는 관리자만, 상세 본문 열람 때 감사 기록. 보관함 목록에는 섞지 않는다. 권한 없음도 404 */
+  const libraryDoc = async (c: Context<Env>, vis: DocumentRecord[], auditRead = false) => {
+    const a = c.get('actor');
+    const d = vis.find((x) => x.doc_id === c.req.param('id'));
+    if (d) return d;
+    const x = hasRole(a, APPROVERS) ? await store.getDoc(c.req.param('id') ?? '') : undefined;
+    if (!x || !['IN_REVIEW', 'PENDING_APPROVAL', 'BLOCKED'].includes(x.lifecycle)) throw new ApiError('NOT_FOUND', 'document not found');
+    if (auditRead) await audit(c, 'LIBRARY_REVIEW_READ', x.doc_id);
+    return x;
+  };
   app.get('/v1/library', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
     const f = { type: c.req.query('type'), business: c.req.query('business'), tag: c.req.query('tag'), q: c.req.query('q')?.slice(0, 200) };
@@ -302,8 +312,7 @@ export function createApp(deps: Deps) {
   // 외부 법령 최신본 참고 (미검증). 첫 조회는 Browser라 수십 초 → 상세 본문과 따로 부른다
   app.get('/v1/library/:id/external-laws', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
-    const d = vis.find((x) => x.doc_id === c.req.param('id'));
-    if (!d) throw new ApiError('NOT_FOUND', 'document not found');
+    const d = await libraryDoc(c, vis);
     if (!deps.pages || !deps.externalLaws) return c.json({ items: [], note: '외부 법령 조회가 설정되지 않았습니다' });
     const laws = await deps.externalLaws((await deps.pages(d.doc_id)).map((p) => p.text).join('\n'));
     const items = await Promise.all(laws.map(async (l) => {
@@ -316,8 +325,7 @@ export function createApp(deps: Deps) {
   // 다른 유형의 비슷한 문서 (매뉴얼·규정·노하우 상호 보완). 검색 2회라 상세 본문과 따로 부른다
   app.get('/v1/library/:id/similar', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
-    const d = vis.find((x) => x.doc_id === c.req.param('id'));
-    if (!d) throw new ApiError('NOT_FOUND', 'document not found');
+    const d = await libraryDoc(c, vis);
     const q = (d.summary ?? d.title).slice(0, 300);
     // 규정은 결과가 규정 조문으로만 채워지지 않게 노하우·매뉴얼 색인을 따로 찾는다
     const isReg = (d.document_type ?? d.classification?.document_type) === 'REGULATION';
@@ -331,13 +339,7 @@ export function createApp(deps: Deps) {
   app.get('/v1/library/:id', async (c) => {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
-    let d = vis.find((x) => x.doc_id === c.req.param('id'));
-    // 결재함에서 연 결재 대상(게시 전·차단) 문서: 관리자만, 열람 감사 기록. 보관함 목록에는 섞지 않는다
-    if (!d && hasRole(a, APPROVERS)) {
-      const x = await store.getDoc(c.req.param('id'));
-      if (x && ['IN_REVIEW', 'PENDING_APPROVAL', 'BLOCKED'].includes(x.lifecycle)) { d = x; await audit(c, 'LIBRARY_REVIEW_READ', x.doc_id); }
-    }
-    if (!d) throw new ApiError('NOT_FOUND', 'document not found'); // 권한 없음도 404
+    const d = await libraryDoc(c, vis, true);
     const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
     const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));

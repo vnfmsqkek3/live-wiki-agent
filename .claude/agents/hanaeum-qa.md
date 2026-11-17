@@ -46,6 +46,9 @@ QA_FILES="tests/fixtures/documents/pdf/K-001.pdf,/path/외부법령인용.pdf" t
 | S3 | 검색어 지우기 | 지우면 바로 전체 목록 | dhxorb96 |
 | D9 | 상세: 확인된 근거·실무 보완 | 참고 구역에 근거 확인됨·실무 보완 | dhxorb96·let522mj |
 | G1 | 권한 | user가 /admin 접근 시 '볼 수 없는 화면' | dhxorb96 |
+| A1 | 결재함 링크 (`QA_SCRIPT=qa-admin.mjs`) | 결재함 목록 제목이 모두 상세(`from=admin`)로 연결 | dhxorb96 |
+| A2 | 결재 대상 상세 | 출처 불일치·자동 차단·검토 중 문서를 admin이 열면 '확인이 필요한 이유 N건'과 결재함 돌아가기 | dhxorb96·let522mj |
+| A3 | 이유 → 밑줄 | 이유를 누르면 그 쪽 밑줄이 활성. 출처 불일치는 반려만, 승인 대기는 승인·반려 | dhxorb96 |
 
 ## 보고
 
