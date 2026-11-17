@@ -15,17 +15,21 @@ export interface Basis { provision_id: string; label: string; text: string; effe
 export interface Mark {
   page: number | null; start: number | null; end: number | null; // 위치를 못 찾으면 null (문서 단위 표시)
   severity: "HIGH" | "MEDIUM" | "LOW"; kind: MarkKind; label: string; reason: string; basis?: Basis; fix?: string;
+  /** 확인이 필요한 건의 세 칸 (사용자 요청 11/17): 원본 내용(올린 문서의 그 부분) · 근거 내용(basis) · 근거를 바탕으로 한 수정 내용.
+   *  original: 올린 문서에 없으면(빠진 조문) null. revision: 고칠 필요 없으면(근거 확인됨) null, 지워야 하면 "(삭제)" */
+  original: string | null; revision: string | null;
 }
 export interface MarkSources {
   /** dhxorb96 KnowhowValidation (apps/api/src/steps/knowhow.ts) */
   knowhow?: {
-    items: { statement: string; provision_id: string; relation: string; reason: string; quote: string; label: string; verified_quote: boolean }[];
+    /** suggestion: 근거 조문에 맞게 고쳐 쓴 문장 (dhxorb96 knowhow.ts, 있으면 수정 내용으로 그대로 씀) */
+    items: { statement: string; provision_id: string; relation: string; reason: string; quote: string; label: string; verified_quote: boolean; suggestion?: string }[];
     outdated: { cited: string; current: string; label: string }[];
   };
   /** 규정 문서: registryMatch 결과 (해시 불일치일 때 claimed.clauses 포함) */
   registry?: RegistryMatch;
   /** 단계 Finding. evidence_ref "page:n" 이면 그 페이지 */
-  findings?: { step?: string; severity: string; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string }[];
+  findings?: { step?: string; severity: string; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string; location?: { excerpt?: string } }[];
 }
 
 const SKIP = /[\s「」"'“”‘’·ㆍ]/u;
@@ -78,6 +82,25 @@ async function basisOf(store: ClauseStore, pid: string): Promise<Basis | undefin
 }
 
 const at = (pages: string[], needle: string) => locate(pages, needle) ?? { page: null, start: null, end: null };
+const slice = (pages: string[], w: { page: number | null; start: number | null; end: number | null }) =>
+  w.page !== null && w.start !== null && w.end !== null ? pages[w.page]!.slice(w.start, w.end) : null;
+/** 밑줄 문구가 들어 있는 문장 전체 (마침표·줄바꿈 기준) */
+// 문장 끝 = 줄바꿈, 또는 "다." "요." "s." ")." 처럼 글자 뒤 마침표. 날짜 "2025. 1. 1."의 숫자 뒤 마침표는 끝이 아님
+const endsAt = (t: string, i: number) => t[i] === "\n" || (/[.!?]/u.test(t[i]!) && i > 0 && /[다요A-Za-z)」]/u.test(t[i - 1]!));
+export function sentenceAt(text: string, start: number, end: number): string {
+  let s = start; while (s > 0 && !endsAt(text, s - 1)) s--;
+  let e = Math.max(start, end - 1); while (e < text.length - 1 && !endsAt(text, e)) e++;
+  return text.slice(s, e + 1).trim();
+}
+/** "…첨부한다." → "…첨부하는 것을 권장한다." (규정상 의무가 아님을 문장에 드러냄). 형태가 다르면 괄호로 덧붙임 */
+export function asRecommendation(st: string): string {
+  const t = st.trim();
+  return /한다\.?$/u.test(t) ? t.replace(/한다\.?$/u, "하는 것을 권장한다.") : `${t.replace(/\.$/u, "")} (권장 사항이며 규정상 의무는 아님).`;
+}
+const POLICY: Record<"INJECTION" | "PII_UNCERTAIN", Basis> = {
+  INJECTION: { provision_id: "POLICY:INJECTION", label: "보안 검사 기준", text: "문서 안에 AI에게 지시하거나 역할·권한을 바꾸게 하는 문장이 있으면 게시할 수 없습니다. 업무 설명은 사람이 읽는 문장으로 씁니다." },
+  PII_UNCERTAIN: { provision_id: "POLICY:PII", label: "개인정보 기준", text: "주민·외국인등록·여권·운전면허번호, 계좌·카드·전화번호, 이메일, 고객번호처럼 개인을 식별하는 값은 지우거나 가린 뒤 올립니다." },
+};
 
 /** 두 문장의 다른 부분만 앞뒤 8자와 함께: "분기마다" vs "매월" 처럼 무엇이 바뀌었는지 한눈에 */
 export function diffSpan(a: string, b: string): { mine: string; official: string } {
@@ -100,10 +123,14 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     const basis = await basisOf(store, it.provision_id);
     const fix = { CONFLICT: `근거 조문에 맞게 수정: "${it.quote}"`, INSUFFICIENT: "근거 조문을 명시하거나 담당 부서에 확인해 주세요",
       SUPPLEMENT: "규정이 요구하는 의무가 아니라 권장 사항임을 문장에 밝혀 주세요 (예: '첨부하는 것을 권장한다')" } as Partial<Record<MarkKind, string>>;
+    const w = at(pages, it.statement);
+    // 수정 내용: 모델이 근거 조문에 맞게 고쳐 쓴 문장(suggestion) 우선. 없으면 충돌=근거 조문 문구, 실무 보완=권장 표현, 근거 확인됨=수정 없음
+    const revision = kind === "CONFIRMED" ? null : it.suggestion ?? (kind === "CONFLICT" ? it.quote : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : null);
     marks.push({
-      ...at(pages, it.statement), kind, label: MARK_LABEL[kind],
+      ...w, kind, label: MARK_LABEL[kind],
       severity: kind === "CONFLICT" ? "HIGH" : kind === "INSUFFICIENT" ? "MEDIUM" : "LOW", reason: it.reason,
       ...(basis ? { basis } : {}), ...(fix[kind] ? { fix: fix[kind] } : {}),
+      original: slice(pages, w) ?? it.statement, revision,
     });
   }
   for (const o of src.knowhow?.outdated ?? []) {
@@ -113,10 +140,14 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     // 그 법령 이름(마지막 단어, 예: 심사규정)이 바로 앞 40자 안에 있고 그런 자리가 한 곳뿐일 때만 위치로 쓴다. 아니면 문서 단위(null)
     const lawWord = (cited?.label ?? o.label).split(" ").slice(0, -1).pop() ?? "";
     const where = locate(pages, cited?.text ?? "") ?? locateNear(pages, o.label.split(" ").pop() ?? o.label, lawWord);
+    const w = where ?? { page: null, start: null, end: null };
     marks.push({
-      ...(where ?? { page: null, start: null, end: null }), kind: "OUTDATED", label: MARK_LABEL.OUTDATED, severity: "HIGH",
+      ...w, kind: "OUTDATED", label: MARK_LABEL.OUTDATED, severity: "HIGH",
       reason: `개정 전 조문 인용 (${cited?.effective_from ?? "이전 버전"} 시행분)`,
       ...(basis ? { basis } : {}), fix: basis ? `현행 ${basis.label}(${basis.effective_from ?? ""} 시행)으로 수정: "${basis.text}"` : "현행 조문으로 수정",
+      // 원본: 본문에서 찾은 옛 조문 문구(없으면 인용한 옛 조문 원문). 수정: 현행 조문 원문
+      original: w.page !== null ? sentenceAt(pages[w.page]!, w.start!, w.end!) : cited?.text ?? o.label,
+      revision: basis?.text ?? null,
     });
   }
   /** 어느 조문이 어떻게 다른지 한 문장으로 (사용자 요청 11/17: 결재함에서 무엇이 잘못됐는지 자세히) */
@@ -138,7 +169,9 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       const basis = await basisOf(store, pid);
       const inOfficial = has(official, path);
       if (uploaded[path] && inOfficial) marked.push(path); // 항 구성이 달라도 조 단위 1건으로
+      const mine = uploaded[path] ? subtree(uploaded, path) : "";
       marks.push({
+        original: mine || null, revision: inOfficial ? basis?.text ?? subtree(official, path) : "(삭제)",
         ...(uploaded[path] ? at(pages, uploaded[path]) : { page: null, start: null, end: null }),
         kind: "REGISTRY_MISMATCH", label: MARK_LABEL.REGISTRY_MISMATCH, severity: "HIGH",
         reason: reasonOf(basis?.label ?? path, uploaded[path] ? subtree(uploaded, path) : "", inOfficial ? subtree(official, path) : ""),
@@ -156,7 +189,11 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     const quoted = /\("([^"]{4,})"\)/u.exec(f.user_message ?? "")?.[1];
     const page = m ? Number(m[1]) : null;
     const hit = quoted && page !== null && pages[page] !== undefined ? locate([pages[page]!], quoted) : null;
+    // 원본: 밑줄 문구가 든 문장(못 찾으면 finding의 마스킹 excerpt). 근거: 보안·개인정보 기준. 수정: 지시문은 삭제, 개인정보는 가림
+    const excerpt = f.location?.excerpt?.replace(/^…/u, "") ?? null;
     marks.push({ page, start: hit?.start ?? null, end: hit?.end ?? null, kind, label: MARK_LABEL[kind], severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM",
+      original: hit ? sentenceAt(pages[page!]!, hit.start, hit.end) : excerpt, basis: POLICY[kind],
+      revision: kind === "INJECTION" ? "(삭제)" : "(해당 값을 지우거나 가림)",
       reason: f.user_message ?? f.message,
       fix: f.fix_hint ?? (kind === "PII_UNCERTAIN" ? "개인정보 여부 확인 후 삭제 또는 가림" : "지시문 형태 문구 삭제") });
   }
