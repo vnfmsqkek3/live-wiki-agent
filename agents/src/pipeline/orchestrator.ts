@@ -75,12 +75,19 @@ const done = (text: string): NodeResultUpdate => ({ status: 'COMPLETED', content
 const chain = (ids: string[]) => ids.slice(1).map((t, i) => [ids[i]!, t] as [string, string]);
 
 /** 1차 실행: 업로드 → 자동 검사 → 작성자 검토 대기 (BLOCKED면 finalize BLOCKED) */
-export function ingestGraph(deps: PipelineDeps, input: StepInput) {
+export function ingestGraph(deps: PipelineDeps, input: StepInput, opts: { textOnly?: boolean } = {}) {
   const n = (s: string, extra?: (st: MultiAgentState) => Record<string, unknown>) => new StepNode(s, deps, input, extra);
   // 차단이 아니면 검토 대기(await_review), 차단이면 finalize(BLOCKED). 둘 다 마지막에 두고 노드 안에서 분기
   const tail = new ReviewOrBlock(deps, input);
   // 선택 단계: ImageDescribe(그림 묘사도 지시문 검사를 받도록 InjectionScan 앞), PageSummarize(지시문 검사 뒤, 요약을 Classify가 쓸 수 있게)
   const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify'];
+  // 위키 수정본(글자 문서): ConvertToPdf·PageRender·OCR 없이 text_layer_extract → segment_build (interfaces 6.2)
+  if (opts.textOnly) return new Graph({
+    nodes: [n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('segment_build'), ...mid.map((k) => n(k)), n('trust_gate'), tail],
+    edges: chain(['malware_check', 'file_structure_check', 'text_layer_extract', 'segment_build', ...mid, 'trust_gate', 'review_or_block']),
+    sources: ['malware_check'],
+    maxSteps: 30,
+  });
   return new Graph({
     nodes: [
       n('malware_check'), n('file_structure_check'), n('convert_to_pdf'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),

@@ -6,6 +6,9 @@ import type { Store } from './store.ts';
 
 export const hasSourceMismatch = (d: DocumentRecord) => d.findings.some((f) => f.code === 'REGISTRY_MISMATCH');
 
+/** 올린 사람이 고쳐야 게시 요청할 수 있는 Finding (사용자 결정 11/17 규칙 2) */
+export const FIX_CODES = new Set(['KNOWHOW_CONFLICT', 'EDIT_REMOVED_KEY_SENTENCE']);
+
 export async function submitForApproval(store: Store, d: DocumentRecord, actorSub: string): Promise<ApprovalRecord> {
   if (d.owner !== actorSub) throw new ApiError('FORBIDDEN', 'not the owner');
   if (d.lifecycle !== 'IN_REVIEW' || !d.trust_gate_result || d.trust_gate_result === 'QUARANTINED')
@@ -14,6 +17,9 @@ export async function submitForApproval(store: Store, d: DocumentRecord, actorSu
   // 공식 원본과 다른 문서는 '위조 확정'은 아니지만 출처가 확인될 때까지 게시 요청을 막는다 (docs/02 위조 5건 게시 차단 + docs/01 4.4)
   if (hasSourceMismatch(d)) throw new ApiError('CONFLICT', 'source mismatch: 공식 원본과 내용이 다릅니다. 출처 확인 전에는 게시를 요청할 수 없습니다');
   // 분류 전 문서는 게시 단계(Promote)가 UnclassifiedDocument로 실패한다 → 요청 단계에서 막는다
+  // 규칙 2: AI 가 찾은 '고칠 것'이 남아 있으면 게시 요청을 막는다 (규정과 어긋난 문장, 수정에서 지운 중요 문장)
+  const fix = d.findings.filter((f) => FIX_CODES.has(f.code) && !f.acknowledged).length;
+  if (fix) throw new ApiError('CONFLICT', `고칠 것 ${fix}건이 남아 있습니다. 고친 뒤 게시를 요청하세요`);
   if (!(d.document_type ?? d.classification?.document_type)) throw new ApiError('CONFLICT', 'unclassified: 문서 분류가 끝나지 않아 게시를 요청할 수 없습니다. 분석을 다시 실행하세요');
   const now = new Date().toISOString();
   const apr: ApprovalRecord = {

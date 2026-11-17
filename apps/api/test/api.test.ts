@@ -61,9 +61,10 @@ test('토큰 없으면 401, 공통 오류 형식', async () => {
   assert.ok(j.error.trace_id);
 });
 
-test('업로드 URL: AUTHOR만, 허용 확장자만, SigV4 리전 엔드포인트', async () => {
+test('업로드 URL: 로그인한 누구나(규칙 1, 사용자 결정 11/17), 허용 확장자만, SigV4 리전 엔드포인트', async () => {
   const t = setup();
-  assert.equal((await t.call('user', 'POST', '/v1/documents/upload-url', upload)).status, 403);
+  assert.equal((await t.call('user', 'POST', '/v1/documents/upload-url', upload)).status, 201);
+  assert.equal((await t.call(undefined, 'POST', '/v1/documents/upload-url', upload)).status, 401);
   assert.equal((await t.call('author', 'POST', '/v1/documents/upload-url', { ...upload, filename: 'a.pptx' })).status, 422);
   assert.equal((await t.call('author', 'POST', '/v1/documents/upload-url', { ...upload, size: 999_999_999 })).status, 422);
   const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
@@ -436,4 +437,30 @@ test('주장: 상세에 문서 주장 + 같은 조문 게시 주장의 지지·�
   assert.deepEqual(d.claims[0]!.on_provision, { supports: 3, conflicts: 1, unclear: 0 });
   assert.equal((await t.call('user', 'GET', '/v1/admin/knowledge-debt')).status, 403);
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/knowledge-debt')).json()) as { healthy: number }).healthy, 3);
+});
+
+test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·original.md), 규정 불가, 내 검토 중 문서는 그 자리 재분석, 고칠 것 남으면 게시 요청 잠금', async () => {
+  const t = setup();
+  const put: string[] = [];
+  t.deps.putOriginal = async (k) => { put.push(k); };
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '시재 마감 노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
+  assert.equal((await t.call('user', 'POST', '/v1/documents/doc_R/edit', { markdown: '# 규정' })).status, 409);
+  const r = await t.call('user', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감\n1. 마감 30분 전 시재표 출력' });
+  assert.equal(r.status, 201);
+  const { doc_id, new_version } = (await r.json()) as { doc_id: string; new_version: boolean };
+  const nd = (await t.store.getDoc(doc_id))!;
+  assert.ok(new_version && nd.owner === 'u-user' && nd.source === 'WIKI_EDIT' && nd.previous_doc_id === 'doc_K' && nd.ext === 'md' && nd.lifecycle === 'QUARANTINED');
+  assert.deepEqual(put, [`${doc_id}/original.md`]);
+  // 분석이 끝나 고칠 것이 남은 상태 → 게시 요청 잠김 → 그 자리에서 고쳐 다시 분석
+  await t.store.putDoc({ ...nd, lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', s3_version_id: 'v1', content_hash: 'sha256:x',
+    findings: [{ finding_id: 'f1', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'e' }] });
+  const s = await t.call('user', 'POST', `/v1/documents/${doc_id}/submit`);
+  assert.equal(s.status, 409);
+  assert.match(JSON.stringify(await s.json()), /고칠 것 1건/);
+  const again = (await (await t.call('user', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: '## 고친 본문' })).json()) as { doc_id: string; new_version: boolean };
+  assert.equal(again.doc_id, doc_id); assert.equal(again.new_version, false);
+  assert.equal((await t.store.getDoc(doc_id))!.findings.length, 0);
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: 'x' })).status, 404); // 남의 검토 중 문서
 });

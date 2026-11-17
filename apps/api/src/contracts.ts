@@ -30,6 +30,8 @@ export const newId = {
 export interface FindingLocation { page?: number; bbox?: number[][]; excerpt?: string }
 
 export interface Finding {
+  /** 올린 사람이 '의도한 삭제'로 확인 (EDIT_REMOVED_KEY_SENTENCE). 확인된 것은 게시 요청을 막지 않고 승인자 '자세히'에 남는다 */
+  acknowledged?: { by: string; at: string };
   finding_id: string;
   step: string;
   severity: Severity;
@@ -83,6 +85,10 @@ export interface DocumentRecord {
   series_id?: string;
   version_no?: number;
   previous_doc_id?: string;
+  /** WIKI_EDIT: 위키 수정본(정리본 마크다운, 사용자 결정 11/17 규칙 1). 없으면 파일 업로드 */
+  source?: 'UPLOAD' | 'WIKI_EDIT';
+  /** 위키 수정본의 이전 버전 대비 문장 수 (TrustGate 수정분 검수) */
+  edit_diff?: { changed: number; removed: number };
   superseded_by?: string;
   dept: string;
   acl_groups: string[];
@@ -198,6 +204,7 @@ export const TitleBody = z.object({ title: z.string().trim().min(1).max(200) });
 export const PreviousBody = z.object({ previous_doc_id: z.string().min(1).max(40).nullable() });
 export const CategoryRenameBody = z.object({ name: z.string().trim().min(2).max(20).regex(/^[^/|]+$/, '/ | 는 쓸 수 없습니다') });
 export const CategoryMergeBody = z.object({ into: z.string().min(1).max(40) });
+export const EditBody = z.object({ markdown: z.string().trim().min(1).max(200_000) });
 export const DeleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 

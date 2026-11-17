@@ -69,7 +69,8 @@ export async function invokePipeline(payload: Record<string, unknown>, workflow_
 
 /** 문서 처리 시작: AgentCore 오케스트레이터 start (실행 세션마다 새 ID, 상태는 DynamoDB) */
 export async function startWorkflow(d: DocumentRecord) {
-  await invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
+  // 위키 수정본(md): 변환·쪽 이미지·OCR 을 건너뛴다 (interfaces 6.2 보정, yoyo0704 34fcd5a)
+  await invokePipeline({ action: 'start', input: stepInput(d), ...(d.ext === 'md' ? { text_only: true } : {}) }, d.workflow_id!);
 }
 
 /** 사용자 삭제 정리 (interfaces 6.0): 새 workflow_id로 오케스트레이터 delete 실행 */

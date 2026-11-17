@@ -2,7 +2,7 @@
 import { newId, type Finding, type StepOutput } from '../contracts.ts';
 import { INJECTION_RULES } from './injection.ts';
 
-export type FileKind = 'pdf' | 'docx' | 'hwpx' | 'png' | 'jpg';
+export type FileKind = 'pdf' | 'docx' | 'hwpx' | 'png' | 'jpg' | 'md'; // md: 위키 수정본(API가 저장, 사용자 업로드 형식 아님)
 
 const startsWith = (b: Uint8Array, sig: number[]) => sig.every((v, i) => b[i] === v);
 const ascii = (b: Uint8Array) => Buffer.from(b).toString('latin1');
@@ -23,6 +23,12 @@ export function detectKind(head: Uint8Array): FileKind | undefined {
 
 export function typeDetection(ext: string, head: Uint8Array): StepOutput & { kind?: FileKind } {
   const e = ext.toLowerCase() === 'jpeg' ? 'jpg' : ext.toLowerCase();
+  // 위키 수정본(md): 글자만 있는 UTF-8 이어야 한다 (NUL·깨진 바이트면 차단)
+  if (e === 'md') {
+    let ok = !head.includes(0);
+    try { new TextDecoder('utf-8', { fatal: true }).decode(head.subarray(0, Math.max(0, head.length - 3))); } catch { ok = false; }
+    return ok ? { status: 'OK', kind: 'md', findings: [] } : { status: 'BLOCKED', findings: [f('TYPE_DETECTION', 'HIGH', 'UNSUPPORTED_TYPE', '글자 문서가 아님', 'header')] };
+  }
   const kind = detectKind(head);
   if (!kind) return { status: 'BLOCKED', findings: [f('TYPE_DETECTION', 'HIGH', 'UNSUPPORTED_TYPE', '허용되지 않은 파일 형식', 'header')] };
   if (kind !== e) return { status: 'BLOCKED', kind, findings: [f('TYPE_DETECTION', 'HIGH', 'EXT_MISMATCH', `확장자(${e})와 실제 형식(${kind}) 불일치`, 'header')] };

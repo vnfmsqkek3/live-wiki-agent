@@ -11,6 +11,7 @@ import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
+import { editReview } from './steps/edit-review.ts';
 import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
@@ -245,6 +246,16 @@ export function makeTrustGate(deps: LambdaDeps) {
         findings = [...findings, ...k.findings];
         if (k.gate === 'REVIEW_REQUIRED') result = 'REVIEW_REQUIRED';
         extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
+      }
+    }
+    // 위키 수정본: 이전 버전과 비교 — 바뀐 문장에 대한 규정 판정만 남기고, 지운 중요 문장은 '고칠 것' (사용자 결정 11/17 규칙 2)
+    if (d.source === 'WIKI_EDIT' && d.previous_doc_id && deps.knowhow && result !== 'QUARANTINED') {
+      const prev = await deps.store.getDoc(d.previous_doc_id);
+      if (prev) {
+        const r = editReview(await deps.knowhow.maskedText(prev), await deps.knowhow.maskedText(d));
+        findings = [...findings.filter((f) => !f.code.startsWith('KNOWHOW_CONFLICT') || r.onChanged(f)), ...r.findings];
+        if (r.findings.length) result = 'REVIEW_REQUIRED';
+        extra = { ...extra, edit_diff: { changed: r.changed.length, removed: r.removed.length } };
       }
     }
     // 매뉴얼도 본문이 인용한 규정 조문을 기록한다 → 규정·노하우와 서로 연결되고, 규정 개정 시 재검토 대상이 된다 (사용자 지시 11/17)

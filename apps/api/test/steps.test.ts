@@ -229,3 +229,15 @@ test('쪽 전체 맥락 재구성: 그림 줄(⟦그림 pN⟧)은 본문 대조�
   assert.equal(faithful(text, good + '\n- 버전 9.99 설치 (그림 1)', figures).ok, false); // 그림에도 없는 숫자
   assert.equal(faithful(text, '## 드라이버 설치 방법', figures).ok, false); // 본문 문장 빠짐
 });
+
+test('위키 수정분 검수: 바뀐 문장·지운 문장 구분, 지운 중요 문장(한도·승인)만 고칠 것, 바뀐 문장 판정만 남김', async () => {
+  const { editReview } = await import('../src/steps/edit-review.ts');
+  const before = '## 시재 마감\n1. 마감 30분 전에 시재표를 출력한다.\n2. 차이가 1만원 이상이면 책임자에게 보고한다.\n3. 지폐는 띠지를 확인한다.';
+  const after = '## 시재 마감\n1. 마감 1시간 전에 시재표를 출력한다.\n3. 지폐는 띠지를 확인한다.';
+  const r = editReview(before, after);
+  assert.deepEqual(r.changed, ['마감 1시간 전에 시재표를 출력한다.']);
+  assert.equal(r.removed.length, 2);
+  assert.equal(r.findings.length, 2); // '30분'·'1만원 이상' 둘 다 중요 문장
+  assert.equal(r.onChanged({ location: { excerpt: '마감 1시간 전에 시재표를 출력한다' } } as never), true);
+  assert.equal(r.onChanged({ location: { excerpt: '지폐는 띠지를 확인한다' } } as never), false);
+});

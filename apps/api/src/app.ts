@@ -8,7 +8,7 @@ import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representat
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
 import {
-  ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
+  ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, EditBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
@@ -22,6 +22,8 @@ export interface Deps {
   store: Store;
   /** quarantine/{doc_id}/original.{ext} PUT presigned URL (SigV4, 리전 엔드포인트) */
   presignPut(key: string, contentLength: number): Promise<string>;
+  /** 위키 수정본 원문 저장 ({doc_id}/original.md). S3 이벤트로 형식 검사·분석이 시작된다 (업로드와 같은 길) */
+  putOriginal?(key: string, body: Uint8Array): Promise<void>;
   /** 현재 S3 객체의 버전·해시 (승인 바인딩 검증용) */
   headObject(key: string): Promise<{ s3_version_id: string } | undefined>;
   /** 실행 이름=workflow_id, 입력은 문서로만 결정 → 업로드 이벤트(type-detection)와 analyze가 같은 실행으로 수렴 (멱등) */
@@ -152,7 +154,7 @@ export function createApp(deps: Deps) {
 
   // ---- 문서 ----
   app.post('/v1/documents/upload-url', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const b = await body(c, UploadUrlBody);
     const ext = b.filename.split('.').pop()!.toLowerCase();
     if (!b.filename.includes('.') || !(ALLOWED_EXT as readonly string[]).includes(ext))
@@ -171,8 +173,49 @@ export function createApp(deps: Deps) {
     return c.json({ doc_id: doc.doc_id, url }, 201);
   });
 
+  // 위키 수정 (사용자 결정 11/17 규칙 1·2, interfaces 6.2). 게시된 노하우·매뉴얼 → 새 버전, 내 검토 중 문서 → 그 자리에서 다시 분석.
+  // 규정은 공식 원본 대조 대상이라 수정 불가(개정 원본 업로드만). 원본 파일은 이전 버전 근거로 남는다
+  app.post('/v1/documents/:id/edit', async (c) => {
+    const a = c.get('actor');
+    if (!deps.putOriginal) throw new ApiError('NOT_FOUND', '위키 수정이 설정되지 않았습니다');
+    const b = await body(c, EditBody);
+    const t = await store.getDoc(c.req.param('id'));
+    if (!t || t.lifecycle === 'DELETED' || (t.owner !== a.sub && !(t.lifecycle === 'PUBLISHED' && canRead(a, t.acl_groups)))) throw new ApiError('NOT_FOUND', 'document not found');
+    const type = t.document_type ?? t.classification?.document_type;
+    if (type === 'REGULATION') throw new ApiError('CONFLICT', '규정은 위키에서 고칠 수 없습니다. 개정된 원본 파일을 올려 주세요');
+    const now = new Date().toISOString();
+    const md = new TextEncoder().encode(b.markdown);
+    const fresh = { lifecycle: 'QUARANTINED' as const, trust_gate_result: undefined, findings: [], workflow_id: newId.wf(), s3_version_id: undefined, content_hash: undefined,
+      knowhow_validation: undefined, ext: 'md', source: 'WIKI_EDIT' as const, updated_at: now };
+    let doc: DocumentRecord;
+    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석
+    else if (t.lifecycle === 'PUBLISHED') doc = {
+      ...fresh, doc_id: newId.doc(), version: 1, owner: a.sub, dept: a.dept ?? t.dept, acl_groups: t.acl_groups, title: t.title, title_source: 'USER',
+      filename: `${t.title.slice(0, 80)}.md`, authority_status: 'UNVERIFIED', freshness: 'CURRENT', previous_doc_id: t.doc_id, created_at: now,
+      ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
+    };
+    else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
+    await store.putDoc(doc);
+    await deps.putOriginal(quarantineKey(doc), md);
+    await audit(c, 'WIKI_EDIT', doc.doc_id);
+    return c.json({ doc_id: doc.doc_id, previous_doc_id: doc.previous_doc_id ?? null, new_version: doc.doc_id !== t.doc_id }, 201);
+  });
+
+  // '의도한 삭제' 확인: 수정에서 지운 중요 문장을 올린 사람이 일부러 지웠다고 확인 (게시 요청 잠금 해제, 승인자에게는 보임)
+  app.post('/v1/documents/:id/findings/:fid/ack', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    const f = d.findings.find((x) => x.finding_id === c.req.param('fid'));
+    if (!f || f.code !== 'EDIT_REMOVED_KEY_SENTENCE') throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
+    const at = new Date().toISOString();
+    await store.putDoc({ ...d, findings: d.findings.map((x) => (x === f ? { ...x, acknowledged: { by: a.sub, at } } : x)), updated_at: at });
+    await audit(c, 'FINDING_ACK', d.doc_id);
+    return c.json({ ok: true });
+  });
+
   app.post('/v1/documents/:id/analyze', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
     const head = await deps.headObject(quarantineKey(d));
@@ -304,7 +347,7 @@ export function createApp(deps: Deps) {
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const d = await loadDoc(c, c.req.param('id'));
     const apr = await submitForApproval(store, d, a.sub);
     await audit(c, 'SUBMIT', d.doc_id);
@@ -312,7 +355,7 @@ export function createApp(deps: Deps) {
   });
 
   app.post('/v1/documents/:id/classification', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const b = await body(c, ClassificationBody);
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
