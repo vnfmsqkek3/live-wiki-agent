@@ -34,7 +34,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "b782529" # workflows·auth-triggers·services/ocr
     dhxorb96 = "54b294d" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
-    let522mj = "30d25b3" # main: #39 figure_boxes·나란한 캡션 + #38 #37 #33 #36
+    let522mj = "38b089e" # main: #40 readPage 공용 + #39 figure_boxes + #38 #37 #33 #36
   }
 
   ocr_source_ref = "620108a" # 레이아웃 그림(image·chart) 안쪽 상자 유지 (과천 12쪽)
