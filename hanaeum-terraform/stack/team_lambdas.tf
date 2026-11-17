@@ -74,6 +74,8 @@ locals {
       env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"] })
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
+        # 쪽 본문 AI 재구성 저장 (dhxorb96 3b5539c)
+        { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["quarantine"].arn}/*/masked/structured/*" },
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
       ])
     }
