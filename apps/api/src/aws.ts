@@ -4,6 +4,7 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import type { DocumentRecord } from './contracts.ts';
 import { memoryStore, type Store } from './store.ts';
 import { dynamoStore } from './store-dynamo.ts';
+import { postgresStore } from './store-postgres.ts';
 
 export const env = (k: string) => {
   const v = process.env[k];
@@ -20,6 +21,8 @@ export const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d
 
 export function storeFromEnv(): Store {
   const e = process.env;
+  // 거버넌스 저장소 전환 (사용자 결정 11/17): GOV_STORE=postgres면 Aurora(Data API, DB_CLUSTER_ARN·DB_SECRET_ARN·DB_NAME)
+  if (e.GOV_STORE === 'postgres') return postgresStore();
   if (!e.TABLE_DOCUMENTS) return memoryStore(); // ponytail: 로컬 단독 실행용
   return dynamoStore({ documents: env('TABLE_DOCUMENTS'), approvals: env('TABLE_APPROVALS'), feedback: env('TABLE_FEEDBACK'), audit: env('TABLE_AUDIT_EVENTS') });
 }
