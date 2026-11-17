@@ -403,7 +403,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
   // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
   const figMap = Object.fromEntries((page?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
-  const showImages = images || !page?.structured;
+  const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
@@ -452,7 +452,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           </div>
           {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
           <div className="view-toggle" role="group" aria-label="본문 보기 방식">
-            {page.structured && <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>}
+            <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>
             <button type="button" className="btn" aria-pressed={showImages} onClick={() => setImages(true)}>필터링된 원문</button>
           </div>
           {showImages ? <OriginalPages docId={d.doc_id} start={p + 1} fallback={page.text} /> : (
@@ -464,8 +464,9 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <div className="page-body">
             <p className="note">{page.structured_source === 'VISION'
               ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원래 모습은 \'필터링된 원문\'에서 확인하세요.'
-              : "AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. 그림을 보고 쓴 설명은 근거로 인용하지 않습니다. 그림을 누르면 크게 봅니다."}</p>
-            <DocText text={page.structured!} figures={figMap} hideFigRefs />
+              : page.structured_source === 'AI' ? 'AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. 그림을 보고 쓴 설명은 근거로 인용하지 않습니다. 그림을 누르면 크게 봅니다.'
+              : '이 쪽은 원문 글자를 그대로 보여 줍니다(쪽마다 반복되는 머리글은 뺐습니다).'}</p>
+            <DocText text={page.structured ?? page.text} figures={figMap} hideFigRefs />
             <ZoomDialog url={zoomUrl} onClose={() => setZoomUrl(null)} />
             </div>
           </div>

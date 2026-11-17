@@ -267,3 +267,11 @@ test('ReferenceCheck: 안전한 검색어만 웹 검색, 일치한 결과만 참
   const bad = makeReferenceCheck({ ...t.deps, findRefs: async () => { throw new Error('x'); }, web: { search: async () => new Map() } });
   assert.equal((await bad(t.input)).status, 'OK');
 });
+
+test('structurePages: 재구성을 건너뛴 짧은 쪽도 정리본(TEXT)을 남긴다', async () => {
+  const { structurePages } = await import('../src/lambdas.ts');
+  const saved = new Map<string, { source?: string; markdown: string }>();
+  await structurePages({ structure: async () => ({ value: { markdown: 'x' }, model: 'm' }), putJson: async (k, v) => { saved.set(k, v as never); } }, 'doc_t', [{ page_index: 0, text: '01. 표지' }]);
+  assert.deepEqual(saved.get('doc_t/masked/structured/0000.json')?.source, 'TEXT');
+  assert.equal(saved.get('doc_t/masked/structured/0000.json')?.markdown, '## 01. 표지');
+});

@@ -81,7 +81,7 @@ export interface Deps {
   /** PageSummarize(yoyo0704) 결과 masked/summary.json. 없으면 undefined */
   pageSummary?(doc_id: string): Promise<{ pages?: PageMeta[] } | undefined>;
   /** AI로 다시 배치한 쪽 본문 (page_index → markdown). 원문 대조를 통과한 쪽만 있다 */
-  structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' }>>;
+  structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
 
 /** 쪽별 요약·메타데이터 (docs/interfaces.md 6장 PageSummarize). page_index는 0부터 */
@@ -690,7 +690,7 @@ export function createApp(deps: Deps) {
     const lawNames = vis.flatMap((x) => (x.law_name ? [x.law_name] : [])); // 인용 조문을 등록 규정 이름과 묶기
     const figUrls = new Map(await Promise.all(pages.map(async (p) => [p.page, await Promise.all((p.figure_keys ?? []).map(async (key, k) =>
       ({ k: k + 1, url: key && deps.presignView ? await deps.presignView(key).catch(() => null) : null })))] as const)));
-    const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, { markdown: string; source: 'TEXT' | 'VISION' }>()) : new Map<number, { markdown: string; source: 'TEXT' | 'VISION' }>();
+    const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>()) : new Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>();
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;

@@ -14,7 +14,7 @@ import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
 import { bestHit, findPrompt, sitesOf, unsafeQuery } from './steps/reference-check.ts';
 import { sameText } from './claims.ts';
-import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
+import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
@@ -228,6 +228,7 @@ export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJ
   }
   const todo = segs.filter((s) => !s.page_markdown?.trim() && needsStructure(s.text, s.figures)).slice(0, 40);
   let saved = 0, rejected = 0, failed = 0;
+  const done = new Set<number>();
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
       try {
@@ -235,12 +236,20 @@ export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJ
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
         const f = faithful(s.text, md, s.figures);
         if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
-        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
-        saved++;
+        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, source: 'AI', model: r.model, at: now() });
+        saved++; done.add(s.page_index);
       } catch (e) { failed++; console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
     }));
   }
-  return { pages: todo.length, saved, rejected, failed };
+  // 정리본이 없는 쪽(건너뜀·탈락·실패·40쪽 넘음)은 마스킹 본문을 정리본으로 둔다 → 정리본 탭은 모든 쪽이 글 (사용자 지적 11/18)
+  const has = new Set([...segs.filter((s) => s.page_markdown?.trim()).map((s) => s.page_index), ...done]);
+  const fb = textFallback(segs);
+  let fallback = 0;
+  for (const s of segs) if (!has.has(s.page_index)) {
+    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: fb.get(s.page_index) ?? '(빈 쪽)', source: 'TEXT', at: now() }).catch(() => {});
+    fallback++;
+  }
+  return { pages: todo.length, saved, rejected, failed, fallback };
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;

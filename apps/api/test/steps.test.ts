@@ -275,3 +275,18 @@ test('참조 확인: 검색어 검사(IP·이메일·가림 자리·개인정보
   assert.equal(resultUrl('https://www.samsung.com/sec/support/'), 'https://www.samsung.com/sec/support/');
   assert.equal(resultUrl('https://www.bing.com/aclick?ld=x'), undefined);
 });
+
+test('정리본 대체(TEXT): 반복 머리글 줄 제외, 장 제목은 ##, 빈 쪽은 (빈 쪽), 그림 줄 제외', async () => {
+  const { textFallback } = await import('../src/steps/structure.ts');
+  const segs = [
+    { page_index: 0, text: 'MEGAZONE / ALLIANCE\n과천사옥 복합기 매뉴얼' },
+    { page_index: 1, text: 'MEGAZONE / ALLIANCE\n01. 층별 복합기 정보\n4층 복합기는 SL-K3250NR 이다.' },
+    { page_index: 2, text: 'MEGAZONE / ALLIANCE\n⟦그림 p2⟧ 그림 1 속 글자: 로고' },
+    { page_index: 3, text: 'MEGAZONE / ALLIANCE\n02. 드라이버 설치' },
+  ];
+  const fb = textFallback(segs);
+  assert.equal(fb.get(0), '과천사옥 복합기 매뉴얼');
+  assert.equal(fb.get(1), '## 01. 층별 복합기 정보\n\n4층 복합기는 SL-K3250NR 이다.');
+  assert.equal(fb.get(2), '(빈 쪽)');
+  assert.equal(fb.get(3), '## 02. 드라이버 설치');
+});

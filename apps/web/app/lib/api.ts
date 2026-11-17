@@ -246,7 +246,7 @@ export interface ReviewInfo {
 }
 export interface Claim { claim_id: string; seq: number; statement: string; page: number | null; provision_id: string | null; label: string | null; relation: string; reason: string; quote: string | null; verified: boolean; status: string; on_provision: { supports: number; conflicts: number; unclear: number } | null }
 export interface LibraryDoc extends LibraryCard {
-  claims?: Claim[]; image_pages?: number[]; suggestions?: import('../ref-suggestions').RefSuggestion[]; review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; structured_source?: 'TEXT' | 'VISION' | null; figures?: { k: number; url: string | null }[]; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
+  claims?: Claim[]; image_pages?: number[]; suggestions?: import('../ref-suggestions').RefSuggestion[]; review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; structured_source?: 'TEXT' | 'VISION' | 'AI' | null; figures?: { k: number; url: string | null }[]; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [
