@@ -1,7 +1,7 @@
 // 단계 5 SegmentBuild: 쪽별 세그먼트 (docs/04 1.1, 2.1). 본문은 OCR 결과 (TXT·MD와 변환 단계 배포 전 DOCX·HWPX만 text_layer)
 import { ocrRows, ocrRowsY, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
 import { detectPii, mask } from "@hanaeum/pii";
-import { newId } from "@hanaeum/schemas";
+import { newId, defangFigureLine } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { ObjectStore } from "./store.ts";
 import type { TextLayer } from "./text-layer.ts";
@@ -145,7 +145,8 @@ export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = [], figures
     if (t) figLines.push(`⟦그림 p${page}⟧ 그림 ${n} 속 글자: ${t.length > FIGURE_TEXT_MAX ? `${t.slice(0, FIGURE_TEXT_MAX).replace(/\S*$/u, "").trimEnd()}…` : t}`);
   });
   const body = [...rows, ...tabs, ...figRows].sort((a, b) => a.yc - b.yc).map((r) => r.text).join("\n").replace(/\n{3,}/gu, "\n\n").trim();
-  return [body, ...figLines].filter(Boolean).join("\n");
+  // 본문 줄이 "⟦"로 시작하면 "["로 (그림 줄 위조 방지). 진짜 그림 줄은 그 뒤에 붙임
+  return [body.split("\n").map(defangFigureLine).join("\n"), ...figLines].filter(Boolean).join("\n");
 }
 
 /** 그림 상자 → 쪽 대비 0~1000 정수 [x0,y0,x1,y1]. 값이 숫자가 아니거나 쪽 크기를 모르거나 면적이 0이면 null.
@@ -179,7 +180,7 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
       lastPara = 0; // 글자 그대로 쓴 쪽을 지나면 이어 갈 문맥이 없음
       const lines = p.text.split(/\r?\n/u).filter((l) => l.trim());
       return {
-        doc_id: layer.doc_id, page_index: p.page_index, source: "text_layer", text: p.text,
+        doc_id: layer.doc_id, page_index: p.page_index, source: "text_layer", text: p.text.split("\n").map(defangFigureLine).join("\n"),
         blocks: lines.map((text, i) => ({ block_id: `p${p.page_index}-l${i}`, label: "paragraph", text, reading_order: i })),
         avg_confidence: null, low_confidence: false,
       } satisfies Segment;
