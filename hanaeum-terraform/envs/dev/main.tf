@@ -34,7 +34,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "1f07fa6" # workflows·auth-triggers·services/ocr
     dhxorb96 = "6fab736" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "48e2f4f" # PR #24 질의 재구성 (+#22·#21·#20·#19)
+    let522mj = "d2b2639" # PR #26 전부 OCR(document.pdf 있을 때 모든 쪽) (+#24 이전)
   }
 
   ocr_source_ref = "25f42de" # PP-StructureV3 표·레이아웃 + figures (11/17)
