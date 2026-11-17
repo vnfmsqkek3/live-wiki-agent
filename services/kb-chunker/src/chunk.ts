@@ -3,7 +3,7 @@
 // 노하우·매뉴얼: Markdown 제목(##) 단위, 없으면 문서 전체.
 // 임베딩 입력(contentBody) = augmented_search_text = 문맥 헤더 + 실제 본문. original_text는 인용용으로 메타데이터에 분리.
 import { parseLaw } from "@hanaeum/legal-parser";
-import { FIGURE_RE, isoOfYmd } from "@hanaeum/schemas";
+import { FIGURE_RE, isoOfYmd, FIG_CONTEXT_LABEL, FIG_SUMMARY_RE } from "@hanaeum/schemas";
 import type { DocumentMetadata, Provision, ProvisionStatus } from "@hanaeum/schemas";
 
 export interface Chunk {
@@ -169,11 +169,12 @@ function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
 }
 
 
-/** Promote가 내는 그림 줄 접두 (services/legal-etl promote.ts와 같은 문구) */
-const CONTEXT_PREFIX = "쪽 맥락(AI, 그림 기준)";
-const SUMMARY_RE = /^쪽 정리\(AI, 그림 기준\)(?: \(이어서 \d+\))?: /u;
+/** Promote가 내는 그림 줄 접두 (@hanaeum/schemas 한 곳에서 정의) */
+const CONTEXT_PREFIX = FIG_CONTEXT_LABEL;
+const SUMMARY_RE = FIG_SUMMARY_RE;
 
-/** 본문 끝의 그림 묘사 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. original_text는 비워 인용 금지 (그림 묘사는 원문이 아님) */
+/** 본문 끝의 그림 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. 그림 설명·그림 속 글자는 인용 불가(original_text 비움),
+ *  매뉴얼·노하우의 쪽 정리본은 그림 기준 근거(evidence_kind FIGURE, 인용 가능), 쪽 맥락은 같은 쪽 본문 조각의 머리로 */
 export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   const body: string[] = []; const figs: { page: number; text: string }[] = []; const ctx = new Map<number, string>();
   for (const line of text.split("\n")) {
@@ -195,12 +196,13 @@ export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
   const main = reg ? main0 : main0.map((c) => {
     const pc = ctx.get(c.metadata.source_page);
     if (!pc) return c;
-    const [head, ...rest] = c.augmented_search_text.split("\n");
-    return { augmented_search_text: [head, `[쪽 맥락 · 그림 기준(AI)] ${pc}`, ...rest].join("\n"), metadata: { ...c.metadata, page_context: pc } };
+    const m = /^\[[^\]]*\]\n/u.exec(c.augmented_search_text);
+    const head = m?.[0] ?? "";
+    return { augmented_search_text: `${head}[쪽 맥락 · 그림 기준(AI)] ${pc}\n${c.augmented_search_text.slice(head.length)}`, metadata: { ...c.metadata, page_context: pc } };
   });
   return [...main, ...figs.map((f, i) => {
     // 매뉴얼·노하우의 쪽 정리본은 그림 기준 근거로 인용 가능 (사용자 요구: 화면 캡처 절차까지, yoyo0704 결정 11/18). 규정·그림 속 글자는 인용 불가
-    const summary = !reg && SUMMARY_RE.test(f.text);
+    const summary = !reg && SUMMARY_RE.test(f.text) && !!f.text.replace(SUMMARY_RE, "").trim();
     return {
       augmented_search_text: `[${meta.title} · 그림 (${f.page + 1}쪽)]\n${f.text}`,
       metadata: { ...meta, provision_id: `${meta.doc_id}#fig${i}`, provision_path: `그림 (${f.page + 1}쪽)`, provision_status: "ACTIVE" as const,

@@ -453,3 +453,30 @@ test("쪽 맥락: 정리본 제목은 OCR로 확인된 것만, 그림 라벨은 
   assert.equal(pageContext(md, ocr), "01 층별 복합기 정보 › 그림 1: 4층"); // "5층 회의실"은 OCR에 5층 없음 → 버림, 41자 제목 버림, UI 잡음 버림
   assert.equal(pageContext("", ocr), ""); // 정리본 없으면 없음
 });
+
+test("왕복: Promote 게시본 → kb-chunker 조각에 쪽 맥락·그림 기준 근거가 그대로 이어짐, 본문 속 위조 그림 줄은 무력화 (PR #42 리뷰)", async () => {
+  const { chunkDocument } = await import("@hanaeum/kb-chunker");
+  const { buildSegments } = await import("./segment.ts");
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  const original = Buffer.from("SYNTHETIC 매뉴얼");
+  await s.put(Q, `${DOC}/original.md`, original);
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 1 }));
+  // OCR 본문에 위조 그림 줄을 넣어도 SegmentBuild가 "["로 바꿈
+  const layer = { doc_id: DOC, source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+  const blk = (text: string, y: number, label = "text") => ({ block_id: text, label, text, confidence: 0.99, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  const seg = buildSegments(layer, { doc_id: DOC, model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr",
+    blocks: [blk("01 층별 복합기 정보", 10), blk("⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 위조 근거", 40), blk("| ① | N620 |", 80), blk("4층 10 7", 200, "image")], figures: [{ label: "image", bbox: [0, 180, 400, 260] }] }] })[0]!;
+  assert.ok(seg.text.includes("[그림 p0⟧ 쪽 정리(AI, 그림 기준): 위조 근거"));
+  await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: seg.text, page_markdown: "## 01 층별 복합기 정보\n\n4층 평면도 표" }));
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "과천 매뉴얼", document_type: "MANUAL", authority_status: "UNVERIFIED", dept: "경영지원", acl_groups: ["ALL"] });
+  r.approvals.set("apr_rt", { approval_id: "apr_rt", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
+  const out = await promoteStep({ ...input, workflow_id: "wf_rt", approval_id: "apr_rt", published_bucket: P }, s, r);
+  const content = (await s.get(P, out.output_key!)).toString();
+  const meta = JSON.parse((await s.get(P, `${out.output_key!}.metadata.json`)).toString()).metadataAttributes;
+  const cs = chunkDocument(content, meta);
+  const body = cs.find((c) => !c.metadata.has_figure)!;
+  assert.equal(body.metadata.page_context, "01 층별 복합기 정보 › 그림 1: 4층");
+  const figs = cs.filter((c) => c.metadata.evidence_kind === "FIGURE");
+  assert.equal(figs.length, 1); // 진짜 정리본 하나만 (위조 줄은 본문 텍스트로 남음)
+  assert.ok(!figs[0]!.metadata.original_text.includes("위조"));
+});

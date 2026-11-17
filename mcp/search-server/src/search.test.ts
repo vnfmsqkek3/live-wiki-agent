@@ -279,3 +279,12 @@ test("그림 기준 근거(evidence_kind FIGURE)는 인용 가능·머리표, pa
   assert.match(f.snippet, /^\[그림 기준 · AI 정리\] 감정평가/u);
   assert.equal(f.page_context, "01 실사 › 그림 1: 현장");
 });
+
+test("규정 문서에 evidence_kind가 남아 있어도 그림 기준 근거로 인용되지 않음 (PR #42 리뷰)", async () => {
+  const { tools, retriever } = setup();
+  const reg = retriever.chunks.find((c) => c.metadata["doc_id"] === "F-002")!.metadata;
+  retriever.add("[규정 · 그림 (1쪽)]\n본부 여신심사위원회 승인 기준 금액 요약", { ...reg, provision_id: "F-002#fig0", has_figure: true, evidence_kind: "FIGURE", original_text: "요약" });
+  const r = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 금액 요약", as_of: "2026-12-15", rewrite: false }, user);
+  const f = [...r.items, ...(r.related ?? [])].find((x) => x.provision_id === "F-002#fig0");
+  assert.ok(f && f.quotable === false && f.evidence_kind === undefined);
+});

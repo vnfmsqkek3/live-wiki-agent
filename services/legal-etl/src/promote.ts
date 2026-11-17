@@ -1,7 +1,7 @@
 // 단계 11 Promote: 승인 바인딩 소비(APPROVED→USED) 후 마스킹본을 published 버킷으로 + .metadata.json (interfaces.md 3·5·7.1장)
 import { docDates, primaryDate } from "@hanaeum/legal-parser";
 import { createHash } from "node:crypto";
-import { MetadataSidecar, OPEN_END, figureLine, stepFailure } from "@hanaeum/schemas";
+import { FIG_CONTEXT_LABEL, MetadataSidecar, OPEN_END, figSummaryLabel, figureLine, stepFailure } from "@hanaeum/schemas";
 import type { DocumentMetadata, Figure, IndexGroup, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
 
@@ -9,16 +9,21 @@ import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
 export const PAGE_BREAK = "\f";
 // ponytail: 쪽 정리본은 한 조각 2,000자(임베딩 입력 여유), 쪽당 계약 상한 6,000자 (interfaces 6.3)
 const PAGE_MD_LINE = 2000;
-export const PAGE_CONTEXT_LABEL = "쪽 맥락(AI, 그림 기준)";
+export const PAGE_CONTEXT_LABEL = FIG_CONTEXT_LABEL;
 /** 정리본 제목(#~###) 중 같은 쪽 OCR 글자로 확인되는 것만(최대 3개·각 40자), 그다음 정리본과 맞는 그림 라벨, 합 120자, " › "로 잇는다.
  *  확인: 두 글자 이상 낱말의 절반 이상이 OCR에 있고, 숫자가 든 낱말("4층")은 전부 있어야 함 (VLM 오독 방지) */
 export function pageContext(markdown: string, ocr: string): string {
-  const flat = ocr.replace(/\s+/gu, "");
+  // 제목 확인은 본문 OCR로만 (그림 속 글자 줄 제외), 그림 라벨은 그림 속 글자 줄에서
+  const bodyOcr = ocr.split("\n").filter((l) => !l.startsWith("⟦그림")).join("\n");
+  const flat = bodyOcr.replace(/\s+/gu, "");
+  // 숫자는 앞뒤가 숫자가 아닐 때만 일치 ("01"이 "2001" 안에서 맞지 않게, "4층"이 "14층"에서 맞지 않게)
+  const hasNum = (hay: string, t: string) => new RegExp(`(?<!\\d)${t.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&")}(?!\\d)`, "u").test(hay);
   const ok = (h: string) => {
-    const toks = h.split(/[\s·,/()\-–—:|]+/u).filter((t) => t.length >= 2);
-    if (!toks.length) return false;
-    const hit = toks.filter((t) => flat.includes(t));
-    return hit.length * 2 >= toks.length && toks.filter((t) => /\d/u.test(t)).every((t) => flat.includes(t));
+    const all = h.split(/[\s·,/()\-–—:|]+/u).filter(Boolean);
+    const nums = all.filter((t) => /\d/u.test(t));
+    const words = all.filter((t) => t.length >= 2 && !/\d/u.test(t));
+    if (!words.length && !nums.length) return false;
+    return nums.every((t) => hasNum(flat, t)) && words.filter((t) => flat.includes(t)).length * 2 >= words.length;
   };
   const out: string[] = [];
   for (const line of markdown.split(/\r?\n/u)) {
@@ -35,7 +40,8 @@ export function pageContext(markdown: string, ocr: string): string {
   for (const m of ocr.matchAll(/^⟦그림 p\d+⟧ 그림 (\d+) 속 글자: (\S+)/gmu)) {
     const label = m[2]!.replace(/[[\]⟦⟧]/gu, "");
     const item = `그림 ${m[1]}: ${label}`;
-    if (label.length > 12 || !/[가-힣]/u.test(label) || !mdFlat.includes(label) || out.includes(item)) continue;
+    // 숫자가 든 라벨만 ("4층", "B1층"). "확인"·"로그인" 같은 버튼 글자는 정리본에 흔해 걸러짐 (PR #42 리뷰)
+    if (label.length > 12 || !/[가-힣]/u.test(label) || !/\d/u.test(label) || !hasNum(mdFlat, label) || out.includes(item)) continue;
     if ([...out, item].join(" › ").length > 120 || out.length >= 4) break;
     out.push(item);
   }
@@ -116,7 +122,7 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
     const seg = JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string; figures?: Figure[]; page_markdown?: string };
     texts.push(seg.text.replaceAll(PAGE_BREAK, "")); // 원문 속 폼피드는 쪽 경계와 헷갈리지 않게 제거
     for (const f of seg.figures ?? []) if (f.description?.trim()) figs.push(figureLine(page, f));
-    // 그림 쪽 AI 정리본(interfaces 6.3): 검색에는 쓰되 인용 불가 그림 조각으로만 (⟦그림 pN⟧ 한 줄). 인용·주장 대조는 OCR text 기준 그대로
+    // 그림 쪽 AI 정리본(interfaces 6.3): 그림 조각으로 색인. 매뉴얼·노하우에서는 그림 기준 근거(인용 가능, kb-chunker), 규정은 인용 불가. 주장 대조는 OCR text 기준
     // 한 줄 2,000자로 나눠 여러 그림 조각으로 (계약 상한 6,000자까지 버리지 않음, PR #38 리뷰)
     // 쪽 맥락: 정리본 제목 중 같은 쪽 OCR 글자로 확인되는 것만 (규정 제외, fable 의견 반영). 본문 조각의 검색 머리로만 쓰이고 인용 원문에는 안 들어감
     const ctx = doc.document_type === "REGULATION" ? "" : pageContext(seg.page_markdown ?? "", seg.text);
@@ -124,7 +130,7 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
     let md = seg.page_markdown?.replace(/\s+/gu, " ").trim().slice(0, PAGE_MD_TOTAL) ?? "";
     for (let part = 1; md; part++) {
       const cut = md.length <= PAGE_MD_LINE ? md : md.slice(0, PAGE_MD_LINE).replace(/\S*$/u, "").trimEnd() || md.slice(0, PAGE_MD_LINE);
-      figs.push(`⟦그림 p${page}⟧ 쪽 정리(AI, 그림 기준)${part > 1 ? ` (이어서 ${part})` : ""}: ${cut}`);
+      figs.push(`⟦그림 p${page}⟧ ${figSummaryLabel(part)}: ${cut}`);
       md = md.slice(cut.length).trim();
     }
   }
