@@ -94,19 +94,23 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
     return o && Array.isArray(o.figures) ? o.figures.length > 0 : !!p.has_images || p.reason === 'image';
   };
-  const pages = (targets?.pages ?? []).filter(isFigurePage);
-  if (!pages.length) return [];
+  // 원본 보기(사용자 요청 11/17 '원본 내용 그대로 png'): 모든 쪽을 개인정보만 검게 칠한 이미지로 masked/view/ 에 (OCR 이 있는 쪽).
+  // 그림 쪽은 같은 이미지를 masked/pages/ 에도 둔다(ImageDescribe 입력, 기존 그대로)
   const out: Finding[] = [];
-  for (const p of pages) {
+  for (const p of targets?.pages ?? []) {
     const n = String(p.page_index).padStart(4, '0');
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
+    const fig = isFigurePage(p);
     if (!o) {
-      out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
+      if (fig) out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
       continue;
     }
     const boxes = await piiBoxes(o, deps.guardrail);
-    await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o), 'image/png');
-    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
+    const png = blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o);
+    await deps.putBytes(`${doc_id}/masked/view/${n}.png`, png, 'image/png');
+    if (!fig) continue;
+    await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, png, 'image/png');
+    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
   }
   return out;
 }

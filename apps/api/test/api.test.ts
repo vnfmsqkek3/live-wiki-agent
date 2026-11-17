@@ -477,3 +477,17 @@ test('보관함 쪽 이미지: 문서를 볼 수 있으면 누구나(가린 이�
   assert.equal((await t.call('user', 'GET', '/v1/library/doc_H/pages/3/image')).status, 404);
   assert.deepEqual(((await (await t.call('user', 'GET', '/v1/library/doc_M')).json()) as { image_pages: number[] }).image_pages, [2]);
 });
+
+test('원본 보기: 모든 쪽 가린 이미지 presigned 목록(볼 수 있는 사람), 권한 밖 404', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_M', title: '매뉴얼', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'MANUAL' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_H', title: '인사', acl_groups: ['DEPT#hr'], lifecycle: 'PUBLISHED', document_type: 'MANUAL' });
+  t.deps.viewPageList = async () => [0, 1];
+  t.deps.presignView = async (k) => `https://s3.example/${k}?sig`;
+  const r = (await (await t.call('user', 'GET', '/v1/library/doc_M/pages')).json()) as { items: { page: number; url: string }[] };
+  assert.deepEqual(r.items.map((x) => x.page), [1, 2]);
+  assert.match(r.items[0]!.url, /doc_M\/masked\/view\/0000\.png/);
+  assert.equal((await t.call('user', 'GET', '/v1/library/doc_H/pages')).status, 404);
+  assert.ok(t.store.audits.every((a) => !JSON.stringify(a).includes('s3.example'))); // URL 은 감사에 남기지 않음
+});

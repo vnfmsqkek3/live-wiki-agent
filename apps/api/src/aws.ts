@@ -33,6 +33,13 @@ export const presignGet = (key: string, versionId: string | undefined, filename:
     Bucket: env('BUCKET_QUARANTINE'), Key: key, ...(versionId ? { VersionId: versionId } : {}),
     ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
   }), { expiresIn: 60 });
+/** 원본 보기 쪽 이미지 (masked/view, 개인정보만 가림). 5분, 화면에 바로 표시. URL은 로그·감사에 남기지 않는다 */
+export const presignView = (key: string) =>
+  getSignedUrl(s3(), new GetObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ResponseContentType: 'image/png' }), { expiresIn: 300 });
+/** masked/view 가 있는 쪽 (page_index) */
+export async function viewPageList(doc_id: string) {
+  return (await listKeys(`${doc_id}/masked/view/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n)).sort((a, b) => a - b);
+}
 export const presignPut = (key: string, len: number) =>
   getSignedUrl(s3(), new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ContentLength: len }), { expiresIn: 300 });
 

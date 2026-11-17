@@ -74,7 +74,8 @@ test('PiiScan 그림 쪽 기준: OCR figures가 있으면 그 개수로, 없으�
     putJson: async (k, v) => { objs.set(k, v); }, getBytes: async () => new Uint8Array(img), putBytes: async (k) => { put.push(k); },
   });
   const r = await scan({ doc_id, workflow_id: 'wf' } as never);
-  assert.deepEqual(put, [`${doc_id}/masked/pages/0001.png`]);
+  assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0001.png`]);
+  assert.deepEqual(put.filter((k) => k.includes('/masked/view/')).sort(), [`${doc_id}/masked/view/0000.png`, `${doc_id}/masked/view/0001.png`]); // 원본 보기: 모든 쪽
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 1);
 });
 

@@ -57,10 +57,10 @@ else {
   const s = await ev("({ pressed: document.querySelector('.view-toggle [aria-pressed=true]')?.textContent, note: !!document.querySelector('.sheet .note'), h: document.querySelectorAll('.sheet .doc-text h2,.sheet .doc-text h3,.sheet .doc-text h4,.sheet table').length })");
   rec('R1', s.pressed === '정리본' && s.note, `${found} 기본 정리본 · 안내문 ${s.note} · 제목/표 ${s.h}개`);
   await shot('R1-structured');
-  await ev("[...document.querySelectorAll('.view-toggle button')].find((b) => b.textContent.startsWith('원문')).click()");
+  await ev("[...document.querySelectorAll('.view-toggle button')].find((b) => b.textContent.startsWith('글자')).click()");
   await sleep(500);
   const o = await ev("({ pressed: document.querySelector('.view-toggle [aria-pressed=true]')?.textContent, note: !!document.querySelector('.sheet > .note') })");
-  rec('R2', o.pressed?.startsWith('원문') && !o.note, `원문 전환 · ${o.pressed}`);
+  rec('R2', o.pressed?.startsWith('글자') && !o.note, `글자 전환 · ${o.pressed}`);
   await shot('R2-raw');
 }
 rec('R3', errors.length === 0, `화면 오류 ${errors.length}건 · API 5xx ${net.filter((n) => n.status >= 500).length}건`);

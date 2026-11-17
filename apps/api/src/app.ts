@@ -32,6 +32,9 @@ export interface Deps {
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
   /** 원본 내려받기 presigned GET (quarantine original, 승인된 s3 버전) */
   presignGet?(key: string, versionId: string | undefined, filename: string): Promise<string>;
+  /** 원본 보기: 개인정보만 가린 쪽 이미지(masked/view) presigned GET 5분, 쪽 목록 */
+  presignView?(key: string): Promise<string>;
+  viewPageList?(doc_id: string): Promise<number[]>;
   /** 사용자 삭제 정리 실행 (오케스트레이터 action=delete). 없으면 DELETED 표시만 */
   deleteWorkflow?(doc: DocumentRecord): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
@@ -598,6 +601,16 @@ export function createApp(deps: Deps) {
     const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f) && inCat(rep.doc_id))
       .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
     return c.json({ items });
+  });
+  // 원본 보기 (사용자 요청 11/17 '원본 내용 그대로 png, 쪽별 파일 presigned URL'): 모든 쪽, 개인정보만 가린 이미지.
+  // 가리지 않은 원본은 올린 사람·결재자의 원본 다운로드로만. URL 은 로그·감사에 남기지 않는다
+  app.get('/v1/library/:id/pages', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const d = await libraryDoc(c, vis);
+    if (!deps.presignView || !deps.viewPageList) return c.json({ items: [] });
+    const pages = await deps.viewPageList(d.doc_id);
+    const items = await Promise.all(pages.slice(0, 300).map(async (i) => ({ page: i + 1, url: await deps.presignView!(`${d.doc_id}/masked/view/${String(i).padStart(4, '0')}.png`) })));
+    return c.json({ items, expires_in: 300 });
   });
   // 보관함 쪽 이미지: 문서를 볼 수 있는 사람이면 누구나 (개인정보를 가린 masked/pages 만)
   app.get('/v1/library/:id/pages/:page/image', async (c) => {

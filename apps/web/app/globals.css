@@ -756,3 +756,7 @@ details.more > summary { cursor:pointer; color:var(--navy-600); font-weight:600;
 .page-thumb img { width:96px; height:72px; object-fit:cover; border:1px solid var(--navy-050); border-radius:8px; background:#fff; }
 .page-thumb .note { text-align:center; }
 .with-thumb::after { content:''; display:block; clear:both; }
+/* 원본: 쪽 이미지 세로 나열 */
+.original-pages { display:grid; gap:var(--gap); max-width:900px; }
+.orig-page { margin:0; display:grid; gap:4px; }
+.orig-page .fig-thumb img { width:100%; height:auto; }

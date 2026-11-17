@@ -83,6 +83,33 @@ function PageFigure({ docId, page, zoom, setZoom }: { docId: string; page: numbe
   );
 }
 
+/** 원본: 모든 쪽을 원래 모습 그대로(개인정보만 검게) 세로로. 쪽별 파일 presigned URL(5분), 지연 로딩, 누르면 크게 */
+function OriginalPages({ docId, start }: { docId: string; start: number }) {
+  const [items, setItems] = useState<{ page: number; url: string }[] | null>(null);
+  const [big, setBig] = useState<string | null>(null);
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { api<{ items: { page: number; url: string }[] }>('GET', `/v1/library/${encodeURIComponent(docId)}/pages`).then((r) => setItems(r.items)).catch(() => setItems([])); }, [docId]);
+  useEffect(() => { if (items?.length) document.getElementById(`orig-${start}`)?.scrollIntoView({ block: 'start' }); }, [items, start]);
+  useEffect(() => { const d = ref.current; if (!d) return; if (big && !d.open) d.showModal(); if (!big && d.open) d.close(); }, [big]);
+  if (items === null) return <p className="note">원본 쪽 이미지를 불러오는 중입니다.</p>;
+  if (!items.length) return <p className="note">원본 쪽 이미지가 아직 없습니다. 이 기능 전에 올린 문서는 다시 분석해야 보입니다.</p>;
+  return (
+    <div className="original-pages">
+      <p className="note">원본 문서를 쪽마다 그대로 보여 줍니다. 개인정보만 검게 가렸습니다. 누르면 크게 봅니다.</p>
+      {items.map((x) => (
+        <figure key={x.page} id={`orig-${x.page}`} className="orig-page">
+          <button type="button" className="fig-thumb" onClick={() => setBig(x.url)} aria-label={`${x.page}쪽 크게 보기`}><img src={x.url} loading="lazy" alt={`${x.page}쪽 원본 (개인정보는 가림)`} /></button>
+          <figcaption className="note">{x.page}쪽</figcaption>
+        </figure>
+      ))}
+      <dialog ref={ref} className="fig-zoom" onClose={() => setBig(null)} onClick={(e) => { if (e.target === ref.current) setBig(null); }}>
+        {big && <img src={big} alt="원본 쪽 크게 (개인정보는 가림)" />}
+        <form method="dialog"><button className="btn">닫기</button></form>
+      </dialog>
+    </div>
+  );
+}
+
 function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
   const [open, setOpen] = useState(false);
   return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
@@ -361,7 +388,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   // ?page=N(1부터): 검색·가이드 썸네일에서 온 경우 그 쪽부터
   const [p, setP] = useState(() => (typeof window === 'undefined' ? 0 : Math.max(0, (Number(new URLSearchParams(window.location.search).get('page')) || 1) - 1)));
   const [active, setActive] = useState(0);
-  const [raw, setRaw] = useState(false); // false: AI 정리본(있으면), true: 원문(고칠 곳 밑줄)
+  const [raw, setRaw] = useState(false); // false: AI 정리본(있으면), true: 글자(OCR 원문, 고칠 곳 밑줄)
+  const [images, setImages] = useState(false); // 원본: 쪽 이미지 그대로(개인정보만 가림, 사용자 요청 11/17)
   const [editing, setEditing] = useState(false); // 위키 수정 (규칙 1)
   const [zoom, setZoom] = useState(false); // 쪽 그림 크게 보기
   const [fixOpen, setFixOpen] = useState(false);
@@ -387,7 +415,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
-  const jump = (i: number, n: number) => { setRaw(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
+  const jump = (i: number, n: number) => { setRaw(true); setImages(false); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
   return (
     <>
@@ -430,21 +458,24 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
           </div>
           {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
-          {page.structured && <div className="view-toggle" role="group" aria-label="본문 보기 방식">
-            <button type="button" className="btn" aria-pressed={!raw} onClick={() => setRaw(false)}>정리본</button>
-            <button type="button" className="btn" aria-pressed={raw} onClick={() => setRaw(true)}>원문{numbered.length > 0 ? ` · 고칠 곳 ${numbered.length}` : ''}</button>
-          </div>}
+          <div className="view-toggle" role="group" aria-label="본문 보기 방식">
+            {page.structured && <button type="button" className="btn" aria-pressed={!raw && !images} onClick={() => { setRaw(false); setImages(false); }}>정리본</button>}
+            <button type="button" className="btn" aria-pressed={images} onClick={() => setImages(true)}>원본</button>
+            <button type="button" className="btn" aria-pressed={(raw || !page.structured) && !images} onClick={() => { setRaw(true); setImages(false); }}>글자{numbered.length > 0 ? ` · 고칠 곳 ${numbered.length}` : ''}</button>
+          </div>
+          {images ? <OriginalPages docId={d.doc_id} start={p + 1} /> : (
           <div className="document-columns"><div className={`sheet page${hasFig ? ' has-figure' : ''}`} onClick={(e) => { if ((e.target as HTMLElement).closest('.fig-ref')) setZoom(true); }}>
             {hasFig && <PageFigure docId={d.doc_id} page={page.page + 1} zoom={zoom} setZoom={setZoom} />}
             <div className="page-body">
             {page.structured && !raw ? <><p className="note">{page.structured_source === 'VISION'
-                ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원문 글자는 \'원문\'에서 확인하세요.'
-                : "AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. '(그림 n)'이 붙은 문장은 AI가 그림을 보고 쓴 설명이라 근거로 인용하지 않습니다. 고칠 곳 밑줄은 원문에서 보입니다."}</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
+                ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원문 글자는 \'글자\', 원래 모습은 \'원본\'에서 확인하세요.'
+                : "AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. '(그림 n)'이 붙은 문장은 AI가 그림을 보고 쓴 설명이라 근거로 인용하지 않습니다. 고칠 곳 밑줄은 '글자'에서 보입니다."}</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
             </div>
           </div>
           <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>
             <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>
           </aside>          </div>
+          )}
         </section>
       )}
 
