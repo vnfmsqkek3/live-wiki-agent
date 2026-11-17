@@ -123,3 +123,22 @@ test("쪽 번호는 위치로: 쪽마다 반복되는 머리말과 글자가 같
   const kh = chunkDocument("---\ntitle: t\n---\n## 준비\n같은 문장.\n\f\n## 실행\n같은 문장.", meta({ document_type: "KNOWHOW", index_group: "wiki-knowledge" }));
   assert.deepEqual(kh.map((c) => c.metadata.source_page), [0, 1]);
 });
+
+test("노하우·매뉴얼 조각: 제목 없는 OCR 본문도 쪽·길이로 나누고 표는 자르지 않음 (과천 매뉴얼 11/18)", () => {
+  const kh = (t: string) => chunkDocument(t, meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  // 쪽마다 조각, 쪽 번호
+  const cs = kh("표지 MEGAZONE\n\f\n01 층별 복합기 정보\n| 위치 | 모델 |\n| --- | --- |\n| ① | N620 |\n| ⑤ | Brother |\n\f\n02 드라이버 설치");
+  assert.deepEqual(cs.map((c) => c.metadata.source_page), [0, 1, 2]);
+  assert.match(cs[1]!.metadata.original_text, /\| ⑤ \| Brother \|/u);
+  // 길이 초과: 줄 단위로 나눔, 표는 한 덩어리
+  const long = Array.from({ length: 30 }, (_, i) => `${i + 1}. ${"설명 문장입니다 ".repeat(10)}`).join("\n");
+  const table = ["| 구분 | 값 |", "| --- | --- |", ...Array.from({ length: 5 }, (_, i) => `| 행${i} | 값${i} |`)].join("\n");
+  const cs2 = kh(`${long}\n${table}`);
+  assert.ok(cs2.length > 1 && cs2.every((c) => c.metadata.original_text.length <= MAX_CHUNK_CHARS));
+  assert.equal(cs2.filter((c) => c.metadata.original_text.includes("| 행0 |")).length, 1);
+  assert.ok(cs2.find((c) => c.metadata.original_text.includes("| 행0 |"))!.metadata.original_text.includes("| 행4 |"));
+  // 상한을 넘는 큰 표는 머리행을 반복해 행 단위로
+  const big = ["| 구분 | 값 |", "| --- | --- |", ...Array.from({ length: 200 }, (_, i) => `| 행${i} | ${"값".repeat(20)} |`)].join("\n");
+  const cs3 = kh(big);
+  assert.ok(cs3.length > 1 && cs3.every((c) => c.metadata.original_text.startsWith("| 구분 | 값 |\n| --- | --- |")));
+});
