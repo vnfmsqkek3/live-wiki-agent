@@ -52,11 +52,11 @@ for (const x of drafts.filter((x) => ids.has(x.doc_id)))
 let skipped = 0;
 for (const a of approvals) {
   if (!ids.has(a.doc_id)) { skipped++; continue; } // 문서가 없는 승인(시험 잔여)은 FK 위반 → 건너뜀
-  await d.query(`INSERT INTO approvals (approval_id, doc_id, version, s3_version_id, content_hash, author_sub, approver_sub, status, reason, decided_at, created_at, used_by, used_at)
-    VALUES (:approval_id, :doc_id, :version, :s3_version_id, :content_hash, :author_sub, :approver_sub, :status, :reason, :decided_at::timestamptz, :created_at::timestamptz, :used_by, :used_at::timestamptz)
-    ON CONFLICT (approval_id) DO UPDATE SET status = EXCLUDED.status, approver_sub = EXCLUDED.approver_sub, reason = EXCLUDED.reason, decided_at = EXCLUDED.decided_at, used_by = EXCLUDED.used_by, used_at = EXCLUDED.used_at`,
+  await d.query(`INSERT INTO approvals (approval_id, doc_id, version, s3_version_id, content_hash, author_sub, approver_sub, status, reason, decided_at, created_at, used_by, used_at, approver_name)
+    VALUES (:approval_id, :doc_id, :version, :s3_version_id, :content_hash, :author_sub, :approver_sub, :status, :reason, :decided_at::timestamptz, :created_at::timestamptz, :used_by, :used_at::timestamptz, :approver_name)
+    ON CONFLICT (approval_id) DO UPDATE SET status = EXCLUDED.status, approver_sub = EXCLUDED.approver_sub, reason = EXCLUDED.reason, decided_at = EXCLUDED.decided_at, used_by = EXCLUDED.used_by, used_at = EXCLUDED.used_at, approver_name = EXCLUDED.approver_name`,
     { approval_id: a.approval_id, doc_id: a.doc_id, version: a.version, s3_version_id: a.s3_version_id ?? "", content_hash: a.content_hash ?? "", author_sub: a.author_sub,
-      approver_sub: a.approver_sub ?? null, status: a.status, reason: a.reason ?? null, decided_at: a.status === "PENDING" ? null : (a.decided_at ?? a.created_at), created_at: a.created_at, used_by: a.used_by ?? null, used_at: a.used_at ?? null });
+      approver_sub: a.approver_sub ?? null, status: a.status, reason: a.reason ?? null, decided_at: a.status === "PENDING" ? null : (a.decided_at ?? a.created_at), created_at: a.created_at, used_by: a.used_by ?? null, used_at: a.used_at ?? null, approver_name: a.approver_name ?? null });
 }
 for (const f of feedback.filter((f) => ids.has(f.doc_id)))
   await d.query("INSERT INTO feedback (doc_id, user_sub, stars, useful, updated_at) VALUES (:doc_id, :user_sub, :stars, :useful, :updated_at::timestamptz) ON CONFLICT (doc_id, user_sub) DO UPDATE SET stars = EXCLUDED.stars, useful = EXCLUDED.useful, updated_at = EXCLUDED.updated_at",

@@ -65,6 +65,7 @@ test("documents row mapping round-trips a DynamoDB item", () => {
   assert.ok(!("document_type" in back));
   assert.match(UPSERT_DOCUMENT_SQL, /ON CONFLICT \(doc_id\) DO UPDATE SET version = EXCLUDED.version/);
   assert.match(UPSERT_DOCUMENT_SQL, /:created_at::timestamptz/);
+  assert.doesNotMatch(UPSERT_DOCUMENT_SQL, /created_at = EXCLUDED/); // 충돌 시 생성 시각 보존
 });
 
 test("replaceStepFindings locks, deletes the step, inserts", async () => {
