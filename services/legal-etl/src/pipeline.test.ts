@@ -392,6 +392,12 @@ test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEX
   assert.equal(ocrPageText(legacy, [], [{ label: "image", bbox: [0, 0, 400, 300] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n은행 업무를 정한다");
   // 4) 직인(seal) 영역 줄은 본문에 남김
   assert.equal(ocrPageText([b("은행장 홍길동", 20, "seal")], [], [{ label: "seal", bbox: [0, 0, 100, 100] }]), "은행장 홍길동");
+  // 3-1) 쪽 전체 image 영역 안 줄은 label이 image여도 본문 (재리뷰 HIGH-A)
+  const imgLines = lines.map((x) => ({ ...x, label: "image" }));
+  assert.equal(ocrPageText(imgLines, [], [{ label: "image", bbox: [0, 0, 400, 300] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n은행 업무를 정한다");
+  // 3-2) 표 bbox 안 줄(table_id 없음)은 마크다운 표로 한 번만 (재리뷰 MEDIUM-B)
+  const tl = [b("구분", 60, "text"), b("기준", 60, "text"), b("표 아래", 200)];
+  assert.equal(ocrPageText(tl, [{ table_id: "t0", bbox: [0, 50, 400, 100], html: "<tr><td>구분</td><td>기준</td></tr>" }]), "| 구분 | 기준 |\n| --- | --- |\n\n표 아래");
   // 5) 1,500자 자르기는 낱말 경계 (주민등록번호가 반만 남지 않게)
   const long = `${"가".repeat(1490)} 900101-1234568 끝`;
   const t = ocrPageText([b(long, 50, "image", 0.5)], [], [{ label: "image", bbox: [0, 0, 400, 300] }]);
