@@ -63,6 +63,8 @@ test("번호 공백 붙이기 경계 (PR #28 리뷰): 보통 명사는 그대로
   assert.equal(restoreCircled("제 1 조정위원회는 분기마다 개최한다."), "제 1 조정위원회는 분기마다 개최한다.");
   assert.equal(restoreCircled("제 3 조합원은"), "제 3 조합원은");
   assert.equal(restoreCircled("제2 관리자는 다음 사항을 점검하여"), "제2 관리자는 다음 사항을 점검하여");
+  assert.equal(restoreCircled("제2 관제센터는 다음 사항을 감시하여"), "제2 관제센터는 다음 사항을 감시하여");
+  assert.equal(restoreCircled("제 1 항제 3 호의"), "제1항제3호의");
   assert.match(restoreCircled("제 2 조 의 2(정의)1 용어는"), /^제2조의2\(정의\) ① 용어는/u);
   const st = { last: 1, lastArticle: 5 };
   assert.equal(restoreCircled("2 / 15", st), "2 / 15");
