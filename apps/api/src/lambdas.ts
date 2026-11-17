@@ -24,6 +24,10 @@ export interface LambdaDeps {
   /** Trusted Registry 대조 (let522mj registryMatch). text 없이 부르면 해시만 대조 */
   registry?(content_hash: string, text?: string): Promise<{ registry?: RegistryEntry & { law_name?: string; effective_to?: string; registry_doc_no?: string }; claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> } }>;
   maskedText?(d: DocumentRecord): Promise<string>;
+  /** 저장소 prefix 아래 모든 버전 삭제 (차단·반려 문서 정리). 지운 수 */
+  purge?(prefix: string): Promise<number>;
+  /** 마스킹 페이지 (Finding 쪽 번호 찾기) */
+  maskedPages?(d: DocumentRecord): Promise<{ page: number; text: string }[]>;
 }
 
 /** 단계 6·7·8 의존성. 6은 work/(원본 등급)을 읽고, 7·8은 masked/만 읽는다 (8은 모델 호출 Role, 원본 읽기 거부) */
@@ -82,7 +86,7 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
       out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
       continue;
     }
-    const boxes = piiBoxes(o);
+    const boxes = await piiBoxes(o, deps.guardrail);
     await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o), 'image/png');
     out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
   }
@@ -197,10 +201,16 @@ export function makeTrustGate(deps: LambdaDeps) {
         extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
       }
     }
+    // 매뉴얼도 본문이 인용한 규정 조문을 기록한다 → 규정·노하우와 서로 연결되고, 규정 개정 시 재검토 대상이 된다 (사용자 지시 11/17)
+    if (d.classification?.document_type === 'MANUAL' && result !== 'QUARANTINED' && deps.knowhow) {
+      const cites = (await deps.knowhow.extractCitations(await deps.knowhow.maskedText(d))).filter((c) => c.confidence >= 0.9);
+      if (cites.length) extra = { ...extra, citations: cites };
+    }
     const regFields: Partial<DocumentRecord> = reg ? { // Promote는 REGULATION이면 law_id·revision_id 필수 (let522mj)
       law_id: reg.law_id, revision_id: reg.revision_id, effective_from: reg.effective_from,
       ...(reg.law_name ? { law_name: reg.law_name } : {}), ...(reg.effective_to ? { effective_to: reg.effective_to } : {}), ...(reg.registry_doc_no ? { registry_doc_no: reg.registry_doc_no } : {}),
     } : {};
+    if (deps.maskedPages && findings.some((f) => f.location?.excerpt && !f.location.page)) findings = withPages(findings, await deps.maskedPages(d));
     await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
     return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };
@@ -223,15 +233,32 @@ export function makeFinalize(deps: LambdaDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
-      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED' }
+      // 노하우·매뉴얼은 사람 승인이 곧 검증이다 (규정은 TrustGate Registry 대조로 VERIFIED). 승인·게시가 끝났으면 VERIFIED
+      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED', ...(base.authority_status === 'UNVERIFIED' && (base.document_type ?? base.classification?.document_type) !== 'REGULATION' ? { authority_status: 'VERIFIED' as const } : {}) }
       : i.outcome === 'BLOCKED' ? { ...base, lifecycle: 'BLOCKED', trust_gate_result: 'QUARANTINED' }
       : base; // REJECTED: 승인 API가 이미 BLOCKED(반려) 또는 IN_REVIEW(재검증)로 바꿈
     await deps.store.putDoc(next);
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
     // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
     if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
+    // 검증에서 차단되거나 반려된 문서는 원본·작업 파일을 저장소에서 바로 지운다 (사용자 지시 11/17).
+    // 개인정보를 가린 설명·쪽 이미지(masked/)는 올린 사람이 사유를 보도록 MASKED_RETENTION_DAYS 동안 남기고 freshnessSweep이 지운다
+    if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && deps.purge) await purgeOriginal(deps, next, i.workflow_id);
     return { status: 'OK' };
   };
+}
+
+/** excerpt(마스킹 문장)가 있는 쪽을 찾아 location.page(1부터)를 붙인다. 공백 차이는 무시 */
+export function withPages(findings: Finding[], pages: { page: number; text: string }[]): Finding[] {
+  const sq = (t: string) => t.replace(/\s+/g, '');
+  const norm = pages.map((p) => ({ page: p.page, t: sq(p.text) }));
+  return findings.map((f) => {
+    const ex = f.location?.excerpt;
+    if (!ex || f.location?.page) return f;
+    const probe = sq(ex.replace(/^…|…$/g, '')).slice(0, 30);
+    const hit = probe.length >= 6 ? norm.find((p) => p.t.includes(probe)) : undefined;
+    return hit ? { ...f, location: { ...f.location, page: hit.page + 1 } } : f;
+  });
 }
 
 async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {
@@ -243,7 +270,32 @@ async function markStale(store: Store, lawIds: string[] | undefined, trace_id: s
   return stale.length;
 }
 
-/** 일 1회 (EventBridge 스케줄): 시행일이 된 개정판을 근거로 한 게시 노하우 재검토 표시 */
-export function makeFreshnessSweep(deps: Pick<LambdaDeps, 'store'>) {
-  return async () => ({ marked: await markStale(deps.store, undefined, `sweep-${now()}`) });
+export const MASKED_RETENTION_DAYS = 7;
+
+async function purgeOriginal(deps: LambdaDeps, d: DocumentRecord, trace_id: string) {
+  const n = (await deps.purge!(`${d.doc_id}/original.`)) + (await deps.purge!(`${d.doc_id}/work/`));
+  const cur = (await deps.store.getDoc(d.doc_id)) ?? d;
+  await deps.store.putDoc({ ...cur, purge: { ...cur.purge, original_at: now(), objects: (cur.purge?.objects ?? 0) + n }, updated_at: now() });
+  await deps.store.audit({ at: now(), actor: 'system:finalize', action: 'PURGE_ORIGINAL', resource: d.doc_id, result: 'OK', trace_id });
+}
+
+/** 보관 기간이 지난 차단·반려 문서의 masked/ 삭제 (원본은 Finalize에서 이미 삭제). 멱등 */
+export async function purgeExpiredMasked(deps: Pick<LambdaDeps, 'store' | 'purge'>, today = new Date()) {
+  if (!deps.purge) return 0;
+  const cutoff = new Date(today.getTime() - MASKED_RETENTION_DAYS * 86_400_000).toISOString();
+  let done = 0;
+  for (const d of await deps.store.listDocs()) {
+    if (!['BLOCKED', 'DELETED'].includes(d.lifecycle) || d.purge?.masked_at || d.updated_at > cutoff) continue;
+    if (d.lifecycle === 'DELETED' && !d.purge?.original_at) continue; // 게시본 폐기(retire)는 let522mj 절차가 따로 처리
+    const n = await deps.purge(`${d.doc_id}/`);
+    await deps.store.putDoc({ ...d, purge: { ...d.purge, masked_at: now(), objects: (d.purge?.objects ?? 0) + n } });
+    await deps.store.audit({ at: now(), actor: 'system:sweep', action: 'PURGE_MASKED', resource: d.doc_id, result: 'OK', trace_id: `sweep-${now()}` });
+    done++;
+  }
+  return done;
+}
+
+/** 일 1회 (EventBridge 스케줄): 시행일이 된 개정판을 근거로 한 게시 노하우 재검토 표시 + 보관 기간 지난 차단 문서 파일 삭제 */
+export function makeFreshnessSweep(deps: Pick<LambdaDeps, 'store' | 'purge'>) {
+  return async () => ({ marked: await markStale(deps.store, undefined, `sweep-${now()}`), purged: await purgeExpiredMasked(deps) });
 }

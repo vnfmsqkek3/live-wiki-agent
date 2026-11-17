@@ -4,6 +4,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test test/*.test.ts",
-    "typecheck": "tsc -p ."
+    "typecheck": "tsc -p .",
+    "build": "esbuild src/index.ts --bundle --platform=node --target=node24 --format=esm --outfile=dist/index.mjs --external:@aws-sdk/* --banner:js=\"import{createRequire}from'module';const require=createRequire(import.meta.url);\""
   }
 }

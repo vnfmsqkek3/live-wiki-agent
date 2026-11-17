@@ -17,6 +17,7 @@
     "@aws-sdk/lib-dynamodb": "3.1169.0",
     "@aws-sdk/s3-request-presigner": "3.1169.0",
     "@hanaeum/graph-server": "*",
+    "@hanaeum/pii": "*",
     "@hanaeum/regulation-server": "*",
     "@hanaeum/search-server": "*",
     "@hono/node-server": "2.1.8",
@@ -25,10 +26,10 @@
     "hono": "4.13.18",
     "pngjs": "7.0.0",
     "ulid": "3.0.2",
-    "zod": "4.6.7",
-    "@hanaeum/pii": "*"
+    "zod": "4.6.7"
   },
   "devDependencies": {
-    "esbuild": "0.28.2"
+    "esbuild": "0.28.2",
+    "fflate": "0.8.3"
   }
 }

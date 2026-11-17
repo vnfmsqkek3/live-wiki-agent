@@ -4,7 +4,8 @@ import { createApp } from './app.ts';
 import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
-import { env, headObject, invokeAgent, invokeAgentStream, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
+import { searchVia, type SearchWiki } from './search.ts';
+import { env, explanation, pageSummary, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
 
 // 문서보관함 밑줄: let522mj buildMarks (PR #8). 패키지에 없으면 밑줄 없이 동작
 type BuildMarks = (pages: string[], src: Record<string, unknown>, store: unknown) => Promise<Mark[]>;
@@ -15,6 +16,27 @@ async function marks(pages: Page[], d: DocumentRecord): Promise<Mark[]> {
   const texts = pages.map((p) => p.text);
   const registry = d.document_type === 'REGULATION' ? await reg.registryMatch(store, d.content_hash ?? '', texts.join('\n')) : undefined;
   return reg.buildMarks(texts, { knowhow: d.knowhow_validation, registry, findings: d.findings }, store);
+}
+
+// 검색: let522mj search_wiki (KB Retrieve·Rerank·Documents 재검증). 설정이 없으면 빈 결과
+async function searchWiki() {
+  const e = process.env;
+  if (!e.KB_ID || !e.TABLE_REGULATIONS) return async () => ({ items: [] });
+  const { BedrockRetriever, DynamoDocStates, searchTools } = await import('@hanaeum/search-server');
+  const { DynamoClauseStore, regulationTools } = await import('@hanaeum/regulation-server');
+  const t = searchTools({ retriever: new BedrockRetriever(e.KB_ID, e.MODEL_RERANK), states: new DynamoDocStates(env('TABLE_DOCUMENTS')), regulation: regulationTools(new DynamoClauseStore(e.TABLE_REGULATIONS)) });
+  return t.search_wiki as unknown as SearchWiki;
+}
+
+// 외부 법령: 본문 「…법」 중 내부 규정 저장소에 없는 것 (let522mj externalLaws) + 바로 뒤 조문 표기
+async function externalLaws(text: string) {
+  if (!process.env.TABLE_REGULATIONS) return [];
+  const reg = (await import('@hanaeum/regulation-server')) as unknown as { externalLaws: (t: string, s: unknown) => Promise<string[]>; DynamoClauseStore: new (t: string) => unknown };
+  const names = await reg.externalLaws(text, new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS));
+  return names.map((law_name) => {
+    const m = new RegExp(`「${law_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」\\s*(제\\d+조(?:의\\d+)?(?:제\\d+항)?)`).exec(text);
+    return { law_name, ...(m ? { clause: m[1] } : {}) };
+  });
 }
 
 const app = createApp({
@@ -31,7 +53,13 @@ const app = createApp({
   workflowSteps,
   pages,
   marks,
-  search: async () => [], // ponytail: let522mj search Tool 연동 전 빈 결과 (11/18)
+  pageImage,
+  pageImageList,
+  explanation,
+  pageSummary,
+  externalLaws,
+  ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
+  search: searchVia(await searchWiki()),
 });
 
 serve({ fetch: app.fetch, port: Number(process.env.PORT ?? 8080) });

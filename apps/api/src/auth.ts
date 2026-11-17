@@ -24,7 +24,8 @@ export function claimsToActor(p: Record<string, unknown>): Actor {
   if (typeof p.sub !== 'string') throw new ApiError('UNAUTHORIZED', 'missing sub');
   const d = p['dept'] ?? p['custom:dept']; // access token의 dept는 Pre Token Generation V2 트리거가 추가
   const dept = typeof d === 'string' ? d : undefined;
-  return { sub: p.sub, groups: groups.length ? groups : ['USER'], dept };
+  const username = typeof p['username'] === 'string' ? p['username'] : typeof p['cognito:username'] === 'string' ? p['cognito:username'] as string : undefined;
+  return { sub: p.sub, groups: groups.length ? groups : ['USER'], dept, ...(username ? { username } : {}) };
 }
 
 export function hasRole(actor: Actor, allowed: readonly Role[]) {

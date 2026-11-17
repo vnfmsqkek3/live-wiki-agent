@@ -21,7 +21,7 @@ function parseLaw(text: string): Law {
   const d = /시행일:\s*(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\./.exec(text)!;
   const rev = `${d[1]}-${d[2]!.padStart(2, '0')}-${d[3]!.padStart(2, '0')}`;
   const law_id = `SYN-${no[1]}-${no[2]}`;
-  const title = text.split('\n')[2]!.replace(/^한빛은행\s*/, '').trim();
+  const title = text.split('\n')[2]!.replace(/^(한빛|하나)은행\s*/, '').trim();
   const clauses: Clause[] = [];
   let art = '';
   let cur: Clause | undefined;

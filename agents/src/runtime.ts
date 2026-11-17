@@ -1,8 +1,8 @@
 // AgentCore Runtime 컨테이너 진입점 (HTTP 계약: GET /ping, POST /invocations, port 8080).
 // Agent는 KB·DynamoDB를 직접 호출하지 않고 Gateway MCP Tool만 쓴다.
 import { createServer, type IncomingMessage } from 'node:http';
-import { Agent, BedrockModel, McpClient } from '@strands-agents/sdk';
-import { GUIDE_SYSTEM, GuideDraft, MOCK_EVIDENCE, guide, type Evidence } from './guide.ts';
+import { AfterToolCallEvent, Agent, BedrockModel, BeforeToolCallEvent, McpClient } from '@strands-agents/sdk';
+import { ALLOWED_TOOLS, GUIDE_SYSTEM, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, citableFrom, guide, toolBudget, type Evidence, type ToolCall } from './guide.ts';
 
 const env = (k: string) => {
   const v = process.env[k];
@@ -31,15 +31,40 @@ async function searchViaGateway(query: string, authorization: string): Promise<E
   }
 }
 
-async function draftWithModel(prompt: string): Promise<GuideDraft> {
-  const agent = new Agent({
-    model: new BedrockModel({ region: env('AWS_REGION'), modelId: env('MODEL_SONNET'), temperature: 0, maxTokens: 2048 }),
-    systemPrompt: GUIDE_SYSTEM,
-    structuredOutputSchema: GuideDraft,
-    printer: false,
+/** 2단계: 근거 묶음을 받은 Agent가 허용 목록의 Gateway Tool을 골라 더 확인한 뒤 구조화 출력 (사용자 결정 권고안 B).
+ *  사용자 토큰으로 Gateway를 부르므로 ACL·Policy는 사용자 권한 그대로. 상한 6회·60초·반복 금지는 hook이 강제 */
+async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void }) {
+  const model = new BedrockModel({ region: env('AWS_REGION'), modelId: env('MODEL_SONNET'), temperature: 0, maxTokens: 4096 });
+  const client = process.env.GATEWAY_URL && ctx.authorization
+    ? new McpClient({ url: env('GATEWAY_URL'), headers: { authorization: ctx.authorization }, toolFilters: { allowed: [...ALLOWED_TOOLS] } })
+    : undefined;
+  const agent = new Agent({ model, systemPrompt: GUIDE_SYSTEM, structuredOutputSchema: GuideDraft, printer: false, ...(client ? { tools: [client] } : {}) });
+  const budget = toolBudget(6, 60_000);
+  const started = new Map<string, number>();
+  const tool_calls: ToolCall[] = [];
+  const evidence: Evidence[] = [];
+  agent.addHook(BeforeToolCallEvent, (ev) => {
+    if (!ev.toolUse.name.includes('___')) return; // SDK 내부 Tool(structured_output)은 기록·진행 문구 없음
+    const why = budget.check(ev.toolUse.name, ev.toolUse.input);
+    if (why) { ev.cancel = why; return; }
+    started.set(ev.toolUse.toolUseId, Date.now());
+    ctx.progress?.(TOOL_PROGRESS[ev.toolUse.name.split('___').pop() ?? ''] ?? '관련 정보를 확인하는 중입니다');
   });
-  const r = await agent.invoke(prompt);
-  return r.structuredOutput as GuideDraft;
+  agent.addHook(AfterToolCallEvent, (ev) => {
+    const t0 = started.get(ev.toolUse.toolUseId);
+    if (t0 === undefined) return; // 상한으로 취소된 호출
+    tool_calls.push({ name: ev.toolUse.name, ok: ev.result.status === 'success' && !ev.error, ms: Date.now() - t0 });
+    for (const c of ev.result.content) {
+      const raw = 'text' in c && typeof c.text === 'string' ? c.text : 'json' in c ? JSON.stringify((c as { json: unknown }).json) : '';
+      try { evidence.push(...citableFrom(JSON.parse(raw))); } catch { /* JSON 아님 */ }
+    }
+  });
+  try {
+    const r = await agent.invoke(prompt);
+    return { ...(r.structuredOutput as GuideDraft), evidence, tool_calls };
+  } finally {
+    await client?.disconnect().catch(() => {});
+  }
 }
 
 createServer(async (req, res) => {
@@ -53,14 +78,16 @@ createServer(async (req, res) => {
       const search = process.env.GATEWAY_URL
         ? (q: string) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
-      const deps = { search, draft: draftWithModel, model: env('MODEL_SONNET') };
+      const authorization = typeof auth === 'string' ? auth : undefined;
+      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization }), model: env('MODEL_SONNET') };
       // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
       if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
         const ev = (event: string, data: unknown) => res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
         // CloudFront는 60초 동안 바이트가 없으면 끊는다 → 15초마다 SSE 주석 (yoyo0704)
         const ping = setInterval(() => res.write(': ping\n\n'), 15_000);
-        try { ev('result', await guide(b.prompt, { ...deps, progress: (text) => ev('progress', { text }) })); }
+        const progress = (text: string) => ev('progress', { text });
+        try { ev('result', await guide(b.prompt, { ...deps, draft: (p: string) => draftWithModel(p, { authorization, progress }), progress })); }
         catch (e) { console.error(JSON.stringify({ err: (e as Error).name })); ev('error', { message: '가이드를 만들지 못했습니다' }); }
         finally { clearInterval(ping); }
         return res.end();

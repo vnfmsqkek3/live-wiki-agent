@@ -10,9 +10,9 @@ import { newId, type DocumentRecord } from '../src/contracts.ts';
 const white = (w: number, h: number) => { const p = new PNG({ width: w, height: h }); p.data.fill(255); return new Uint8Array(PNG.sync.write(p)); };
 const px = (png: Uint8Array, x: number, y: number) => { const i = PNG.sync.read(Buffer.from(png)); const k = (y * i.width + x) * 4; return [...i.data.subarray(k, k + 3)]; };
 
-test('개인정보 블록만 검게, OCR 좌표 비율 보정', () => {
+test('개인정보 블록만 검게, OCR 좌표 비율 보정', async () => {
   const page = { page_index: 0, width: 100, height: 100, blocks: [{ text: '연락처 010-1234-5678', bbox: [10, 10, 40, 20] as [number, number, number, number] }, { text: '감정평가서 확인', bbox: [10, 60, 40, 70] as [number, number, number, number] }] };
-  const boxes = piiBoxes(page);
+  const boxes = await piiBoxes(page);
   assert.equal(boxes.length, 1);
   const out = blackout(white(200, 200), boxes, page); // 렌더가 OCR 좌표의 2배
   assert.deepEqual(px(out, 50, 30), [0, 0, 0]);
@@ -41,4 +41,10 @@ test('PiiScan: 그림 페이지는 masked/pages 생성 + PII_IMAGE_REVIEW, OCR �
   assert.ok(!bytes.has(`${doc_id}/masked/pages/0001.png`));
   assert.deepEqual(px(bytes.get(`${doc_id}/masked/pages/0000.png`)!, 5, 5), [0, 0, 0]);
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 2);
+});
+
+test('그림 블록: Guardrail이 찾은 값이 든 블록도 검게', async () => {
+  const page = { page_index: 0, width: 100, height: 100, blocks: [{ text: 'PW: hunter2!', bbox: [0, 0, 10, 10] as [number, number, number, number] }, { text: '감정평가서', bbox: [0, 20, 10, 30] as [number, number, number, number] }] };
+  const g = async (t: string) => ({ text: t, entities: [{ type: 'PASSWORD', match: 'hunter2!' }] });
+  assert.deepEqual(await piiBoxes(page, g), [[0, 0, 10, 10]]);
 });

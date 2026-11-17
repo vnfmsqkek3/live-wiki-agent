@@ -67,3 +67,49 @@ test('스트리밍 진행 문구: 개인정보 확인 → 검색 → 작성 → 
   assert.deepEqual(said.map((s) => s.slice(0, 6)), ['질문에 개인', '관련 규정·', '근거 문서 ', '단계마다 출']);
   assert.ok(said.every((s) => !s.includes('1234')));
 });
+
+test('Tool 상한: 허용 목록 밖 거부, 6회·같은 인자 반복 금지, 시간 초과', async () => {
+  const { toolBudget } = await import('../src/guide.ts');
+  const b = toolBudget(2, 1000, () => 0);
+  assert.match(b.check('approval___create_review_request', {})!, /쓸 수 없는/);
+  assert.equal(b.check('regulation___get_clause', { a: 1 }), undefined);
+  assert.match(b.check('regulation___get_clause', { a: 1 })!, /다시 부르지/);
+  assert.equal(b.check('graph___trace_impact', {}), undefined);
+  assert.match(b.check('search___search_wiki', {})!, /상한 2회/);
+  let t = 0; const late = toolBudget(6, 1000, () => t); t = 2000;
+  assert.match(late.check('search___search_wiki', {})!, /시간 상한/);
+});
+
+test('Tool로 더 찾은 근거도 출처로 인정(그림 설명·과거 조문 제외), tool_calls 전달', async () => {
+  const { guide, citableFrom } = await import('../src/guide.ts');
+  const extra = citableFrom({ items: [
+    { doc_id: 'doc_X', title: '외국환 규정', snippet: 's', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND' },
+    { doc_id: 'doc_FIG', title: '그림', snippet: 's', authority_status: 'VERIFIED', freshness: 'CURRENT', quotable: false },
+    { doc_id: 'doc_OLD', title: '옛 조문', snippet: 's', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'HISTORICAL' },
+  ] });
+  assert.deepEqual(extra.map((e) => e.doc_id), ['doc_X']);
+  const r = await guide('외국환 송금 확인', { model: 'm', search: async () => MOCK_EVIDENCE,
+    draft: async () => ({ steps: [{ text: '제재 대상 확인', sources: ['doc_X'] }, { text: '그림 근거', sources: ['doc_FIG'] }], uncertainty: '', evidence: extra, tool_calls: [{ name: 'search___search_legal_clause', ok: true, ms: 900 }] }) });
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.steps[0]!.sources[0]!.doc_id, 'doc_X');
+  assert.equal(r.dropped_steps, 1);
+  assert.equal(r.tool_calls?.[0]?.name, 'search___search_legal_clause');
+});
+
+test('SDK 내부 Tool은 상한 대상 아님, 현행 조문 조회 결과는 조문 ID로 인용 가능·개정 전 조문은 제외', async () => {
+  const { toolBudget, citableFrom } = await import('../src/guide.ts');
+  assert.equal(toolBudget(1).check('strands_structured_output', {}), undefined);
+  const cur = citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-12-01/ARTICLE:12', path_label: '제12조', title: '기업여신 심사규정', original_text: '본부 승인', effective_from: 20261201, children: [{ original_text: '① 5억원 이상' }] });
+  assert.deepEqual([cur[0]!.doc_id, cur[0]!.effective_from, cur[0]!.snippet], ['SYN-LOAN-001@2026-12-01/ARTICLE:12', '2026-12-01', '본부 승인 ① 5억원 이상']);
+  assert.equal(citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2025-01-01/ARTICLE:12', original_text: '7억원', current: { revision_id: '2026-12-01' } }).length, 0);
+});
+
+test('같은 규정의 여러 조문: 출처는 조문 ID로 정확히 대조, 조문이 여럿인 doc_id만 쓴 출처는 버림', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const reg = (p: string, label: string) => ({ doc_id: 'doc_R', provision_id: `SYN-LOAN-001@2026-11-01/${p}`, title: '기업여신 심사규정', snippet: label, provision: `기업여신 심사규정 ${label}`, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, search_status: 'FOUND' });
+  const r = await guide('제12조 승인 기준', { model: 'm', search: async () => [reg('ARTICLE:12', '제12조'), reg('ARTICLE:2', '제2조')],
+    draft: async () => ({ steps: [{ text: '본부 승인 기준', sources: ['SYN-LOAN-001@2026-11-01/ARTICLE:12'] }, { text: '모호', sources: ['doc_R'] }], uncertainty: '' }) });
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.steps[0]!.sources[0]!.provision, '기업여신 심사규정 제12조');
+  assert.equal(r.dropped_steps, 1);
+});
