@@ -72,7 +72,7 @@ export const clarifyPrompt = (title: string, pages: { page: number; text: string
   const parts: string[] = []; let len = 0;
   for (const p of pages) {
     const block = `<page n="${p.page}">\n${cutAtLine(p.text, 3000)}\n</page>`;
-    if (len + block.length > 14000) { parts.push('…(이후 쪽 생략)'); break; } // 쪽 단위로만 자른다
+    if (len + block.length > 40000) { parts.push('…(이후 쪽 생략)'); break; } // 쪽 단위로만 자른다
     parts.push(block); len += block.length;
   }
   return `<doc title="${title.replace(/"/g, '')}">\n${parts.join('\n')}\n</doc>`;
