@@ -259,3 +259,11 @@ test("업무 분류: 현재 분류의 doc_id로 KB를 거르므로 재분류·�
   assert.equal(empty.search_status, "UNVERIFIED");
   assert.equal(empty.items.length, 0);
 });
+
+test("결과 항목 page: 근거 조각의 쪽 (1부터, 청크 source_page + 1)", async () => {
+  const { tools, retriever } = setup();
+  for (const c of retriever.chunks) if (c.metadata["doc_id"] === "F-002") c.metadata["source_page"] = 2;
+  const r = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 금액", as_of: "2026-12-15", rewrite: false }, user);
+  const f2 = [...r.items, ...(r.related ?? [])].filter((x) => x.doc_id === "F-002");
+  assert.ok(f2.length && f2.every((x) => x.page === 3));
+});
