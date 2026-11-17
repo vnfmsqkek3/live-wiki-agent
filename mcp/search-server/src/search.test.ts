@@ -203,3 +203,20 @@ test("근거 기준 미달(weak) 결과는 UNVERIFIED + related(참고)로만 �
   assert.equal(r.items.length, 0, "근거(items)로는 쓰지 않음");
   assert.ok(r.related && r.related.length > 0, "관련 가능 문서로는 보여 줌");
 });
+
+test("search_wiki 질의 재구성: rewritten·matched_query 응답, rewrite=false면 원문 그대로, 모델 입력은 마스킹본", async () => {
+  const { tools, retriever, states } = setup();
+  const seen: string[] = [];
+  const t2 = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }),
+    rewriter: { rewrite: async (q) => { seen.push(q); return { core: "본부 여신심사위원회 승인 기준", alternates: ["여신심사위원회 승인 금액"] }; } } });
+  const r = await t2.search_wiki({ query: "010-1234-5678 본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown; items: { matched_query?: string }[] };
+  assert.ok(!seen[0]!.includes("010") && seen[0]!.includes("[전화번호]"));
+  assert.deepEqual(r.rewritten, { core: "본부 여신심사위원회 승인 기준", alternates: ["여신심사위원회 승인 금액"] });
+  assert.ok(r.items.length && r.items.every((i) => ["본부 여신심사위원회 승인 기준", "여신심사위원회 승인 금액"].includes(i.matched_query!)));
+  const raw = await t2.search_wiki({ query: "본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15", rewrite: false }, user) as { rewritten?: unknown };
+  assert.equal(raw.rewritten, undefined);
+  assert.equal(retriever.lastQuery, "본부 여신심사위원회 승인 기준 알려줘");
+  // 모델 없으면 규칙만
+  const r3 = await tools.search_wiki({ query: "본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown };
+  assert.deepEqual(r3.rewritten, { core: "본부 여신심사위원회 승인 기준", alternates: [] });
+});
