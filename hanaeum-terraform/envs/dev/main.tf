@@ -32,8 +32,8 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "2bc4d6f" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "448cc7d" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    yoyo0704 = "1f07fa6" # workflows·auth-triggers·services/ocr
+    dhxorb96 = "8d25284" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "48e2f4f" # PR #24 질의 재구성 (+#22·#21·#20·#19)
   }
 
@@ -45,8 +45,8 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "d32fe89" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
-  agents_source_ref = "3b5539c" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "8d25284" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  agents_source_ref = "8d25284" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
