@@ -26,6 +26,9 @@ def to_page(page_index, width, height, res):
 # = 레이아웃 영역, table_res_list(pred_html) = 표 구조. 출력은 하위 호환: blocks 는 지금처럼 줄 단위(confidence 보존),
 # 각 줄에 자기가 속한 영역의 label·(표 안이면) table_id, reading_order 는 영역 순서 기준. 페이지에 tables[{table_id,bbox,html}] 추가.
 TABLE = "table"
+# Sonnet 비전(ImageDescribe)이 볼 영역: 사진·그림·차트·도장. 표·글자는 OCR 이 맡는다 (사용자 결정 11/17: 비전 중복 분석 줄이기)
+# 머리말·꼬리말 그림(로고)은 제외
+FIGURE_LABELS = {"image", "figure", "chart", "seal"}
 
 
 def _inside(box, region):
@@ -51,7 +54,7 @@ def to_structure_page(page_index, width, height, res):
         return (o is None, o if o is not None else 0, list(r.get("block_bbox") or [0, 0, 0, 0])[1], i)
 
     ordered = sorted(enumerate(regions), key=order_key)
-    tables, region_meta = [], {}
+    tables, figures, region_meta = [], [], {}
     html_by_order = [t.get("pred_html", "") for t in (res.get("table_res_list") or [])]
     for rank, (i, r) in enumerate(ordered):
         label = str(r.get("block_label") or "text")
@@ -62,6 +65,8 @@ def to_structure_page(page_index, width, height, res):
             content = str(r.get("block_content") or "")
             html = content if content.lstrip().startswith("<") else (html_by_order[len(tables)] if len(tables) < len(html_by_order) else "")
             tables.append({"table_id": table_id, "bbox": bbox, "html": html})
+        elif label in FIGURE_LABELS:
+            figures.append({"label": label, "bbox": bbox})
         region_meta[i] = (rank, label, bbox, table_id)
 
     lines = []
@@ -82,4 +87,4 @@ def to_structure_page(page_index, width, height, res):
         }
         for n, (_, _, _, text, score, box, label, table_id) in enumerate(lines)
     ]
-    return {"page_index": page_index, "width": width, "height": height, "source": "ocr", "blocks": blocks, "tables": tables}
+    return {"page_index": page_index, "width": width, "height": height, "source": "ocr", "blocks": blocks, "tables": tables, "figures": figures}

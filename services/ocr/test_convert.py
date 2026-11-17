@@ -31,6 +31,8 @@ class StructureTest(unittest.TestCase):
             {"block_label": "table", "block_bbox": [80, 480, 900, 620], "block_content": "<table><tr><td>구분</td><td>한도</td></tr></table>", "block_order": 3},
             {"block_label": "paragraph_title", "block_bbox": [80, 90, 900, 140], "block_content": "제12조(승인 기준)", "block_order": 1},
             {"block_label": "text", "block_bbox": [80, 190, 900, 240], "block_content": "① 첫째 항", "block_order": 2},
+            {"block_label": "image", "block_bbox": [80, 700, 900, 1200], "block_content": "", "block_order": 4},
+            {"block_label": "header_image", "block_bbox": [0, 0, 200, 60], "block_content": ""},
         ],
     }
 
@@ -42,6 +44,8 @@ class StructureTest(unittest.TestCase):
         self.assertEqual({b["table_id"] for b in p["blocks"][2:]}, {"p0-t0"})
         self.assertIsNone(p["blocks"][0]["table_id"])
         self.assertEqual(p["tables"], [{"table_id": "p0-t0", "bbox": [80, 480, 900, 620], "html": "<table><tr><td>구분</td><td>한도</td></tr></table>"}])
+        # 비전 대상은 사진 영역만 (표·글자·머리말 로고 제외)
+        self.assertEqual(p["figures"], [{"label": "image", "bbox": [80, 700, 900, 1200]}])
 
     def test_table_html_falls_back_to_table_res_list(self):
         res = dict(self.RES, parsing_res_list=[dict(self.RES["parsing_res_list"][0], block_content="구분 한도")], table_res_list=[{"pred_html": "<table>x</table>"}])
