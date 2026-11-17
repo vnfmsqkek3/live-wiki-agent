@@ -38,6 +38,10 @@ export default function Admin() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [mismatch, setMismatch] = useState<Mismatch[]>([]);
   const [done, setDone] = useState<Record<string, 'APPROVED' | 'REJECTED'>>({});
+  // 결재자가 문서를 열어 봤는지 (탭 단위 표시용, 서버 기록 아님)
+  const [viewed, setViewed] = useState<Record<string, boolean>>({});
+  useEffect(() => { try { setViewed(JSON.parse(sessionStorage.getItem('hanaeum.viewed') ?? '{}') as Record<string, boolean>); } catch { /* 저장소 차단 */ } }, []);
+  const markViewed = (id: string) => { const v = { ...viewed, [id]: true }; setViewed(v); try { sessionStorage.setItem('hanaeum.viewed', JSON.stringify(v)); } catch { /* 저장소 차단 */ } };
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [role, setRole] = useState('');
@@ -75,8 +79,8 @@ export default function Admin() {
       {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
       <div className="counts">
-        <div><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></div>
-        <div><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></div>
+        <a href="#pending-h"><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></a>
+        <a href="#source-h"><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></a>
       </div>
 
       {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
@@ -87,7 +91,7 @@ export default function Admin() {
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
         <div className="approval-category-group" aria-label="결재할 일">
-          {source.length > 0 && <h2 className="section">출처 확인이 먼저 필요한 문서</h2>}
+          {source.length > 0 && <h2 className="section" id="source-h">출처 확인이 먼저 필요한 문서</h2>}
           <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
@@ -100,14 +104,14 @@ export default function Admin() {
             ))}
           </PaginatedList>
 
-          <h2 className="section">게시 승인 대기</h2>
+          <h2 className="section" id="pending-h">게시 승인 대기</h2>
           {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
           <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                 {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
                 <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'} · AI 검사 통과</span>
-                <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
+                <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
                 {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
                 {i.version?.changes?.length ? (
                   <ul className="mini-changes" aria-label="바뀐 부분">{i.version.changes.slice(0, 3).map((c, n) => (
@@ -118,10 +122,11 @@ export default function Admin() {
                 {!done[i.approval_id] && (
                   <div className="actions">
                     {/* 사람이 확인 → 판단 순서: 문서 확인을 먼저, 같은 크기의 버튼으로 (사용자 지적 11/18: 밑줄 글자라 안 보임) */}
-                    <Link className="btn" href={detail(i.doc_id)}><Icon name="library" />문서 확인</Link>
+                    <Link className="btn" href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}><Icon name="library" />{viewed[i.doc_id] ? '확인함 · 다시 보기' : '문서 확인'}</Link>
                     <span className="actions-gap" aria-hidden="true" />
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
-                    <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
+                    {/* 확인 전에는 승인도 테두리 버튼, 문서를 열어 본 뒤 초록 강조 (Fable 11/18, 잠그지는 않음) */}
+                    <button className={`btn${viewed[i.doc_id] ? ' solid' : ''}`} onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
                   </div>
                 )}
               </li>

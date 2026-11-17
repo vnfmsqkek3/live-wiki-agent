@@ -64,7 +64,7 @@ export function Tabs() {
   const tabs = TABS.filter((t) => can(s.groups, t.href));
   return (
     <nav className="tabs" aria-label="주요 메뉴" style={{ ['--tab-n' as string]: tabs.length }}>
-      <span className="wordmark"><span className="brand-symbol"><Icon name="guide" /></span><span>Hanaeum Wiki<small>근거로 연결하는 업무 지식</small></span></span>
+      <Link href="/" className="wordmark"><span className="brand-symbol"><Icon name="guide" /></span><span>Hanaeum Wiki<small>근거로 연결하는 업무 지식</small></span></Link>
       <div className="nav-links">{tabs.map((t) => (
         <Link key={t.href} href={t.href} aria-current={(t.href === '/' ? path === '/' : path.startsWith(t.href)) ? 'page' : undefined}>
           {t.icon}{t.label}

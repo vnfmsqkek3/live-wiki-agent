@@ -46,7 +46,7 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
 /** filled: 내용이 있는 카드(사용자 요청: 초록 테두리 + '내용 있음' 글자, 색만으로 구분하지 않음) */
 function CardLabel({ title, filled, count }: { title: string; filled: boolean; count?: number }) {
   // 건수가 있으면 건수, 없으면 '내용 있음' (판단용 카드는 건수를 크게, Fable 재배치안 11/18)
-  return <>{title}{count !== undefined ? <span className="card-count num">{count}건</span> : filled && <span className="card-state">내용 있음</span>}</>;
+  return <>{title}{count !== undefined ? <span className="card-count num">{count}건</span> : <span className={`card-state${filled ? '' : ' empty'}`}>{filled ? '내용 있음' : '없음'}</span>}</>;
 }
 const CLAIM_REL: Record<string, string> = { SUPPORTS: '규정과 일치', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', INSUFFICIENT: '관련 조문 확인 필요', UNRELATED: '관련 없음' };
 type Basis = { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string };
@@ -364,7 +364,7 @@ function DeleteDoc({ d }: { d: LibraryDoc }) {
   return (
     <section aria-labelledby="del-h" style={{ marginTop: 28 }}>
       <h3 className="section" id="del-h">문서 삭제</h3>
-      {state === 'idle' && <><p className="note">검색·보관함·관계 그래프에서 빼고 파일을 모두 지웁니다. 결재·감사 기록은 남습니다.</p><div className="actions"><button className="btn" onClick={del}>문서 삭제</button></div></>}
+      {state === 'idle' && <><p className="note">검색·보관함·관계 그래프에서 빼고 파일을 모두 지웁니다. 결재·감사 기록은 남습니다.</p><div className="actions"><button className="btn danger" onClick={del}>문서 삭제</button></div></>}
       <p aria-live="polite" className={state === 'error' ? 'error' : 'note'}>
         {state === 'running' && '삭제했습니다. 저장소·검색 색인·관계 그래프를 정리하는 중입니다(보통 1~3분).'}
         {state === 'done' && `삭제와 정리가 끝났습니다. ${info}`}
@@ -457,7 +457,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
           </div>
           {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
-          <div className="view-toggle" role="group" aria-label="본문 보기 방식">
+          <div className="view-toggle seg-tabs" role="group" aria-label="본문 보기 방식">
             <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>
             <button type="button" className="btn" aria-pressed={showImages} onClick={() => setImages(true)}>필터링된 원문</button>
           </div>
