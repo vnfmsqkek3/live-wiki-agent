@@ -33,7 +33,7 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "2d53d78" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "3b5539c" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
+    dhxorb96 = "448cc7d" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "d919cfb" # PR #22 검색 related + #21 Finding 저장 (+#20·#19)
   }
 
