@@ -1,0 +1,11 @@
+{
+  "name": "@hanaeum/db",
+  "private": true,
+  "type": "module",
+  "description": "거버넌스 저장소(Aurora PostgreSQL) RDS Data API 클라이언트 (빌드 없음). Owner yoyo0704",
+  "exports": { ".": { "types": "./index.d.ts", "default": "./index.js" } },
+  "files": ["index.js", "index.d.ts"],
+  "peerDependencies": { "@aws-sdk/client-rds-data": "3.1169.0" },
+  "devDependencies": { "@aws-sdk/client-rds-data": "3.1169.0" },
+  "scripts": { "test": "node --test" }
+}
