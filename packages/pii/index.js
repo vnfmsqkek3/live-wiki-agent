@@ -1,12 +1,12 @@
 // @ts-check
 // 개인정보 탐지·마스킹 순수 함수 (의존성 없음). API 단계 6, Agent 질의 검사, ImageDescribe(yoyo0704)가 함께 쓴다.
 // Lambda zip의 node_modules에서도 실행되도록 빌드 없는 JS + 타입 선언(index.d.ts).
-/** @typedef {'RRN' | 'FOREIGNER_NO' | 'PASSPORT' | 'DRIVER_LICENSE' | 'PHONE' | 'EMAIL' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO' | 'IP_ADDRESS'} PiiType */
+/** @typedef {'RRN' | 'FOREIGNER_NO' | 'PASSPORT' | 'DRIVER_LICENSE' | 'CARD' | 'ACCOUNT' | 'CUSTOMER_NO' | 'IP_ADDRESS'} PiiType */
 /** @typedef {{ type: PiiType; start: number; end: number; certain: boolean }} PiiSpan */
 
 /** 화면·Finding 메시지용 한글 이름 */
 /** @type {Record<PiiType, string>} */
-export const PII_NAME = { RRN: '주민등록번호', FOREIGNER_NO: '외국인등록번호', PASSPORT: '여권번호', DRIVER_LICENSE: '운전면허번호', PHONE: '전화번호', EMAIL: '이메일', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호', IP_ADDRESS: 'IP 주소' };
+export const PII_NAME = { RRN: '주민등록번호', FOREIGNER_NO: '외국인등록번호', PASSPORT: '여권번호', DRIVER_LICENSE: '운전면허번호', CARD: '카드번호', ACCOUNT: '계좌번호', CUSTOMER_NO: '고객번호', IP_ADDRESS: 'IP 주소' };
 
 /** @type {Record<PiiType, string>} */
 const LABEL = {
@@ -14,8 +14,6 @@ const LABEL = {
   FOREIGNER_NO: '[외국인등록번호]',
   PASSPORT: '[여권번호]',
   DRIVER_LICENSE: '[운전면허번호]',
-  PHONE: '[전화번호]',
-  EMAIL: '[이메일]',
   CARD: '[카드번호]',
   ACCOUNT: '[계좌번호]',
   CUSTOMER_NO: '[고객번호]',
@@ -70,14 +68,13 @@ const RULES = [
     judge: (d) => (!rrnDateOk(d) ? false : rrnChecksumOk(d) ? true : 'uncertain'),
   },
   { type: 'CARD', re: /(?<!\d)\d{4}[- ]?\d{4}[- ]?\d{4}[- ]?\d{4}(?!\d)/g, judge: (d) => luhnOk(d) || 'uncertain' },
-  { type: 'PHONE', re: /(?<!\d)01[016789][- .]?\d{3,4}[- .]?\d{4}(?!\d)/g },
-  { type: 'PHONE', re: /(?<!\d)0(2|[3-6][1-5])[- .]?\d{3,4}[- .]?\d{4}(?!\d)/g },
-  { type: 'EMAIL', re: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g },
+  // 전화번호·이메일은 가리지 않는다 (사용자 결정 11/17 22시: 가이드가 담당자 연락처·이메일을 안내). 고객 연락처도 그대로 보임
   // 금융 사전: "계좌", "고객번호" 문맥 뒤 숫자열
   { type: 'ACCOUNT', re: /(?<=계좌\s*(번호)?\s*[:：]?\s*)\d[\d-]{8,18}\d/g },
   { type: 'CUSTOMER_NO', re: /(?<=고객\s*(번호|ID)\s*[:：]?\s*)[A-Z]{0,3}\d{6,12}/g },
   // 문맥 없는 계좌 형태(3-2~6-2~8) → 불확실
-  { type: 'ACCOUNT', re: /(?<!\d)\d{3,6}-\d{2,6}-\d{2,8}(?!\d)/g, judge: (d) => (isDate(d) ? false : 'uncertain') },
+  // 전화번호 모양(010-1234-5678, 02-123-4567, 031-123-4567)은 계좌로 보지 않는다 (전화는 가리지 않음, 사용자 결정 11/17 22시)
+  { type: 'ACCOUNT', re: /(?<!\d)(?!01[016789]-\d{3,4}-\d{4}(?!\d))(?!0(?:2|[3-6][1-5])-\d{3,4}-\d{4}(?!\d))\d{3,6}-\d{2,6}-\d{2,8}(?!\d)/g, judge: (d) => (isDate(d) ? false : 'uncertain') },
 ];
 
 /** YYYYMMDD 형태의 실제 날짜 (시행일 2026-11-01 등을 계좌로 오탐하지 않도록) */
