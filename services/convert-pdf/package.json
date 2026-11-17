@@ -3,6 +3,13 @@
   "private": true,
   "type": "module",
   "description": "ConvertToPdf 단계 (LibreOffice 컨테이너 Lambda). Owner yoyo0704",
-  "scripts": { "test": "vitest run", "typecheck": "tsc --noEmit" },
-  "dependencies": { "@aws-sdk/client-s3": "3.1169.0", "pdf-lib": "1.17.1" }
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@aws-sdk/client-rds-data": "3.1169.0",
+    "@aws-sdk/client-s3": "3.1169.0",
+    "pdf-lib": "1.17.1"
+  }
 }
