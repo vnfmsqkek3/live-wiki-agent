@@ -22,6 +22,7 @@ export const newId = {
   apr: () => `apr_${ulid()}`,
   fnd: () => `fnd_${ulid()}`,
   draft: () => `drf_${ulid()}`,
+  cat: () => `cat_${ulid().toLowerCase()}`, // 업무 분류 칸 (초기 칸은 cat_loan 처럼 소문자)
 };
 
 /** message에 원문 PII를 넣지 않는다. */
@@ -195,6 +196,8 @@ export const ClassificationBody = z.object({
 /** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
 export const TitleBody = z.object({ title: z.string().trim().min(1).max(200) });
 export const PreviousBody = z.object({ previous_doc_id: z.string().min(1).max(40).nullable() });
+export const CategoryRenameBody = z.object({ name: z.string().trim().min(2).max(20).regex(/^[^/|]+$/, '/ | 는 쓸 수 없습니다') });
+export const CategoryMergeBody = z.object({ into: z.string().min(1).max(40) });
 export const DeleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 

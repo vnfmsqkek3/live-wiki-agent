@@ -396,3 +396,29 @@ test('검색 질의 재구성: 핵심어가 원문과 같아도 다른 표현은
   const none = searchVia(async () => ({ items: [], rewritten: { core: '개인정보', alternates: [] } }));
   assert.equal((await none('개인정보', { sub: 'u', groups: ['USER'] } as never, { tags: [] })).rewritten, undefined);
 });
+
+test('업무 분류: 트리 수는 볼 수 있는 게시 문서(하위 포함), 보관함 필터는 하위 칸 포함, 이름 수정·병합은 결재자만', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_A', title: '기업여신 심사', acl_groups: ['ALL'], lifecycle: 'PUBLISHED' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_B', title: '담보 평가', acl_groups: ['ALL'], lifecycle: 'PUBLISHED' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_H', title: '인사 비공개', acl_groups: ['DEPT#hr'], lifecycle: 'PUBLISHED' });
+  const cat = (category_id: string, parent_id: string | null, path: string) => ({ category_id, parent_id, name: path.split('/').at(-1)!, path, level: path.split('/').length, description: '', doc_count: 0 });
+  const calls: unknown[] = [];
+  t.deps.categories = {
+    list: async () => [cat('cat_loan', null, '여신'), cat('cat_corp', 'cat_loan', '여신/기업여신'), cat('cat_hr', null, '인사·교육')],
+    docMap: async () => new Map([['doc_A', 'cat_corp'], ['doc_B', 'cat_loan'], ['doc_H', 'cat_hr']]),
+    rename: async (...a) => { calls.push(['rename', ...a]); return { ok: true }; },
+    merge: async (from) => { if (from === 'cat_loan') throw new Error('HasChildren'); return { moved: 1 }; },
+  };
+  const tree = (await (await t.call('user', 'GET', '/v1/categories')).json()) as { items: { category_id: string; doc_count: number }[] };
+  assert.deepEqual(tree.items.map((x) => [x.category_id, x.doc_count]), [['cat_loan', 2], ['cat_corp', 1], ['cat_hr', 0]]); // 인사 문서는 user 권한 밖
+  const lib = (await (await t.call('user', 'GET', '/v1/library?category=cat_loan')).json()) as { items: { doc_id: string; category_path: string }[] };
+  assert.deepEqual(lib.items.map((x) => x.doc_id).sort(), ['doc_A', 'doc_B']);
+  assert.equal(lib.items.find((x) => x.doc_id === 'doc_A')!.category_path, '여신/기업여신');
+  assert.equal((await t.call('user', 'PATCH', '/v1/categories/cat_corp', { name: '기업 대출' })).status, 403);
+  assert.equal((await t.call('approver', 'PATCH', '/v1/categories/cat_corp', { name: '기업/대출' })).status, 422);
+  assert.equal((await t.call('approver', 'PATCH', '/v1/categories/cat_corp', { name: '기업 대출' })).status, 200);
+  assert.deepEqual(calls[0], ['rename', 'cat_corp', '기업 대출', 'u-approver']);
+  assert.equal((await t.call('approver', 'POST', '/v1/categories/cat_loan/merge', { into: 'cat_hr' })).status, 409);
+});

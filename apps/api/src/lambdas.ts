@@ -42,6 +42,8 @@ export interface SegmentDeps {
   guardrail?: GuardrailCheck;
   classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
+  /** 업무 분류 칸 배정 (interfaces.md 10.1). 마스킹된 제목·요약만. 없으면 생략 (GOV_STORE=postgres + MODEL_EMBED 일 때만) */
+  category?(doc: { doc_id: string; title: string; summary?: string }): Promise<unknown>;
   /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
   structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
   /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
@@ -145,6 +147,9 @@ export function makeClassify(deps: SegmentDeps) {
       classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
       ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),
     });
+    // 업무 분류 칸 배정: 실패해도 게시는 막지 않는다 (주기 정리·보충 스크립트가 다시 배정)
+    if (deps.category) await deps.category({ doc_id: d.doc_id, title: autoTitle ?? d.title, summary: sum?.value.summary ?? d.summary })
+      .catch((e: Error) => console.warn(JSON.stringify({ msg: 'category failed', doc_id: d.doc_id, err: e.name })));
     return { status: findings.length ? 'REVIEW_REQUIRED' : 'OK', findings };
   };
 }

@@ -4,7 +4,7 @@ import {
   makeClassify, makeFileStructureCheck, makeFinalize, makeFreshnessSweep, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
   type LambdaDeps, type SegmentDeps,
 } from './lambdas.ts';
-import { structured } from './model.ts';
+import { structured, embed } from './model.ts';
 import { STRUCTURE_SCHEMA, STRUCTURE_SYSTEM } from './steps/structure.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
@@ -62,6 +62,13 @@ const seg: SegmentDeps = {
   getBytes: (k) => getObjectBytes(k), putBytes, // PiiScan 페이지 이미지 마스킹 (steps Role). 모델 Role은 masked/만 읽음
   classify: (tier, prompt) => structured<ClassifyOut>(tier, CLASSIFY_SYSTEM, prompt, 'submit_classification', CLASSIFY_SCHEMA as unknown as Record<string, unknown>),
   summarize: (prompt) => structured<SummaryOut>('HAIKU', SUMMARY_SYSTEM, prompt, 'submit_summary', SUMMARY_SCHEMA as unknown as Record<string, unknown>),
+  ...(process.env.GOV_STORE === 'postgres' && process.env.MODEL_EMBED ? {
+    category: async (doc: { doc_id: string; title: string; summary?: string }) => {
+      const [{ db }, c] = await Promise.all([import('@hanaeum/db'), import('./categories.ts')]);
+      const d = db();
+      return c.assignCategory({ q: d.query, tx: d.tx, embed, choose: (p) => structured<import('./categories.ts').Choice>('HAIKU', c.CHOOSE_SYSTEM, p, 'submit_category', c.CHOOSE_SCHEMA as unknown as Record<string, unknown>) }, doc);
+    },
+  } : {}),
   structure: (prompt) => structured<{ markdown: string }>('HAIKU', STRUCTURE_SYSTEM, prompt, 'submit_page', STRUCTURE_SCHEMA as unknown as Record<string, unknown>),
 };
 
