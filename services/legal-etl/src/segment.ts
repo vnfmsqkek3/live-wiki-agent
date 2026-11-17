@@ -104,12 +104,13 @@ export function splitPage(blocks: OcrBlock[], tables: OcrTable[] = [], figures0:
     if (f !== undefined) fig.set(b, f);
   }
   const textLines = blocks.filter((b) => b.text.trim()).length;
+  const undone = new Set<number>(); // 본문으로 되돌린 그림 (자리 표시·figure_boxes에서도 뺀다, PR #39 리뷰)
   for (const g of new Set(fig.values())) {
     const members = [...fig].filter(([, i]) => i === g).map(([b]) => b);
     const bboxOnly = members.every((b) => !FIGURE_LABELS.has(b.label));
-    if (bboxOnly && textLines >= 4 && members.filter((b) => b.text.trim()).length > textLines / 2) for (const b of members) fig.delete(b);
+    if (bboxOnly && textLines >= 4 && members.filter((b) => b.text.trim()).length > textLines / 2) { for (const b of members) fig.delete(b); undone.add(g); }
   }
-  return { figures, fig, md, ids, inTable };
+  return { figures, fig, md, ids, inTable, undone };
 }
 
 /** OCR 블록 → 본문.
@@ -118,7 +119,7 @@ export function splitPage(blocks: OcrBlock[], tables: OcrTable[] = [], figures0:
  *    "⟦그림 p{쪽}⟧ 그림 n 속 글자: …" 한 줄로 (사용자 지적 11/17: 캡처 속 UI 글자가 깨진 채 본문에 섞여 읽을 수 없음).
  *    이 줄은 PiiScan이 함께 가리고, 색인에서는 인용 불가 그림 청크로만 검색된다 (kb-chunker FIGURE_RE) */
 export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = [], figures0: OcrFigure[] = [], page = 0, size?: { width: number; height: number }): string {
-  const { figures, fig, md, ids, inTable } = splitPage(blocks, tables, figures0, size);
+  const { figures, fig, md, ids, inTable, undone } = splitPage(blocks, tables, figures0, size);
   const hasBox = blocks.every((b) => b.bbox?.length === 4);
   if (!ids.size && !fig.size && !figures.length) return (hasBox ? ocrRows(blocks) : blocks.map((b) => b.text)).join("\n");
   const plain = blocks.filter((b) => !inTable(b) && !fig.has(b));
@@ -132,7 +133,7 @@ export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = [], figures
   };
   const tabs = [...ids].map((id, k) => ({ yc: firstY((b) => b.table_id === id, tables.find((x) => x.table_id === id)!.bbox, k), text: `\n${md.get(id)!}\n` }));
   // 그림: 영역 순서대로 번호, 영역 없는 그림 라벨 줄은 마지막 한 묶음
-  const groups = [...figures.map((f, i) => ({ i, box: f.bbox })), ...([...fig.values()].includes(-1) ? [{ i: -1, box: undefined as number[] | undefined }] : [])];
+  const groups = [...figures.map((f, i) => ({ i, box: f.bbox })).filter((g) => !undone.has(g.i)), ...([...fig.values()].includes(-1) ? [{ i: -1, box: undefined as number[] | undefined }] : [])];
   const figRows: { yc: number; text: string }[] = [];
   const figLines: string[] = [];
   groups.forEach((g, k) => {
@@ -147,9 +148,21 @@ export function ocrPageText(blocks: OcrBlock[], tables: OcrTable[] = [], figures
   return [body, ...figLines].filter(Boolean).join("\n");
 }
 
+/** 그림 상자 → 쪽 대비 0~1000 정수 [x0,y0,x1,y1]. 값이 숫자가 아니거나 쪽 크기를 모르거나 면적이 0이면 null.
+ *  좌우·위아래가 뒤집혀 있으면 정렬하고, 자를 때 가장자리가 잘리지 않게 시작은 내림·끝은 올림 (PR #39 리뷰) */
+export function normBox(b: number[] | undefined, w: number, h: number): number[] | null {
+  if (b?.length !== 4 || !(w > 0) || !(h > 0) || !b.every(Number.isFinite)) return null;
+  const c = (v: number, d: number, f: (x: number) => number) => Math.min(1000, Math.max(0, f((v / d) * 1000)));
+  const [x0, x1] = [Math.min(b[0]!, b[2]!), Math.max(b[0]!, b[2]!)], [y0, y1] = [Math.min(b[1]!, b[3]!), Math.max(b[1]!, b[3]!)];
+  const r = [c(x0, w, Math.floor), c(y0, h, Math.floor), c(x1, w, Math.ceil), c(y1, h, Math.ceil)];
+  return r[2]! > r[0]! && r[3]! > r[1]! ? r : null;
+}
+
 export interface Segment {
   doc_id: string; page_index: number; source: "text_layer" | "ocr";
   text: string; blocks: Partial<OcrBlock>[]; avg_confidence: number | null; low_confidence: boolean;
+  /** 그림 영역 [x0,y0,x1,y1] (쪽 너비·높이 대비 0~1000 정수). ImageDescribe가 그림을 정확히 잘라 보여 줄 때 씀 (yoyo0704 b782529). 그림 없으면 생략 */
+  figure_boxes?: number[][];
 }
 
 // ponytail: 저신뢰 기준 고정값 (docs/04 2.1), 실측 후 조정
@@ -178,7 +191,9 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     const figs = op.figures ?? [];
     const size = { width: op.width, height: op.height };
     // 본문 줄만(그림 줄은 본문 만들기와 같은 기준으로 제외). 글자가 빈 덩어리(신뢰도 0, 11/17 실측)도 뺀다
-    const { fig } = splitPage(blocks, op.tables, figs, size);
+    const { fig, figures: kept, undone } = splitPage(blocks, op.tables, figs, size);
+    // 그림으로 분리한 영역만 (쪽 전체 스캔으로 본 큰 상자·직인·본문으로 되돌린 상자는 제외)
+    const boxes = kept.flatMap((f, i) => { if (undone.has(i)) return []; const b = normBox(f.bbox, op.width, op.height); return b ? [b] : []; });
     const conf = blocks.filter((b) => b.text.trim() && !fig.has(b));
     const avg = conf.length ? conf.reduce((s, b) => s + b.confidence, 0) / conf.length : 0;
     return {
@@ -188,6 +203,7 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
       blocks, avg_confidence: conf.length ? avg : null, low_confidence: !blocks.length || (conf.length > 0 && (avg < PAGE_AVG_MIN || conf.some((b) => b.confidence < BLOCK_MIN)))
         // 쪽 글자가 모두 그림 속 글자로 분류된 쪽: 흐린 스캔을 캡처로 오인했을 수 있어 사람 확인 (PR #33 재리뷰 MEDIUM-F)
         || (conf.length === 0 && [...fig.keys()].some((b) => b.text.trim())),
+      ...(boxes.length ? { figure_boxes: boxes } : {}),
     } satisfies Segment;
   });
 }

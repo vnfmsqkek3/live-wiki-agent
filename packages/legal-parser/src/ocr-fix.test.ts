@@ -70,3 +70,26 @@ test("번호 공백 붙이기 경계 (PR #28 리뷰): 보통 명사는 그대로
   assert.equal(restoreCircled("2 / 15", st), "2 / 15");
   assert.equal(st.last, 1);
 });
+
+test("좌우로 나란한 두 글은 ' / '로 구분, 가까운 덩어리는 공백 (과천 12쪽)", () => {
+  const box = (t: string, x0: number, x1: number) => ({ text: t, bbox: [x0, 100, x1, 120] });
+  assert.deepEqual(ocrRows([box("링크 접속", 100, 300), box("해당 모델명 입력 후 검색", 900, 1300)]), ["링크 접속 / 해당 모델명 입력 후 검색"]);
+  assert.deepEqual(ocrRows([box("제1조(목적)", 100, 300), box("이 규정은", 320, 450)]), ["제1조(목적) 이 규정은"]);
+});
+
+test("좌우 구분자 예외 (PR #39 리뷰): 조 머리·항 번호 뒤, 꼬리표 앞은 떨어져 있어도 공백", () => {
+  const box = (t: string, x0: number, x1: number) => ({ text: t, bbox: [x0, 100, x1, 120] });
+  assert.deepEqual(ocrRows([box("제1조(목적)", 0, 200), box("1 이 규정은", 600, 900)]), ["제1조(목적) 1 이 규정은"]);
+  assert.deepEqual(ocrRows([box("제5조 삭제", 0, 200), box("<2026. 12. 1.>", 1500, 1800)]), ["제5조 삭제 <2026. 12. 1.>"]);
+  assert.deepEqual(ocrRows([box("이 규정에서 사용하는 용어는", 0, 400), box("<개정 2026. 12. 1.>", 1500, 1800)]), ["이 규정에서 사용하는 용어는 <개정 2026. 12. 1.>"]);
+  // 겹친 덩어리: 넓은 A 안의 작은 B 뒤 C는 A의 오른쪽 끝 기준
+  assert.deepEqual(ocrRows([box("긴 설명 문장이 이어진다", 0, 1000), box("작은", 100, 160), box("다음", 1010, 1100)]), ["긴 설명 문장이 이어진다 작은 다음"]);
+  // restoreCircled까지: 조 머리 뒤 1이 ①로
+  assert.match(restoreCircled(ocrRows([box("제1조(목적)", 0, 200), box("1 이 규정은", 600, 900)]).join("\n")), /^제1조\(목적\) ① 이 규정은/u);
+});
+
+test("구조 머리 예외는 덩어리 전체가 머리일 때만 (PR #39 재리뷰)", () => {
+  const box = (t: string, x0: number, x1: number) => ({ text: t, bbox: [x0, 100, x1, 120] });
+  assert.deepEqual(ocrRows([box("1. 다운로드 자료실 접속", 0, 400), box("2. 모델명 입력 후 검색", 1200, 1600)]), ["1. 다운로드 자료실 접속 / 2. 모델명 입력 후 검색"]);
+  assert.deepEqual(ocrRows([box("1.", 0, 30), box("최근 3년간 재무제표", 600, 900)]), ["1. 최근 3년간 재무제표"]);
+});
