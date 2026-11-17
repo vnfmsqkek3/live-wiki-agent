@@ -168,7 +168,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 |---|---|
 | 단계 | 새 단계 없음. ReferenceCheck(Lambda·Tool 이름 유지)의 찾기 범위를 넓힘. 화면 이름 "확인 필요" |
 | 종류(MVP) | `VAGUE_ACTOR`(담당자·부서 불명), `MISSING_VALUE`(기한·금액·기준·연락처 등 빠짐), `MISSING_LINK`, `INCONSISTENT`. 제외: VAGUE_EXPRESSION(오탐), OUTDATED 는 권고만. 최대 5건(웹 검색은 그중 3건) |
-| 해결 순서 | ① 사내 위키 검색(PUBLISHED 문서만, 같은 category_path 우선, 출처 doc_id·쪽) ② 웹 검색은 MISSING_LINK·INCONSISTENT·OUTDATED 만(VAGUE_ACTOR·MISSING_VALUE 는 코드에서 금지 — 내부 사정 유출·오답) ③ 둘 다 없으면 질문만. 조직도 없음(사람이 입력한 답이 게시되면 다음 문서의 제안 출처) |
+| 해결 순서 | ① 사내 위키 검색(PUBLISHED 문서만, 같은 category_path 우선, 출처 doc_id·쪽) ② 웹 검색은 MISSING_LINK·OUTDATED 만(VAGUE_ACTOR·MISSING_VALUE·INCONSISTENT 는 코드에서 금지 — 내부 사정 유출·오답, 표·본문 모순은 위키 제안만). MISSING_LINK 는 채택 결과가 없으면 1회 재시도 ③ 둘 다 없으면 질문만. 조직도 없음(사람이 입력한 답이 게시되면 다음 문서의 제안 출처) |
 | finding | 코드 `CLARIFY_NEEDED`(기존 REFERENCE_SUGGESTION 은 kind=MISSING_LINK 로 통합). data `{kind, item, page, before, question, suggestions[{value, after, source:{type: WIKI·WEB·USER, doc_id?, page?, url?}}], status: OPEN·APPLIED·DISMISSED, dismiss_reason?}` |
 | 차단 | `VAGUE_ACTOR`·`MISSING_VALUE` 가 절차·승인·한도 문장에 있으면 MEDIUM(게시 요청 잠금), 나머지 LOW. 풀기: 적용 / 직접 입력 / 해당 없음(사유 한 줄, 감사 기록, 승인 화면 '자세히') |
 | 적용 | 화면에서 항목별 before→after 를 모아 `POST /v1/documents/:id/edit {markdown}` 한 번(6.2 새 버전 → 재검사 → diff → 사람 승인). 제자리 수정 금지(승인 해시). IN_REVIEW 문서 edit 허용(6.2 에 이미 있음) |
