@@ -123,8 +123,8 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | 시작 | type-detection: `InvokeAgentRuntime({action:"start"})`, 승인 API: `InvokeAgentRuntime({action:"resume", decision})`. SFN·task token 경로는 폐기 |
 | 사람 승인 | 오케스트레이터는 Trust Gate 뒤 `await_review` Tool 로 `lifecycle=IN_REVIEW` 를 두고 종료. 승인 API 가 resume |
 
-- SegmentBuild(let522mj)는 `work/text_layer.json`의 `needs_ocr=true` 쪽을 `work/ocr/result.json`으로 만든다. 11/17부터 PDF·이미지·DOCX·HWPX는 모든 쪽 `needs_ocr=true`(글자 비움), TXT·MD만 텍스트. OCR 결과에 대상 쪽이 없으면 예외.
-- ConvertToPdf(yoyo0704, 11/17 신규): `{doc}/work/document.pdf`. TextLayerExtract는 이 파일이 있으면 그 쪽 수를 쓴다. DOCX·HWPX는 이 파일이 없을 때만 XML 글자(배포 전 호환).
+- SegmentBuild(let522mj)는 `work/text_layer.json`의 `needs_ocr=true` 쪽을 `work/ocr/result.json`으로 만든다. 11/17부터 `work/document.pdf`(ConvertToPdf)가 있으면 PDF·이미지·DOCX·HWPX는 모든 쪽 `needs_ocr=true`(글자 비움), TXT·MD만 텍스트. 변환본이 깨졌으면 예외 `ConvertedPdfInvalid`(재시도, 올린 사람 차단 아님). OCR 결과와 text_layer 쪽 수가 다르면 예외. OCR 결과에 대상 쪽이 없으면 예외.
+- ConvertToPdf(yoyo0704, 11/17 신규): `{doc}/work/document.pdf`. TextLayerExtract는 이 파일이 있으면 그 쪽 수를 쓴다. 없으면(배포 전 호환) PDF는 쪽별 글자 수 판정, DOCX·HWPX는 XML 글자.
 - 단계 Lambda는 Terraform 변수 `step_functions = { malware_check = "<arn>", … }`로 연결한다. 비어 있으면 dev stub(`{status:"OK"}`). 단계 키: `workflows/src/asl.ts`.
 - `Finding = { finding_id, step, severity: LOW|MEDIUM|HIGH, code, message, evidence_ref }` (원문 PII를 message에 넣지 않음)
 
