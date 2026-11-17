@@ -149,6 +149,18 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | 검사 | InjectionScan 이 page_markdown 도 검사 |
 | 바뀌지 않는 것 | 원문 보기·조문 인용·PII 검사·주장 대조는 OCR `text` 기준 |
 
+### 6.4 참조 확인 (ReferenceCheck, 사용자 결정 11/18)
+
+| 항목 | 계약 |
+|---|---|
+| 목적 | 문서가 가리키는 대상(링크·사이트·다운로드·프로그램·버전·모델명)이 문서 안에 없거나 서로 맞지 않는 것을 찾아, 공개 웹에서 확인한 주소·정보를 "확인할 것" 으로 제안. 문서 유형 무관 |
+| 위치 | Classify(정리본) 뒤, 게시를 막지 않음(LOW/INFO finding). 실패해도 파이프라인 계속 |
+| 1. 찾기 | Haiku 가 정리본(마스킹)에서 `{item, reason: MISSING_LINK·INCONSISTENT·MAY_BE_OUTDATED, query, page}` 목록 (최대 5건) |
+| 2. 검색어 검사 | 규칙: IPv4·이메일·사내 도메인·`[개인정보]` 등 마스킹 자리·사람 이름 추정이 있으면 검색 안 함. 검색어는 120자 이하 |
+| 3. 브라우저 | AgentCore Browser(`aws.browser.v1`)로 검색 → 상위 결과 열어 제목·본문 일부로 일치 확인. 도메인 제한 없음(03 보완 통제). 웹 글은 자료로만 |
+| 4. 결과 | finding `REFERENCE_SUGGESTION`(INFO): `{item, query, url, title, checked_at}`, 화면 "정리본에 넣기" → 위키 수정(6.2) 흐름. 근거 인용 불가 |
+| 감사 | `audit_events` action `WEB_SEARCH`(검색어·URL·결과 수, 원문 없음) |
+
 ## 7. Backend API (Owner dhxorb96, 원본 `01` 10장)
 
 | 메서드·경로 | 역할 | 요약 |
