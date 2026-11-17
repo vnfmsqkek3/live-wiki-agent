@@ -131,3 +131,9 @@ test("OCR 공백 누락: '제2장심사 절차'도 장 제목, 본문 줄은 제
   assert.match(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2"))!.heading_path.join(), /심사 절차/u);
   assert.ok(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2"))!.normalized_text.includes("제2장에 따른"));
 });
+
+test("OCR 줄 '제2 관리자는…'은 제목이 아니라 본문으로 남음 (PR #28 리뷰)", () => {
+  const meta = { law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" };
+  const l = parseLaw("제1조(점검) 이 규정에 따라\n제2 관리자는 다음 사항을 점검하여", meta);
+  assert.match(l.provisions[0]!.normalized_text, /관리자는/u);
+});

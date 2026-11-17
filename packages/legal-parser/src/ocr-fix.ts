@@ -11,11 +11,15 @@ const ARTICLE = /^(제\d+조(?:의\d+)?(?:\s*\((?:[^()]|\([^()]*\))*\))?)\s*(.*)
 /** 쪽을 넘어 이어지는 문맥 (조·항이 다음 쪽으로 넘어가도 "2"를 ②로 되돌릴 수 있게) */
 export interface CircledState { last: number; lastArticle: number }
 // OCR은 "제 10 조", "제 1 항제 3 호"처럼 번호 앞뒤에 공백을 넣기도 한다(11/17 DOCX→PDF→OCR 실측) → 붙인다
-const SPACED_NO = /제\s+(\d+)\s*(조|항|호|장|절|편|관)|제(\d+)\s+(조|항|호|장|절|편|관)/gu;
+// 단위 글자 뒤가 경계(공백·괄호·조사·다음 번호·원문자·문장부호)일 때만 붙인다: "제 1 조정위원회", "제2 관리자"는 그대로 (PR #28 리뷰)
+const SPACED_NO = /제\s*(\d+)\s*(조|항|호|장|절|편|관)(?:\s*의\s*(\d+))?(?=\s|$|\(|제|의|에|및|부터|까지|와|과|[①-⑳,.·])/gu;
+/** 쪽 번호 꼬리말("2 / 15", "3-15")은 항 번호로 보지 않는다 */
+const PAGE_NO = /^\s*\d+\s*[/-]\s*\d+\s*$/u;
 
 export function restoreCircled(text: string, st: CircledState = { last: 0, lastArticle: 0 }): string {
   return text.split("\n").map((line0) => {
-    const line = line0.replace(SPACED_NO, (_, a: string, b: string, c: string, d: string) => `제${a ?? c}${b ?? d}`);
+    if (PAGE_NO.test(line0)) return line0;
+    const line = line0.replace(SPACED_NO, (_, n: string, u: string, br?: string) => `제${n}${u}${br ? `의${br}` : ""}`);
     if (/^부\s*칙/u.test(line)) { st.lastArticle = 0; st.last = 0; return line; }
     const art = ARTICLE.exec(line);
     // 조 머리: 번호가 앞으로 가고(직전보다 큼, 가지 조는 같아도 됨) 괄호 바로 뒤가 조사가 아닐 때만.

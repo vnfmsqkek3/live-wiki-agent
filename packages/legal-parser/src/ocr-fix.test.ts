@@ -58,3 +58,13 @@ test("DOCX→PDF→OCR 실측(11/17): '제 10 조' 공백 붙이기, 항 번호 
   // 문맥 없이(쪽마다 새로) 하면 되돌리지 않음
   assert.match(restoreCircled("2제 1 항제 3 호의"), /^2제1항제3호의/u);
 });
+
+test("번호 공백 붙이기 경계 (PR #28 리뷰): 보통 명사는 그대로, 가지조, 쪽 번호 꼬리말", () => {
+  assert.equal(restoreCircled("제 1 조정위원회는 분기마다 개최한다."), "제 1 조정위원회는 분기마다 개최한다.");
+  assert.equal(restoreCircled("제 3 조합원은"), "제 3 조합원은");
+  assert.equal(restoreCircled("제2 관리자는 다음 사항을 점검하여"), "제2 관리자는 다음 사항을 점검하여");
+  assert.match(restoreCircled("제 2 조 의 2(정의)1 용어는"), /^제2조의2\(정의\) ① 용어는/u);
+  const st = { last: 1, lastArticle: 5 };
+  assert.equal(restoreCircled("2 / 15", st), "2 / 15");
+  assert.equal(st.last, 1);
+});

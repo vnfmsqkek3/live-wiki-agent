@@ -78,11 +78,13 @@ export const BLOCK_MIN = 0.85;
 export const PAGE_AVG_MIN = 0.9;
 
 export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[] {
-  const circled = { last: 0, lastArticle: 0 }; // 항 번호 보정 문맥을 쪽 사이에 이어 감
+  // 항 번호 보정 문맥은 쪽 사이에 "마지막 항 번호"만 이어 감. 조 번호는 쪽마다 새로 (잘못 읽힌 조 번호가 다음 쪽으로 번지지 않게, PR #28 리뷰)
+  let lastPara = 0;
   // 3a와 PageRender가 서로 다른 PDF를 봤으면 남는 쪽이 조용히 버려진다 → 멈춘다
   if (ocr && ocr.page_count !== layer.page_count) throw new Error(`쪽 수 불일치: text_layer ${layer.page_count}, ocr ${ocr.page_count}`);
   return layer.pages.map((p) => {
     if (!p.needs_ocr) {
+      lastPara = 0; // 글자 그대로 쓴 쪽을 지나면 이어 갈 문맥이 없음
       const lines = p.text.split(/\r?\n/u).filter((l) => l.trim());
       return {
         doc_id: layer.doc_id, page_index: p.page_index, source: "text_layer", text: p.text,
@@ -97,7 +99,7 @@ export function buildSegments(layer: TextLayer, ocr: OcrResult | null): Segment[
     return {
       // 같은 높이 블록을 한 줄로 묶고, 숫자로 읽힌 항 번호(①→1)를 순서 근거가 있을 때만 되돌린다 (13항 12번 실측)
       doc_id: layer.doc_id, page_index: p.page_index, source: "ocr",
-      text: restoreCircled(ocrPageText(blocks, op.tables), circled),
+      text: (() => { const st = { last: lastPara, lastArticle: 0 }; const t = restoreCircled(ocrPageText(blocks, op.tables), st); lastPara = st.last; return t; })(),
       blocks, avg_confidence: avg, low_confidence: !blocks.length || avg < PAGE_AVG_MIN || blocks.some((b) => b.confidence < BLOCK_MIN),
     } satisfies Segment;
   });
@@ -141,7 +143,7 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
  *  이 단계는 PII 마스킹 전이라 excerpt는 반드시 @hanaeum/pii로 가린 뒤 담는다 */
 export function structureFindings(segments: Pick<Segment, "page_index" | "text">[], work: string): Finding[] {
   const lines: { page: number; text: string }[] = segments.flatMap((s) => s.text.split("\n").map((t) => ({ page: s.page_index + 1, text: t })));
-  if (lines.filter((l) => /^제\d+조/u.test(l.text.trim())).length < 3) return [];
+  if (lines.filter((l) => /^제\s*\d+\s*조/u.test(l.text.trim())).length < 3) return [];
   const suppAt = lines.findIndex((l) => /^부\s*칙/u.test(l.text.trim()));
   const law = parseLaw(lines.map((l) => l.text).join("\n"), { law_id: "CHECK", law_name: "check", revision_id: "2000-01-01" });
   return law.issues

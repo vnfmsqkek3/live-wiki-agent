@@ -333,3 +333,17 @@ test("표(PP-StructureV3): 표 영역 줄 대신 제자리에 마크다운 표, 
   // 표에만 bbox가 없으면 표 첫 줄의 세로 위치 (재리뷰)
   assert.equal(ocrPageText(blocks, [{ table_id: "p0-t0", bbox: [], html: "<tr><td>구분</td></tr>" }]), "영업점 마감 노하우\n\n| 구분 |\n| --- |\n\n표 아래 문장");
 });
+
+test("쪽 넘김 문맥: 항 번호만 이어 가고 잘못 읽힌 조 번호는 번지지 않음, 글자 그대로 쓴 쪽에서 초기화 (PR #28 리뷰)", async () => {
+  const { buildSegments } = await import("./segment.ts");
+  const blk = (text: string, i: number) => ({ block_id: `b${i}`, label: "text", text, confidence: 0.99, bbox: [0, i * 20, 100, i * 20 + 10], reading_order: i, table_id: null });
+  const pg = (i: number, lines: string[]) => ({ page_index: i, width: 100, height: 100, source: "ocr", blocks: lines.map(blk) });
+  const layer = (n: number, textPages: number[] = []) => ({ doc_id: "D", source_ext: "pdf", page_count: n, pages: Array.from({ length: n }, (_, i) => ({ page_index: i, text: textPages.includes(i) ? "부칙" : "", char_count: 0, broken_ratio: 0, needs_ocr: !textPages.includes(i) })) });
+  const ocr = (pages: ReturnType<typeof pg>[]) => ({ doc_id: "D", model: "m", model_version: "v", page_count: pages.length, pages });
+  // 1쪽 본문 인용 "제 25 조 각 호의…"가 있어도 2쪽 "제11조(승인)1 …"은 ①로
+  const s1 = buildSegments(layer(2), ocr([pg(0, ["제10조(심사) ① 심사역은", "제 25 조 각 호의 서류를 받는다."]), pg(1, ["제11조(승인)1 여신 승인은", "2 금액이"])]));
+  assert.match(s1[1]!.text, /제11조\(승인\) ① 여신 승인은\n② 금액이/u);
+  // 2쪽이 글자 그대로 쓴 쪽이면 3쪽은 새 문맥
+  const s2 = buildSegments(layer(3, [1]), ocr([pg(0, ["제30조(시행) ① 시행한다"]), pg(1, []), pg(2, ["2 이 규정 시행 당시"])]));
+  assert.equal(s2[2]!.text, "2 이 규정 시행 당시");
+});
