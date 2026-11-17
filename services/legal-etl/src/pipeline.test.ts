@@ -59,6 +59,21 @@ test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED"
   assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // 위→아래 줄 순서
 });
 
+test("5: 글자 없는 사진(강아지 사진 실측 11/17)은 예외로 멈추지 않고 이유와 함께 BLOCKED", async () => {
+  const s = new MemoryObjectStore();
+  await s.put(Q, `${DOC}/original.png`, readFileSync(new URL("documents/A-002.png", FIX)));
+  await textLayerStep(input, s);
+  // 실제 PaddleOCR 출력: 그림 전체를 빈 문단 1개로 돌려줌
+  await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify({ doc_id: DOC, model: "paddleocr", model_version: "3.7.0", page_count: 1, pages: [{ page_index: 0, width: 1024, height: 1024, source: "ocr",
+    blocks: [{ block_id: "p0-b0", label: "paragraph", text: "", confidence: 0, bbox: [80, 2, 929, 967], reading_order: 0, table_id: null }] }] }));
+  const out = await segmentStep(input, s);
+  assert.equal(out.status, "BLOCKED");
+  const f = out.findings![0]!;
+  assert.equal(f.code, "NO_TEXT");
+  assert.match(f.user_message!, /글자를 찾지 못했습니다/u);
+  assert.ok(f.fix_hint);
+});
+
 test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 계약 준수", async () => {
   const s = new MemoryObjectStore();
   const r = new MemoryRecords();

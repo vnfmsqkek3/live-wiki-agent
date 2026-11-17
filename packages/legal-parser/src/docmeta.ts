@@ -10,6 +10,8 @@ export interface DocDate { kind: DateKind; date: string; page: number } // date 
 const DATE = String.raw`(\d{4})\s*(?:[.\-/]|년)\s*(\d{1,2})\s*(?:[.\-/]|월)\s*(\d{1,2})\s*(?:일|\.)?`;
 // "개정일: 2026. 11. 1." "시행 2026-12-01" "<개정 2026. 11. 1.>" "작성일자 2026년 10월 15일" "기준일 …"
 const LABELED = new RegExp(String.raw`(제정|개정|시행|작성|발행|기준)(?:일자|일)?[^\d\n]{0,12}?` + DATE, "gu");
+const MORE = new RegExp(String.raw`^\s*,\s*` + DATE, "u"); // "<개정 2019. 1. 1., 2026. 11. 1.>" 이어지는 날짜
+const FROM = new RegExp(DATE + String.raw`\s*부터\s*시행`, "gu"); // 부칙 "2026년 11월 1일부터 시행한다"
 
 const valid = (y: number, m: number, d: number) => {
   const t = new Date(Date.UTC(y, m - 1, d));
@@ -19,12 +21,16 @@ const valid = (y: number, m: number, d: number) => {
 /** 본문에 적힌 일자 전부 (라벨 붙은 것만. 라벨 없는 날짜는 거래일·예시일 수 있어 쓰지 않는다) */
 export function docDates(pages: string[]): DocDate[] {
   const out: DocDate[] = [];
+  const add = (kind: DateKind, y: number, mo: number, d: number, page: number) => {
+    if (valid(y, mo, d)) out.push({ kind, date: `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`, page });
+  };
   pages.forEach((text, page) => {
     for (const m of text.matchAll(LABELED)) {
-      const [y, mo, d] = [Number(m[2]), Number(m[3]), Number(m[4])];
-      if (!valid(y, mo, d)) continue;
-      out.push({ kind: m[1] as DateKind, date: `${y}-${String(mo).padStart(2, "0")}-${String(d).padStart(2, "0")}`, page });
+      add(m[1] as DateKind, Number(m[2]), Number(m[3]), Number(m[4]), page);
+      let rest = text.slice(m.index + m[0].length);
+      for (let n = MORE.exec(rest); n; n = MORE.exec(rest)) { add(m[1] as DateKind, Number(n[1]), Number(n[2]), Number(n[3]), page); rest = rest.slice(n[0].length); }
     }
+    for (const m of text.matchAll(FROM)) add("시행", Number(m[1]), Number(m[2]), Number(m[3]), page);
   });
   return out;
 }
@@ -65,10 +71,10 @@ export interface VersionCandidate { doc_id: string; title: string; text: string;
 /** 새 문서의 이전 버전 후보: 같은 law_id(규정) 또는 제목이 같고/본문 유사도 ≥ 0.5. 점수 높은 순 최대 3건.
  *  ponytail: 후보 전체와 비교 O(n·본문), 문서 수천 건이면 KB 유사 검색으로 후보를 먼저 줄인다 */
 export function previousVersionCandidates(doc: { title: string; text: string; law_id?: string }, candidates: VersionCandidate[]): { doc_id: string; title: string; score: number; reason: string }[] {
-  return candidates.map((c) => {
+  return candidates.filter((c) => c.text !== doc.text || c.title !== doc.title).map((c) => {
     if (doc.law_id && c.law_id === doc.law_id) return { doc_id: c.doc_id, title: c.title, score: 1, reason: "같은 규정(법령 ID)" };
     const sim = similarity(doc.text, c.text);
-    const sameTitle = norm(c.title) === norm(doc.title);
+    const sameTitle = !!norm(doc.title) && norm(c.title) === norm(doc.title); // 빈 제목끼리는 같은 제목 아님
     const score = Math.min(1, sim + (sameTitle ? 0.3 : 0));
     return { doc_id: c.doc_id, title: c.title, score, reason: sameTitle ? `제목 같음, 본문 ${Math.round(sim * 100)}% 일치` : `본문 ${Math.round(sim * 100)}% 일치` };
   }).filter((x) => x.score >= 0.5).sort((a, b) => b.score - a.score).slice(0, 3);
@@ -106,12 +112,22 @@ export function diffDocuments(oldPages: string[], newPages: string[]): DocChange
  *  ponytail: O(줄수²) 메모리, 각 5천 줄 넘는 문서는 쪽 단위로 먼저 나눠 비교 */
 function lineDiff(oldPages: string[], newPages: string[]): DocChange[] {
   const flat = (ps: string[]) => ps.flatMap((t, p) => t.split("\n").map((l) => ({ p, l: l.trim() })).filter((x) => x.l));
-  const a = flat(oldPages), b = flat(newPages);
   const key = (s: string) => s.replace(/\s+/gu, " ");
+  const keyed = (ps: string[]) => flat(ps).map((x) => ({ ...x, k: key(x.l) }));
+  let a = keyed(oldPages), b = keyed(newPages);
+  // 앞뒤 같은 줄은 비교에서 뺀다 (대부분의 개정은 일부만 바뀜)
+  let pre = 0; while (pre < a.length && pre < b.length && a[pre]!.k === b[pre]!.k) pre++;
+  let suf = 0; while (suf < a.length - pre && suf < b.length - pre && a[a.length - 1 - suf]!.k === b[b.length - 1 - suf]!.k) suf++;
+  a = a.slice(pre, a.length - suf); b = b.slice(pre, b.length - suf);
+  // ponytail: 남은 줄이 너무 많으면(표 4천만 칸 초과) 쪽 단위로만 알린다
+  if ((a.length + 1) * (b.length + 1) > 4e7) {
+    return [...new Set([...a, ...b].map((x) => x.p))].sort((x, y) => x - y).map((p) => ({ kind: "CHANGED" as const, where: `${p + 1}쪽`, old_page: p, new_page: p,
+      old_text: a.filter((x) => x.p === p).map((x) => x.l).join("\n"), new_text: b.filter((x) => x.p === p).map((x) => x.l).join("\n") }));
+  }
   const W = b.length + 1;
   const L = new Uint32Array((a.length + 1) * W);
   for (let i = a.length - 1; i >= 0; i--) for (let j = b.length - 1; j >= 0; j--)
-    L[i * W + j] = key(a[i]!.l) === key(b[j]!.l) ? L[(i + 1) * W + j + 1]! + 1 : Math.max(L[(i + 1) * W + j]!, L[i * W + j + 1]!);
+    L[i * W + j] = a[i]!.k === b[j]!.k ? L[(i + 1) * W + j + 1]! + 1 : Math.max(L[(i + 1) * W + j]!, L[i * W + j + 1]!);
   const out: DocChange[] = [];
   let del: typeof a = [], add: typeof b = [];
   const flush = () => {
@@ -123,7 +139,7 @@ function lineDiff(oldPages: string[], newPages: string[]): DocChange[] {
   };
   let i = 0, j = 0;
   while (i < a.length || j < b.length) {
-    if (i < a.length && j < b.length && key(a[i]!.l) === key(b[j]!.l)) { flush(); i++; j++; }
+    if (i < a.length && j < b.length && a[i]!.k === b[j]!.k) { flush(); i++; j++; }
     else if (j < b.length && (i >= a.length || L[i * W + j + 1]! >= L[(i + 1) * W + j]!)) add.push(b[j++]!);
     else del.push(a[i++]!);
   }
