@@ -190,3 +190,9 @@ mark.hl sup { color: var(--danger); font: 700 .7rem var(--sans); margin-left: 2p
 .bbox { position: absolute; border: 2px solid var(--danger); background: color-mix(in srgb, var(--danger) 15%, transparent); border-radius: 2px; }
 .explain { border: 1px solid var(--rule); background: var(--sheet); padding: 14px 16px; margin: 0 0 12px; }
 .linklike { background: none; border: 0; padding: 6px 0; min-height: 44px; font: 600 .95rem var(--sans); color: var(--ledger); text-decoration: underline; text-underline-offset: 3px; cursor: pointer; text-align: left; }
+/* 원본 · 근거 · 수정 세 칸 (좁은 화면에서는 위아래) */
+.trio { display: grid; grid-template-columns: max-content 1fr; gap: 6px 12px; margin: 6px 0 0; font-size: .92rem; }
+.trio dt { color: var(--ink-2); font-weight: 600; }
+.trio dd { margin: 0; white-space: pre-line; }
+.trio cite { display: block; font: 600 .82rem var(--sans); font-style: normal; color: var(--ink-2); }
+.trio .rev { font-weight: 600; color: var(--verified); }

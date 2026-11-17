@@ -7,7 +7,7 @@ import { readFileSync, readdirSync } from 'node:fs';
 import { join } from 'node:path';
 import { structured } from '../src/model.ts';
 import { detectPii, mask } from '../src/steps/pii-detect.ts';
-import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, validateKnowhow, type Clause, type Judgement } from '../src/steps/knowhow.ts';
+import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, validateKnowhow, type Clause, type Judgement } from '../src/steps/knowhow.ts';
 
 const dir = process.argv[2];
 if (!dir) throw new Error('fixtures dir 필요');
@@ -102,6 +102,7 @@ async function realDeps() {
     searchProvisionIds: async (q) => ((await search.search_wiki({ query: q, index_groups: ['legal-clauses'], top_k: 5 }, { sub: 'system:measure', groups: ['REG_APPROVER'] })).items ?? [])
       .filter((i) => i.search_status === 'FOUND').map((i) => i.provision_id).filter(Boolean),
     judge,
+    suggest: async (items) => (await structured<{ suggestions: string[] }>('HAIKU', SUGGEST_SYSTEM, suggestPrompt(items), 'submit_suggestions', SUGGEST_SCHEMA as unknown as Record<string, unknown>)).value.suggestions,
   });
 }
 
@@ -123,6 +124,7 @@ const real = process.env.REAL === '1' ? await realDeps() : undefined;
 console.log(`모드: ${real ? '실제 (규정 저장소·KB 검색)' : '임시 (fixture 파서·2-gram 검색)'}`);
 let conflictHit = 0;
 let falsePositive = 0;
+const suggestions: string[] = [];
 console.log('| 문서 | 기대 | 판정 | 결과 | 근거 |\n|---|---|---|---|---|');
 for (const [id, expected] of cases) {
   const raw = read(fileOf(id)).replace(/^---\n[\s\S]*?\n---\n/, ''); // 작성자 선언 cites는 쓰지 않는다 (본문만)
@@ -134,5 +136,7 @@ for (const [id, expected] of cases) {
   if (expected === 'NOT_CONFLICT' && v === 'CONFLICT') falsePositive++;
   const why = r.validation.items.find((j) => j.relation === 'CONFLICTS') ?? r.validation.items[0];
   console.log(`| ${id} | ${expected} | ${v} | ${ok ? '✅' : '❌'} | ${why ? `${why.label}: ${why.reason}`.replace(/\|/g, '/').slice(0, 90) : r.validation.outdated[0]?.label ?? '-'} |`);
+  if (process.env.SHOW_FIX) for (const j of r.validation.items.filter((x) => x.suggestion)) suggestions.push(`- ${id} [${j.relation}] "${j.statement}" → "${j.suggestion}"`);
 }
+if (suggestions.length) console.log(`\n수정 문장 (suggestion)\n${suggestions.join('\n')}`);
 console.log(`\n노하우 충돌 탐지: ${conflictHit}/5 (기준 4/5 이상: ${conflictHit >= 4 ? '통과' : '미달'}) · 정상 노하우 오탐: ${falsePositive}/5`);

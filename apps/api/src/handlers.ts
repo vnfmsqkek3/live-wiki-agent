@@ -6,7 +6,7 @@ import {
 } from './lambdas.ts';
 import { structured } from './model.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
-import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, type Judgement } from './steps/knowhow.ts';
+import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
 import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
 import { DynamoClauseStore, regulationTools } from '@hanaeum/regulation-server';
 import { BedrockRetriever, DynamoDocStates, searchTools } from '@hanaeum/search-server';
@@ -48,6 +48,7 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
           const r = await structured<{ items: Judgement[] }>('SONNET', JUDGE_SYSTEM, judgePrompt(t, cl), 'submit_judgement', JUDGE_SCHEMA as unknown as Record<string, unknown>);
           return { items: r.value.items, model: r.model };
         },
+        suggest: async (items) => (await structured<{ suggestions: string[] }>('HAIKU', SUGGEST_SYSTEM, suggestPrompt(items), 'submit_suggestions', SUGGEST_SCHEMA as unknown as Record<string, unknown>)).value.suggestions,
       }),
     };
   })()

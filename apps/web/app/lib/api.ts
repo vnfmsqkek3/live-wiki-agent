@@ -197,6 +197,8 @@ export interface Mark {
   /** let522mj buildMarks 표시 이름 (있으면 그대로 쓴다) */
   label?: string;
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from?: string }; fix?: string;
+  /** 세 칸 (사용자 요청 11/17, let522mj PR #15): 올린 문서의 그 부분(없으면 null) · 근거(basis) · 근거를 바탕으로 한 수정(필요 없으면 null). 이전 API는 없음 */
+  original?: string | null; revision?: string | null;
 }
 export interface LibraryCard {
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;

@@ -49,6 +49,7 @@ export interface KnowhowRealDeps {
   /** search_wiki(legal-clauses) 결과의 조문 ID 목록 */
   searchProvisionIds(text: string): Promise<string[]>;
   judge: KnowhowDeps['judge'];
+  suggest?: KnowhowDeps['suggest'];
 }
 
 export function knowhowDeps(r: KnowhowRealDeps): KnowhowDeps {
@@ -63,5 +64,6 @@ export function knowhowDeps(r: KnowhowRealDeps): KnowhowDeps {
       return out;
     },
     judge: r.judge,
+    ...(r.suggest ? { suggest: r.suggest } : {}),
   };
 }

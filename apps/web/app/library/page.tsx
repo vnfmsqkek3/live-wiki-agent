@@ -97,18 +97,32 @@ function Marked({ text, marks, active, onPick }: { text: string; marks: { m: Mar
   return <div className="page-text">{out}</div>;
 }
 
+/** 확인이 필요한 건의 세 칸: 원본 내용 · 근거 내용 · 근거를 바탕으로 한 수정 내용 (사용자 요청 11/17) */
+function Trio({ m }: { m: Mark }) {
+  const revision = m.revision ?? (m.kind === 'INSUFFICIENT' ? '근거 조문을 확인한 뒤 고쳐 주세요.' : '수정 필요 없음');
+  return (
+    <dl className="trio">
+      <dt>원본 내용</dt><dd>{m.original ?? <span className="note">(올린 문서에 없음)</span>}</dd>
+      <dt>근거 내용</dt>
+      <dd>{m.basis ? <><cite>{m.basis.label}{m.basis.effective_from && ` · ${m.basis.effective_from} 시행`}</cite>{m.basis.text}</> : <span className="note">근거 조문 없음</span>}</dd>
+      <dt>수정 내용</dt><dd className={m.revision ? 'rev' : 'note'}>{revision}</dd>
+    </dl>
+  );
+}
+
 function Fix({ m, n, on }: { m: Mark; n?: number; on?: boolean }) {
+  const trio = m.original !== undefined || m.revision !== undefined; // 새 API(세 칸). 이전 API는 기존 표시
   return (
     <li className={`fix${on ? ' on' : ''}`} id={n ? `mark-${n}` : undefined}>
       <p className="fix-head">{n && <b className="fix-n">{n}</b>}{m.label ?? KIND[m.kind]}{m.severity === 'HIGH' && <span className="danger-text"> · 수정 필요</span>}</p>
-      <p>{m.reason}</p>
-      {m.basis && (
+      {trio ? <><Trio m={m} /><p className="note" style={{ marginTop: 6 }}>{m.reason}</p></> : <p>{m.reason}</p>}
+      {!trio && m.basis && (
         <blockquote className="basis">
           <cite>{m.basis.label}{m.basis.effective_from && ` · ${m.basis.effective_from} 시행`}</cite>
           <p>{m.basis.text}</p>
         </blockquote>
       )}
-      {m.fix && <p><strong>고칠 내용</strong> {m.fix}</p>}
+      {m.fix && m.fix !== m.revision && <p className={trio ? 'note' : undefined}><strong>고칠 내용</strong> {m.fix}</p>}
     </li>
   );
 }
@@ -160,11 +174,11 @@ function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) =
         {located.map(({ pi, n, m }) => (
           <li key={`${pi}-${n}`} className={`fix${m.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
             <button type="button" className="linklike" onClick={() => jump(pi, n)}>{pi + 1}쪽 {n}번 · {m.label ?? KIND[m.kind]}</button>
-            <p style={{ margin: 0 }}>{m.reason}</p>
+            {m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}
           </li>
         ))}
         {d.doc_marks.map((m, i) => (
-          <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p><p style={{ margin: 0 }}>{m.reason}</p></li>
+          <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p>{m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}</li>
         ))}
         {!d.pages.length && r.findings.map((f, i) => (
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
