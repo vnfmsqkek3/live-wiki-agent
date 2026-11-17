@@ -151,6 +151,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `POST /v1/guides` | USER+ | 인용 포함 가이드 (SSE 가능) |
 | `GET /v1/admin/runs` · `/runs/{workflow_id}` | 결재자 | Agent 실행 기록(시작·소요·멈춘 단계), 단계별 상태 |
 | `GET /v1/admin/impact/laws` · `/impact?law=` | REG_APPROVER | 규정 변경 영향(사용자 Gateway `graph___trace_impact`) |
+| `GET /v1/library/{id}` 추가 필드 | 권한 내 | `pages[].figures[{k,url}]`(잘라낸 그림 presigned), `suggestions[]`(참조 확인 참고 주소) |
 | `GET /v1/admin/knowledge-debt` | 결재자 | 지식 상태 (`knowledge_debt` 뷰, 10.2) |
 | `POST /v1/feedback` | USER+ | `{ doc_id, stars, useful }` 사용자당 문서 1건 (덮어쓰기) |
 
