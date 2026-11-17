@@ -32,7 +32,7 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "category-sweep", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "4cf33ca" # workflows·auth-triggers·services/ocr
+    yoyo0704 = "23ae0af" # workflows·auth-triggers·services/ocr
     dhxorb96 = "3f05a4d" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
     let522mj = "de538bc" # PR #28 OCR 조문 번호 보정 (+#27 표·#26 전부 OCR)
   }
