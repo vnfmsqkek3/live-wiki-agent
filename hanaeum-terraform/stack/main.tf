@@ -83,6 +83,7 @@ module "ocr" {
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
   quarantine_bucket = module.s3.buckets["quarantine"]
+  min_instances     = var.ocr_min_instances
 }
 
 # 문서 처리 오케스트레이션: AgentCore Gateway(단계 Tool) + Runtime(오케스트레이터). 전환 완료 후 sfn 모듈 폐기

@@ -21,9 +21,10 @@ module "stack" {
   demo_password = var.demo_password
   env           = "prod"
   # 거버넌스 저장소 PostgreSQL (사용자 결정 11/17, interfaces.md 10장). prod 는 시험 문서뿐이라 복사 없이 빈 상태로 시작
-  governance_store = "postgres"
-  name_suffix      = ""
-  owner            = "team"
+  governance_store  = "postgres"
+  ocr_min_instances = 0 # 사용자 결정 11/17: prod 는 0대 (dev 는 1대)
+  name_suffix       = ""
+  owner             = "team"
   # prod 배포 직전 main 의 검증된 커밋으로 고정
   # dev 에서 smoke·실측·QA 를 통과한 커밋과 같게 (11/17 17시 기준, PostgreSQL 전환). 바꿀 때는 dev 먼저 검증
   lambda_refs       = { yoyo0704 = "2d53d78", dhxorb96 = "448cc7d", let522mj = "48e2f4f" }
