@@ -593,7 +593,7 @@ export function createApp(deps: Deps) {
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
     return c.json({
       ...base,
-      category_path: (await categoryView()).pathOf(d.doc_id),
+      ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {

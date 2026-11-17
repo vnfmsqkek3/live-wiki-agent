@@ -7,7 +7,7 @@ import { PageHeader } from '../page-header';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
+import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { Changes, PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
@@ -54,32 +54,42 @@ function List() {
   const router = useRouter();
   const sp = useSearchParams();
   const type = sp.get('type') ?? '';
-  const business = sp.get('business') ?? '';
+  const category = sp.get('category') ?? ''; // 업무 분류 칸 (AI 자동 분류, 하위 칸 포함)
   const [items, setItems] = useState<LibraryCard[] | null>(null);
-  const [businesses, setBusinesses] = useState<string[]>([]);
+  const [cats, setCats] = useState<CategoryNode[]>([]);
   const [err, setErr] = useState('');
-  const qs = (t: string, b: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(b ? [['business', b]] : [])]).toString();
+  const qs = (t: string, c: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(c ? [['category', c]] : [])]).toString();
+  useEffect(() => { api<{ items: CategoryNode[] }>('GET', '/v1/categories').then((r) => setCats(r.items)).catch(() => setCats([])); }, []);
   useEffect(() => {
     setItems(null); setErr('');
-    api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, business)}`)
-      .then((r) => { setItems(r.items); if (!business) setBusinesses([...new Set(r.items.map((i) => i.business_path[0]).filter((x): x is string => !!x))].sort()); })
+    api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, category)}`)
+      .then((r) => setItems(r.items))
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 열어 주세요.' : e.message); setItems([]); });
-  }, [type, business]);
-  const go = (t: string, b: string) => router.push(`/library${qs(t, b) ? `?${qs(t, b)}` : ''}`);
+  }, [type, category]);
+  const go = (t: string, c: string) => router.push(`/library${qs(t, c) ? `?${qs(t, c)}` : ''}`);
+  // 1단계 칸 → 고르면 그 아래 칸. 문서가 있는 칸만 (고른 칸은 늘 보임)
+  const sel = cats.find((x) => x.category_id === category);
+  const root = sel ? cats.find((x) => x.path === sel.path.split('/')[0]) : undefined;
+  const shown = (x: CategoryNode) => x.doc_count > 0 || x.category_id === category;
+  const level1 = cats.filter((x) => x.level === 1 && shown(x));
+  const children = root ? cats.filter((x) => x.parent_id === root.category_id && shown(x)) : [];
   return (
     <>
       <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
-        {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, business)}>{l}</button>)}
+        {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, category)}>{l}</button>)}
       </div>
-      {businesses.length > 1 && (
-        <label className="lbl">업무
-          <select className="field" value={business} onChange={(e) => go(type, e.target.value)}>
-            <option value="">전체 업무</option>
-            {businesses.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-        </label>
-      )}
-      </div>{err && <p className="error" role="alert">{err}</p>}
+      </div>
+      {level1.length > 0 && (
+        <nav className="cat-nav" aria-label="업무 분류">
+          <div className="chips">
+            <button type="button" className="chip" aria-pressed={!category} onClick={() => go(type, '')}>전체 업무</button>
+            {level1.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={root?.category_id === x.category_id} title={x.description} onClick={() => go(type, x.category_id)}>{x.name} <span className="num">{x.doc_count}</span></button>)}
+          </div>
+          {children.length > 0 && <div className="chips sub">
+            {children.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={category === x.category_id} title={x.description} onClick={() => go(type, category === x.category_id ? root!.category_id : x.category_id)}>{x.name} <span className="num">{x.doc_count}</span></button>)}
+          </div>}
+        </nav>
+      )}{err && <p className="error" role="alert">{err}</p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
@@ -90,7 +100,7 @@ function List() {
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link></h3>
               <FreshnessFlag freshness={d.freshness} />
               <dl>
-                {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
+                {d.category_path ? <><dt>분류</dt><dd>{d.category_path.split('/').join(' › ')}</dd></> : d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
                 {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
                 {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
@@ -341,7 +351,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <header className="document-header">
       <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
       <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} /></div><dl className="meta-grid">
-        {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
+        {d.category_path && d.category_id && <><dt>분류</dt><dd><Link href={`/library?category=${encodeURIComponent(d.category_id)}`}>{d.category_path.split('/').join(' › ')}</Link></dd></>}
+        {!d.category_path && d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
         {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
         <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>

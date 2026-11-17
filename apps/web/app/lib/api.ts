@@ -218,7 +218,10 @@ export interface Mark {
   /** 세 칸 (사용자 요청 11/17, let522mj PR #15): 올린 문서의 그 부분(없으면 null) · 근거(basis) · 근거를 바탕으로 한 수정(필요 없으면 null). 이전 API는 없음 */
   original?: string | null; revision?: string | null;
 }
+/** 업무 분류 칸 (AI 자동 분류). doc_count = 이 사용자가 볼 수 있는 게시 문서 수(하위 포함) */
+export interface CategoryNode { category_id: string; parent_id: string | null; name: string; path: string; level: number; description: string; doc_count: number }
 export interface LibraryCard {
+  category_path?: string | null; category_id?: string | null;
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
