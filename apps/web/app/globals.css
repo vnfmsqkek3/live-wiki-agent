@@ -730,3 +730,14 @@ main { padding-inline: var(--gutter); }
 .debt-cell dt { font-size:var(--fs-small); color:var(--ink-700); }
 .debt-cell dd { margin:4px 0 0; font-size:var(--fs-h2); font-weight:700; color:var(--navy-900); }
 .debt-cell.bad dd { color:var(--coral-700); } .debt-cell.ok dd { color:var(--green-700); }
+/* 위키 수정·고칠 것 (규칙 1·2) */
+.wiki-editor { margin:0 0 var(--gap); }
+.wiki-md { width:100%; min-height:320px; font-family:var(--font-mono, ui-monospace, monospace); font-size:var(--fs-small); line-height:1.6; }
+.fix-list .fix.done { opacity:.7; }
+details.more { margin-top:var(--gap); }
+details.more > summary { cursor:pointer; color:var(--navy-600); font-weight:600; padding:8px 0; }
+/* 승인 카드: 한 줄 요약 + 바뀐 부분 (규칙 3) */
+.lead-line { margin:4px 0 8px; color:var(--navy-900); }
+.mini-changes { list-style:none; margin:0 0 8px; padding:0; display:grid; gap:6px; font-size:var(--fs-small); }
+.mini-changes del { display:block; color:var(--coral-700); }
+.mini-changes ins { display:block; color:var(--green-700); text-decoration:none; }

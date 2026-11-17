@@ -33,7 +33,7 @@ export default function Home() {
       ]).then(([approvals, mismatch]) => setTodo({ approvals, mismatch }));
     }
   }, []);
-  const isAuthor = !!s?.groups.includes('AUTHOR');
+  const isAuthor = !!s; // 규칙 1: 로그인한 누구나 올리고 고친다
   const STATE: Record<string, string> = { QUARANTINED: '분석 중', IN_REVIEW: '내 검토 대기', PENDING_APPROVAL: '승인 대기·게시 중', BLOCKED: '차단·반려', DELETED: '폐기' };
   const go = (query: string) => router.push(`/search?q=${encodeURIComponent(query)}`);
   return (

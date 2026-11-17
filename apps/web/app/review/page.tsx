@@ -5,10 +5,11 @@ import { PageHeader } from '../page-header';
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, dateLine, type Finding, type Review } from '../lib/api';
+import { api, ApiError, dateLine, type Finding, type Fix, type Review } from '../lib/api';
+import { WikiEditor } from '../wiki-editor';
 import { IssueList, PageFacts, VersionLink } from '../issues';
 
-const STAGES = ['파일 올리기', '자동 분석', '작성자 검토', '게시 요청'];
+const STAGES = ['올리기·고치기', 'AI 검사', '고칠 것 확인', '게시 요청'];
 const VERDICT: Record<string, [string, string]> = {
   SUPPORTED: ['근거 규정과 맞습니다', 'var(--verified)'],
   CONFLICT: ['규정과 충돌하는 내용이 있습니다', 'var(--danger)'],
@@ -34,11 +35,22 @@ function ReviewView() {
   const [msg, setMsg] = useState('');
   const [submitted, setSubmitted] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
+  const [editInit, setEditInit] = useState<string | null>(null); // 고치기 편집기 (AI 제안 적용본)
+  const [pct, setPct] = useState<number | null>(null);
 
   useEffect(() => {
     if (!id) { setErr('검토할 문서를 찾을 수 없습니다. 문서 등록 화면에서 다시 시작하세요.'); return; }
     api<Review>('GET', `/v1/documents/${encodeURIComponent(id)}/review`)
-      .then((x) => { setR(x); setType(x.classification?.document_type ?? ''); })
+      .then((x) => {
+        setR(x); setType(x.classification?.document_type ?? '');
+        // 검사 중이면 진행률을 보다가 끝나면 다시 읽는다 (규칙 2: AI 가 검사한다)
+        if (x.lifecycle === 'QUARANTINED') {
+          const tick = () => api<{ total: number; done: number; finished: boolean; halted: boolean }>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
+            .then((p) => { setPct(p.total ? Math.round((p.done / p.total) * 100) : 0); if (p.finished || p.halted) location.reload(); else setTimeout(tick, 2500); })
+            .catch(() => setTimeout(tick, 4000));
+          tick();
+        }
+      })
       .catch((e: ApiError) => setErr(e.status === 404 ? '이 문서를 볼 권한이 없거나 문서가 없습니다.' : e.message));
   }, [id]);
 
@@ -48,6 +60,14 @@ function ReviewView() {
   const changed = type && type !== r.classification?.document_type;
   const blocked = r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED';
   const uncertain = r.findings.filter((f) => f.severity !== 'LOW').length;
+  const open = (r.fixes ?? []).filter((f) => !f.acknowledged);
+  const canFix = r.lifecycle === 'IN_REVIEW' && r.text !== undefined;
+  /** AI 수정 제안 적용: 그 문장을 제안 문장으로 바꾼 본문으로 편집기를 연다 */
+  const applyFix = (f: Fix) => setEditInit(f.suggestion && r.text!.includes(f.excerpt) ? r.text!.replace(f.excerpt, f.suggestion) : r.text!);
+  async function ack(f: Fix) {
+    try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/findings/${encodeURIComponent(f.finding_id)}/ack`); setR((x) => x && { ...x, fixes: x.fixes!.map((y) => (y.finding_id === f.finding_id ? { ...y, acknowledged: true } : y)) }); }
+    catch (e) { setMsg((e as ApiError).message); }
+  }
 
   async function saveType() {
     try {
@@ -65,7 +85,7 @@ function ReviewView() {
   }
   async function submit() {
     try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true); setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.'); }
-    catch (e) { setMsg((e as ApiError).status === 409 ? '지금 상태에서는 게시를 요청할 수 없습니다. 분석이 끝났는지 확인하세요.' : (e as ApiError).message); }
+    catch (e) { setMsg((e as ApiError).message || '지금 상태에서는 게시를 요청할 수 없습니다.'); }
   }
 
   const stage = submitted ? 4 : 3;
@@ -79,6 +99,28 @@ function ReviewView() {
       <div className="layout-a review-layout"><div className="primary">
       {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
+      {r.lifecycle === 'QUARANTINED' && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
+      {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} onCancel={() => setEditInit(null)} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
+      {r.lifecycle === 'IN_REVIEW' && (
+        <section aria-labelledby="fix-h" className="fix-list">
+          <h2 className="section" id="fix-h">{open.length ? `고칠 것 ${open.length}건` : '고칠 것이 없습니다'}</h2>
+          {!open.length && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
+          <ol className="fixes">{(r.fixes ?? []).map((f) => (
+            <li key={f.finding_id} className={`fix${f.acknowledged ? ' done' : ''}`}>
+              <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && ' · 의도한 삭제로 확인함'}</p>
+              <p>{f.message}</p>
+              {f.excerpt && <blockquote className="basis"><p>{f.excerpt}</p></blockquote>}
+              {f.suggestion && <p><strong>AI 수정 제안:</strong> {f.suggestion}</p>}
+              {!f.acknowledged && canFix && <div className="actions">
+                {f.code === 'KNOWHOW_CONFLICT' && <button type="button" className="btn solid" onClick={() => applyFix(f)}>{f.suggestion ? '제안대로 고치기' : '직접 고치기'}</button>}
+                {f.code === 'EDIT_REMOVED_KEY_SENTENCE' && <><button type="button" className="btn solid" onClick={() => setEditInit(r.text!)}>되돌려 고치기</button><button type="button" className="btn" onClick={() => ack(f)}>의도한 삭제</button></>}
+              </div>}
+            </li>
+          ))}</ol>
+          {canFix && !open.length && <div className="actions"><button type="button" className="btn" onClick={() => setEditInit(r.text!)}>본문 더 고치기</button></div>}
+        </section>
+      )}
+      <details className="more"><summary>자세히: 검사별 결과</summary>
       <IssueList docId={r.doc_id} />
       <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
@@ -146,6 +188,7 @@ function ReviewView() {
         </>
       )}
 
+      </details>
       </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
       {editTitle === null ? (
         <>
@@ -188,7 +231,7 @@ function ReviewView() {
       </div>
 
       <div className="actions" style={{ marginTop: 24 }}>
-        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW'}>검토 마치고 게시 요청</button>
+        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `고칠 것 ${open.length}건을 먼저 고치세요` : '게시 요청'}</button>
       </div>
       <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
       </aside></div>

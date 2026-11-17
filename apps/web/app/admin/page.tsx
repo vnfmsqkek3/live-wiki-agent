@@ -4,13 +4,13 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type Role } from '../lib/api';
+import { api, ApiError, getSession, type DocChange, type Role } from '../lib/api';
 import { decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
 import { Icon } from '../icons';
 import { Seal } from '../seal';
 
-interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number } }
+interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string }
 interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_MISMATCH' | 'BLOCKED'; findings: { message: string; user_message?: string; evidence_ref: string }[] }
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
@@ -100,15 +100,21 @@ export default function Admin() {
           <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-                <span className="flag"><Icon name="alert" />승인 대기</span>
-                <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
-                <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
-                {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
+                {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
+                <span className="flag"><Icon name="approval" />AI 검사 통과 · {i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'}</span>
+                <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
+                {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
+                {i.version?.changes?.length ? (
+                  <ul className="mini-changes" aria-label="바뀐 부분">{i.version.changes.slice(0, 3).map((c, n) => (
+                    <li key={n}>{c.kind !== 'ADDED' && <del>{c.old_text.slice(0, 90)}</del>}{c.kind !== 'REMOVED' && <ins>{c.new_text.slice(0, 90)}</ins>}</li>
+                  ))}{i.version.changes_count > 3 && <li className="note">외 {i.version.changes_count - 3}곳</li>}</ul>
+                ) : !i.version && <p className="note">처음 올라온 문서입니다.</p>}
                 <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
                 {!done[i.approval_id] && (
                   <div className="actions">
                     <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
+                    <Link className="linklike" href={detail(i.doc_id)}>자세히</Link>
                   </div>
                 )}
               </li>
