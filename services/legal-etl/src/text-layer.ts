@@ -1,4 +1,7 @@
-// 단계 3a TextLayerExtract: 디지털 텍스트 추출 + 페이지별 OCR 필요 여부 (docs/04 1.1·1.3)
+// 단계 3a TextLayerExtract: 쪽 수와 쪽별 OCR 여부 (docs/04 1.1·1.3)
+// 사용자 결정 11/17: PDF·이미지·DOCX·HWPX는 디지털 글자를 추출하지 않고 모든 쪽을 OCR한다
+// (디지털 글자는 깨지거나 다른 글자로 바뀌어 있을 수 있고, 섞인 쪽의 사진 속 글자·숨긴 글자 문제도 OCR 본문이면 생기지 않음).
+// ConvertToPdf(yoyo0704)가 만든 {doc}/work/document.pdf가 있으면 그 쪽 수를 쓴다. TXT·MD만 글자를 그대로 읽는다.
 import { extractText, getDocumentProxy } from "unpdf";
 import { newId } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
@@ -26,7 +29,18 @@ export function page(page_index: number, text: string, forceOcr = false): TextLa
   return { page_index, text, char_count, broken_ratio, needs_ocr: forceOcr || char_count < MIN_CHARS || broken_ratio > MAX_BROKEN };
 }
 
-export async function extractTextLayer(body: Buffer, ext: string, doc_id: string): Promise<TextLayer> {
+/** 모든 쪽 OCR 대상 (글자는 비움) */
+const ocrPages = (n: number): TextLayerPage[] => Array.from({ length: n }, (_, i) => page(i, "", true));
+// ponytail: unpdf 프록시 타입에 destroy가 없어 정리하지 않음 (웜 Lambda 메모리). 큰 PDF에서 문제되면 pdfjs 직접 사용
+const pdfPageCount = async (b: Buffer) => (await getDocumentProxy(new Uint8Array(b))).numPages;
+/** 변환 결과(document.pdf)가 깨졌으면 올린 사람 탓(BLOCKED)이 아니라 시스템 오류(재시도) */
+const convertedPageCount = async (b: Buffer) => {
+  try { return await pdfPageCount(b); } catch (e) { throw Object.assign(new Error(`변환 PDF를 열 수 없음: ${(e as Error).name}`), { name: "ConvertedPdfInvalid" }); }
+};
+
+/** converted: ConvertToPdf 결과(document.pdf). 이것이 있을 때만 모든 쪽 OCR (PageRender·OCR이 같은 파일의 모든 쪽을 처리하므로).
+ *  없으면(변환 단계 배포 전) 지금 방식: PDF는 쪽별 글자 수로 OCR 판정, DOCX·HWPX는 XML 글자. 배포 순서가 어긋나도 멈추지 않게 (PR #26 리뷰) */
+export async function extractTextLayer(body: Buffer, ext: string, doc_id: string, converted?: Buffer): Promise<TextLayer> {
   let pages: TextLayerPage[];
   switch (ext) {
     case "txt": case "md":
@@ -34,17 +48,22 @@ export async function extractTextLayer(body: Buffer, ext: string, doc_id: string
       pages[0]!.needs_ocr = false; // 텍스트 파일은 OCR 대상 아님 (짧아도)
       break;
     case "pdf": {
-      const pdf = await getDocumentProxy(new Uint8Array(body));
-      const { text } = await extractText(pdf, { mergePages: false });
-      pages = text.map((t, i) => page(i, t));
+      // 원본은 항상 열어 본다 (암호·손상은 여기서 사유와 함께 차단). 쪽 수는 변환본 기준
+      const n = await pdfPageCount(body);
+      if (converted) { pages = ocrPages(await convertedPageCount(converted)); break; }
+      // ponytail: ConvertToPdf 배포 전 호환 경로. 배포되면 지운다
+      pages = (await extractText(await getDocumentProxy(new Uint8Array(body)), { mergePages: false })).text.map((t, i) => page(i, t));
+      if (pages.length !== n) throw new Error("PDF 쪽 수 불일치");
       break;
     }
     case "docx": case "hwpx":
-      // 디지털 문서라 OCR 대상 아님. 문서 속 그림은 텍스트가 없으므로 페이지 이미지 파이프라인에서 다룬다
+      if (converted) { pages = ocrPages(await convertedPageCount(converted)); break; }
+      // ponytail: ConvertToPdf 배포 전 호환 경로. 배포되면 지운다
+      console.warn(JSON.stringify({ msg: "document.pdf 없음 → XML 글자 사용(호환 경로)", doc_id, ext }));
       pages = (ext === "docx" ? docxPages(body) : hwpxPages(body)).map((t, i) => ({ ...page(i, t), needs_ocr: false }));
       break;
     case "png": case "jpg": case "jpeg":
-      pages = [page(0, "", true)];
+      pages = converted ? ocrPages(await convertedPageCount(converted)) : ocrPages(1);
       break;
     default:
       // 허용 목록 밖 형식: 조용히 빈 결과를 내지 않고 실패시킨다
@@ -62,6 +81,7 @@ const finding = (code: string, severity: Finding["severity"], user_message: stri
 /** 파일 자체 문제(형식·손상·암호)는 예외 대신 BLOCKED + 올린 사람용 사유·조치 (사용자 지시 11/17) */
 function fileProblem(e: unknown, ext: string, key: string): StepOutput | undefined {
   const n = (e as Error).name;
+  if (n === "ConvertedPdfInvalid") return undefined; // 변환 실패는 시스템 오류 (재시도)
   const block = (code: string, msg: string, fix: string): StepOutput => ({ status: "BLOCKED", findings: [finding(code, "HIGH", msg, fix, key)] });
   if (n === "UnsupportedFormat") return block("UNSUPPORTED_FORMAT", `.${ext} 형식은 등록할 수 없습니다.`, "PDF·DOCX·HWPX·PNG·JPG 중 하나로 저장해 다시 올려 주세요.");
   if (n === "PasswordException") return block("ENCRYPTED_PDF", "암호가 걸린 PDF라 내용을 읽을 수 없습니다.", "PDF 암호를 해제한 뒤 다시 올려 주세요.");
@@ -75,15 +95,12 @@ export async function textLayerStep(input: StepInput, store: ObjectStore): Promi
   const keys = await store.list(input.bucket, `${input.doc_id}/original.`);
   if (keys.length !== 1) throw new Error(`original 객체가 1개가 아님: ${keys.length}`);
   const ext = keys[0]!.split(".").pop()!.toLowerCase();
+  const convKey = `${input.doc_id}/work/document.pdf`;
+  const converted = (await store.list(input.bucket, convKey)).includes(convKey) ? await store.get(input.bucket, convKey) : undefined;
   let layer: TextLayer;
-  try { layer = await extractTextLayer(await store.get(input.bucket, keys[0]!), ext, input.doc_id); }
+  try { layer = await extractTextLayer(await store.get(input.bucket, keys[0]!), ext, input.doc_id, converted); }
   catch (e) { const p = fileProblem(e, ext, keys[0]!); if (p) return p; throw e; }
   const output_key = `${input.doc_id}/work/text_layer.json`;
   await store.put(input.bucket, output_key, JSON.stringify(layer));
-  // 스캔 쪽 안내 (디지털 글자 없음 → OCR). PDF에서만: 이미지 파일은 전부 OCR이 당연
-  const scanned = ext === "pdf" ? layer.pages.filter((p) => p.needs_ocr) : [];
-  const findings = scanned.slice(0, 10).map((p) => finding("SCANNED_PAGE", "LOW",
-    `${p.page_index + 1}쪽은 글자 정보가 없는 이미지(스캔)라 문자 인식(OCR)으로 읽습니다. 인식 오류가 있을 수 있습니다.`,
-    "가능하면 원본 문서를 'PDF로 저장'해 글자가 선택되는 PDF로 올려 주세요.", output_key, p.page_index + 1));
-  return { status: "OK", output_key, ...(findings.length ? { findings } : {}) };
+  return { status: "OK", output_key };
 }

@@ -8,28 +8,36 @@ const NUM_AHEAD = new RegExp(`^(\\d{1,2})(?:\\s+|(?=[가-힣「(]))(?![${UNIT}])
 const PARTICLE = /^(에서|에게|에도|에는|에|의|을|를|와|과|및|으로|로|부터|까지|에\s)/u;
 const ARTICLE = /^(제\d+조(?:의\d+)?(?:\s*\((?:[^()]|\([^()]*\))*\))?)\s*(.*)$/u;
 
-export function restoreCircled(text: string): string {
-  let last = 0; // 현재 조에서 마지막 항 번호
-  let lastArticle = 0; // 마지막 조 번호 (부칙에서 다시 1부터)
-  return text.split("\n").map((line) => {
-    if (/^부\s*칙/u.test(line)) { lastArticle = 0; last = 0; return line; }
+/** 쪽을 넘어 이어지는 문맥 (조·항이 다음 쪽으로 넘어가도 "2"를 ②로 되돌릴 수 있게) */
+export interface CircledState { last: number; lastArticle: number }
+// OCR은 "제 10 조", "제 1 항제 3 호"처럼 번호 앞뒤에 공백을 넣기도 한다(11/17 DOCX→PDF→OCR 실측) → 붙인다
+// 단위 글자 뒤가 경계(공백·괄호·조사·다음 번호·원문자·문장부호)일 때만 붙인다: "제 1 조정위원회", "제2 관리자"는 그대로 (PR #28 리뷰)
+const SPACED_NO = /제\s*(\d+)\s*(조|항|호|장|절|편|관)(?:\s*의\s*(\d+))?(?=\s|$|\(|제\s*\d|의|에|및|부터|까지|와|과|[①-⑳,.·])/gu;
+/** 쪽 번호 꼬리말("2 / 15", "3-15")은 항 번호로 보지 않는다 */
+const PAGE_NO = /^\s*\d+\s*[/-]\s*\d+\s*$/u;
+
+export function restoreCircled(text: string, st: CircledState = { last: 0, lastArticle: 0 }): string {
+  return text.split("\n").map((line0) => {
+    if (PAGE_NO.test(line0)) return line0;
+    const line = line0.replace(SPACED_NO, (_, n: string, u: string, br?: string) => `제${n}${u}${br ? `의${br}` : ""}`);
+    if (/^부\s*칙/u.test(line)) { st.lastArticle = 0; st.last = 0; return line; }
     const art = ARTICLE.exec(line);
     // 조 머리: 번호가 앞으로 가고(직전보다 큼, 가지 조는 같아도 됨) 괄호 바로 뒤가 조사가 아닐 때만.
     // OCR이 괄호 뒤 공백을 빼먹으면("제13조(심사 기록)심사") 되돌린다. 본문 속 인용("제10조(특례)에 따른")은 조사로 걸러진다
     const no = art ? Number(/^제(\d+)조/u.exec(line)![1]) : 0;
-    const forward = no > lastArticle || (no === lastArticle && /^제\d+조의\d+/u.test(line));
+    const forward = no > st.lastArticle || (no === st.lastArticle && /^제\d+조의\d+/u.test(line));
     if (art && forward && !PARTICLE.test(art[2]!)) {
-      lastArticle = no; last = 0;
+      st.lastArticle = no; st.last = 0;
       const rest = art[2]!;
       const m = NUM_AHEAD.exec(rest);
-      if (m && Number(m[1]) === 1) { last = 1; return `${art[1]} ① ${m[2]}`; }
-      if (CIRCLED.includes([...rest][0] ?? "")) last = CIRCLED.indexOf([...rest][0]!) + 1;
+      if (m && Number(m[1]) === 1) { st.last = 1; return `${art[1]} ① ${m[2]}`; }
+      if (CIRCLED.includes([...rest][0] ?? "")) st.last = CIRCLED.indexOf([...rest][0]!) + 1;
       return rest ? `${art[1]} ${rest}` : art[1]!;
     }
     const first = [...line][0] ?? "";
-    if (CIRCLED.includes(first)) { last = CIRCLED.indexOf(first) + 1; return line; }
+    if (CIRCLED.includes(first)) { st.last = CIRCLED.indexOf(first) + 1; return line; }
     const m = NUM_AHEAD.exec(line);
-    if (m && Number(m[1]) === last + 1 && last + 1 <= CIRCLED.length) { last++; return `${CIRCLED[last - 1]} ${m[2]}`; }
+    if (m && Number(m[1]) === st.last + 1 && st.last + 1 <= CIRCLED.length) { st.last++; return `${CIRCLED[st.last - 1]} ${m[2]}`; }
     return line;
   }).join("\n");
 }
@@ -37,6 +45,10 @@ export function restoreCircled(text: string): string {
 export interface OcrBox { text: string; bbox: number[] }
 /** OCR 블록을 같은 줄끼리 묶는다 (세로 중심이 줄 높이 절반 안이면 같은 줄), 왼→오른·위→아래 순 */
 export function ocrRows(blocks: OcrBox[]): string[] {
+  return ocrRowsY(blocks).map((r) => r.text);
+}
+/** ocrRows와 같지만 줄의 세로 위치(yc)도 돌려줌 (표를 제자리에 끼워 넣을 때) */
+export function ocrRowsY(blocks: OcrBox[]): { yc: number; text: string }[] {
   const items = blocks.filter((b) => b.bbox?.length === 4)
     .map((b) => ({ t: b.text, x: b.bbox[0]!, yc: (b.bbox[1]! + b.bbox[3]!) / 2, h: b.bbox[3]! - b.bbox[1]! })).sort((a, b) => a.yc - b.yc);
   const out: { yc: number; h: number; parts: typeof items }[] = [];
@@ -44,5 +56,5 @@ export function ocrRows(blocks: OcrBox[]): string[] {
     const last = out.at(-1);
     if (last && Math.abs(it.yc - last.yc) < Math.max(last.h, it.h) / 2) last.parts.push(it); else out.push({ yc: it.yc, h: it.h, parts: [it] });
   }
-  return out.map((r) => r.parts.sort((a, b) => a.x - b.x).map((p) => p.t).join(" "));
+  return out.map((r) => ({ yc: r.yc, text: r.parts.sort((a, b) => a.x - b.x).map((p) => p.t).join(" ") }));
 }

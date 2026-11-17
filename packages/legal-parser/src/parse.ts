@@ -13,12 +13,19 @@ export interface LawMeta {
   effective_from?: number;
 }
 
+/** 공백 없는 장 제목 후보가 실은 본문 문장인지: 서술 어미로 끝나거나 다른 조·장 인용이 또 나옴 */
+const headingLooksLikeBody = (line: string) => /다\.?$/u.test(line) || /제\s*\d+\s*[조장절편관]/u.test(line.slice(3));
+
 const DATE = String.raw`\d{4}\.\s*\d{1,2}\.\s*\d{1,2}\.?`;
 const RE = {
-  heading: /^제(\d+)(편|장|절|관)\s+(.+)$/u, // 관: 민법 등 절 아래 계층
+  // 관: 민법 등 절 아래 계층. 공백 있는 제목은 그대로(길이 제한 없음).
+  // OCR은 "제2장심사 절차"처럼 공백을 빼먹는다(11/17 실측) → 공백 없는 제목도 받되 좁게: 바로 한글, 조사·어미로 시작하지 않음, 쉼표·가운뎃점·괄호 없음, 40자 이하.
+  // 본문 줄("제2장에 따른…", "제2장중 제5조를 삭제한다.")은 headingLooksLikeBody로 한 번 더 거른다 (PR #26 리뷰)
+  heading: /^제(\d+)(편|장|절|관)(?:\s+(.+)|(?=[가-힣])(?!에|의|을|를|은|는|과|와|로|중|으로|부터|까지)(?!(?:인|만|도|이|가)(?:\s|$))([^,·()]{1,40}))$/u,
   // 제목 괄호 뒤에는 공백·줄끝이 와야 한다 ("제10조(특례)에 따른 …" 같은 본문 인용 줄을 조로 오인하지 않게)
   // 제목 안의 괄호 한 단계 허용: "제50조(분사무소(分事務所) 설치의 등기)"
-  article: /^제(\d+)조(?:의(\d+))?(?:\s*\(((?:[^()]|\([^()]*\))*)\)(?=\s|$))?\s*(.*)$/u,
+  // OCR은 "제 1 조(목적)"처럼 번호 앞뒤에 공백을 넣기도 한다(11/17 DOCX→PDF→OCR 실측)
+  article: /^제\s*(\d+)\s*조(?:\s*의\s*(\d+))?(?:\s*\(((?:[^()]|\([^()]*\))*)\)(?=\s|$))?\s*(.*)$/u,
   // ①~⑳, ㉑~㉟, ㊱~㊿ 또는 "<16>" 표기 (국가법령정보센터 원문은 16항부터 <16>을 쓰기도 함)
   paragraph: /^(?:([①-⑳㉑-㉟㊱-㊿])|<(\d{1,2})>)\s*(?:<\2>\s*)?(.*)$/u,
   item: /^(\d+)(?:의(\d+))?\.\s*(.*)$/u,
@@ -99,7 +106,7 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
       push("SUPPLEMENTARY", `${base}/SUPPLEMENTARY:${suppCount}`, null, "부칙", line, ln, "부칙", m[1]);
       continue;
     }
-    if ((m = line.match(RE.heading))) {
+    if ((m = line.match(RE.heading)) && !(m[3] === undefined && headingLooksLikeBody(line))) {
       const lvl = ({ 편: "PART", 장: "CHAPTER", 절: "SECTION", 관: "SUBSECTION" } as const)[m[2] as "편" | "장" | "절" | "관"];
       headings[lvl] = line;
       if (lvl === "PART") { headings.CHAPTER = undefined; headings.SECTION = undefined; headings.SUBSECTION = undefined; }
