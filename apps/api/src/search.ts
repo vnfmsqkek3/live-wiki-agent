@@ -6,6 +6,8 @@ import type { DetailFilter } from './library.ts';
 export interface SearchHit {
   doc_id: string; title: string; snippet: string; provision?: string; effective_from: string;
   authority_status: string; freshness: string; search_status: string; document_type: string; business_path?: string[]; tags?: string[];
+  /** 근거가 나온 쪽 (1부터, let522mj). 그림 썸네일용 */
+  page?: number;
 }
 /** 질의 재구성 (let522mj search_wiki, 요청기록/20261117-1910 1장): 문장형 질의를 핵심 검색어 + 대안 ≤2로 */
 export interface Rewritten { core: string; alternates: string[] }
@@ -15,7 +17,7 @@ export type SearchWiki = (args: Record<string, unknown>, actor: { sub: string; g
 export const toItem = (h: SearchHit) => ({
   doc_id: h.doc_id, title: h.title, snippet: h.snippet, document_type: h.document_type,
   authority_status: h.authority_status, freshness: h.freshness, effective_from: h.effective_from || undefined,
-  basis: h.provision, tags: h.tags ?? [], business_path: h.business_path ?? [], search_status: h.search_status,
+  basis: h.provision, tags: h.tags ?? [], business_path: h.business_path ?? [], search_status: h.search_status, ...(h.page ? { page: h.page } : {}),
   reason: h.search_status === 'HISTORICAL' ? '현재 시행 중이 아닌 과거 조문입니다'
     : h.freshness === 'REVIEW_REQUIRED' ? '근거 규정이 바뀌어 재검토 중인 문서입니다'
     : h.provision ? '찾는 내용과 조문이 일치합니다' : '찾는 내용과 관련된 승인 문서입니다',
@@ -41,12 +43,12 @@ export function searchVia(searchWiki: SearchWiki) {
 
 /** 검색 결과를 문서 단위로 묶는다 (search_wiki는 근거 인용용 조문 단위). 순서는 각 문서의 최고 순위,
  *  카드 안에는 맞은 조문(조문 표기·인용) 목록. 가이드 근거는 조문 단위 그대로 쓴다 (사용자 지적 11/17) */
-export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string }>(hits: T[]) {
-  const by = new Map<string, T & { matches: { basis?: string; snippet: string }[] }>();
+export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string; page?: number }>(hits: T[]) {
+  const by = new Map<string, T & { matches: { basis?: string; snippet: string; page?: number }[] }>();
   for (const h of hits) {
     const g = by.get(h.doc_id);
-    if (g) { if (!g.matches.some((m) => m.basis === h.basis && m.snippet === h.snippet)) g.matches.push({ basis: h.basis, snippet: h.snippet }); }
-    else by.set(h.doc_id, { ...h, matches: [{ basis: h.basis, snippet: h.snippet }] });
+    if (g) { if (!g.matches.some((m) => m.basis === h.basis && m.snippet === h.snippet)) g.matches.push({ basis: h.basis, snippet: h.snippet, ...(h.page ? { page: h.page } : {}) }); }
+    else by.set(h.doc_id, { ...h, matches: [{ basis: h.basis, snippet: h.snippet, ...(h.page ? { page: h.page } : {}) }] });
   }
   return [...by.values()];
 }

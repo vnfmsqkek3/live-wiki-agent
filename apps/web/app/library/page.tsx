@@ -358,7 +358,8 @@ function DeleteDoc({ d }: { d: LibraryDoc }) {
 function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
   const [err, setErr] = useState('');
-  const [p, setP] = useState(0);
+  // ?page=N(1부터): 검색·가이드 썸네일에서 온 경우 그 쪽부터
+  const [p, setP] = useState(() => (typeof window === 'undefined' ? 0 : Math.max(0, (Number(new URLSearchParams(window.location.search).get('page')) || 1) - 1)));
   const [active, setActive] = useState(0);
   const [raw, setRaw] = useState(false); // false: AI 정리본(있으면), true: 원문(고칠 곳 밑줄)
   const [editing, setEditing] = useState(false); // 위키 수정 (규칙 1)

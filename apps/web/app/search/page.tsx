@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type LibraryCard, type SearchItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
+import { PageThumb } from '../page-thumb';
 
 // 문서 종류로 거른다 (태그는 AI가 붙인 자유 문구라 필터로 쓰면 0건이 되기 쉽다)
 const FILTERS = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
@@ -40,7 +41,8 @@ function SearchMatches({ item }: { item: SearchItem }) {
   const matches = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
   return <div className="search-matches">
     {item.matches && item.matches.length > 1 && <p className="note">이 문서에서 일치한 조문 {matches.length}건</p>}
-    <ul>{matches.map((m, n) => <li key={n}>
+    <ul>{matches.map((m, n) => <li key={n} className={m.page ? 'with-thumb' : undefined}>
+      <PageThumb docId={item.doc_id} page={m.page} />
       {m.basis && <p className="match-basis">{m.basis}</p>}
       <blockquote>{m.snippet}</blockquote>
     </li>)}</ul>

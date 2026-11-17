@@ -1,4 +1,5 @@
 'use client';
+import { PageThumb } from '../page-thumb';
 import { PageHeader } from '../page-header';
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -58,6 +59,7 @@ function GuideView() {
                   <p style={{ margin: 0 }}>{s.text}</p>
                   {s.sources.map((e) => (
                     <p key={e.doc_id} className="meta" style={{ margin: '4px 0 0' }}>
+                      <PageThumb docId={e.doc_id} page={e.page} />
                       근거: {e.provision ?? e.title}{e.effective_from ? `, ${e.effective_from} 시행` : ''}{e.freshness === 'REVIEW_REQUIRED' ? ' (재검토 중)' : ''}
                     </p>
                   ))}

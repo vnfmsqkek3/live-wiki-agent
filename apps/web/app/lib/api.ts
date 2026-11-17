@@ -71,7 +71,7 @@ export interface SearchItem {
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
-  matches?: { basis?: string; snippet: string }[];
+  matches?: { basis?: string; snippet: string; page?: number }[];
 }
 export const MOCK_ITEMS: SearchItem[] = [
   { doc_id: 'doc_F001', title: '기업여신 심사규정', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', updated: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', basis: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', reason: '찾는 내용과 조문이 직접 일치합니다', matches: [{ basis: '기업여신 심사규정 제12조제2항', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.' }, { basis: '기업여신 심사규정 제14조제1항', snippet: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.' }] },
@@ -198,7 +198,7 @@ const MOCK_REVIEW: Review = {
   masked_preview: '1. 감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.\n2. 담당자 연락처 [전화번호]로 평가 일정을 확인한다.\n3. 입금 계좌 [계좌번호]는 고객 확인 후 기재한다.',
 };
 
-export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string }
+export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
 export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; dropped_steps: number; uncertainty: string }
 const MOCK_GUIDE: Guide = {
   status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,

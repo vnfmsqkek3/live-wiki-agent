@@ -751,3 +751,8 @@ details.more > summary { cursor:pointer; color:var(--navy-600); font-weight:600;
 .fig-zoom img { display:block; max-width:100%; max-height:84vh; margin:0 auto 8px; }
 .fig-zoom::backdrop { background:rgba(10,28,54,.6); }
 .fig-ref { padding:0 2px; border:0; background:none; color:var(--navy-600); text-decoration:underline; font:inherit; cursor:zoom-in; }
+/* 근거 쪽 그림 썸네일 (검색·가이드) */
+.page-thumb { float:right; display:grid; gap:2px; width:96px; margin:0 0 6px 10px; text-decoration:none; }
+.page-thumb img { width:96px; height:72px; object-fit:cover; border:1px solid var(--navy-050); border-radius:8px; background:#fff; }
+.page-thumb .note { text-align:center; }
+.with-thumb::after { content:''; display:block; clear:both; }
