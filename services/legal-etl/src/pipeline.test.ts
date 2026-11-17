@@ -357,3 +357,19 @@ test("쪽 넘김 문맥: 항 번호만 이어 가고 잘못 읽힌 조 번호는
   const s2 = buildSegments(layer(3, [1]), ocr([pg(0, ["제30조(시행) ① 시행한다"]), pg(1, []), pg(2, ["2 이 규정 시행 당시"])]));
   assert.equal(s2[2]!.text, "2 이 규정 시행 당시");
 });
+
+test("그림 속 글자(화면 캡처): 본문 흐름에서 빼고 자리에 [그림 n], 쪽 끝에 ⟦그림 p⟧ 줄, 저신뢰 판정 제외 (사용자 지적 11/17)", async () => {
+  const { ocrPageText, buildSegments } = await import("./segment.ts");
+  const b = (text: string, y: number, label = "text", confidence = 0.99) => ({ block_id: text, label, text, confidence, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  const blocks = [b("1. 스캐너 설정을 엽니다", 0), b("Wivdoms7/8/83/10020ut", 60, "image", 0.41), b("V1o Pivivg& Scen", 80, "image", 0.38), b("2. 확인을 누릅니다", 200)];
+  const figures = [{ label: "image", bbox: [0, 50, 400, 150] }];
+  assert.equal(ocrPageText(blocks, [], figures, 3),
+    "1. 스캐너 설정을 엽니다\n[그림 1]\n2. 확인을 누릅니다\n⟦그림 p3⟧ 그림 1 속 글자: Wivdoms7/8/83/10020ut V1o Pivivg& Scen");
+  // 영역 정보 없이 image 라벨만 있어도 같은 처리, 그림이 없으면 기존과 같음
+  assert.match(ocrPageText(blocks, [], [], 0), /^1\. 스캐너 설정을 엽니다\n\[그림 1\]\n2\. 확인을 누릅니다\n⟦그림 p0⟧ 그림 1 속 글자: /u);
+  assert.equal(ocrPageText([blocks[0]!, blocks[3]!]), "1. 스캐너 설정을 엽니다\n2. 확인을 누릅니다");
+  // 저신뢰: 그림 속 줄(0.4)과 빈 덩어리(0)는 판정에서 뺀다
+  const layer = { doc_id: "D", source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+  const seg = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr", blocks: [...blocks, b("", 250, "text", 0)], figures }] })[0]!;
+  assert.equal(seg.low_confidence, false);
+});
