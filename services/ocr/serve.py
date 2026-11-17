@@ -32,8 +32,7 @@ def load():
               "gpu_count", paddle.device.cuda.device_count(), "device", paddle.device.get_device(), flush=True)
         # 표·레이아웃 분석 PP-StructureV3 (사용자 결정 11/17, 모든 업로드에 항상). 인식은 lang=korean → korean mobile rec 그대로.
         # 수식·차트·도장 인식은 끔(속도, 은행 문서에 불필요). 방향·왜곡 보정도 끔(렌더링 PDF 라 반듯함)
-        def make():
-            return PPStructureV3(
+        base = dict(
             lang="korean",
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
@@ -43,6 +42,15 @@ def load():
             use_seal_recognition=False,
             use_table_recognition=True,
         )
+
+        def make():
+            # 표 방향 자동 판정 끔 (11/17 dev 실측: 반듯한 표를 180도로 판정해 행·열 뒤집힘 + 머리 행 글자 깨짐).
+            # 렌더링 PDF·캡처라 표가 돌아가 있을 일이 없다. 이 버전에 옵션이 없으면 기본값으로
+            try:
+                return PPStructureV3(**base, use_table_orientation_classify=False)
+            except Exception as e:  # noqa: BLE001  옵션 미지원(TypeError·ValueError 등)이면 기본값으로 — 모델 기동 실패로 엔드포인트가 죽지 않게
+                print("use_table_orientation_classify unsupported", type(e).__name__, flush=True)
+                return PPStructureV3(**base)
         for _ in range(WORKERS):  # predictor 는 스레드 간 공유하지 않는다 (인스턴스당 1요청)
             POOL.put(make())
         MODEL["ocr"] = True

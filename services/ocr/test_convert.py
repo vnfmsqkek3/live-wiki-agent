@@ -79,6 +79,15 @@ class TableOrderTest(unittest.TestCase):
                  ("한도 초과 시 기록", [440, 705, 900, 735])]
         self.assertEqual(normalize_table_html(self.REVERSED, boxes, lines), normalize_table_html(self.REVERSED, self.BOXES))
 
+    def test_cell_text_comes_from_ocr_lines_not_garbled_table_text(self):
+        garbled = self.REVERSED.replace("승인자", "눔후어후").replace("구분", "플Y")
+        lines = [("구분", [440, 580, 500, 610]), ("1회 한도", [910, 580, 1000, 610]), ("승인자", [1540, 580, 1600, 610]),
+                 ("VIP 창구", [440, 645, 560, 675]), ("1,000만원", [910, 645, 1050, 675]), ("지점장", [1540, 645, 1600, 675]),
+                 ("한도 초과 시 기록", [440, 705, 900, 735])]
+        out = normalize_table_html(garbled, self.BOXES, lines)
+        self.assertIn("<td>구분</td><td>1회 한도</td><td>승인자</td>", out)
+        self.assertNotIn("눔후어후", out)
+
     def test_count_mismatch_keeps_original(self):
         self.assertEqual(normalize_table_html(self.REVERSED, self.BOXES[:2]), self.REVERSED)
 

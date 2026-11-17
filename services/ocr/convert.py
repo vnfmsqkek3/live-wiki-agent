@@ -82,7 +82,14 @@ def normalize_table_html(html, cell_boxes, lines=None):
         cur.append((box, cell))
     if cur:
         rows.append(cur)
-    body = "".join("<tr>" + "".join(f"<{t}{a}>{c}</{t}>" for _, (t, a, c) in sorted(row, key=lambda x: x[0][0])) + "</tr>" for row in rows)
+    def text_of(box, c):
+        # 셀 글자는 일반 OCR 줄에서 가져온다 (표 모듈 글자는 방향을 잘못 잡으면 깨짐: "눔후어후"). 줄이 없으면 표 모듈 글자
+        if not lines:
+            return c
+        got = [(b[1], b[0], t) for t, b in lines if _inside(b, box)]
+        return " ".join(t for _, _, t in sorted(got)) if got else c
+
+    body = "".join("<tr>" + "".join(f"<{t}{a}>{text_of(b, c)}</{t}>" for b, (t, a, c) in sorted(row, key=lambda x: x[0][0])) + "</tr>" for row in rows)
     return f"<table>{body}</table>"
 
 
