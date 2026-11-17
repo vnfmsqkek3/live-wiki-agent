@@ -294,4 +294,8 @@ test('정리본 대체(TEXT): 반복 머리글 줄 제외, 장 제목은 ##, 빈
   const fb2 = textFallback(many);
   assert.ok(!fb2.get(0)!.includes('MEGAZONE'));
   assert.ok(fb2.get(0)!.includes('공통 안내 문구')); // 가장자리 3줄 밖은 반복돼도 유지
+  // 장 구분 쪽: 장 제목 아래 범위 줄은 여러 쪽에 같아도 남긴다 (11/18 실측)
+  const ch = [2, 3, 4].map((n) => ({ page_index: n, text: `0${n}. 드라이버 설치 ${n}장\n(Windows ver. macOS ver.)\nMEGAZONE / ALLIANCE` }));
+  const fb3 = textFallback(ch);
+  assert.equal(fb3.get(2), '## 02. 드라이버 설치 2장\n\n(Windows ver. macOS ver.)');
 });
