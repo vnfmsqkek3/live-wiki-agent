@@ -83,8 +83,8 @@ locals {
     # 참조 확인 (사용자 결정 11/18, 계약 6.4): 주소 없는 링크·모순 → AgentCore Browser 공개 웹 검색, 게시 비차단. 검색어 1개 ~15초 × 최대 5
     reference-check = {
       zip = local.dz, handler = "handlers.referenceCheck", memory = 512, timeout = 400, model_caller = true
-      # KB_ID·MODEL_RERANK·TABLE_REGULATIONS: 확인 필요(6.5) 사내 위키 검색(@hanaeum/search-server 그대로 호출)
-      env = merge(local.d_env, { REFERENCE_CHECK = "on", MODEL_HAIKU = var.models["MODEL_HAIKU"], KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], TABLE_REGULATIONS = local.t["regulations"].name })
+      # MCP_SEARCH_FN: 확인 필요(6.5) 사내 위키 검색 = mcp-search Lambda 직접 Invoke (let522mj 11/18, 검색 권한은 mcp-search 쪽에)
+      env = merge(local.d_env, { REFERENCE_CHECK = "on", MODEL_HAIKU = var.models["MODEL_HAIKU"], MCP_SEARCH_FN = "${local.n.prefix}-lambda-mcp-search${local.n.suffix}" })
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn, Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*"] } } },
         { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${local.b["quarantine"].arn}/*/masked/segments/*", "${local.b["quarantine"].arn}/*/masked/structured/*"] },
@@ -94,11 +94,8 @@ locals {
           Action   = ["bedrock-agentcore:StartBrowserSession", "bedrock-agentcore:StopBrowserSession", "bedrock-agentcore:GetBrowserSession", "bedrock-agentcore:ConnectBrowserAutomationStream"]
           Resource = "arn:aws:bedrock-agentcore:${var.region}:aws:browser/aws.browser.v1"
         },
-        # 사내 위키 검색 (mcp-search 와 같은 권한)
-        { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
-        { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
-        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:BatchGetItem"], Resource = local.t["documents"].arn },
-        { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        # 사내 위키 검색 = mcp-search Invoke
+        { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:${var.region}:${local.acct}:function:${local.n.prefix}-lambda-mcp-search${local.n.suffix}" },
       ])
     }
     # 노하우 검증(Sonnet 판정) → 모델 호출 Role (dhxorb96 11/16). quarantine 은 masked/ 만 읽음 (원본 등급은 버킷 정책이 거부)
