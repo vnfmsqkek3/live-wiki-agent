@@ -81,12 +81,15 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
   function inline(start: number, end: number): ReactNode {
     const out: ReactNode[] = [];
     const source = text.slice(start, end);
-    const pattern = /\*\*([^\n]+?)\*\*|\[[^\]\n]+\]/g;
+    // '(그림 n)'·'[그림 n]'은 누르면 그 쪽 그림을 크게 보여 주는 단추 (data-fig, 처리는 감싼 화면이)
+    const pattern = /\*\*([^\n]+?)\*\*|[([]그림\s*(\d+)[)\]]|\[[^\]\n]+\]/g;
     let at = start;
     for (const match of source.matchAll(pattern)) {
       const s = start + match.index!;
       out.push(<Fragment key={`plain-${at}`}>{marked(at, s)}</Fragment>);
-      out.push(match[1] !== undefined ? <strong key={s}>{inline(s + 2, s + match[0].length - 2)}</strong> : <span className="pii" key={s}>{marked(s, s + match[0].length)}</span>);
+      out.push(match[1] !== undefined ? <strong key={s}>{inline(s + 2, s + match[0].length - 2)}</strong>
+        : match[2] !== undefined ? <button type="button" className="fig-ref" data-fig={match[2]} key={s} aria-label={`그림 ${match[2]} 크게 보기`}>{marked(s, s + match[0].length)}</button>
+        : <span className="pii" key={s}>{marked(s, s + match[0].length)}</span>);
       at = s + match[0].length;
     }
     out.push(<Fragment key={`tail-${at}`}>{marked(at, end)}</Fragment>); return out;

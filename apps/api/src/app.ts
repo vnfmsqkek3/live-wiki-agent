@@ -599,6 +599,16 @@ export function createApp(deps: Deps) {
       .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
     return c.json({ items });
   });
+  // 보관함 쪽 이미지: 문서를 볼 수 있는 사람이면 누구나 (개인정보를 가린 masked/pages 만)
+  app.get('/v1/library/:id/pages/:page/image', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const d = await libraryDoc(c, vis);
+    const n = Number(c.req.param('page'));
+    if (!Number.isInteger(n) || n < 1 || n > 2000) throw new ApiError('VALIDATION', 'page: 1 이상 정수');
+    const png = deps.pageImage ? await deps.pageImage(d.doc_id, n - 1).catch(() => undefined) : undefined;
+    if (!png) throw new ApiError('NOT_FOUND', 'page image not found');
+    return new Response(new Blob([new Uint8Array(png)]), { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=300' } });
+  });
   // 외부 법령 최신본 참고 (미검증). 첫 조회는 Browser라 수십 초 → 상세 본문과 따로 부른다
   app.get('/v1/library/:id/external-laws', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
@@ -672,6 +682,8 @@ export function createApp(deps: Deps) {
       ...base,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
+      // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
+      image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
       can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {

@@ -741,3 +741,13 @@ details.more > summary { cursor:pointer; color:var(--navy-600); font-weight:600;
 .mini-changes { list-style:none; margin:0 0 8px; padding:0; display:grid; gap:6px; font-size:var(--fs-small); }
 .mini-changes del { display:block; color:var(--coral-700); }
 .mini-changes ins { display:block; color:var(--green-700); text-decoration:none; }
+/* 그림이 있는 쪽: 글 옆(모바일은 위)에 쪽 이미지, 누르면 크게 (사용자 지적 11/17) */
+.sheet.has-figure { display:grid; gap:var(--gap); }
+@media (min-width:1024px){ .sheet.has-figure { grid-template-columns:minmax(0,1fr) minmax(240px,38%); } .sheet.has-figure .page-figure { order:2; position:sticky; top:16px; align-self:start; } }
+.page-figure { margin:0; }
+.fig-thumb { display:block; width:100%; padding:0; border:1px solid var(--navy-050); border-radius:10px; background:#fff; cursor:zoom-in; overflow:hidden; }
+.fig-thumb img { display:block; width:100%; height:auto; }
+.fig-zoom { max-width:min(96vw, 1200px); max-height:94vh; padding:12px; border:0; border-radius:12px; }
+.fig-zoom img { display:block; max-width:100%; max-height:84vh; margin:0 auto 8px; }
+.fig-zoom::backdrop { background:rgba(10,28,54,.6); }
+.fig-ref { padding:0 2px; border:0; background:none; color:var(--navy-600); text-decoration:underline; font:inherit; cursor:zoom-in; }

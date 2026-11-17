@@ -7,7 +7,7 @@ import { PageHeader } from '../page-header';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
+import { api, ApiError, apiBlobUrl, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { Changes, PageFacts } from '../issues';
@@ -59,6 +59,30 @@ function groupBasis(basis: Basis[]) {
   }
   return [...by.values()];
 }
+/** 그림이 있는 쪽의 이미지(개인정보 가린 쪽 이미지). 누르거나 본문의 '(그림 n)'을 누르면 크게 */
+function PageFigure({ docId, page, zoom, setZoom }: { docId: string; page: number; zoom: boolean; setZoom: (v: boolean) => void }) {
+  const [url, setUrl] = useState<string | null>(null);
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    let u: string | null = null;
+    setUrl(null);
+    apiBlobUrl(`/v1/library/${encodeURIComponent(docId)}/pages/${page}/image`).then((x) => { u = x; setUrl(x); }).catch(() => setUrl(''));
+    return () => { if (u) URL.revokeObjectURL(u); };
+  }, [docId, page]);
+  useEffect(() => { const dlg = ref.current; if (!dlg) return; if (zoom && !dlg.open) dlg.showModal(); if (!zoom && dlg.open) dlg.close(); }, [zoom]);
+  if (url === '') return null;
+  return (
+    <figure className="page-figure">
+      {url ? <button type="button" className="fig-thumb" onClick={() => setZoom(true)} aria-label={`${page}쪽 그림 크게 보기`}><img src={url} alt={`${page}쪽 이미지 (개인정보는 가림)`} /></button> : <p className="note">그림을 불러오는 중입니다.</p>}
+      <figcaption className="note">{page}쪽 그림 · 누르면 크게 봅니다. 개인정보는 가렸습니다.</figcaption>
+      <dialog ref={ref} className="fig-zoom" onClose={() => setZoom(false)} onClick={(e) => { if (e.target === ref.current) setZoom(false); }}>
+        {url && <img src={url} alt={`${page}쪽 이미지 크게 (개인정보는 가림)`} />}
+        <form method="dialog"><button className="btn">닫기</button></form>
+      </dialog>
+    </figure>
+  );
+}
+
 function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
   const [open, setOpen] = useState(false);
   return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
@@ -338,6 +362,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const [active, setActive] = useState(0);
   const [raw, setRaw] = useState(false); // false: AI 정리본(있으면), true: 원문(고칠 곳 밑줄)
   const [editing, setEditing] = useState(false); // 위키 수정 (규칙 1)
+  const [zoom, setZoom] = useState(false); // 쪽 그림 크게 보기
   const [fixOpen, setFixOpen] = useState(false);
   const [reasonsOpen, setReasonsOpen] = useState(false);
   useEffect(() => {
@@ -356,6 +381,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const page = d.pages[p];
   // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
   // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
+  const hasFig = !!page && (d.image_pages ?? []).includes(page.page); // 그림이 있는 쪽: 글 옆(모바일은 위)에 쪽 이미지
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
@@ -407,8 +433,11 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <button type="button" className="btn" aria-pressed={!raw} onClick={() => setRaw(false)}>정리본</button>
             <button type="button" className="btn" aria-pressed={raw} onClick={() => setRaw(true)}>원문{numbered.length > 0 ? ` · 고칠 곳 ${numbered.length}` : ''}</button>
           </div>}
-          <div className="document-columns"><div className="sheet page">
+          <div className="document-columns"><div className={`sheet page${hasFig ? ' has-figure' : ''}`} onClick={(e) => { if ((e.target as HTMLElement).closest('.fig-ref')) setZoom(true); }}>
+            {hasFig && <PageFigure docId={d.doc_id} page={page.page + 1} zoom={zoom} setZoom={setZoom} />}
+            <div className="page-body">
             {page.structured && !raw ? <><p className="note">AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. '(그림 n)'이 붙은 문장은 AI가 그림을 보고 쓴 설명이라 근거로 인용하지 않습니다. 고칠 곳 밑줄은 원문에서 보입니다.</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
+            </div>
           </div>
           <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>
             <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>

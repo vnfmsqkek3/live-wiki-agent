@@ -464,3 +464,16 @@ test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·origin
   assert.equal((await t.store.getDoc(doc_id))!.findings.length, 0);
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: 'x' })).status, 404); // 남의 검토 중 문서
 });
+
+test('보관함 쪽 이미지: 문서를 볼 수 있으면 누구나(가린 이미지), 볼 수 없으면 404, 상세에 그림 있는 쪽 목록', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_M', title: '복합기 매뉴얼', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'MANUAL' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_H', title: '인사', acl_groups: ['DEPT#hr'], lifecycle: 'PUBLISHED', document_type: 'MANUAL' });
+  t.deps.pageImage = async (_id, i) => (i === 2 ? new Uint8Array([137, 80, 78, 71]) : undefined);
+  t.deps.pageImageList = async () => [2];
+  assert.equal((await t.call('user', 'GET', '/v1/library/doc_M/pages/3/image')).status, 200);
+  assert.equal((await t.call('user', 'GET', '/v1/library/doc_M/pages/1/image')).status, 404);
+  assert.equal((await t.call('user', 'GET', '/v1/library/doc_H/pages/3/image')).status, 404);
+  assert.deepEqual(((await (await t.call('user', 'GET', '/v1/library/doc_M')).json()) as { image_pages: number[] }).image_pages, [2]);
+});
