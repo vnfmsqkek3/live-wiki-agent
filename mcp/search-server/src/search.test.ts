@@ -67,10 +67,11 @@ test("재검증: KB에 남은 청크라도 현재 상태가 PUBLISHED 아님·�
 
 test("결과 0건은 UNVERIFIED (부재 단정 금지), 질의 PII 마스킹", async () => {
   const { tools, retriever } = setup();
-  const r = await tools.search_wiki({ query: "zzqx 010-1234-5678", as_of: "2026-12-15" }, user);
-  assert.equal(r.search_status, "UNVERIFIED");
+  // 0건: 어떤 문서와도 겹치지 않는 질의 (로컬 KB 에뮬레이터는 글자 두 개 단위로 점수를 매겨 "[주민등록번호]"도 개인정보 규정과 겹친다)
+  assert.equal((await tools.search_wiki({ query: "zzqx qqzz", as_of: "2026-12-15" }, user)).search_status, "UNVERIFIED");
+  const r = await tools.search_wiki({ query: "zzqx 900101-1234568", as_of: "2026-12-15" }, user);
   assert.equal(r.pii_masked, true);
-  assert.ok(!retriever.lastQuery.includes("010") && retriever.lastQuery.includes("[전화번호]"));
+  assert.ok(!retriever.lastQuery.includes("1234568") && retriever.lastQuery.includes("[주민등록번호]"));
 });
 
 test("search_legal_clause: 조문 번호 질의는 Exact Lookup 먼저, 삭제 조항은 DELETED", async () => {
@@ -209,8 +210,8 @@ test("search_wiki 질의 재구성: rewritten·matched_query 응답, rewrite=fal
   const seen: string[] = [];
   const t2 = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }),
     rewriter: { rewrite: async (q) => { seen.push(q); return { core: "본부 여신심사위원회 승인 기준", alternates: ["여신심사위원회 승인 금액"] }; } } });
-  const r = await t2.search_wiki({ query: "010-1234-5678 본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown; items: { matched_query?: string }[] };
-  assert.ok(!seen[0]!.includes("010") && seen[0]!.includes("[전화번호]"));
+  const r = await t2.search_wiki({ query: "900101-1234568 본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15" }, user) as { rewritten?: unknown; items: { matched_query?: string }[] };
+  assert.ok(!seen[0]!.includes("1234568") && seen[0]!.includes("[주민등록번호]"));
   assert.deepEqual(r.rewritten, { core: "본부 여신심사위원회 승인 기준", alternates: ["여신심사위원회 승인 금액"] });
   assert.ok(r.items.length && r.items.every((i) => ["본부 여신심사위원회 승인 기준", "여신심사위원회 승인 금액"].includes(i.matched_query!)));
   const raw = await t2.search_wiki({ query: "본부 여신심사위원회 승인 기준 알려줘", as_of: "2026-12-15", rewrite: false }, user) as { rewritten?: unknown };
