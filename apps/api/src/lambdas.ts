@@ -229,8 +229,9 @@ export function makeWaitForApproval(deps: LambdaDeps) {
 
 /** 단계 14. outcome에 따라 최종 상태. 승인 레코드 USED 전환은 Promote(let522mj)가 한다 */
 export function makeFinalize(deps: LambdaDeps) {
-  return async (i: StepInput & { outcome: 'PUBLISHED' | 'BLOCKED' | 'REJECTED' }): Promise<StepOutput> => {
+  return async (i: StepInput & { outcome: 'PUBLISHED' | 'BLOCKED' | 'REJECTED' | 'DELETED'; affected_doc_ids?: string[] }): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
+    if (i.outcome === 'DELETED') return finalizeDeleted(deps.store, d, i.affected_doc_ids ?? [], i.workflow_id);
     const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
       // 노하우·매뉴얼은 사람 승인이 곧 검증이다 (규정은 TrustGate Registry 대조로 VERIFIED). 승인·게시가 끝났으면 VERIFIED
@@ -259,6 +260,28 @@ export function withPages(findings: Finding[], pages: { page: number; text: stri
     const hit = probe.length >= 6 ? norm.find((p) => p.t.includes(probe)) : undefined;
     return hit ? { ...f, location: { ...f.location, page: hit.page + 1 } } : f;
   });
+}
+
+/** 삭제 정리 마무리 (interfaces 6.0): 삭제된 규정의 조문을 근거로 쓰던 게시 문서를 재검토 대상으로, 정리 완료 시각 기록. 멱등 */
+async function finalizeDeleted(store: Store, d: DocumentRecord, affected: string[], trace_id: string): Promise<StepOutput> {
+  if (d.lifecycle !== 'DELETED') throw new Error('NotDeleted');
+  const at = now();
+  const marked: string[] = [];
+  for (const id of [...new Set(affected)].filter((x) => x !== d.doc_id)) {
+    const k = await store.getDoc(id);
+    if (!k || k.lifecycle !== 'PUBLISHED') continue;
+    const provisions = (k.knowhow_validation?.items ?? []).map((j) => j.provision_id).concat((k.citations ?? []).map((c) => c.provision_id)).filter((p) => !!d.law_id && p.startsWith(`${d.law_id}@`));
+    await store.putDoc({
+      ...k, freshness: 'REVIEW_REQUIRED', updated_at: at,
+      freshness_reason: { law_id: d.law_id ?? d.doc_id, law_name: d.title, cited_revision: d.revision_id ?? '', current_revision: '', effective_from: '', provisions: [...new Set(provisions)], at, deleted_doc: d.doc_id },
+    });
+    await store.audit({ at, actor: 'system:finalize', action: 'FRESHNESS_REVIEW_REQUIRED', resource: id, result: 'OK', trace_id });
+    marked.push(id);
+  }
+  const cur = (await store.getDoc(d.doc_id)) ?? d;
+  await store.putDoc({ ...cur, purge: { ...cur.purge, objects: cur.purge?.objects ?? 0, deleted_at: at, review_required: marked } });
+  await store.audit({ at, actor: 'system:finalize', action: 'FINALIZE_DELETED', resource: d.doc_id, result: 'OK', trace_id });
+  return { status: 'OK' };
 }
 
 async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {

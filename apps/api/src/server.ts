@@ -5,7 +5,7 @@ import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
 import { searchVia, type SearchWiki } from './search.ts';
-import { env, explanation, pageSummary, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
+import { deleteWorkflow, env, explanation, pageSummary, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowSteps } from './aws.ts';
 
 // 문서보관함 밑줄: let522mj buildMarks (PR #8). 패키지에 없으면 밑줄 없이 동작
 type BuildMarks = (pages: string[], src: Record<string, unknown>, store: unknown) => Promise<Mark[]>;
@@ -47,6 +47,7 @@ const app = createApp({
   headObject,
   startWorkflow,
   resume,
+  deleteWorkflow,
   guide: (q, t) => invokeAgent(q, t),
   guideStream: invokeAgentStream,
   workflowFailure,

@@ -20,6 +20,7 @@ const item = (provision_id: string, relation: 'SUPPORTS' | 'CONFLICTS' | 'INSUFF
 
 async function setup() {
   const store = memoryStore();
+  const deleted: string[] = [];
   await store.putDoc(base({ doc_id: 'REG', title: '기업여신 심사규정', law_id: 'SYN-LOAN-001', revision_id: '2026-11-01', document_type: 'REGULATION', classification: { document_type: 'REGULATION', business_path: ['여신'], tags: ['공식규정'], confidence: 1, rationale: '' } }));
   await store.putDoc(base({ doc_id: 'REG_NEXT', title: '기업여신 심사규정 (12-01 개정)', law_id: 'SYN-LOAN-001', revision_id: '2026-12-01', document_type: 'REGULATION' }));
   await store.putDoc(base({ doc_id: 'SECRET', title: '권한 밖 규정', law_id: 'SYN-HR-001', acl_groups: ['DEPT#hr'] }));
@@ -36,13 +37,15 @@ async function setup() {
     verify: async (t: string) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'x'); return u; },
     store, presignPut: async () => '', headObject: async () => undefined, startWorkflow: async () => {}, resume: async () => true,
     search: async () => [], guide: async () => ({}),
+    deleteWorkflow: async (d: DocumentRecord) => { deleted.push(d.delete_workflow_id!); },
     pages: async () => [{ page: 1, text: '둘째 장' }, { page: 0, text: '1억원 이하는 현장 실사를 생략한다.' }],
     pageSummary: async (id: string) => id === 'KH' ? { pages: [{ page_index: 1, summary: '둘째 장 요약', keywords: ['현장 실사'], clause_refs: ['제14조'], page_type: '본문' }] } : undefined,
     marks: async () => [{ page: 0, start: 0, end: 5, severity: 'HIGH', kind: 'CONFLICT', reason: '실사 의무' }, { page: null, start: null, end: null, severity: 'HIGH', kind: 'REGISTRY_MISMATCH', reason: '조문 누락' }],
   } as Deps;
   const app = createApp(deps);
   const get = (who: string, path: string) => app.request(path, { headers: { authorization: `Bearer ${who}` } });
-  return { get };
+  const del = (who: string, path: string, reason = '중복 문서') => app.request(path, { method: 'DELETE', headers: { authorization: `Bearer ${who}`, 'content-type': 'application/json' }, body: JSON.stringify({ reason }) });
+  return { get, del, store, deleted };
 }
 
 test('목록: 권한 내 게시 문서 + 본인 문서만, 타인 미게시·권한 밖 제외', async () => {
@@ -129,4 +132,26 @@ test('결재함에서 연 문서: 관리자는 남의 게시 전·차단 문서 
   assert.ok(!ids.includes('BLOCKED_DOC') && !ids.includes('OTHERS_DRAFT'));
   const pub = (await (await t.get('approver', '/v1/library/KH')).json()) as { review?: unknown };
   assert.equal(pub.review, undefined); // 게시본에는 결재 정보 없음
+});
+
+test('문서 삭제: 작성자 본인·관리자만, DELETED·사유·감사 후 정리 실행(새 workflow), 다시 누르면 정리만 재시도, 보관함에서 사라짐', async () => {
+  const t = await setup();
+  assert.equal((await t.del('user', '/v1/library/DRAFT'.replace('library', 'documents'))).status, 404); // 남의 게시 전 문서
+  assert.equal((await t.del('user', '/v1/documents/KH')).status, 403); // 게시본은 보이지만 작성자 아님
+  const r = await t.del('author', '/v1/documents/DRAFT');
+  assert.equal(r.status, 202);
+  const d = (await t.store.getDoc('DRAFT'))!;
+  assert.deepEqual([d.lifecycle, d.deleted_reason, d.deleted_by], ['DELETED', '중복 문서', 'u-author']);
+  assert.equal(t.deleted.length, 1);
+  assert.equal(t.deleted[0], d.delete_workflow_id);
+  assert.equal(t.store.audits.at(-1)!.action, 'DOCUMENT_DELETE');
+  assert.equal((await t.del('author', '/v1/documents/DRAFT', '다른 사유')).status, 202);
+  assert.equal(t.deleted.length, 2);
+  assert.notEqual(t.deleted[1], t.deleted[0]);
+  assert.equal((await t.store.getDoc('DRAFT'))!.deleted_reason, '중복 문서'); // 처음 사유 유지
+  assert.equal((await t.del('approver', '/v1/documents/KH')).status, 202);
+  const ids = ((await (await t.get('user', '/v1/library')).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id);
+  assert.ok(!ids.includes('KH'));
+  assert.equal((await t.del('author', '/v1/documents/DRAFT', ' ')).status, 422); // 사유 필수 (VALIDATION)
+  assert.equal((await t.del('author', '/v1/documents/REG')).status, 403);
 });

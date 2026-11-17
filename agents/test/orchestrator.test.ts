@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ingestGraph, publishGraph, run, type PipelineDeps, type StepOutput } from '../src/pipeline/orchestrator.ts';
+import { deleteGraph, ingestGraph, publishGraph, run, type PipelineDeps, type StepOutput } from '../src/pipeline/orchestrator.ts';
 
 const input = { workflow_id: 'wf_1', doc_id: 'doc_1', version: 1, bucket: 'b', prefix: 'doc_1/', actor: { sub: 'u', groups: ['AUTHOR'] } };
 
@@ -91,4 +91,15 @@ test('차단·검토 필요면 끝내기 전에 explain_findings 호출, 설명 
   const ok = deps();
   await run(ingestGraph(ok.d, input), ok.d, input);
   assert.ok(!ok.calls.some((c) => c.step === 'explain_findings'));
+});
+
+test('삭제: purge_document → kb_ingest·graph_upsert(action=delete) → finalize(DELETED, graph_upsert의 affected_doc_ids)', async () => {
+  const t = deps({ graph_upsert: () => ({ status: 'OK', affected_doc_ids: ['doc_K1'] }) });
+  const r = await run(deleteGraph(t.d, input), t.d, input);
+  assert.equal(r.status, 'COMPLETED');
+  assert.deepEqual(t.calls.map((c) => c.step), ['purge_document', 'kb_ingest', 'graph_upsert', 'finalize']);
+  assert.equal(t.calls[1]!.args.action, 'delete');
+  assert.equal(t.calls[2]!.args.action, 'delete');
+  assert.deepEqual([t.calls[3]!.args.outcome, t.calls[3]!.args.affected_doc_ids], ['DELETED', ['doc_K1']]);
+  assert.ok(t.records.includes('PurgeDocument=OK'));
 });

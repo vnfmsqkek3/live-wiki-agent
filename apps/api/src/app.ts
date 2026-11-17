@@ -6,7 +6,7 @@ import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { card, docDate, keywordItem, matches, similar, verification, type Mark, type Page } from './library.ts';
 import { blockedReasons, issues, progress } from './progress.ts';
 import {
-  ALLOWED_EXT, ClassificationBody, DecisionBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
+  ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
@@ -26,6 +26,8 @@ export interface Deps {
   startWorkflow(doc: DocumentRecord): Promise<void>;
   /** 사람 결정 후 워크플로 재개 (AgentCore 오케스트레이터 resume). 재개했으면 true. APPROVE만 게시 단계로 진행 */
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
+  /** 사용자 삭제 정리 실행 (오케스트레이터 action=delete). 없으면 DELETED 표시만 */
+  deleteWorkflow?(doc: DocumentRecord): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
   search(q: string, actor: Actor, opts: { tags: string[]; as_of?: string; business?: string; index_groups?: string[] }): Promise<unknown[]>;
   /** 검색·가이드 Agent 호출. 사용자 access token을 그대로 전달 (interfaces.md 9장) */
@@ -79,7 +81,7 @@ export function createApp(deps: Deps) {
   });
 
   if (deps.webOrigins?.length)
-    app.use('/v1/*', cors({ origin: deps.webOrigins, allowHeaders: ['authorization', 'content-type'], allowMethods: ['GET', 'POST'], maxAge: 600 }));
+    app.use('/v1/*', cors({ origin: deps.webOrigins, allowHeaders: ['authorization', 'content-type'], allowMethods: ['GET', 'POST', 'DELETE'], maxAge: 600 }));
 
   app.get('/healthz', (c) => c.json({ ok: true }));
 
@@ -150,6 +152,26 @@ export function createApp(deps: Deps) {
     const d = await loadDoc(c, c.req.param('id'));
     const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     return c.json({ ...d, task_token: undefined, findings: undefined, workflow_failure: failure }); // 이전 SFN 문서에 남은 task_token은 숨김
+  });
+
+  // 문서 삭제 (사용자 결정 11/17 B, interfaces 6.0): 작성자 본인 또는 관리자. DELETED 표시·감사 → KB·그래프·저장소 정리는 오케스트레이터.
+  // 이미 DELETED면 정리만 다시 (재시도). Documents·Approvals·감사 기록은 남긴다
+  app.delete('/v1/documents/:id', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('FORBIDDEN', 'owner or approver only');
+    const b = await body(c, DeleteBody);
+    const at = new Date().toISOString();
+    const next: DocumentRecord = {
+      ...d, lifecycle: 'DELETED', deleted_reason: d.lifecycle === 'DELETED' ? d.deleted_reason ?? b.reason : b.reason,
+      deleted_by: d.deleted_by ?? a.sub, delete_workflow_id: newId.wf(), updated_at: at,
+      ...(d.purge ? { purge: { ...d.purge, deleted_at: undefined, review_required: undefined } } : {}),
+    };
+    await store.putDoc(next);
+    await audit(c, 'DOCUMENT_DELETE', d.doc_id);
+    let cleanup_started = false;
+    try { if (deps.deleteWorkflow) { await deps.deleteWorkflow(next); cleanup_started = true; } } catch { await audit(c, 'DELETE_CLEANUP_START_FAILED', d.doc_id); }
+    return c.json({ doc_id: d.doc_id, lifecycle: 'DELETED', cleanup_started }, 202);
   });
 
   app.get('/v1/documents/:id/review', async (c) => {
@@ -292,7 +314,7 @@ export function createApp(deps: Deps) {
   });
 
   // ---- 문서보관함 (권한 내 PUBLISHED + 본인 문서) ----
-  const visibleDocs = async (a: Actor) => (await store.listDocs()).filter((d) => d.owner === a.sub || (d.lifecycle === 'PUBLISHED' && canRead(a, d.acl_groups)));
+  const visibleDocs = async (a: Actor) => (await store.listDocs()).filter((d) => d.lifecycle !== 'DELETED' && (d.owner === a.sub || (d.lifecycle === 'PUBLISHED' && canRead(a, d.acl_groups))));
   /** 상세용 문서 찾기. 결재함에서 연 결재 대상(게시 전·차단) 문서는 관리자만, 상세 본문 열람 때 감사 기록. 보관함 목록에는 섞지 않는다. 권한 없음도 404 */
   const libraryDoc = async (c: Context<Env>, vis: DocumentRecord[], auditRead = false) => {
     const a = c.get('actor');
@@ -349,6 +371,7 @@ export function createApp(deps: Deps) {
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
     return c.json({
       ...base,
+      can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
         lifecycle: d.lifecycle,

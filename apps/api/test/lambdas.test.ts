@@ -198,3 +198,22 @@ test('TrustGate + Registry: 해시 일치 규정은 VERIFIED·PASS, law_id 등 �
   assert.ok(e.findings.some((x) => x.code === 'REGISTRY_MISMATCH' && /ARTICLE:12/.test(x.message)));
   assert.equal(e.law_id, undefined);
 });
+
+test('Finalize DELETED: 삭제된 규정을 근거로 쓰던 게시 노하우만 재검토, 정리 완료 기록, DELETED 아니면 예외', async () => {
+  const t = setup(pdf);
+  const reg = { ...t.doc, lifecycle: 'DELETED' as const, title: '기업여신 심사규정', law_id: 'SYN-LOAN-001', revision_id: '2026-11-01' };
+  await t.store.putDoc(reg);
+  const kh = { ...t.doc, doc_id: 'doc_K1', lifecycle: 'PUBLISHED' as const, citations: [{ provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12', evidence_span: '', confidence: 1 }] };
+  await t.store.putDoc(kh);
+  await t.store.putDoc({ ...kh, doc_id: 'doc_DRAFT', lifecycle: 'IN_REVIEW' });
+  await makeFinalize(t.deps)({ ...t.input, outcome: 'DELETED', affected_doc_ids: ['doc_K1', 'doc_DRAFT', 'doc_NONE'] });
+  const k = (await t.store.getDoc('doc_K1'))!;
+  assert.equal(k.freshness, 'REVIEW_REQUIRED');
+  assert.deepEqual([k.freshness_reason?.deleted_doc, k.freshness_reason?.provisions], [reg.doc_id, ['SYN-LOAN-001@2026-11-01/ARTICLE:12']]);
+  assert.equal((await t.store.getDoc('doc_DRAFT'))!.freshness, 'CURRENT');
+  const r = (await t.store.getDoc(reg.doc_id))!;
+  assert.deepEqual(r.purge?.review_required, ['doc_K1']);
+  assert.ok(r.purge?.deleted_at);
+  await t.store.putDoc({ ...reg, lifecycle: 'PUBLISHED' });
+  await assert.rejects(makeFinalize(t.deps)({ ...t.input, outcome: 'DELETED' }), /NotDeleted/);
+});

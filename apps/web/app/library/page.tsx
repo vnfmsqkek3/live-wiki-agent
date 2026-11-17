@@ -216,6 +216,47 @@ function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: str
   );
 }
 
+/** 문서 삭제 (작성자·관리자): 사유 → 확인 → 저장소·검색 색인·관계 그래프 정리 진행 표시 (interfaces 6.0) */
+function DeleteDoc({ d }: { d: LibraryDoc }) {
+  const [state, setState] = useState<'idle' | 'running' | 'done' | 'slow' | 'error'>('idle');
+  const [info, setInfo] = useState('');
+  async function del() {
+    const reason = prompt('삭제 사유를 적어 주세요 (예: 개정판으로 대체, 중복 등록)')?.trim();
+    if (!reason) return;
+    if (!confirm(`「${d.title}」을(를) 삭제합니다.\n검색·문서보관함·관계 그래프에서 빠지고 파일은 모든 버전이 지워집니다. 되돌릴 수 없습니다.\n결재·감사 기록은 남습니다. 계속할까요?`)) return;
+    try {
+      await api('DELETE', `/v1/documents/${encodeURIComponent(d.doc_id)}`, { reason });
+    } catch (e) { setState('error'); setInfo((e as ApiError).message); return; }
+    setState('running');
+    // 정리(저장소 → 검색 색인 → 그래프)는 보통 1~3분. Finalize가 purge.deleted_at을 남기면 끝
+    for (let i = 0; i < 60; i++) {
+      await new Promise((r) => setTimeout(r, 5000));
+      const x = await api<{ purge?: { deleted_at?: string; review_required?: string[] } }>('GET', `/v1/documents/${encodeURIComponent(d.doc_id)}`).catch(() => undefined);
+      if (x?.purge?.deleted_at) {
+        const n = x.purge.review_required?.length ?? 0;
+        setState('done');
+        setInfo(n ? `이 문서를 근거로 쓰던 게시 문서 ${n}건을 재검토 대상으로 표시했습니다.` : '');
+        return;
+      }
+    }
+    setState('slow');
+  }
+  if (!d.can_delete) return null;
+  return (
+    <section aria-labelledby="del-h" style={{ marginTop: 28 }}>
+      <h3 className="section" id="del-h">문서 삭제</h3>
+      {state === 'idle' && <><p className="note">검색·보관함·관계 그래프에서 빼고 파일을 모두 지웁니다. 결재·감사 기록은 남습니다.</p><div className="actions"><button className="btn" onClick={del}>문서 삭제</button></div></>}
+      <p aria-live="polite" className={state === 'error' ? 'error' : 'note'}>
+        {state === 'running' && '삭제했습니다. 저장소·검색 색인·관계 그래프를 정리하는 중입니다(보통 1~3분).'}
+        {state === 'done' && `삭제와 정리가 끝났습니다. ${info}`}
+        {state === 'slow' && '삭제는 되었고 정리가 아직 진행 중입니다. 검색·보관함에는 이미 보이지 않습니다. 잠시 뒤 다시 확인해 주세요.'}
+        {state === 'error' && `삭제하지 못했습니다: ${info}`}
+      </p>
+      {(state === 'done' || state === 'slow') && <Link href="/library">보관함으로</Link>}
+    </section>
+  );
+}
+
 function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
   const [err, setErr] = useState('');
@@ -247,7 +288,11 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <h2 className="doc-title lg">{d.title}</h2>
       <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW' }} />
       <FreshnessFlag freshness={d.freshness} />
-      {d.freshness_reason && (
+      {d.freshness_reason?.deleted_doc ? (
+        <p className="notice" role="status">
+          근거로 쓰던 「{d.freshness_reason.law_name}」 문서가 삭제되었습니다. 근거 조문을 다시 확인해야 합니다. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
+        </p>
+      ) : d.freshness_reason && (
         <p className="notice" role="status">
           근거 규정 「{d.freshness_reason.law_name}」이 {d.freshness_reason.effective_from} 시행 개정판으로 바뀌었습니다.
           이 문서는 {d.freshness_reason.cited_revision} 판을 근거로 승인되어, 현행 조문과 맞는지 다시 검토해야 합니다.
@@ -347,6 +392,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         </section>
       )}
       {d.review && <Decide r={d.review} docId={d.doc_id} />}
+      <DeleteDoc d={d} />
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
     </>
   );

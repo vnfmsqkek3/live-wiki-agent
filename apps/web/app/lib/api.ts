@@ -204,7 +204,7 @@ export interface LibraryCard {
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
-  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string } | null;
+  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string } | null;
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string; document_type?: string }[];
 }
 export interface Verification {
@@ -219,7 +219,7 @@ export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
   findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number }[];
 }
-export interface LibraryDoc extends LibraryCard { review?: ReviewInfo; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
+export interface LibraryDoc extends LibraryCard { review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [

@@ -97,10 +97,14 @@ export interface DocumentRecord {
   /** 노하우 검증 결과 (TrustGate가 KNOWHOW 문서에 기록) */
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
   /** 근거 규정 개정·시행으로 재검토가 필요해진 이유 (freshness=REVIEW_REQUIRED). 자동 수정 없음 */
-  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string };
+  /** deleted_doc: 근거 규정 문서가 삭제됨(문서 삭제 흐름, interfaces 6.0) */
+  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string };
   deleted_reason?: string;
-  /** 검증 실패·반려 문서의 파일 삭제 기록 (원본·work 즉시, masked는 보관 기간 뒤) */
-  purge?: { original_at?: string; masked_at?: string; objects: number };
+  deleted_by?: string;
+  /** 사용자 삭제 정리 실행 (purge_document → kb_ingest → graph_upsert → finalize). 정리가 끝나면 purge.deleted_at */
+  delete_workflow_id?: string;
+  /** 검증 실패·반려 문서의 파일 삭제 기록 (원본·work 즉시, masked는 보관 기간 뒤). 사용자 삭제는 deleted_at·review_required(근거를 잃은 노하우) */
+  purge?: { original_at?: string; masked_at?: string; objects: number; deleted_at?: string; review_required?: string[] };
   /** 출처 불일치 처리 결과 */
   source_review?: { decision: 'REJECT'; by: string; reason: string; at: string };
   /** 파싱 이슈를 사람이 검토했는지 (GraphUpsert 적재 허용) */
@@ -176,6 +180,7 @@ export const ClassificationBody = z.object({
 });
 
 /** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
+export const DeleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 
 export const GuideBody = z.object({ question: z.string().trim().min(1).max(1000) });

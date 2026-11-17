@@ -63,6 +63,11 @@ export async function startWorkflow(d: DocumentRecord) {
   await invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
 }
 
+/** 사용자 삭제 정리 (interfaces 6.0): 새 workflow_id로 오케스트레이터 delete 실행 */
+export async function deleteWorkflow(d: DocumentRecord) {
+  await invokePipeline({ action: 'delete', input: { ...stepInput(d), workflow_id: d.delete_workflow_id! } }, d.delete_workflow_id!);
+}
+
 /** 사람 결정 후 재개: AgentCore 오케스트레이터 resume. 이전 SFN task token은 무시한다 */
 export async function resume(d: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
   if (!d.workflow_id) return false;
