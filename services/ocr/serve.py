@@ -53,11 +53,47 @@ def load():
                 return PPStructureV3(**base)
         for _ in range(WORKERS):  # predictor 는 스레드 간 공유하지 않는다 (인스턴스당 1요청)
             POOL.put(make())
+        MODEL["merge"] = layout_merge_modes()
+        print("layout_merge_bboxes_mode", MODEL["merge"], flush=True)
         MODEL["ocr"] = True
         print("model loaded", WORKERS, flush=True)
     except Exception as e:  # noqa: BLE001
         MODEL["error"] = repr(e)
         print("model load failed", MODEL["error"], flush=True)
+
+
+# 레이아웃 겹친 상자 처리 (11/17 과천 매뉴얼 12쪽): 기본 "large"는 바깥 상자만 남겨, 화면 캡처 4장 + 단계 설명 글을
+# 쪽 대부분을 덮는 image 상자 하나로 합친다 → 설명 글까지 그림 속 글자가 됨. 그림(image·chart)만 "small"(안쪽 상자 유지)로,
+# 표·본문 등 나머지는 기본 "large" 그대로(표 상자가 안쪽 글 상자에 밀려 사라지지 않게). 클래스 번호는 모델 label_list 에서 찾는다
+FIGURE_SMALL = ("image", "chart")
+
+
+def _find_labels(o):
+    """inference.yml 어디에 있든 label_list (PaddleX 버전마다 위치가 다름)"""
+    if isinstance(o, dict):
+        if isinstance(o.get("label_list"), list):
+            return o["label_list"]
+        for v in o.values():
+            r = _find_labels(v)
+            if r:
+                return r
+    return []
+
+
+def layout_merge_modes():
+    import glob
+
+    import yaml
+
+    for f in glob.glob(os.path.join(os.environ.get("PADDLE_PDX_CACHE_HOME", "/opt/models"), "**", "PP-DocLayout*", "inference.yml"), recursive=True):
+        try:
+            labels = _find_labels(yaml.safe_load(open(f)))
+        except Exception:  # noqa: BLE001  못 읽으면 기본 동작
+            continue
+        if labels:
+            modes = {i: ("small" if l in FIGURE_SMALL else "large") for i, l in enumerate(labels)}
+            return modes if "small" in modes.values() else None
+    return None
 
 
 def run(req):
@@ -73,7 +109,8 @@ def run(req):
             t0 = time.time()
             model = POOL.get()
             try:
-                r = model.predict(input=path)[0]
+                kw = {"layout_merge_bboxes_mode": MODEL["merge"]} if MODEL.get("merge") else {}
+                r = model.predict(input=path, **kw)[0]
             finally:
                 POOL.put(model)
             res = r.json.get("res", {}) if hasattr(r, "json") else r  # 참고 구현과 같은 결과 접근
