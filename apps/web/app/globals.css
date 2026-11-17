@@ -585,3 +585,104 @@ h1, h2, h3, h4, .title, .section, .doc-title, .num { color:var(--navy-900); }
 .admin-grid { align-items:stretch; grid-auto-rows:auto; }
 .admin-grid .entry { min-width:0; }
 .admin-grid .entry > p:not(.flag):not(.error) { display:block; overflow:visible; }
+
+/* ===== 결재란과 도장 (impeccable direction: seed:45d95521fb70dc78) =====
+   모든 신뢰 표시는 이 한 언어로만: 작성·AI 검사·승인 세 칸, 원형 도장 3종.
+   그린 = 완료·승인, 코랄 = 충돌·차단·반려, 점선 = 대기. 이전 배지(.seal.official 등)는 쓰지 않는다. */
+.seal.kyul { display:inline-grid; grid-auto-flow:column; align-items:center; padding:0; border:0; background:none; border-radius:0; gap:6px; margin:0; vertical-align:middle; }
+.kyul-cell { display:grid; justify-items:center; }
+.stamp { display:grid; place-items:center; border-radius:50%; font:700 12px/1 var(--font-display, var(--sans)); font-style:normal; letter-spacing:-.02em; white-space:nowrap; }
+.stamp.ok { color:var(--green-700); border:2px solid var(--green-700); box-shadow:inset 0 0 0 2px #fff, inset 0 0 0 3px color-mix(in srgb, var(--green-700) 45%, #fff); transform:rotate(-8deg); }
+.stamp.bad { color:var(--coral-700); border:2px solid var(--coral-700); box-shadow:inset 0 0 0 2px #fff, inset 0 0 0 3px color-mix(in srgb, var(--coral-700) 45%, #fff); transform:rotate(6deg); }
+.stamp.wait { color:var(--ink-500); border:1.5px dashed #B9C4D3; font-weight:500; }
+.kyul.mini .stamp { width:34px; height:34px; font-size:10px; }
+.kyul.full { gap:0; border:1.5px solid var(--navy-900); background:#fff; }
+.kyul.full .kyul-cell { width:88px; border-right:1px solid var(--navy-900); grid-template-rows:auto 76px; }
+.kyul.full .kyul-cell:last-child { border-right:0; }
+.kyul.full small { display:block; width:100%; text-align:center; padding:4px 0; border-bottom:1px solid var(--navy-900); font:600 12px/1.4 var(--font-display, var(--sans)); color:var(--navy-900); }
+.kyul.full .stamp { width:54px; height:54px; align-self:center; font-size:13px; }
+/* 서명 동작: 승인하는 순간 승인 칸에 도장이 한 번 찍힌다 */
+.stamp.now { animation:stamp-in 460ms cubic-bezier(.16,1,.3,1) both; }
+@keyframes stamp-in { 0% { transform:scale(1.7) rotate(-22deg); opacity:0; filter:blur(3px); } 55% { transform:scale(.92) rotate(-8deg); opacity:1; filter:none; } 100% { transform:scale(1) rotate(-8deg); } }
+@media (prefers-reduced-motion: reduce) { .stamp.now { animation:none; } }
+/* 상세 머리: 결재란은 오른쪽 위에 고정, 나머지 머리 정보는 왼쪽 */
+.document-header { position:relative; }
+.document-header > .kyul.full { justify-self:end; grid-row:1; }
+@media (min-width:900px) { .document-header { grid-template-columns:minmax(0,1fr) auto; column-gap:32px; } .document-header > .kyul.full { grid-column:2; grid-row:1 / span 4; align-self:start; } .document-header > :not(.kyul) { grid-column:1; } }
+.approval-box { border:0; padding:0; }
+/* 카드 정보 목록은 라벨|값 격자라 값 뒤 구분점이 필요 없다 */
+.card-grid .entry > dl dd::after, .ledger .entry > dl dd::after { content:none; }
+.card-grid .entry > .seal.kyul { margin-bottom:4px; }
+/* 로그인: 바깥 상자 없이 두 영역을 세로 괘선 하나로 나눈다(상자 안 상자 없음). 브랜드 표시는 제목 옆 같은 줄 */
+.login-layout { border:0; border-radius:0; background:none; }
+@media (min-width:768px) { .login-panel { border-left:1px solid var(--line); } }
+.login-brand { display:flex; align-items:center; gap:12px; }
+.brand-mark { display:inline-flex; color:var(--navy-900); }
+.brand-mark svg { width:28px; height:28px; }
+.login-kyul { margin:24px 0 8px; display:grid; gap:8px; justify-items:start; }
+.login-kyul figcaption { font-size:13px; color:var(--ink-500); }
+.mock { border:0; padding:0; background:none; color:var(--sky-700, #1E63D6); }
+
+/* ===== 반응형·모바일 (사용자 요청 11/17) ===== */
+/* 하단 탭 막대(1024px 미만)에는 메뉴만. 서비스 이름은 화면 머리에서 이미 보인다 */
+@media (max-width:1023px) { .tabs .wordmark { display:none !important; } }
+/* 문서 정보 목록은 칸 높이에 늘어나지 않게 위로 붙인다 */
+.document-header .meta-grid, .document-header dl { align-content:start; }
+@media (max-width:899px) {
+  /* 상세: 결재란은 제목 바로 아래 왼쪽, 정보는 그 아래 */
+  .document-header > .kyul.full { justify-self:start; }
+  .kyul.full .kyul-cell { width:76px; grid-template-rows:auto 64px; }
+  .kyul.full .stamp { width:48px; height:48px; font-size:12px; }
+  .page-header { gap:12px; }
+  .page-header .header-action .btn { width:auto; }
+}
+@media (max-width:599px) {
+  /* 제목 카드는 두 칸씩, 눌러 여는 단추라 높이를 줄인다 */
+  .detail-cards { grid-template-columns:repeat(2,minmax(0,1fr)) !important; gap:8px !important; }
+  .detail-cards > * { min-height:64px; padding:14px !important; }
+  .page-header { flex-wrap:wrap; }
+  .page-header .header-action { width:auto; }
+  .counts { flex-wrap:wrap; }
+  /* 결재함 카드 안 결재란도 화면 폭에 맞춘다 */
+  .entry .kyul.full { width:100%; grid-template-columns:repeat(3,1fr); }
+  .entry .kyul.full .kyul-cell { width:auto; }
+}
+
+/* ===== 유동 크기 (사용자 요청 11/17 "폰트나 도형이 동적으로 변경") =====
+   360px → 1440px 사이에서 글자·도장·결재란·여백이 화면 폭에 비례해 바뀐다. 끝값은 clamp로 묶어 너무 작거나 커지지 않게.
+   본문 최소 15px(읽기), 최대 17px. 도장·결재란은 같은 비율로 함께 커진다. */
+:root {
+  --fs-body: clamp(15px, 14.2px + .22vw, 17px);
+  --fs-small: clamp(12.5px, 12px + .15vw, 14px);
+  --fs-h1: clamp(24px, 19.5px + 1.25vw, 36px);
+  --fs-h2: clamp(18px, 16.3px + .48vw, 23px);
+  --fs-h3: clamp(16px, 15.3px + .2vw, 18px);
+  --gutter: clamp(16px, 8px + 2.2vw, 40px);
+  --gap: clamp(12px, 8px + 1.1vw, 24px);
+  --stamp-full: clamp(44px, 38px + 1.4vw, 60px);
+  --stamp-mini: clamp(28px, 25px + .6vw, 36px);
+  --kyul-cell: clamp(70px, 60px + 2.4vw, 96px);
+}
+body { font-size: var(--fs-body); }
+.title, .page-header .title { font-size: var(--fs-h1); }
+.section { font-size: var(--fs-h2); }
+.doc-title { font-size: var(--fs-h3); }
+.note, .meta, .page-description, small { font-size: var(--fs-small); }
+main { padding-inline: var(--gutter); }
+.card-grid, .ledger.stack, .detail-cards, .board { gap: var(--gap); }
+/* 도형: 도장·결재란은 미디어쿼리 고정값 대신 유동값 하나로 */
+.kyul.full .kyul-cell { width: var(--kyul-cell); grid-template-rows: auto calc(var(--stamp-full) + 20px); }
+.kyul.full .stamp { width: var(--stamp-full); height: var(--stamp-full); font-size: calc(var(--stamp-full) * .24); }
+.kyul.mini .stamp { width: var(--stamp-mini); height: var(--stamp-mini); font-size: calc(var(--stamp-mini) * .3); }
+.kyul.full small { font-size: calc(var(--kyul-cell) * .14); }
+@media (max-width:599px) { .entry .kyul.full .kyul-cell { width: auto; } }
+/* 이어 붙인 문단: 원문 줄바꿈·빈 줄은 띄어쓰기로 */
+.doc-text .doc-flow { white-space:normal; }
+.doc-text h4, .doc-text h3 { color:var(--navy-900); }
+/* 내용이 있는 제목 카드: 초록 테두리(전체 테두리, 한쪽 띠 아님) + '내용 있음' 글자 */
+.detail-card { display:flex; flex-direction:column; align-items:flex-start; gap:6px; text-align:left; }
+.detail-card.filled { border:1.5px solid var(--green-700); }
+.detail-card.filled:hover, .detail-card.filled:focus-visible { background:var(--green-050); }
+.card-state { font:500 var(--fs-small)/1.3 var(--font-body, var(--sans)); color:var(--green-700); }
+.doc-text .doc-line { margin:0; color:var(--ink-700); }
+.doc-text .doc-line + p:not(.doc-line), .doc-text .doc-line + h3 { margin-top:16px; }

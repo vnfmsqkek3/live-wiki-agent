@@ -2,7 +2,35 @@ import { Fragment, type ReactNode } from 'react';
 import type { Mark } from './lib/api';
 
 type Range = { start: number; end: number };
-export type DocBlock = Range & { kind: 'heading' | 'clause' | 'list' | 'quote' | 'paragraph' | 'blank' | 'table'; level: number; prefix: string; cells?: Range[] };
+export type DocBlock = Range & { kind: 'heading' | 'clause' | 'list' | 'quote' | 'paragraph' | 'blank' | 'table'; level: number; prefix: string; cells?: Range[]; flow?: boolean; short?: boolean; lastStart?: number };
+
+/** 문장이 끝난 줄인가 (PDF 추출은 문장 중간에서 줄을 끊고 빈 줄까지 넣는다) */
+const ENDED = /(?:[.。!?:：”"」』)]|다|함|음|임|요|됨)\s*$/;
+/** 원문 글자는 그대로 두고 블록 경계만 다시 묶는다: 끊긴 문장 잇기, '1. 제목' 소제목, → 흐름 한 줄로.
+ *  합친 블록은 원래 시작~끝 범위를 그대로 써서 밑줄(start·end) 위치가 바뀌지 않는다 */
+export function reflow(text: string, blocks: DocBlock[]): DocBlock[] {
+  const out: DocBlock[] = [];
+  for (const b0 of blocks) {
+    const b = { ...b0 };
+    const line = text.slice(b.start, b.end).trim();
+    // '1.개인정보 처리 근거'처럼 번호로 시작하고 문장이 아닌 짧은 줄은 소제목
+    if (b.kind === 'paragraph' && /^\d{1,2}\.\s*\S/.test(line) && line.length <= 40 && !ENDED.test(line)) { b.kind = 'heading'; b.level = 3; out.push(b); continue; }
+    if (b.kind !== 'paragraph') { out.push(b); continue; }
+    // 이어 붙일 앞 문단: 사이의 빈 줄은 건너뛴다
+    let j = out.length - 1;
+    while (j >= 0 && out[j]!.kind === 'blank') j--;
+    const prev = out[j];
+    // 판단은 앞 문단의 '마지막 줄' 기준 (합쳐진 길이로 판단하면 짧은 머리 정보 줄까지 줄줄이 먹는다)
+    const prevLast = prev ? text.slice(prev.lastStart ?? prev.start, prev.end).trim() : '';
+    const joinable = prev && prev.kind === 'paragraph' && !ENDED.test(prevLast)
+      && ((prevLast.length >= 40 && !prevLast.includes(" | ")) || /→/.test(prevLast) || /^→|→/.test(line) || (line.length <= 6 && /→/.test(text.slice(prev.start, prev.end))));
+    if (joinable) { out.length = j; out.push({ ...prev!, end: b.end, flow: true, lastStart: b.start }); continue; }
+    out.push(b);
+  }
+  // 문장이 아닌 짧은 줄(문서 머리의 관리번호·담당 부서 등)은 줄 단위로 촘촘히: 그 사이 빈 줄은 뺀다
+  for (const b of out) if (b.kind === 'paragraph' && !b.flow) { const t = text.slice(b.start, b.end).trim(); if (t.length <= 40 && !ENDED.test(t)) b.short = true; }
+  return out.filter((b, i) => !(b.kind === 'blank' && out[i - 1]?.short && out[i + 1]?.short));
+}
 
 /** UTF-16 offsets match String.slice and API marks. Never trim/normalize the source.
  * Self-check fixtures: '# 제목\r\n**굵게** [주민등록번호]\n- 항목\n' →
@@ -31,7 +59,8 @@ export function parseDocText(text: string): DocBlock[] {
     blocks.push(block); offset += raw.length + 1;
   }
   // Only consecutive pipe rows are a table; isolated pipes stay plain text.
-  return blocks.map((b, i) => b.kind === 'table' && blocks[i - 1]?.kind !== 'table' && blocks[i + 1]?.kind !== 'table' ? { ...b, kind: 'paragraph', cells: undefined } : b);
+  const typed = blocks.map((b, i) => b.kind === 'table' && blocks[i - 1]?.kind !== 'table' && blocks[i + 1]?.kind !== 'table' ? { ...b, kind: 'paragraph' as const, cells: undefined } : b);
+  return reflow(text, typed);
 }
 
 type Numbered = { m: Mark; n: number };
@@ -83,7 +112,7 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
       out.push(<div className="doc-list" role="list" key={key}><div role="listitem" style={{ paddingLeft: `${Math.min(b.level, 6)}em` }}><span className="doc-bullet" aria-hidden="true">{b.prefix.trim().replace(/^[-*]$/, '•')}</span>{content}</div></div>);
     } else if (b.kind === 'quote') out.push(<blockquote key={key}>{content}</blockquote>);
     else if (b.kind === 'blank') out.push(<div className="doc-break" key={key} />);
-    else out.push(<p key={key}>{content}</p>);
+    else out.push(<p key={key} className={b.flow ? 'doc-flow' : b.short ? 'doc-line' : undefined}>{content}</p>);
   }
   return <div className="page-text doc-text">{out}</div>;
 }

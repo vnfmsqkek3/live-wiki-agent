@@ -15,19 +15,9 @@ interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
 
-function ApprovalBox({ stage, approved }: { stage: number; approved?: boolean }) {
-  const steps = ['작성', '검토', '승인'];
-  return (
-    <div className="approval-box" aria-label={`결재 진행: ${steps.slice(0, stage).join(', ') || '없음'} 완료`}>
-      {steps.map((s, n) => (
-        <div key={s}>
-          <span>{s}</span>
-          {n === 2 && approved ? <b><Seal i={{ authority_status: 'VERIFIED', document_type: 'KNOWHOW' }} stamp /></b>
-            : <b className={n < stage ? 'done' : 'wait'}>{n < stage ? '완료' : '대기'}</b>}
-        </div>
-      ))}
-    </div>
-  );
+/** 결재 진행: 공통 결재란. 승인하면 승인 칸에 도장이 찍힌다(한 번의 서명 동작) */
+function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
+  return <Seal size="full" stampedNow={!!approved} i={{ authority_status: approved ? 'VERIFIED' : 'UNVERIFIED', document_type: 'KNOWHOW', lifecycle: approved ? 'PUBLISHED' : 'PENDING_APPROVAL' }} />;
 }
 
 export default function Admin() {

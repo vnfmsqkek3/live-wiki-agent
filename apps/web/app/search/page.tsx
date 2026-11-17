@@ -105,7 +105,7 @@ function Results() {
             <PaginatedList label="전체 게시 문서" pageKey="page" className="ledger result-list">
               {recent.map((i) => (
                 <li className="entry" key={i.doc_id}>
-                  <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
+                  <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
                   <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                   <FreshnessFlag freshness={i.freshness} />
                   {(i.version_count ?? 1) > 1 && <p className="note">전체 {i.version_count}개 판 · 오늘 시행 중인 판</p>}
@@ -123,7 +123,7 @@ function Results() {
           <PaginatedList label="검색 결과" pageKey="page" className="ledger result-list">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
-                <Seal i={i} />
+                <Seal i={{ ...i, freshness: i.freshness }} />
                 <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
@@ -145,7 +145,7 @@ function Results() {
               <PaginatedList label="관련 있을 수 있는 문서" pageKey="related_page" className="ledger result-list">
                 {related.map((i, n) => (
                   <li className="entry" key={`w-${i.doc_id}-${n}`}>
-                    <Seal i={i} />
+                    <Seal i={{ ...i, freshness: i.freshness }} />
                     <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                                         <dl><dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
                     <SearchMatches item={i} />
