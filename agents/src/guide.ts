@@ -99,7 +99,8 @@ export function citableFrom(result: unknown): Evidence[] {
 }
 
 export interface GuideDeps {
-  search(query: string): Promise<Evidence[]>;
+  /** expand 'section': 걸린 장 전체 조각(쪽 순서)까지 — 조합별 절차 검색에 쓴다 */
+  search(query: string, opts?: { expand?: 'section' }): Promise<Evidence[]>;
   /** 초안 작성. Tool을 쓴 경우 추가로 얻은 인용 가능 근거와 호출 기록을 함께 돌려준다 */
   draft(prompt: string): Promise<GuideDraft & { evidence?: Evidence[]; tool_calls?: ToolCall[] }>;
   model: string;
@@ -168,11 +169,11 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
     hopItems = (variants.length ? kinds.flatMap((k) => variants.map((v) => `${v} ${k}`)) : kinds).slice(0, 7);
     const docs = new Set(evidence.map((e) => e.doc_id));
     const seen = new Set(evidence.map(evidenceKey));
-    const found = await Promise.all(hopItems.map((it) => within(deps.search(`${it} ${q}`.slice(0, 200)), 15_000, [] as Evidence[])));
+    const found = await Promise.all(hopItems.map((it) => within(deps.search(`${it} ${q}`.slice(0, 200), { expand: 'section' }), 15_000, [] as Evidence[])));
     hopItems.forEach((it, n) => {
       const ok = found[n]!.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && citableOk(e))
         .map(asCitable).sort((a, b) => Number(!docs.has(a.doc_id)) - Number(!docs.has(b.doc_id)))
-        .filter((e) => !seen.has(evidenceKey(e))).slice(0, 4);
+        .filter((e) => !seen.has(evidenceKey(e))).slice(0, 8); // 장 단위 절차가 이어지도록 조합당 8조각
       if (!ok.length) missing.push(it);
       for (const e of ok) { seen.add(evidenceKey(e)); evidence.push(e); }
     });

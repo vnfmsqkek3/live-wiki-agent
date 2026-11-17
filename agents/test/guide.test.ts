@@ -161,7 +161,7 @@ test('섹션 형식: 종류×갈래 조합마다 2차 검색, 섹션 단계 출�
   const E = (id: string, snippet: string) => ({ doc_id: 'doc_M', provision_id: id, title: '과천 매뉴얼', snippet, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const });
   const calls: string[] = [];
   const r = await guide('4층 프린터 연결', { model: 'm',
-    search: async (q) => { calls.push(q); return q.startsWith('macOS 삼성') ? [E('doc_M#p20', '삼성 macOS 설치')] : q.startsWith('4층') ? [E('doc_M#p8', '4층 목록')] : []; },
+    search: async (q, o) => { calls.push(q); if (q !== '4층 프린터 연결') assert.equal(o?.expand, 'section'); return q.startsWith('macOS 삼성') ? [E('doc_M#p20', '삼성 macOS 설치')] : q.startsWith('4층') ? [E('doc_M#p8', '4층 목록')] : []; },
     expand: async () => ({ items: ['삼성', '브라더'], variants: ['macOS', 'Windows'] }),
     draft: async () => ({ steps: [], uncertainty: '', sections: [
       { title: '4층 프린터 목록', note: '', steps: [{ text: '⑧ 삼성', sources: ['doc_M#p8'] }] },

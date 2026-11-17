@@ -18,15 +18,17 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 /** Gateway search Tool 호출. 사용자 JWT를 그대로 전달 → interceptor가 __actor 주입 → Tool이 ACL 강제 */
-async function searchViaGateway(query: string, authorization: string): Promise<Evidence[]> {
+async function searchViaGateway(query: string, authorization: string, opts: { expand?: 'section' } = {}): Promise<Evidence[]> {
   const client = new McpClient({ url: env('GATEWAY_URL'), headers: { authorization } });
   try {
     const name = process.env.SEARCH_TOOL ?? 'search___search_wiki';
     const tool = (await client.listTools()).find((t) => t.name === name);
     if (!tool) throw new Error(`tool not found: ${name}`);
-    const r = (await client.callTool(tool, { query, top_k: 5 })) as { content?: { type: string; text?: string }[] };
+    const r = (await client.callTool(tool, { query, top_k: 5, ...(opts.expand ? { expand: opts.expand } : {}) })) as { content?: { type: string; text?: string }[] };
     const text = r.content?.find((c) => c.type === 'text')?.text ?? '{}';
-    return ((JSON.parse(text) as { items?: Evidence[] }).items ?? []);
+    // expand:"section" (let522mj PR #43): 걸린 장(최대 2)의 조각을 쪽 순서로 더 준다. 장 조각을 앞에(절차가 이어지도록)
+    const out = JSON.parse(text) as { items?: Evidence[]; expanded?: { items?: Evidence[] }[] };
+    return [...(out.expanded ?? []).flatMap((s) => s.items ?? []), ...(out.items ?? [])];
   } finally {
     await client.disconnect();
   }
@@ -87,7 +89,7 @@ createServer(async (req, res) => {
       if (typeof b.prompt !== 'string' || !b.prompt.trim() || b.prompt.length > 1000) return send(400, { error: 'prompt: 1~1000자' });
       const auth = req.headers['authorization'];
       const search = process.env.GATEWAY_URL
-        ? (q: string) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth); }
+        ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, o); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
       const authorization = typeof auth === 'string' ? auth : undefined;
       const deps = { search, draft: (p: string) => draftWithModel(p, { authorization }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}) };
