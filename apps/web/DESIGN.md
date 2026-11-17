@@ -184,3 +184,15 @@ QA 선택자는 변경하지 않았다: `#u #p #f #t .issues .progress .doc-titl
 `cd apps/web && npx tsc --noEmit -p . && npx next build`, 루트 `npx eslint apps/web`, `node --test apps/web/doc-text.test.mjs`(3개), `git diff --check`를 통과했다. 변경은 `apps/web`에 한정하고 커밋하지 않는다. API·권한·상태 변경은 없다.
 
 360px에서 열 쌓기·긴 문자열과 셀 줄바꿈을 적용했다. 실제 브라우저 화면과 로그인·API 통합 동작은 이번 검증에 포함하지 않았다.
+
+## Codex 제안 · 목록 페이지네이션과 결재 카테고리 (2026-11-17)
+
+- 보관함·검색 결과·검색어 없는 전체 문서·관련 검색 결과는 한 쪽 6건이다. 상세 팝업의 관련 문서도 종류별 6건으로 나눈다. 필터와 검색어 변경 시 기존 주소 생성 방식으로 쪽 쿼리를 제거하여 1쪽으로 돌아간다.
+- 홈 최근 게시 문서는 전체 데이터를 3건씩, 내가 올린 진행 문서는 6건씩 보여 준다. 기존 최근 3건 제한 대신 모든 게시 문서를 쪽으로 탐색할 수 있다.
+- 결재함은 출처 확인 필요 → 게시 승인 대기 → 승인 뒤 게시 진행 → 자동 차단 순서의 기존 구분을 유지한다. 좌우 작업판을 전체 폭 카테고리로 바꾸고 카테고리마다 3건씩 보여 준다. 넓은 화면 3열, 중간 화면 2열, 작은 화면 1열이며 가로 스크롤은 없다. 결재 단계·사유·승인·반려 버튼을 카드 안에 유지하고 사유는 자르지 않는다.
+- 목록 아래에 전체 건수·현재/전체 쪽, 이전·쪽 번호·다음을 배치한다. 쪽 번호는 처음·마지막과 현재 앞뒤 2쪽만 표시하고 생략 기호를 둔다. 흰 바탕·기존 Hana 폰트·테두리를 유지하고 현재 쪽만 Green으로 표시한다. 한쪽 색 띠와 새 의존성은 없다.
+- 기본 `page`, 검색 관련 `related_page`, 홈 진행 `mine_page`, 결재함 `source_page`·`pending_page`·`after_page`·`blocked_page`, 상세 관련 종류별 `related_*` 쿼리를 사용한다. History API로 독립 쪽을 보관하여 새로고침·뒤로 가기에 복원한다. 잘못된 쪽과 결과 수를 넘는 쪽은 표시 가능한 범위로 보정한다.
+- 각 탐색에 `nav aria-label`, 현재 번호에 `aria-current="page"`, 처음·마지막에서 이전·다음 disabled, 최소 44px 버튼을 적용한다. 쪽 변경 시 해당 목록 시작으로 포커스와 스크롤을 옮긴다.
+- QA F5·F7·F8은 실제 다음 버튼으로 대상 제목을 탐색한다. A1은 모든 카테고리의 모든 쪽 링크를 수집하고 A2도 다음 쪽을 찾아 목록 링크를 클릭한다. S1은 첫 쪽 카드와 전체 게시 문서 안내로 판정한다. API 호출·타입·권한·결재·삭제 동작은 유지한다.
+
+검증: `cd apps/web && npx tsc --noEmit -p . && npx next build`, 루트 `npx eslint apps/web tests/e2e`, `node --test apps/web/doc-text.test.mjs`(4개), `node --check tests/e2e/qa-flow.mjs tests/e2e/qa-admin.mjs` 및 qa-admin 개별 문법 검사, `git diff --check`를 통과했다. 실제 로그인·API E2E 및 브라우저 시각 검증은 실행하지 않았다. 수정 범위는 `apps/web`·`tests/e2e`이며 커밋하지 않았다.

@@ -571,3 +571,17 @@ h1, h2, h3, h4, .title, .section, .doc-title, .num { color:var(--navy-900); }
 .popup-header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
 .popup-header h2 { margin:0; font-size:22px; color:var(--navy-900); }
 .page-checks { margin-top:0; background:#fff; }
+
+/* 목록은 가로 스크롤 없이 쪽 단위로 탐색한다. */
+.list-start { scroll-margin-top:24px; }
+.list-start:focus-visible { outline:2px solid var(--green-700, #00706b); outline-offset:4px; }
+.list-pagination { display:flex; align-items:center; justify-content:center; flex-wrap:wrap; gap:8px; margin:20px 0 28px; }
+.list-pagination > .note { flex-basis:100%; text-align:center; }
+.list-pagination .btn { min-width:44px; min-height:44px; }
+.list-pagination [aria-current="page"] { background:#00706b; color:#fff; border-color:#00706b; }
+.list-pagination .btn:disabled { opacity:.45; cursor:default; }
+.page-number { display:inline-flex; align-items:center; gap:8px; }
+.approval-categories, .approval-category-group { display:block; min-width:0; }
+.admin-grid { align-items:stretch; grid-auto-rows:auto; }
+.admin-grid .entry { min-width:0; }
+.admin-grid .entry > p:not(.flag):not(.error) { display:block; overflow:visible; }

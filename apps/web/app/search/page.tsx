@@ -1,4 +1,5 @@
 'use client';
+import { PaginatedList } from '../paginated-list';
 import { PageHeader } from '../page-header';
 // 02 검색 결과: 권한이 적용된 적합도순. 행마다 인장, 근거 조문, 시행일, 평점(신뢰와 분리)
 import { useRouter, useSearchParams } from 'next/navigation';
@@ -101,7 +102,7 @@ function Results() {
         recent === null ? <p className="note">불러오는 중입니다.</p> : recent.length === 0 ? <p className="note">볼 수 있는 게시 문서가 아직 없습니다.</p> : (
           <>
             <p className="note">전체 게시 문서 {recent.length}건 (최근 변경 순). 검색어를 넣으면 관련도 순으로 좁혀집니다.</p>
-            <ul className="ledger result-list">
+            <PaginatedList label="전체 게시 문서" pageKey="page" className="ledger result-list">
               {recent.map((i) => (
                 <li className="entry" key={i.doc_id}>
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
@@ -111,7 +112,7 @@ function Results() {
                   {i.summary && <p className="card-summary">{i.summary}</p>}
                 </li>
               ))}
-            </ul>
+            </PaginatedList>
           </>
         )
       ) : items === null ? <p className="note">찾는 중입니다.</p> : items.length === 0 && related.length === 0 && !err ? (
@@ -119,7 +120,7 @@ function Results() {
       ) : (
         <>
           <p className="note">{items.length ? `열람 권한이 있는 승인 문서 ${items.length}건, 관련도 높은 순` : '정확한 근거로 확인된 문서는 없습니다. 아래 관련 있을 수 있는 문서를 참고하세요.'}</p>
-          <ul className="ledger result-list">
+          <PaginatedList label="검색 결과" pageKey="page" className="ledger result-list">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
                 <Seal i={i} />
@@ -136,12 +137,12 @@ function Results() {
                 <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
               </li>
             ))}
-          </ul>
+          </PaginatedList>
           {items.length > 0 && <div className="actions"><button className="btn solid" onClick={() => router.push(`/guide?q=${encodeURIComponent(q)}`)}>이 내용으로 업무 가이드 만들기</button></div>}
           {related.length > 0 && (
             <section aria-labelledby="rel-h" className="weak-results">
               <h2 className="section" id="rel-h">관련 있을 수 있는 문서 <span className="note">정확한 근거로 확인되지는 않음</span></h2>
-              <ul className="ledger result-list">
+              <PaginatedList label="관련 있을 수 있는 문서" pageKey="related_page" className="ledger result-list">
                 {related.map((i, n) => (
                   <li className="entry" key={`w-${i.doc_id}-${n}`}>
                     <Seal i={i} />
@@ -151,7 +152,7 @@ function Results() {
                     <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
                   </li>
                 ))}
-              </ul>
+              </PaginatedList>
             </section>
           )}
         </>

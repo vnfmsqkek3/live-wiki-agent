@@ -1,4 +1,5 @@
 'use client';
+import { PaginatedList } from './paginated-list';
 // 01 사용자 홈: 검색이 주 동작. 아래는 최근 게시된 문서(실제 게시 기록). 조회수 집계가 없으므로 '많이 본' 표현은 쓰지 않는다
 import Link from 'next/link';
 import { Icon } from './icons';
@@ -22,7 +23,7 @@ export default function Home() {
     // 목록 API는 권한 내 게시 문서 + 본인 문서. 게시 전 문서는 본인 것만 온다
     api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => {
       const pub = r.items.filter((i) => i.lifecycle === 'PUBLISHED');
-      setItems(pub.slice(0, 3));
+      setItems(pub);
       setMine(r.items.filter((i) => i.lifecycle !== 'PUBLISHED'));
     }).catch(() => setItems([]));
     if (isAdmin(g)) {
@@ -51,12 +52,12 @@ export default function Home() {
       {(todo || (isAuthor && mine.length > 0)) && <section className="home-todo" aria-label="할 일 요약">
         <strong>처리할 일</strong>
         {todo && <Link href="/admin">게시 승인 대기 <b className="num">{todo.approvals}</b> · 출처 확인 필요 <b className="num">{todo.mismatch}</b><span className="sr-only"> 승인 관리로 가기</span></Link>}
-        {isAuthor && mine.length > 0 && <details className="mine-summary"><summary>내가 올린 문서 <b className="num">{mine.length}</b>건 진행 중</summary><ul>{mine.map((i) => <li key={i.doc_id}><Link href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link> · {STATE[i.lifecycle] ?? '상태 확인 필요'} · <span className="num">{i.uploaded_at.slice(0, 10)}</span></li>)}</ul></details>}
+        {isAuthor && mine.length > 0 && <details className="mine-summary"><summary>내가 올린 문서 <b className="num">{mine.length}</b>건 진행 중</summary><PaginatedList label="내가 올린 문서" pageKey="mine_page" className="mine-list">{mine.map((i) => <li key={i.doc_id}><Link href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link> · {STATE[i.lifecycle] ?? '상태 확인 필요'} · <span className="num">{i.uploaded_at.slice(0, 10)}</span></li>)}</PaginatedList></details>}
         {isAuthor && <Link href="/upload">새 문서 등록</Link>}
       </section>}
       {items.length > 0 && <section className="home-recent" aria-labelledby="recent-title">
         <div className="section-heading"><h2 className="section" id="recent-title">최근 게시된 문서</h2><Link href="/library">문서보관함 전체 보기 <Icon name="arrow" /></Link></div>
-        <ul className="ledger card-grid">
+        <PaginatedList label="최근 게시된 문서" pageSize={3} className="ledger card-grid">
           {items.map((i) => <li className="entry" key={i.doc_id}>
             <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW' }} />
             <h3 className="doc-title"><Link className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
@@ -64,7 +65,7 @@ export default function Home() {
             <FreshnessFlag freshness={i.freshness} />
             {i.summary && <p className="note card-summary">{i.summary}</p>}
           </li>)}
-        </ul>
+        </PaginatedList>
       </section>}
     </div>
   );
