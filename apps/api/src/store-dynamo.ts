@@ -65,10 +65,10 @@ export function dynamoStore(t: Tables, client = new DynamoDBClient({})): Store {
         const r = await db.send(new UpdateCommand({
           TableName: t.approvals, Key: { pk: `APR#${id}`, sk: 'META' },
           ConditionExpression: 'attribute_exists(pk) AND #s = :pending AND author_sub <> :ap AND s3_version_id = :v AND content_hash = :h',
-          UpdateExpression: 'SET #s = :next, gsi1pk = :g, approver_sub = :ap, reason = :r, decided_at = :at',
+          UpdateExpression: 'SET #s = :next, gsi1pk = :g, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = :at',
           ExpressionAttributeNames: { '#s': 'status' },
           ExpressionAttributeValues: {
-            ':pending': 'PENDING', ':next': n.status, ':g': `APR_STATUS#${n.status}`, ':ap': n.approver_sub, ':r': n.reason,
+            ':pending': 'PENDING', ':next': n.status, ':g': `APR_STATUS#${n.status}`, ':ap': n.approver_sub, ':an': n.approver_name ?? '', ':r': n.reason,
             ':at': new Date().toISOString(), ':v': n.s3_version_id, ':h': n.content_hash,
           },
           ReturnValues: 'ALL_NEW',

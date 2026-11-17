@@ -180,3 +180,15 @@ test("Rerank 관련도: 1위 게이트(0.30) + 1위 대비 40% (실측 보정)",
   assert.deepEqual(await r([0.248, 0.2]), [], "무관 질문 최고 0.248 → 근거 없음");
   assert.equal((await new BedrockRetriever("KB", undefined, fake([0.01])).retrieve("q")).length, 1, "Rerank 없으면 미적용");
 });
+
+test("세부 필터(11/17): 부서·문서 일자 기간은 KB 필터, 잘못된 인자는 INVALID_ARGUMENT", async () => {
+  const f = buildFilter({ sub: "x", groups: ["USER"] }, { asOf: 20261215, dept: "여신", dateFrom: 20260101, dateTo: 20261231 }) as unknown as { andAll: Record<string, unknown>[] };
+  const s = JSON.stringify(f.andAll);
+  assert.ok(s.includes('{"equals":{"key":"dept","value":"여신"}}'));
+  assert.ok(s.includes('{"greaterThanOrEquals":{"key":"doc_date","value":20260101}}') && s.includes('{"lessThanOrEquals":{"key":"doc_date","value":20261231}}'));
+  const t = searchTools({ retriever: new MemoryRetriever(), states: new MemoryDocStates(), regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  await assert.rejects(t.search_wiki({ query: "q", date_from: "2026/01/01" }, { sub: "x", groups: ["USER"] }), { name: "ToolError", message: /date_from/u });
+  await assert.rejects(t.search_wiki({ query: "q", freshness: "OLD" }, { sub: "x", groups: ["USER"] }), { message: /freshness/u });
+  await assert.rejects(t.search_wiki({ query: "q", date_from: "2026-13-45" }, { sub: "x", groups: ["USER"] }), { message: /date_from/u });
+  await assert.rejects(t.search_wiki({ query: "q", date_from: "2026-12-01", date_to: "2026-01-01" }, { sub: "x", groups: ["USER"] }), { message: /늦음/u });
+});

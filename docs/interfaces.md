@@ -228,3 +228,5 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-16 | yoyo0704 | 4·6.1 | Step Functions 폐기 (SFN_INGEST_ARN 삭제, 시작·승인은 AgentCore 만), await_review Tool |
 | 2026-11-16 | let522mj | 5 | 그림 묘사 청크(`has_figure`·`quotable`), `published_at` |
 | 2026-11-17 | let522mj | 2(Finding) | v0.3: Finding 선택 필드 `location{page(1부터),bbox,excerpt(마스킹)}`·`user_message`·`fix_hint`, 예외용 `stepFailure(name, user_message, fix_hint)` (사용자 지시: 실패 사유를 쪽·위치까지) |
+| 2026-11-17 | let522mj | 1(KB 메타데이터)·4(search_wiki) | v0.4: `DocumentMetadata.doc_date?`(YYYYMMDD, 본문 대표 일자 시행>개정>작성>발행>제정, Promote가 기록). `search_wiki` 세부 필터 `dept`·`date_from`·`date_to`(YYYY-MM-DD, doc_date)·`authority_status`(VERIFIED\|UNVERIFIED)·`freshness`(CURRENT\|REVIEW_REQUIRED). 검증 상태·최신성은 Documents 현재 상태로 거름 (사용자 요청: 검색 세부 필터) |
+| 2026-11-17 | let522mj | 부록(라이브러리) | `@hanaeum/legal-parser`: `docDates`·`primaryDate`(문서 일자), `titleCandidate`(제목 후보), `previousVersionCandidates`·`similarity`(같은 문서의 이전 버전 후보), `diffDocuments`(버전 간 변경점: 규정은 조·항·호, 그 밖은 줄·쪽). Mark `original`·`revision` (원본·근거·수정 세 칸) |

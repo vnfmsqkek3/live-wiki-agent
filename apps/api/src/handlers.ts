@@ -1,5 +1,5 @@
 // Lambda 진입점 (esbuild로 단일 파일 번들). 함수별 handler 이름: handlers.<name>
-import { applyGuardrail, getJson, getObjectBytes, headObject, listKeys, putBytes, putJson, startWorkflow, storeFromEnv } from './aws.ts';
+import { applyGuardrail, getJson, getObjectBytes, headObject, listKeys, purgePrefix, putBytes, putJson, startWorkflow, storeFromEnv } from './aws.ts';
 import {
   makeClassify, makeFileStructureCheck, makeFinalize, makeFreshnessSweep, makeInjectionScan, makePiiScan, makeTrustGate, makeTypeDetection, makeWaitForApproval,
   type LambdaDeps, type SegmentDeps,
@@ -14,10 +14,11 @@ import { extractCitations } from '@hanaeum/graph-server';
 
 const store = storeFromEnv();
 /** 마스킹 본문 (masked/segments, 페이지 순) */
-const maskedText = async (d: { doc_id: string }) => {
+const maskedPages = async (d: { doc_id: string }) => {
   const keys = (await listKeys(`${d.doc_id}/masked/segments/`)).filter((k) => k.endsWith('.json'));
-  return (await Promise.all(keys.map((k) => getJson<{ text: string }>(k)))).map((x) => x.text).join('\n');
+  return (await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string }>(k)))).map((x) => ({ page: x.page_index, text: x.text })).sort((a, b) => a.page - b.page);
 };
+const maskedText = async (d: { doc_id: string }) => (await maskedPages(d)).map((x) => x.text).join('\n');
 
 /** Trusted Registry 대조 (let522mj @hanaeum/regulation-server registryMatch, PR #4). 없으면 대조 생략 → REGULATION은 REVIEW_REQUIRED */
 const registry: LambdaDeps['registry'] = process.env.TABLE_REGULATIONS
@@ -52,7 +53,7 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
   })()
   : undefined;
 
-const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText, knowhow };
+const deps: LambdaDeps = { store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow, purge: purgePrefix };
 const seg: SegmentDeps = {
   store, listKeys, getJson, putJson, guardrail: applyGuardrail,
   getBytes: (k) => getObjectBytes(k), putBytes, // PiiScan 페이지 이미지 마스킹 (steps Role). 모델 Role은 masked/만 읽음

@@ -45,7 +45,7 @@ async function submitted(t: ReturnType<typeof setup>) {
   t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   const d = (await t.store.getDoc(doc_id))!;
-  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1' });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1', document_type: 'KNOWHOW' });
   const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 201);
   const { approval_id } = (await s.json()) as { approval_id: string };
@@ -248,7 +248,101 @@ test('업로드 진행: 건너뛴 단계(그림 분석 꺼짐)는 진행 중으�
   const { progress } = await import('../src/progress.ts');
   const p = progress('QUARANTINED', ['MalwareCheck', 'FileStructureCheck', 'TextLayerExtract', 'PageRender', 'OcrIfNeeded', 'SegmentBuild', 'PiiScan', 'InjectionScan'].map((step) => ({ step, status: 'OK' })));
   assert.equal(p.steps.find((s) => s.key === 'ImageDescribe')?.state, 'skipped');
-  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'Classify');
-  assert.equal(p.total, 11);
+  assert.equal(p.steps.find((s) => s.state === 'running')?.key, 'PageSummarize'); // 꺼져 있으면 Classify 기록 시 skipped
+  assert.equal(p.total, 13);
   assert.equal(progress('IN_REVIEW', []).done, progress('IN_REVIEW', []).total);
+});
+
+test('검색: search_wiki에 사용자 신원·필터를 넘기고 화면 항목으로 변환', async () => {
+  const { searchVia } = await import('../src/search.ts');
+  let seen: { args: Record<string, unknown>; actor: unknown } | undefined;
+  const s = searchVia(async (args, actor) => { seen = { args, actor }; return { items: [
+    { doc_id: 'd1', title: '규정', snippet: '5억원', provision: '기업여신 심사규정 제12조제1항', effective_from: '2026-11-01', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND', document_type: 'REGULATION' },
+    { doc_id: 'd2', title: '팁', snippet: 's', effective_from: '', authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', search_status: 'FOUND', document_type: 'KNOWHOW' },
+  ] }; });
+  const items = await s('담보', { sub: 'u', groups: ['USER'], dept: 'loan' }, { tags: ['체크리스트'], business: '여신' });
+  assert.deepEqual(seen!.args, { query: '담보', top_k: 10, tags: ['체크리스트'], business: '여신' });
+  assert.deepEqual(seen!.actor, { sub: 'u', groups: ['USER'], dept: 'loan' });
+  assert.equal(items[0]!.basis, '기업여신 심사규정 제12조제1항');
+  assert.match(items[1]!.reason, /재검토/);
+  assert.equal(items[1]!.effective_from, undefined);
+});
+
+test('분류 전 문서는 게시 요청 409, 승인 뒤 게시가 멈추면 결재함에 실패 단계 표시', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
+  await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'PASS', content_hash: 'sha256:h1' });
+  const s = await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`);
+  assert.equal(s.status, 409);
+  assert.match(((await s.json()) as { error: { message: string } }).error.message, /unclassified/);
+
+  const ok = await submitted(t);
+  await t.store.putDoc({ ...(await t.store.getDoc(ok.doc_id))!, workflow_id: 'wf_FAILED' });
+  assert.equal((await t.call('approver', 'POST', `/v1/approvals/${ok.approval_id}/decision`, { decision: 'APPROVE', reason: '확인' })).status, 200);
+  const list = (await (await t.call('approver', 'GET', '/v1/approvals?status=APPROVED')).json()) as { items: { title: string; workflow_failure?: { step: string } }[] };
+  assert.equal(list.items[0]!.title, upload.title);
+  assert.equal(list.items[0]!.workflow_failure?.step, 'ParallelPreprocess');
+});
+
+test('차단 사유: 코드별 사용자 문장, 원문 없음', async () => {
+  const { blockedReasons } = await import('../src/progress.ts');
+  assert.deepEqual(blockedReasons([{ severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', step: 'FILE_STRUCTURE' }, { severity: 'MEDIUM', code: 'X', step: 'PII_SCAN' }]),
+    ['첨부 파일이 포함된 PDF는 보안상 등록할 수 없습니다. 첨부를 뺀 PDF로 다시 올려 주세요.']);
+  assert.match(blockedReasons([{ severity: 'HIGH', code: 'OVERRIDE_KO', step: 'INJECTION_SCAN' }])[0]!, /지시하는 문구/);
+});
+
+test('사유 목록: 단계 Finding(쪽·안내) + 게시 실패 문장(사유/조치 분리), 작성자·관리자만, 쪽 이미지', async () => {
+  const t = setup();
+  t.deps.pageImage = async (_d, n) => (n === 1 ? new Uint8Array([137, 80, 78, 71]) : undefined);
+  t.deps.pageImageList = async () => [1];
+  t.deps.explanation = async () => ({ summary: '첨부 파일 때문에 차단', items: [] });
+  t.deps.workflowFailure = async () => ({ step: 'Promote', error: 'RegistryNotFound', message: '공식 원본 목록에서 이 규정을 찾지 못해 게시할 수 없습니다 (조치: 분류를 노하우로 바꿔 다시 요청해 주세요.)' });
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const call = (who: string, path: string) => app.request(path, { headers: { authorization: `Bearer ${who}` } });
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PENDING_APPROVAL', findings: [{ finding_id: 'f1', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', message: 'm', evidence_ref: 'page:1', location: { page: 2, excerpt: '참조 [계좌번호]' }, user_message: '2쪽에서 계좌번호 1건', fix_hint: '확인' }] });
+  const j = (await (await call('author', `/v1/documents/${doc_id}/issues`)).json()) as { items: { step_label: string; user_message: string; fix_hint?: string; location?: { page: number } }[]; page_images: number[] };
+  assert.equal(j.items[0]!.step_label, '게시');
+  assert.match(j.items[0]!.user_message, /찾지 못해 게시할 수 없습니다$/);
+  assert.match(j.items[0]!.fix_hint!, /^분류를 노하우로/);
+  assert.equal(j.items[1]!.location?.page, 2);
+  assert.deepEqual(j.page_images, [2]);
+  assert.equal((j as unknown as { explanation: { summary: string } }).explanation.summary, '첨부 파일 때문에 차단');
+  assert.equal((await call('author2', `/v1/documents/${doc_id}/issues`)).status, 404);
+  assert.equal((await call('approver', `/v1/documents/${doc_id}/issues`)).status, 200);
+  const img = await call('author', `/v1/documents/${doc_id}/pages/2/image`);
+  assert.equal(img.headers.get('content-type'), 'image/png');
+  assert.equal((await call('author', `/v1/documents/${doc_id}/pages/1/image`)).status, 404);
+  assert.equal((await call('author2', `/v1/documents/${doc_id}/pages/2/image`)).status, 404);
+});
+
+test('검색 종류 필터: type이면 해당 색인만 찾고 결과도 그 종류만, 잘못된 type은 422', async () => {
+  const t = setup();
+  let seen: unknown;
+  t.deps.search = async (_q, _a, o) => { seen = o; return [{ doc_id: 'a', document_type: 'MANUAL' }, { doc_id: 'b', document_type: 'KNOWHOW' }]; };
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const r = await app.request('/v1/search?q=x&type=MANUAL', { headers: { authorization: 'Bearer user' } });
+  assert.deepEqual(((await r.json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id), ['a']);
+  assert.deepEqual((seen as { index_groups: string[] }).index_groups, ['wiki-knowledge', 'official-manuals']);
+  assert.equal((await app.request('/v1/search?q=x&type=BAD', { headers: { authorization: 'Bearer user' } })).status, 422); // VALIDATION
+});
+
+test('검색: 의미 검색에 없는 게시 문서도 제목·요약에 검색어가 있으면 뒤에 더한다 (미게시·권한 밖 제외)', async () => {
+  const t = setup();
+  t.deps.search = async () => [{ doc_id: 'doc_R', document_type: 'REGULATION', title: '개인정보 보호규정' }];
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '개인정보 보호규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_M', title: '테스트문서', summary: '개인정보 수집·이용 업무 가이드', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'MANUAL' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_D', title: '개인정보 초안', acl_groups: ['ALL'], lifecycle: 'IN_REVIEW' });
+  await t.store.putDoc({ ...base, doc_id: 'doc_S', title: '개인정보 인사 비공개', acl_groups: ['DEPT#hr'], lifecycle: 'PUBLISHED' });
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const r = (await (await app.request('/v1/search?q=' + encodeURIComponent('개인정보'), { headers: { authorization: 'Bearer user' } })).json()) as { items: { doc_id: string; reason?: string }[] };
+  assert.deepEqual(r.items.map((i) => i.doc_id), ['doc_R', 'doc_M']);
+  assert.match(r.items[1]!.reason!, /제목·요약/);
 });

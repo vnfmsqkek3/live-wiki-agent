@@ -25,9 +25,16 @@ createServer(async (req, res) => {
       : b.action === 'resume' && ['APPROVE', 'REJECT', 'REVALIDATE'].includes(String(b.decision)) ? publishGraph(awsDeps, i, b.decision as 'APPROVE')
       : undefined;
     if (!graph) return send(400, { error: 'action: start | resume(decision)' });
+    // 같은 문서의 같은 단계 묶음은 한 번만 (업로드 이벤트·analyze 중복 start, 승인 resume 재시도)
+    const phase = b.action === 'start' ? 'ingest' : `publish-${String(b.decision)}`;
+    if (awsDeps.claim && !(await awsDeps.claim(i.workflow_id, phase))) {
+      console.log(JSON.stringify({ workflow_id: i.workflow_id, action: b.action, duplicate: true }));
+      return send(202, { accepted: false, duplicate: true, workflow_id: i.workflow_id, action: b.action });
+    }
     busy++;
     void run(graph, awsDeps, i)
-      .then((r) => console.log(JSON.stringify({ workflow_id: i.workflow_id, action: b.action, ...r })))
+      .then(async (r) => { console.log(JSON.stringify({ workflow_id: i.workflow_id, action: b.action, ...r })); await awsDeps.release?.(i.workflow_id, phase, r.status === 'COMPLETED' ? 'DONE' : 'FAILED'); })
+      .catch(async () => { await awsDeps.release?.(i.workflow_id, phase, 'FAILED').catch(() => {}); })
       .finally(() => { busy--; });
     return send(202, { accepted: true, workflow_id: i.workflow_id, action: b.action });
   } catch (e) {

@@ -5,7 +5,7 @@ export function Seal({ i, stamp }: { i: Pick<SearchItem, 'authority_status' | 'd
   const [cls, text, label] =
     i.authority_status !== 'VERIFIED' ? ['unverified', '미검증', '미검증 문서']
     : i.document_type === 'REGULATION' ? ['official', '공식\n규정', '공식 규정 원본과 일치']
-    : ['verified', '검증\n완료', '근거 규정으로 검증 완료'];
+    : ['verified', '검증\n완료', i.document_type === 'MANUAL' ? '사람 승인으로 검증 완료' : '근거 규정 확인 후 사람 승인으로 검증 완료'];
   return (
     <span className={`seal ${cls}${stamp ? ' stamp' : ''}`} role="img" aria-label={label} style={{ whiteSpace: 'pre-line' }}>
       {text}

@@ -6,8 +6,18 @@ import { detectPii } from './pii-detect.ts';
 export interface OcrBlock { text: string; bbox: [number, number, number, number] }
 export interface OcrPage { page_index: number; width: number; height: number; blocks: OcrBlock[] }
 
-/** 개인정보가 들어 있는 OCR 블록 bbox */
-export const piiBoxes = (page: OcrPage) => page.blocks.filter((b) => detectPii(b.text).length > 0).map((b) => b.bbox);
+/** 개인정보가 들어 있는 OCR 블록 bbox. 규칙(@hanaeum/pii) + (설정 시) Guardrails로 이름·주소까지.
+ *  Guardrails는 블록을 한 번에 보내고, 탐지 값(match)이 들어 있는 블록을 가린다 */
+export async function piiBoxes(page: OcrPage, guardrail?: (text: string) => Promise<{ text: string; entities?: { type: string; match: string }[] } | undefined>) {
+  const hit = page.blocks.map((b) => detectPii(b.text).length > 0);
+  if (guardrail && page.blocks.length) {
+    // 이미지는 검게 칠해도 원문이 훼손되지 않으므로 Guardrail이 찾은 값이 든 블록은 모두 가린다
+    const g = await guardrail(page.blocks.map((b) => b.text).join('\n'));
+    const ms = (g?.entities ?? []).map((e) => e.match);
+    page.blocks.forEach((b, i) => { if (ms.some((m) => b.text.includes(m))) hit[i] = true; });
+  }
+  return page.blocks.filter((_, i) => hit[i]).map((b) => b.bbox);
+}
 
 /** PNG의 박스 영역을 검게 칠한다 (여백 pad px). OCR 좌표계가 렌더 크기와 다르면 비율로 맞춘다 */
 export function blackout(png: Uint8Array, boxes: [number, number, number, number][], ocrSize?: { width: number; height: number }, pad = 3): Uint8Array {

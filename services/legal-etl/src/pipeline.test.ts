@@ -59,6 +59,21 @@ test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED"
   assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // 위→아래 줄 순서
 });
 
+test("5: 글자 없는 사진(강아지 사진 실측 11/17)은 예외로 멈추지 않고 이유와 함께 BLOCKED", async () => {
+  const s = new MemoryObjectStore();
+  await s.put(Q, `${DOC}/original.png`, readFileSync(new URL("documents/A-002.png", FIX)));
+  await textLayerStep(input, s);
+  // 실제 PaddleOCR 출력: 그림 전체를 빈 문단 1개로 돌려줌
+  await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify({ doc_id: DOC, model: "paddleocr", model_version: "3.7.0", page_count: 1, pages: [{ page_index: 0, width: 1024, height: 1024, source: "ocr",
+    blocks: [{ block_id: "p0-b0", label: "paragraph", text: "", confidence: 0, bbox: [80, 2, 929, 967], reading_order: 0, table_id: null }] }] }));
+  const out = await segmentStep(input, s);
+  assert.equal(out.status, "BLOCKED");
+  const f = out.findings![0]!;
+  assert.equal(f.code, "NO_TEXT");
+  assert.match(f.user_message!, /글자를 찾지 못했습니다/u);
+  assert.ok(f.fix_hint);
+});
+
 test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 계약 준수", async () => {
   const s = new MemoryObjectStore();
   const r = new MemoryRecords();
@@ -100,6 +115,7 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   const meta = MetadataSidecar.parse(JSON.parse((await s.get(P, `legal/${DOC}/content.txt.metadata.json`)).toString())).metadataAttributes;
   assert.equal(meta.index_group, "legal-clauses");
   assert.equal(meta.effective_from, 20261101);
+  assert.equal(meta.doc_date, 20261101, "본문 머리말 시행일 → 검색 기간 필터용 doc_date");
   assert.equal(meta.content_hash, sha256(await s.get(P, `legal/${DOC}/content.txt`)));
   assert.ok(!(await s.list(P, "")).some((k) => k.includes("original") || k.includes("work")), "원문·중간 산출물 게시 금지");
 });
@@ -250,4 +266,17 @@ test("Promote 예외는 올린 사람이 읽는 문장 + 조치 (Registry에 없
   await assert.rejects(promoteStep({ ...input, published_bucket: P }, s, r), (e: Error & { user_message?: string; fix_hint?: string }) =>
     e.name === "RegulationNotInRegistry" && /Registry/u.test(e.user_message!) && /노하우/u.test(e.fix_hint!) && /\(조치: /u.test(e.message));
   assert.equal(r.approvals.get("apr_r")!.status, "APPROVED", "게시 실패 시 승인 미소비");
+});
+
+test("12: 삭제 흐름(interfaces 6.0) — 분류 전 문서는 색인된 적이 없어 Job 없이 OK, 게시본 없는 삭제 문서도 document_type으로 데이터 소스 선택", async () => {
+  const env = { KB_ID: "kb", KB_DS_LEGAL_ID: "ds-legal", KB_DS_KNOWLEDGE_ID: "ds-know", BUCKET_ARTIFACT: "art" };
+  const api: IngestionApi = { start: async (_k, ds) => { assert.equal(ds, "ds-legal"); return "job-d"; }, get: async () => ({ status: "COMPLETE", failed: 0, failureReasons: [] }) };
+  const unclassified = { getDocument: async () => { throw Object.assign(new Error("x"), { name: "UnclassifiedDocument" }); } } as unknown as MemoryRecords;
+  assert.equal((await kbIngestStep(input, { start: async () => assert.fail("Job 시작 안 함"), get: api.get }, unclassified, new MemoryObjectStore(), env, true)).status, "OK");
+  await assert.rejects(kbIngestStep(input, api, unclassified, new MemoryObjectStore(), env), { name: "UnclassifiedDocument" }, "게시 흐름에서는 그대로 오류");
+  const r = new MemoryRecords();
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "R", document_type: "REGULATION", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"], lifecycle: "DELETED" });
+  const s = new MemoryObjectStore(); // published 객체 없음
+  assert.equal((await kbIngestStep({ ...input, workflow_id: "wf-del" }, api, r, s, env)).status, "PENDING");
+  assert.equal((await kbIngestStep({ ...input, workflow_id: "wf-del" }, api, r, s, env)).status, "OK");
 });

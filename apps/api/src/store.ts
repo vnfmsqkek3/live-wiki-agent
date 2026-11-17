@@ -19,7 +19,7 @@ export interface Store {
   getApproval(id: string): Promise<ApprovalRecord | undefined>;
   listApprovals(status: ApprovalRecord['status']): Promise<ApprovalRecord[]>;
   /** status=PENDING AND author≠approver AND 해시·버전 일치일 때만 전환 */
-  decideApproval(id: string, next: { status: 'APPROVED' | 'REJECTED'; approver_sub: string; reason: string; s3_version_id: string; content_hash: string }): Promise<ApprovalRecord>;
+  decideApproval(id: string, next: { status: 'APPROVED' | 'REJECTED'; approver_sub: string; approver_name?: string; reason: string; s3_version_id: string; content_hash: string }): Promise<ApprovalRecord>;
   /** APPROVED → USED. Promote 직전 1회만 성공 */
   consumeApproval(id: string): Promise<ApprovalRecord>;
   putFeedback(f: FeedbackRecord): Promise<void>;
@@ -55,7 +55,7 @@ export function memoryStore() {
       if (a.author_sub === n.approver_sub) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
       if (a.s3_version_id !== n.s3_version_id || a.content_hash !== n.content_hash)
         throw new ApiError('CONFLICT', 'document changed after review');
-      Object.assign(a, { status: n.status, approver_sub: n.approver_sub, reason: n.reason, decided_at: new Date().toISOString() });
+      Object.assign(a, { status: n.status, approver_sub: n.approver_sub, ...(n.approver_name ? { approver_name: n.approver_name } : {}), reason: n.reason, decided_at: new Date().toISOString() });
       return clone(a);
     },
     async consumeApproval(id) {

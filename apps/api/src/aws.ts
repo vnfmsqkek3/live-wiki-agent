@@ -85,7 +85,8 @@ export async function invokeAgent(question: string, accessToken: string, stream 
       'X-Amzn-Bedrock-AgentCore-Runtime-Session-Id': `guide-${crypto.randomUUID()}`, // 요청마다 독립 세션 (Memory 미사용)
     },
     body: JSON.stringify({ prompt: question }),
-    signal: AbortSignal.timeout(60_000),
+    // Agent Tool 선택(최대 60초) + 작성 시간. 스트리밍은 15초 ping으로 연결 유지
+    signal: AbortSignal.timeout(stream ? 180_000 : 120_000),
   });
   if (!r.ok) throw new Error(`agent ${r.status}`);
   return stream ? r.body! : r.json();
@@ -100,7 +101,9 @@ export async function workflowFailure(workflow_id: string) {
     TableName: env('TABLE_WORKFLOWS'), KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': { S: `WF#${workflow_id}` } },
   }));
   const failed = (r.Items ?? []).find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
-  return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown' } : undefined;
+  // 사용자에게는 한국어 안내 문장만 (AWS·런타임 영문 오류에는 ARN·경로가 섞일 수 있어 숨김)
+  const msg = failed?.message?.S;
+  return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown', ...(msg && /[가-힣]/.test(msg) ? { message: msg } : {}) } : undefined;
 }
 
 // ---- quarantine 버킷 JSON 입출력 (단계 6·7·8) ----
@@ -129,10 +132,15 @@ export async function applyGuardrail(text: string) {
   if (!id) return undefined;
   const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
   const r = await new BedrockRuntimeClient({ region: region() }).send(new ApplyGuardrailCommand({
-    guardrailIdentifier: id, guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'INPUT', content: [{ text: { text } }],
+    guardrailIdentifier: id, // INPUT은 ANONYMIZE를 적용하지 않음(실측 11/16: action NONE). 마스킹 결과를 받으려면 OUTPUT
+    guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', content: [{ text: { text } }],
   }));
-  const detected = (r.assessments ?? []).reduce((n, a) => n + (a.sensitiveInformationPolicy?.piiEntities?.length ?? 0) + (a.sensitiveInformationPolicy?.regexes?.length ?? 0), 0);
-  return { text: r.outputs?.[0]?.text ?? text, detected };
+  // 탐지 값(match)과 유형만 돌려준다. 원문 덮어쓰기 여부는 호출자가 유형별로 정한다 (규정 원문 훼손 방지, 11/17)
+  const entities = (r.assessments ?? []).flatMap((a) => [
+    ...(a.sensitiveInformationPolicy?.piiEntities ?? []).map((e) => ({ type: String(e.type), match: e.match ?? '' })),
+    ...(a.sensitiveInformationPolicy?.regexes ?? []).map((e) => ({ type: `REGEX_${e.name}`, match: e.match ?? '' })),
+  ]).filter((e) => e.match);
+  return { text: r.outputs?.[0]?.text ?? text, detected: entities.length, entities };
 }
 
 /** 문서보관함: 마스킹본 페이지만 읽는다 (masked/segments). 원본·work는 읽지 않는다 */
@@ -153,4 +161,50 @@ export async function workflowSteps(workflow_id: string) {
 }
 export async function putBytes(key: string, body: Uint8Array, contentType: string) {
   await s3().send(new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, Body: body, ContentType: contentType }));
+}
+
+/** 마스킹된 쪽 이미지 (PiiScan이 만든 masked/pages). API Task Role은 masked/만 읽는다 */
+export async function pageImage(doc_id: string, page_index: number) {
+  return getObjectBytes(`${doc_id}/masked/pages/${String(page_index).padStart(4, '0')}.png`);
+}
+export async function pageImageList(doc_id: string) {
+  return (await listKeys(`${doc_id}/masked/pages/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n));
+}
+export async function pageSummary(doc_id: string) {
+  return getJson<{ pages?: import('./app.ts').PageMeta[] }>(`${doc_id}/masked/summary.json`);
+}
+export async function explanation(doc_id: string) {
+  return getJson<unknown>(`${doc_id}/masked/explanation.json`);
+}
+
+/** 사용자 Gateway Tool 호출 (사용자 access token 그대로 → interceptor가 신원 주입, Policy·감사 일원화). 결과 JSON */
+export async function userTool(name: string, args: Record<string, unknown>, accessToken: string): Promise<unknown> {
+  const r = await fetch(env('USER_GATEWAY_URL'), {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json, text/event-stream', authorization: `Bearer ${accessToken}` },
+    body: JSON.stringify({ jsonrpc: '2.0', id: Date.now(), method: 'tools/call', params: { name, arguments: args } }),
+    signal: AbortSignal.timeout(90_000), // Browser 첫 조회 ~22초 (let522mj)
+  });
+  const text = await r.text();
+  if (!r.ok) throw Object.assign(new Error(`gateway ${r.status}`), { name: 'GatewayError' });
+  const json = JSON.parse(text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').find((l) => l.startsWith('data:'))!.slice(5) : text) as
+    { error?: { message: string }; result?: { isError?: boolean; content?: { type: string; text?: string }[] } };
+  if (json.error || json.result?.isError) throw Object.assign(new Error('tool error'), { name: 'ToolError' });
+  return JSON.parse(json.result?.content?.find((c) => c.type === 'text')?.text ?? 'null');
+}
+
+/** prefix 아래 모든 객체의 모든 버전·삭제 표시를 지운다 (버전 관리 버킷에서 실제 삭제). 지운 수 */
+export async function purgePrefix(prefix: string): Promise<number> {
+  const { ListObjectVersionsCommand, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+  let n = 0, KeyMarker: string | undefined, VersionIdMarker: string | undefined;
+  do {
+    const r = await s3().send(new ListObjectVersionsCommand({ Bucket: env('BUCKET_QUARANTINE'), Prefix: prefix, KeyMarker, VersionIdMarker }));
+    const objs = [...(r.Versions ?? []), ...(r.DeleteMarkers ?? [])].filter((v) => v.Key).map((v) => ({ Key: v.Key!, VersionId: v.VersionId }));
+    for (let i = 0; i < objs.length; i += 1000) {
+      await s3().send(new DeleteObjectsCommand({ Bucket: env('BUCKET_QUARANTINE'), Delete: { Objects: objs.slice(i, i + 1000), Quiet: true } }));
+    }
+    n += objs.length;
+    KeyMarker = r.IsTruncated ? r.NextKeyMarker : undefined; VersionIdMarker = r.IsTruncated ? r.NextVersionIdMarker : undefined;
+  } while (KeyMarker);
+  return n;
 }

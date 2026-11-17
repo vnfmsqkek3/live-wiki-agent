@@ -48,7 +48,16 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
     ? (JSON.parse((await store.get(input.bucket, `${work}/ocr/result.json`)).toString()) as OcrResult)
     : null;
   const segments = buildSegments(layer, ocr);
-  if (segments.every((s) => !s.text.trim())) throw new Error("모든 페이지 텍스트가 비어 있음");
+  // 글자가 하나도 없음 (강아지 사진 같은 그림·사진만 있는 파일, 11/17 실측): 예외로 멈추지 않고 이유를 알려 주며 차단
+  if (segments.every((s) => !s.text.trim())) {
+    const msg = segments.length === 1 ? "올린 파일에서 글자를 찾지 못했습니다. 글자 없이 사진·그림만 있는 파일은 위키에 등록할 수 없습니다."
+      : `올린 파일의 ${segments.length}쪽 모두에서 글자를 찾지 못했습니다. 글자 없이 사진·그림만 있는 파일은 위키에 등록할 수 없습니다.`;
+    return { status: "BLOCKED", findings: [{
+      finding_id: newId("fnd"), step: "SegmentBuild", severity: "HIGH", code: "NO_TEXT", message: msg, evidence_ref: `${work}/segments/`,
+      location: { page: 1 }, user_message: msg,
+      fix_hint: "업무 내용이 글자로 적힌 문서(PDF·DOCX·HWPX)나 문서를 찍은 사진을 올려 주세요. 사진이라면 글자가 잘 보이게 반듯하게 다시 찍어 주세요.",
+    }] };
+  }
   for (const s of segments) {
     await store.put(input.bucket, `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, JSON.stringify(s));
   }

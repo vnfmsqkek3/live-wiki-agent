@@ -9,6 +9,7 @@ import type { Actor, DocumentRecord } from '../src/contracts.ts';
 const USERS: Record<string, Actor> = {
   author: { sub: 'u-author', groups: ['AUTHOR'], dept: 'loan' },
   user: { sub: 'u-user', groups: ['USER'], dept: 'loan' },
+  approver: { sub: 'u-appr', groups: ['REG_APPROVER'], dept: 'loan' },
 };
 const base = (o: Partial<DocumentRecord> & { doc_id: string }): DocumentRecord => ({
   version: 1, owner: 'u-other', title: o.doc_id, dept: 'loan', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED',
@@ -30,11 +31,13 @@ async function setup() {
   }));
   await store.putDoc(base({ doc_id: 'DRAFT', owner: 'u-author', lifecycle: 'IN_REVIEW', authority_status: 'UNVERIFIED' }));
   await store.putDoc(base({ doc_id: 'OTHERS_DRAFT', lifecycle: 'IN_REVIEW' }));
+  await store.putDoc(base({ doc_id: 'BLOCKED_DOC', lifecycle: 'BLOCKED', findings: [{ finding_id: 'f1', step: 'FILE_STRUCTURE', severity: 'HIGH', code: 'PDF_JAVASCRIPT', message: 'js', user_message: '스크립트가 들어 있습니다', fix_hint: '다시 저장', evidence_ref: 'x', location: { page: 2 } }] }));
   const deps = {
     verify: async (t: string) => { const u = USERS[t]; if (!u) throw new ApiError('UNAUTHORIZED', 'x'); return u; },
     store, presignPut: async () => '', headObject: async () => undefined, startWorkflow: async () => {}, resume: async () => true,
     search: async () => [], guide: async () => ({}),
     pages: async () => [{ page: 1, text: '둘째 장' }, { page: 0, text: '1억원 이하는 현장 실사를 생략한다.' }],
+    pageSummary: async (id: string) => id === 'KH' ? { pages: [{ page_index: 1, summary: '둘째 장 요약', keywords: ['현장 실사'], clause_refs: ['제14조'], page_type: '본문' }] } : undefined,
     marks: async () => [{ page: 0, start: 0, end: 5, severity: 'HIGH', kind: 'CONFLICT', reason: '실사 의무' }, { page: null, start: null, end: null, severity: 'HIGH', kind: 'REGISTRY_MISMATCH', reason: '조문 누락' }],
   } as Deps;
   const app = createApp(deps);
@@ -76,9 +79,54 @@ test('상세: 페이지 순서·페이지 요약·밑줄, 권한 밖·타인 미
   assert.deepEqual(d.pages.map((p) => p.page), [0, 1]);
   assert.equal(d.pages[0]!.summary, '첫 장 요약');
   assert.equal(d.pages[0]!.marks[0]!.kind, 'CONFLICT');
-  assert.equal(d.pages[1]!.summary, null);
+  assert.equal(d.pages[1]!.summary, '둘째 장 요약'); // PageSummarize 결과(masked/summary.json)
+  assert.deepEqual((d.pages[1] as unknown as { clause_refs: string[] }).clause_refs, ['제14조']);
   assert.equal(d.pages[1]!.marks.length, 0);
   assert.deepEqual(d.doc_marks.map((m) => m.kind), ['REGISTRY_MISMATCH']);
   assert.equal((await t.get('user', '/v1/library/SECRET')).status, 404);
   assert.equal((await t.get('user', '/v1/library/OTHERS_DRAFT')).status, 404);
+});
+
+test('상세 검증 정보: 문서 표기 일자, 노하우 비교 조문·승인자·시각, 매뉴얼은 사람 승인 방식', async () => {
+  const { docDate, verification } = await import('../src/library.ts');
+  assert.deepEqual(docDate([{ page: 0, text: '문서 관리번호 05\n개정일 / 버전 2026.10.15 / 1.0' }]), { label: '개정일', date: '2026-10-15' });
+  const base = { doc_id: 'X', version: 1, owner: 'o', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED' as const, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  const v = verification({ ...base, document_type: 'KNOWHOW', knowhow_validation: { verdict: 'SUPPORTED', model: 'm', checked_at: 'c', outdated: [], items: [{ statement: 's', provision_id: 'p', label: '기업여신 심사규정 제10조제2항', relation: 'SUPPORTS', reason: 'r', quote: '6개월 이내', verified_quote: true }] } },
+    { approver_sub: 'abcdefgh123', approver_name: 'admin', decided_at: '2026-11-17T01:00:00Z', reason: '확인' });
+  assert.equal(v.approved_by, 'admin');
+  assert.equal(v.basis[0]!.label, '기업여신 심사규정 제10조제2항');
+  assert.equal(v.basis[0]!.result, '근거 확인됨(규정과 일치)');
+  assert.match(verification({ ...base, document_type: 'MANUAL' }).method, /사람 승인/);
+  assert.equal(verification({ ...base, document_type: 'MANUAL' }, { approver_sub: 'abcdefgh123' }).approved_by, '관리자 계정(abcdefgh)');
+});
+
+test('상호 보완: 매뉴얼 인용(citations)으로 규정과 연결, 규정 쪽에서 매뉴얼이 CITED_BY, 비슷한 다른 유형 문서', async () => {
+  const { related, similar } = await import('../src/library.ts');
+  const b = { version: 1, owner: 'o', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'PUBLISHED' as const, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  const reg = { ...b, doc_id: 'R', title: '개인정보 보호규정', document_type: 'REGULATION' as const, law_id: 'SYN-PRIV-001', revision_id: '2026-11-01' };
+  const man = { ...b, doc_id: 'M', title: '개인정보 수집 매뉴얼', document_type: 'MANUAL' as const, citations: [{ provision_id: 'SYN-PRIV-001@2026-11-01/ARTICLE:5', evidence_span: '개인정보 보호규정 제5조', confidence: 0.95 }] };
+  const kh = { ...b, doc_id: 'K', title: '고객정보 처리 팁', document_type: 'KNOWHOW' as const };
+  const vis = [reg, man, kh];
+  assert.deepEqual(related(man, vis).map((r) => [r.doc_id, r.relation, r.document_type]), [['R', 'CITES', 'REGULATION']]);
+  assert.deepEqual(related(reg, vis).map((r) => [r.doc_id, r.relation, r.document_type]), [['M', 'CITED_BY', 'MANUAL']]);
+  const s = similar(man, [{ doc_id: 'M', title: 'x' }, { doc_id: 'R', title: 'x' }, { doc_id: 'K', title: 'x' }], vis, related(man, vis));
+  assert.deepEqual(s.map((r) => [r.doc_id, r.relation, r.reason]), [['K', 'SIMILAR', '내용이 비슷한 노하우']]);
+});
+
+test('결재함에서 연 문서: 관리자는 남의 게시 전·차단 문서 상세와 확인 이유를 본다, 일반 사용자는 404, 목록에는 안 섞임', async () => {
+  const t = await setup();
+  const r = await t.get('approver', '/v1/library/BLOCKED_DOC');
+  assert.equal(r.status, 200);
+  const d = (await r.json()) as { review: { lifecycle: string; findings: { message: string; fix_hint: string; page: number }[] } };
+  assert.equal(d.review.lifecycle, 'BLOCKED');
+  assert.deepEqual(d.review.findings[0], { severity: 'HIGH', code: 'PDF_JAVASCRIPT', step: 'FILE_STRUCTURE', message: '스크립트가 들어 있습니다', fix_hint: '다시 저장', page: 2 });
+  assert.equal((await t.get('approver', '/v1/library/OTHERS_DRAFT')).status, 200);
+  assert.equal((await t.get('approver', '/v1/library/BLOCKED_DOC/similar')).status, 200); // 하위 조회도 같은 권한
+  assert.equal((await t.get('user', '/v1/library/BLOCKED_DOC/similar')).status, 404);
+  assert.equal((await t.get('user', '/v1/library/BLOCKED_DOC')).status, 404);
+  assert.equal((await t.get('user', '/v1/library/OTHERS_DRAFT')).status, 404);
+  const ids = ((await (await t.get('approver', '/v1/library')).json()) as { items: { doc_id: string }[] }).items.map((i) => i.doc_id);
+  assert.ok(!ids.includes('BLOCKED_DOC') && !ids.includes('OTHERS_DRAFT'));
+  const pub = (await (await t.get('approver', '/v1/library/KH')).json()) as { review?: unknown };
+  assert.equal(pub.review, undefined); // 게시본에는 결재 정보 없음
 });
