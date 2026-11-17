@@ -388,3 +388,11 @@ test('운영 도구: 실행 기록은 결재자만, 시작·소요·실패 단�
   t.deps.traceImpact = async () => { throw Object.assign(new Error('x'), { name: 'ToolError' }); };
   assert.equal((await t.call('approver', 'GET', '/v1/admin/impact?law=없는규정')).status, 404);
 });
+
+test('검색 질의 재구성: 핵심어가 원문과 같아도 다른 표현은 칩으로 남긴다', async () => {
+  const { searchVia } = await import('../src/search.ts');
+  const s = searchVia(async () => ({ items: [], rewritten: { core: '개인정보 처리방법', alternates: ['개인정보 처리방법', '개인정보 처리 절차'] } }));
+  assert.deepEqual((await s('개인정보 처리방법', { sub: 'u', groups: ['USER'] } as never, { tags: [] })).rewritten, { core: '개인정보 처리방법', alternates: ['개인정보 처리 절차'] });
+  const none = searchVia(async () => ({ items: [], rewritten: { core: '개인정보', alternates: [] } }));
+  assert.equal((await none('개인정보', { sub: 'u', groups: ['USER'] } as never, { tags: [] })).rewritten, undefined);
+});

@@ -32,7 +32,9 @@ export function searchVia(searchWiki: SearchWiki) {
       { sub: a.sub, groups: a.groups, ...(a.dept ? { dept: a.dept } : {}) });
     // related: 재정렬 점수가 약해(0.10~0.30) 근거로 확인되지 않은 관련 문서 (let522mj PR #22). weak 표시로 뒤에 붙인다
     const out: SearchResult = [...(r.items ?? []).map(toItem), ...(r.related ?? []).map((h) => ({ ...toItem(h), weak: true as const, reason: '관련 있을 수 있지만 정확한 근거로 확인되지는 않았습니다' }))];
-    if (r.rewritten?.core && r.rewritten.core.trim() !== q.trim()) out.rewritten = { core: r.rewritten.core, alternates: (r.rewritten.alternates ?? []).slice(0, 2) };
+    // 핵심어가 원문과 같아도 다른 표현(alternates)은 추천 칩으로 쓴다. 둘 다 없으면 생략
+    const alt = (r.rewritten?.alternates ?? []).filter((x) => x.trim() && x.trim() !== q.trim()).slice(0, 2);
+    if (r.rewritten?.core && (r.rewritten.core.trim() !== q.trim() || alt.length)) out.rewritten = { core: r.rewritten.core, alternates: alt };
     return out;
   };
 }

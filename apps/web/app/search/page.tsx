@@ -120,10 +120,11 @@ function Results() {
         )
       ) : items === null ? <p className="note">찾는 중입니다.</p> : <>{rewritten && (
         <div className="rewritten" aria-live="polite">
-          <p>이 검색어로 찾았습니다: <strong>{rewritten.core}</strong></p>
+          {rewritten.core.trim() !== q.trim() && <p>이 검색어로 찾았습니다: <strong>{rewritten.core}</strong></p>}
+          {rewritten.core.trim() === q.trim() && rewritten.alternates.length > 0 && <p>이렇게도 찾아보세요</p>}
           <div className="chips">
             {rewritten.alternates.map((a) => <button key={a} type="button" className="chip" onClick={() => { setInput(a); nav(a, type); }}>{a}</button>)}
-            <button type="button" className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}&raw=1`)}>원래 질의로 찾기</button>
+            {rewritten.core.trim() !== q.trim() && <button type="button" className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}&raw=1`)}>원래 질의로 찾기</button>}
           </div>
         </div>
       )}{ items.length === 0 && related.length === 0 && !err ? (
