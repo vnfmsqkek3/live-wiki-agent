@@ -148,7 +148,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
         if (v) structured.set(v.page_index, v.markdown);
       }
       const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
-      const cands = ((await deps.findRefs(findPrompt(d.title, pages))).value.refs ?? []).slice(0, 5);
+      const cands = ((await deps.findRefs(findPrompt(d.title, pages))).value.refs ?? []).slice(0, 3); // 최대 3건: 직렬 단계라 사용자 대기 ~2.5분 이내 (yoyo0704 11/18)
       console.log(JSON.stringify({ msg: 'refcheck candidates', doc_id: d.doc_id, n: cands.length, reasons: cands.map((c) => c.reason) }));
       const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
       const safe = cands.filter((c) => { const why = unsafeQuery(c.query, internal); if (why) console.warn(JSON.stringify({ msg: 'refcheck query skipped', doc_id: d.doc_id, why })); return !why; });
