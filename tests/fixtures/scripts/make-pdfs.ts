@@ -12,7 +12,7 @@ const ROOT = new URL("../", import.meta.url);
 const outDir = (id: string) => new URL(id.startsWith("G-") ? "golden/pdf/" : "documents/pdf/", ROOT);
 const CHROME = "/Applications/Google Chrome.app/Contents/MacOS/Google Chrome";
 export const PDF_DOCS = ["F-000", "F-001", "F-002", "F-003", "K-001", "K-002", "K-003", "K-004", "A-001"];
-const src = (id: string) => (id.startsWith("G-") ? `golden/${id}.txt` : id.startsWith("F-") ? `documents/${id}.txt` : `documents/${id}.md`);
+const src = (id: string) => (id.startsWith("G-") ? `golden/${id}.${existsSync(new URL(`golden/${id}.md`, ROOT)) ? "md" : "txt"}` : id.startsWith("F-") ? `documents/${id}.txt` : `documents/${id}.md`);
 const esc = (s: string) => s.replace(/&/gu, "&amp;").replace(/</gu, "&lt;").replace(/>/gu, "&gt;");
 
 if (import.meta.main) {

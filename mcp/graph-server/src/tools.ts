@@ -18,7 +18,8 @@ export async function loadLaw(store: ClauseStore, lawId: string, rev: string): P
   return { law_id: lawId, law_name: r.law_name, revision_id: rev, effective_from: r.effective_from, parser_version: "", provisions, issues: [] };
 }
 
-export function graphTools(deps: { graph: GraphStore; clauses: ClauseStore }) {
+/** live: Documents 현재 상태로 재검증 (CLAUDE.md 검색·색인 규칙). 삭제(DELETED)된 노하우는 그래프에 남아 있어도 영향 대상에서 뺀다 */
+export function graphTools(deps: { graph: GraphStore; clauses: ClauseStore; live?: (docId: string) => Promise<boolean> }) {
   return {
     async trace_impact(args: Record<string, unknown>, actor: Actor) {
       guard(actor);
@@ -29,7 +30,10 @@ export function graphTools(deps: { graph: GraphStore; clauses: ClauseStore }) {
       const idx = revs.findIndex((r) => r.revision_id === newRev);
       const oldRev = str(args, "old_revision", false) || revs[idx - 1]?.revision_id;
       if (!oldRev) throw new ToolError("NOT_FOUND", "비교할 이전 버전 없음");
-      return analyzeImpact(await loadLaw(deps.clauses, lawId, oldRev), await loadLaw(deps.clauses, lawId, newRev), deps.graph, canSee(actor));
+      const r = await analyzeImpact(await loadLaw(deps.clauses, lawId, oldRev), await loadLaw(deps.clauses, lawId, newRev), deps.graph, canSee(actor));
+      if (!deps.live) return r;
+      const keep = await Promise.all(r.impacted.map((i) => deps.live!(i.doc_id)));
+      return { ...r, impacted: r.impacted.filter((_, k) => keep[k]) };
     },
     async get_dependencies(args: Record<string, unknown>, actor: Actor) {
       guard(actor);
