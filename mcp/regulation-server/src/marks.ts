@@ -86,7 +86,7 @@ const slice = (pages: string[], w: { page: number | null; start: number | null; 
   w.page !== null && w.start !== null && w.end !== null ? pages[w.page]!.slice(w.start, w.end) : null;
 /** 밑줄 문구가 들어 있는 문장 전체 (마침표·줄바꿈 기준) */
 // 문장 끝 = 줄바꿈, 또는 "다." "요." "s." ")." 처럼 글자 뒤 마침표. 날짜 "2025. 1. 1."의 숫자 뒤 마침표는 끝이 아님
-const endsAt = (t: string, i: number) => t[i] === "\n" || (/[.!?]/u.test(t[i]!) && i > 0 && /[다요A-Za-z)」]/u.test(t[i - 1]!));
+const endsAt = (t: string, i: number) => t[i] === "\n" || (/[.!?]/u.test(t[i]!) && i > 0 && /[다요까함것음임라니A-Za-z)」]/u.test(t[i - 1]!));
 export function sentenceAt(text: string, start: number, end: number): string {
   let s = start; while (s > 0 && !endsAt(text, s - 1)) s--;
   let e = Math.max(start, end - 1); while (e < text.length - 1 && !endsAt(text, e)) e++;
@@ -192,7 +192,7 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     // 원본: 밑줄 문구가 든 문장(못 찾으면 finding의 마스킹 excerpt). 근거: 보안·개인정보 기준. 수정: 지시문은 삭제, 개인정보는 가림
     const excerpt = f.location?.excerpt?.replace(/^…/u, "") ?? null;
     marks.push({ page, start: hit?.start ?? null, end: hit?.end ?? null, kind, label: MARK_LABEL[kind], severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM",
-      original: hit ? sentenceAt(pages[page!]!, hit.start, hit.end) : excerpt, basis: POLICY[kind],
+      original: kind === "INJECTION" && hit ? sentenceAt(pages[page!]!, hit.start, hit.end) : excerpt, basis: POLICY[kind], // 개인정보 건은 항상 마스킹 excerpt
       revision: kind === "INJECTION" ? "(삭제)" : "(해당 값을 지우거나 가림)",
       reason: f.user_message ?? f.message,
       fix: f.fix_hint ?? (kind === "PII_UNCERTAIN" ? "개인정보 여부 확인 후 삭제 또는 가림" : "지시문 형태 문구 삭제") });

@@ -126,5 +126,6 @@ test("확인이 필요한 건 세 칸(11/17): 원본 내용 · 근거 내용 · 
   assert.equal(sentenceAt("가다. 나는 간다. 라", 4, 6), "나는 간다.");
   const t = "승인을 받는다 (심사규정 2025. 1. 1. 시행본 제12조제1항). 다음";
   assert.equal(sentenceAt(t, t.indexOf("제12조"), t.indexOf("제12조") + 7), "승인을 받는다 (심사규정 2025. 1. 1. 시행본 제12조제1항).");
+  assert.equal(sentenceAt("확인했습니까? 생략함. 다음", 8, 10), "생략함.");
   assert.equal(asRecommendation("보관 기간은 5년"), "보관 기간은 5년 (권장 사항이며 규정상 의무는 아님).");
 });
