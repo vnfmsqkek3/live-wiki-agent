@@ -299,3 +299,11 @@ test('정리본 대체(TEXT): 반복 머리글 줄 제외, 장 제목은 ##, 빈
   const fb3 = textFallback(ch);
   assert.equal(fb3.get(2), '## 02. 드라이버 설치 2장\n\n(Windows ver. macOS ver.)');
 });
+
+test('위키 수정본(md) 형식 검사: 앞부분이 한글 중간에서 잘려도 통과, 깨진 바이트·NUL 은 차단 (11/18 dev)', () => {
+  const md = new TextEncoder().encode('# 과천사옥 복합기 스캐너 설치 매뉴얼\n\n'.repeat(400));
+  for (const n of [4096, 8192, 16384]) assert.equal(typeDetection('md', md.subarray(0, n)).status, 'OK', `앞 ${n}바이트`);
+  const bad = new Uint8Array([...md.subarray(0, 100), 0xff, 0xfe, ...md.subarray(100, 200)]);
+  assert.equal(typeDetection('md', bad).status, 'BLOCKED');
+  assert.equal(typeDetection('md', new Uint8Array([0x23, 0x00, 0x41])).status, 'BLOCKED');
+});

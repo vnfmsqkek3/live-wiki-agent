@@ -26,7 +26,7 @@ export function typeDetection(ext: string, head: Uint8Array): StepOutput & { kin
   // 위키 수정본(md): 글자만 있는 UTF-8 이어야 한다 (NUL·깨진 바이트면 차단)
   if (e === 'md') {
     let ok = !head.includes(0);
-    try { new TextDecoder('utf-8', { fatal: true }).decode(head.subarray(0, Math.max(0, head.length - 3))); } catch { ok = false; }
+    try { new TextDecoder('utf-8', { fatal: true }).decode(head, { stream: true }); /* 앞부분만 읽으므로 끝의 잘린 글자는 버퍼에 남기고 잘못된 바이트만 오류 (11/18 dev: 한글 수정본이 차단됨) */ } catch { ok = false; }
     return ok ? { status: 'OK', kind: 'md', findings: [] } : { status: 'BLOCKED', findings: [f('TYPE_DETECTION', 'HIGH', 'UNSUPPORTED_TYPE', '글자 문서가 아님', 'header')] };
   }
   const kind = detectKind(head);
