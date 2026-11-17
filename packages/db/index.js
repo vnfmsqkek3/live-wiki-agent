@@ -50,7 +50,8 @@ export function fromColumn(typeName, v) {
   return v;
 }
 
-const RETRYABLE = /DatabaseResuming|Communications link failure|is resuming/i;
+// 요청이 DB 에 닿지 않은 경우만 재시도. Communications link failure 는 실행 여부를 알 수 없어 제외 (감사 INSERT 중복 위험, let522mj 리뷰)
+const RETRYABLE = /DatabaseResuming|is resuming/i;
 
 export function db(cfg = {}) {
   const resourceArn = cfg.resourceArn ?? process.env.DB_CLUSTER_ARN;
@@ -132,10 +133,10 @@ export function toFindingRow(doc_id, f) {
   return { finding_id, doc_id, step, severity, code, data };
 }
 
-/** documents upsert SQL (전체 열 교체). 파라미터는 toDocumentRow 결과 그대로 */
+/** documents upsert SQL (created_at 외 전체 열 교체 — DynamoDB PutItem 과 같은 의미). 파라미터는 toDocumentRow 결과 그대로 */
 export const UPSERT_DOCUMENT_SQL = `INSERT INTO documents (${DOC_COLUMNS.join(", ")}, attrs) VALUES (` +
   DOC_COLUMNS.map((c) => c === "acl_groups" ? "ARRAY(SELECT jsonb_array_elements_text(:acl_groups::jsonb))" : c.endsWith("_at") ? `:${c}::timestamptz` : `:${c}`).join(", ") +
-  `, :attrs::jsonb) ON CONFLICT (doc_id) DO UPDATE SET ` + [...DOC_COLUMNS.filter((c) => c !== "doc_id"), "attrs"].map((c) => `${c} = EXCLUDED.${c}`).join(", ");
+  `, :attrs::jsonb) ON CONFLICT (doc_id) DO UPDATE SET ` + [...DOC_COLUMNS.filter((c) => c !== "doc_id" && c !== "created_at"), "attrs"].map((c) => `${c} = EXCLUDED.${c}`).join(", ");
 
 /** 한 단계의 findings 교체 (문서 행 잠금으로 병렬 단계 직렬화). q 는 tx 안의 query */
 export async function replaceStepFindings(q, doc_id, step, findings) {
