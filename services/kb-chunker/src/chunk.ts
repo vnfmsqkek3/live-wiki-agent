@@ -86,32 +86,82 @@ function* ancestors(p: Provision, byId: Map<string, Provision>) {
   while (cur) { yield cur; cur = cur.parent_id ? byId.get(cur.parent_id) : undefined; }
 }
 
+/** 노하우·매뉴얼 조각 나누기 (과천 매뉴얼 실측 11/18: OCR 본문에 "## 제목"이 없어 39쪽이 조각 1개, 근거가 늘 1쪽으로 잡힘).
+ *  ① "## 제목" ② 쪽 경계 ③ 길이(MAX_CHUNK_CHARS)로 나눈다. 마크다운 표(| 로 시작하는 연속 줄)는 중간에서 자르지 않고,
+ *  표 하나가 상한을 넘으면 머리행을 반복해 행 단위로 나눈다. 쪽 번호는 조각 첫 글자 줄의 쪽 */
 export function chunkKnowledge(text: string, meta: DocumentMetadata, pageOfLine: (line: number) => number = () => 0): Chunk[] {
   const fm = /^---\n[\s\S]*?\n---\n/u.exec(text)?.[0] ?? "";
   const body = text.slice(fm.length); // front matter 제거
   const offset = fm ? fm.split("\n").length - 1 : 0;
-  const sections: { heading: string; text: string; page: number }[] = [];
-  let cur = { heading: meta.title, text: "", page: -1 };
-  for (const [i, line] of body.split(/\r?\n/u).entries()) {
-    const h = line.match(/^#{2,3}\s+(.+)$/u);
-    if (h) { if (cur.text.trim()) sections.push(cur); cur = { heading: h[1]!.trim(), text: "", page: -1 }; continue; }
-    if (/^#\s+/u.test(line)) continue; // 문서 제목은 헤더로
-    if (cur.page < 0 && line.trim()) cur.page = pageOfLine(offset + i + 1); // 절의 첫 글자 줄이 있는 쪽
-    cur.text += line + "\n";
+  type Line = { t: string; page: number };
+  const sections: { heading: string; lines: Line[] }[] = [];
+  let cur: { heading: string; lines: Line[] } = { heading: meta.title, lines: [] };
+  for (const [i, t] of body.split(/\r?\n/u).entries()) {
+    const h = t.match(/^#{2,3}\s+(.+)$/u);
+    if (h) { if (cur.lines.some((l) => l.t.trim())) sections.push(cur); cur = { heading: h[1]!.trim(), lines: [] }; continue; }
+    if (/^#\s+/u.test(t)) continue; // 문서 제목은 헤더로
+    cur.lines.push({ t, page: pageOfLine(offset + i + 1) });
   }
-  if (cur.text.trim()) sections.push(cur);
+  if (cur.lines.some((l) => l.t.trim())) sections.push(cur);
   if (!sections.length) throw new Error("노하우 본문이 비어 있음");
   const kind = meta.document_type === "MANUAL" ? "매뉴얼" : "노하우";
-  return sections.map((s, i) => {
-    const t = s.text.trim();
+  const pieces: { heading: string; lines: Line[] }[] = [];
+  for (const sec of sections) for (const lines of splitLines(sec.lines)) pieces.push({ heading: sec.heading, lines });
+  return pieces.map((pc, i) => {
+    const t = pc.lines.map((l) => l.t).join("\n").trim();
+    const page = pc.lines.find((l) => l.t.trim())?.page ?? 0;
     return {
-      augmented_search_text: `[${meta.title} · ${kind} · ${s.heading}]\n${t}`,
+      augmented_search_text: `[${meta.title} · ${kind} · ${pc.heading}]\n${t}`,
       metadata: {
-        ...meta, provision_id: `${meta.doc_id}#s${i}`, provision_path: s.heading, provision_status: "ACTIVE",
-        parent_id: meta.doc_id, source_page: Math.max(0, s.page), original_text: t,
+        ...meta, provision_id: `${meta.doc_id}#s${i}`, provision_path: pc.heading, provision_status: "ACTIVE",
+        parent_id: meta.doc_id, source_page: page, original_text: t,
       },
     };
   });
+}
+
+/** 줄 묶음을 쪽 경계·길이로 나눈다. 표 블록은 한 덩어리(넘치면 머리행 반복해 행 단위) */
+function splitLines<L extends { t: string; page: number }>(lines: L[]): L[][] {
+  // 단위: 표 블록(연속 | 줄) 또는 한 줄
+  const units: L[][] = [];
+  // 상한을 넘는 한 줄은 낱말 경계에서 여러 줄로 (PR #41 리뷰)
+  const wrap = (l: L): L[] => {
+    if (l.t.length <= MAX_CHUNK_CHARS) return [l];
+    const out: L[] = []; let rest = l.t;
+    while (rest.length > MAX_CHUNK_CHARS) { const cut = rest.slice(0, MAX_CHUNK_CHARS).replace(/\S*$/u, "") || rest.slice(0, MAX_CHUNK_CHARS); out.push({ ...l, t: cut.trimEnd() }); rest = rest.slice(cut.length).trimStart(); }
+    if (rest) out.push({ ...l, t: rest });
+    return out;
+  };
+  for (let i = 0; i < lines.length; i++) {
+    if (!lines[i]!.t.trimStart().startsWith("|")) { for (const w of wrap(lines[i]!)) units.push([w]); continue; }
+    let j = i; while (j < lines.length && lines[j]!.t.trimStart().startsWith("|")) j++;
+    const table = lines.slice(i, j);
+    const size = (u: L[]) => u.reduce((n, l) => n + l.t.length + 1, 0);
+    if (size(table) <= MAX_CHUNK_CHARS) units.push(table);
+    else { // 머리행(구분행이 있으면 함께) 반복, 행 단위
+      const sep = /^\s*\|\s*:?-{3,}/u.test(table[1]?.t ?? "");
+      const head = table.slice(0, sep ? 2 : 1); let part: L[] = [...head];
+      for (const row of table.slice(head.length)) {
+        if (size(part) + row.t.length + 1 > MAX_CHUNK_CHARS && part.length > head.length) { units.push(part); part = [...head]; }
+        part.push(row);
+      }
+      if (part.length > head.length) units.push(part);
+    }
+    i = j - 1;
+  }
+  const out: L[][] = [];
+  let cur: L[] = []; let len = 0;
+  const flush = () => { if (cur.some((l) => l.t.trim())) out.push(cur); cur = []; len = 0; };
+  for (const u of units) {
+    const uLen = u.reduce((n, l) => n + l.t.length + 1, 0);
+    const firstText = u.find((l) => l.t.trim());
+    const curPage = cur.find((l) => l.t.trim())?.page;
+    // 새 쪽이 시작되거나 길이를 넘으면 끊는다 (빈 줄만 있는 단위는 이어 붙임)
+    if (cur.length && firstText && ((curPage !== undefined && firstText.page !== curPage) || len + uLen > MAX_CHUNK_CHARS)) flush();
+    cur.push(...u); len += uLen;
+  }
+  flush();
+  return out;
 }
 
 
