@@ -45,14 +45,14 @@ export async function buildUpsertInput(input: StepInput, records: Records, store
 
 /** 문서 삭제 흐름 마지막 단계 (interfaces.md 6.0): Documents가 DELETED일 때만 그 문서의 노드·관계를 지운다.
  *  분류 전 문서(UnclassifiedDocument)는 게시된 적이 없어 그래프에 없음 → 할 일 없이 OK */
-export async function graphDeleteStep(docId: string, records: Pick<Records, "getDocument">, graph: Pick<GraphStore, "deleteDoc">): Promise<{ status: "OK" }> {
+export async function graphDeleteStep(docId: string, records: Pick<Records, "getDocument">, graph: Pick<GraphStore, "deleteDoc">): Promise<{ status: "OK"; affected_doc_ids: string[] }> {
   let doc;
   try { doc = await records.getDocument(docId); }
-  catch (err) { if ((err as Error).name === "UnclassifiedDocument") return { status: "OK" }; throw err; }
+  catch (err) { if ((err as Error).name === "UnclassifiedDocument") return { status: "OK", affected_doc_ids: [] }; throw err; }
   if (!doc) throw Object.assign(new Error(`Documents 레코드 없음: ${docId}`), { name: "NotDeleted" });
   if (doc.lifecycle !== "DELETED") throw Object.assign(new Error(`삭제 표시(DELETED)가 아닌 문서는 그래프에서 지우지 않음: ${docId} (${doc.lifecycle})`), { name: "NotDeleted" });
-  await graph.deleteDoc(docId);
-  return { status: "OK" };
+  // 규정 삭제면 그 조문을 인용하던 노하우가 근거를 잃는다 → 재검토 대상으로 돌려준다 (오케스트레이터가 REVIEW_REQUIRED 표시)
+  return { status: "OK", affected_doc_ids: await graph.deleteDoc(docId) };
 }
 
 export const graphUpsertHandler = async (event: unknown) => {

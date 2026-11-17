@@ -256,7 +256,8 @@ test("12: 삭제 흐름(interfaces 6.0) — 분류 전 문서는 색인된 적�
   const env = { KB_ID: "kb", KB_DS_LEGAL_ID: "ds-legal", KB_DS_KNOWLEDGE_ID: "ds-know", BUCKET_ARTIFACT: "art" };
   const api: IngestionApi = { start: async (_k, ds) => { assert.equal(ds, "ds-legal"); return "job-d"; }, get: async () => ({ status: "COMPLETE", failed: 0, failureReasons: [] }) };
   const unclassified = { getDocument: async () => { throw Object.assign(new Error("x"), { name: "UnclassifiedDocument" }); } } as unknown as MemoryRecords;
-  assert.equal((await kbIngestStep(input, { start: async () => assert.fail("Job 시작 안 함"), get: api.get }, unclassified, new MemoryObjectStore(), env)).status, "OK");
+  assert.equal((await kbIngestStep(input, { start: async () => assert.fail("Job 시작 안 함"), get: api.get }, unclassified, new MemoryObjectStore(), env, true)).status, "OK");
+  await assert.rejects(kbIngestStep(input, api, unclassified, new MemoryObjectStore(), env), { name: "UnclassifiedDocument" }, "게시 흐름에서는 그대로 오류");
   const r = new MemoryRecords();
   r.documents.set(DOC, { doc_id: DOC, version: 1, title: "R", document_type: "REGULATION", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"], lifecycle: "DELETED" });
   const s = new MemoryObjectStore(); // published 객체 없음

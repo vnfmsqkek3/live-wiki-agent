@@ -145,8 +145,21 @@ test("삭제 흐름(interfaces 6.0): DELETED만 그래프에서 지움, 아니�
   await assert.rejects(graphDeleteStep("K-001", rec({ lifecycle: "PUBLISHED" }), graph), { name: "NotDeleted" });
   await assert.rejects(graphDeleteStep("K-001", rec(undefined), graph), { name: "NotDeleted" });
   assert.ok(has());
-  assert.deepEqual(await graphDeleteStep("K-001", rec({ lifecycle: "DELETED" }), graph), { status: "OK" });
+  assert.deepEqual(await graphDeleteStep("K-001", rec({ lifecycle: "DELETED" }), graph), { status: "OK", affected_doc_ids: [] });
   assert.ok(!has());
   const unclassified = { getDocument: async () => { throw Object.assign(new Error("x"), { name: "UnclassifiedDocument" }); } };
-  assert.deepEqual(await graphDeleteStep("K-404", unclassified, graph), { status: "OK" });
+  assert.deepEqual(await graphDeleteStep("K-404", unclassified, graph), { status: "OK", affected_doc_ids: [] });
+});
+
+test("규정 삭제: 그 조문을 인용하던 노하우를 재검토 대상으로 돌려주고, 공유 LAW 노드는 남은 개정본이 있으면 유지", async () => {
+  const { graph } = await loaded();
+  const regDoc = (rev: string) => String([...graph.nodes.values()].find((n) => n.label === "LAW_VERSION" && n.props["revision_id"] === rev)!.props["doc_id"]);
+  const cited = regDoc("2026-11-01");
+  const affected = await graph.deleteDoc(cited);
+  assert.ok(affected.includes("K-001"), "K-001은 2026-11-01 조문을 인용");
+  assert.ok(![...graph.nodes.values()].some((n) => n.props["doc_id"] === cited && n.label !== "LAW"));
+  const others = [...graph.nodes.values()].filter((n) => n.label === "LAW_VERSION").map((n) => String(n.props["doc_id"]));
+  assert.ok(graph.nodes.has("SYN-LOAN-001") === others.length > 0, "남은 개정본이 있으면 LAW 유지");
+  for (const d of others) await graph.deleteDoc(d);
+  assert.ok(!graph.nodes.has("SYN-LOAN-001"), "개정본이 모두 지워지면 LAW도 삭제");
 });

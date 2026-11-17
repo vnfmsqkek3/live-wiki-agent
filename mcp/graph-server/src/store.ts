@@ -13,7 +13,9 @@ export interface RefRow { from_id: string; from_path: string; to_path: string; l
 
 export interface GraphStore {
   upsert(g: Graph): Promise<void>;
-  deleteDoc(docId: string): Promise<void>;
+  /** 문서의 노드·관계 삭제. 반환: 이 문서(규정) 조문을 인용하던 다른 문서 doc_id (인용 관계가 끊김 → 재검토 대상).
+   *  LAW 노드는 개정본끼리 공유 → 남은 개정본이 없을 때만 지운다 */
+  deleteDoc(docId: string): Promise<string[]>;
   /** law_id의 모든 버전에서 경로가 겹치는(조상·자손 포함) 조문을 인용하는 노하우 */
   citers(lawId: string, paths: string[]): Promise<CiteRow[]>;
   /** law_id 안에서 paths를 REFERENCES로 가리키는 조문 (간접 영향 1홉) */
@@ -53,8 +55,11 @@ export class MemoryGraphStore implements GraphStore {
     for (const e of g.edges) if (this.nodes.has(e.from) && this.nodes.has(e.to)) this.edges.set(`${e.from}|${e.type}|${e.to}`, e); // MATCH 실패 = 미적재 (Neptune과 동일)
   }
   async deleteDoc(docId: string) {
-    for (const [k, n] of this.nodes) if (n.props["doc_id"] === docId) this.nodes.delete(k);
+    const cut = [...new Set([...this.edges.values()].filter((e) => e.type === "CITES" && e.props.doc_id !== docId && this.nodes.get(e.to)?.props["doc_id"] === docId).map((e) => e.props.doc_id))];
+    for (const [k, n] of this.nodes) if (n.props["doc_id"] === docId && n.label !== "LAW") this.nodes.delete(k);
     for (const [k, e] of this.edges) if (!this.nodes.has(e.from) || !this.nodes.has(e.to) || e.props.doc_id === docId) this.edges.delete(k);
+    for (const [k, n] of this.nodes) if (n.label === "LAW" && ![...this.edges.values()].some((e) => e.from === k && e.type === "CONTAINS")) this.nodes.delete(k);
+    return cut;
   }
   async citers(lawId: string, paths: string[]) {
     const rows: CiteRow[] = [];
@@ -116,12 +121,15 @@ export class NeptuneGraphStore implements GraphStore {
   // 쓰기 직렬화는 인프라에서 보장 (GraphUpsert Lambda reserved concurrency 1 또는 SFN Map 동시 1)
   async upsert(g: Graph) { for (const s of upsertStatements(g)) await this.run(s.query, s.parameters); }
   async deleteDoc(docId: string) {
-    // 관계부터 배치 삭제 후 노드 삭제 (대량 삭제 시 타임아웃 방지)
+    // 끊길 인용을 먼저 기록 → 관계 배치 삭제(대량 삭제 시 타임아웃 방지) → 노드 삭제
+    const cut = await this.run<{ d: string }>("MATCH ()-[c:CITES]->(p {doc_id: $d}) WHERE c.doc_id <> $d RETURN DISTINCT c.doc_id AS d", { d: docId });
     for (;;) {
       const r = await this.run<{ n: number }>("MATCH ()-[r]->() WHERE r.doc_id = $d WITH r LIMIT 500 DELETE r RETURN count(*) AS n", { d: docId });
       if (!r[0]?.n) break;
     }
-    await this.run("MATCH (n {doc_id: $d}) DETACH DELETE n", { d: docId });
+    await this.run("MATCH (n {doc_id: $d}) WHERE NOT n:LAW DETACH DELETE n", { d: docId });
+    await this.run("MATCH (l:LAW) WHERE NOT (l)-[:CONTAINS]->() DETACH DELETE l", {}); // 남은 개정본 없는 법령
+    return cut.map((r) => r.d);
   }
   async citers(lawId: string, paths: string[]) {
     const rows = await this.run<CiteRow>(
