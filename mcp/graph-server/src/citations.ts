@@ -1,6 +1,6 @@
 // 노하우 본문 → 인용 조문 후보 (CITES 후보). 후보일 뿐이며 사람 승인 후에만 그래프에 게시한다.
 // 규칙: 법령명이 언급되면 이후의 "제N조…"는 그 법령으로, 명시 시행본 날짜가 있으면 그 버전, 없으면 기준일 시행 버전.
-import { SUBITEM_CODES } from "@hanaeum/schemas";
+import { FIGURE_RE, SUBITEM_CODES } from "@hanaeum/schemas";
 import type { SubitemChar } from "@hanaeum/schemas";
 import type { ClauseStore } from "@hanaeum/regulation-server";
 import type { Citation } from "./model.ts";
@@ -10,7 +10,8 @@ const CLAUSE = /제(\d+)조(?:의(\d+))?(?:제(\d+)항)?(?:제(\d+)호(?:의(\d+
 const DATE_NEAR = /(\d{4})\.\s*(\d{1,2})\.\s*(\d{1,2})\.\s*시행본/u;
 
 export async function extractCitations(text: string, store: ClauseStore, asOf: number): Promise<Citation[]> {
-  const body = text.replace(/^---\n[\s\S]*?\n---\n/u, "");
+  // 그림 설명·그림 속 글자·AI 쪽 정리(⟦그림 pN⟧ 줄)는 원문이 아니므로 인용 근거로 쓰지 않는다 (PR #38 리뷰)
+  const body = text.replace(/^---\n[\s\S]*?\n---\n/u, "").split("\n").filter((l) => !FIGURE_RE.test(l)).join("\n");
   const events: { at: number; law?: string; date?: number; clause?: RegExpMatchArray }[] = [];
   for (const m of body.matchAll(LAW_MENTION)) {
     const id = await store.lawIdByName(m[1]!.trim());
