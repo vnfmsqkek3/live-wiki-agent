@@ -125,7 +125,8 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       SUPPLEMENT: "규정이 요구하는 의무가 아니라 권장 사항임을 문장에 밝혀 주세요 (예: '첨부하는 것을 권장한다')" } as Partial<Record<MarkKind, string>>;
     const w = at(pages, it.statement);
     // 수정 내용: 모델이 근거 조문에 맞게 고쳐 쓴 문장(suggestion) 우선. 없으면 충돌=근거 조문 문구, 실무 보완=권장 표현, 근거 확인됨=수정 없음
-    const revision = kind === "CONFIRMED" ? null : it.suggestion ?? (kind === "CONFLICT" ? it.quote : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : null);
+    // 실무 보완은 모델 수정문을 쓰지 않는다 (모델이 의무를 '권장'으로 낮추는 등 내용을 바꿈 — dhxorb96 실측 11/17). suggestion은 충돌에만 옴
+    const revision = kind === "CONFIRMED" ? null : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : kind === "CONFLICT" ? it.suggestion ?? it.quote : null;
     marks.push({
       ...w, kind, label: MARK_LABEL[kind],
       severity: kind === "CONFLICT" ? "HIGH" : kind === "INSUFFICIENT" ? "MEDIUM" : "LOW", reason: it.reason,
