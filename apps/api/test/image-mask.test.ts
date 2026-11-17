@@ -48,3 +48,32 @@ test('그림 블록: Guardrail이 찾은 값이 든 블록도 검게', async () 
   const g = async (t: string) => ({ text: t, entities: [{ type: 'PASSWORD', match: 'hunter2!' }] });
   assert.deepEqual(await piiBoxes(page, g), [[0, 0, 10, 10]]);
 });
+
+test('PiiScan 그림 쪽 기준: OCR figures가 있으면 그 개수로, 없으면(이전 OCR) has_images·image', async () => {
+  const { makePiiScan } = await import('../src/lambdas.ts');
+  const { memoryStore } = await import('../src/store.ts');
+  const store = memoryStore();
+  const doc_id = 'doc_fig';
+  const now = new Date().toISOString();
+  await store.putDoc({ doc_id, version: 1, owner: 'u', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'QUARANTINED', authority_status: 'UNVERIFIED', freshness: 'CURRENT', findings: [], created_at: now, updated_at: now } as never);
+  const blk = { text: '본문', bbox: [0, 0, 10, 10] };
+  const objs = new Map<string, unknown>([
+    [`${doc_id}/work/segments/0000.json`, { doc_id, page_index: 0, text: '본문' }],
+    [`${doc_id}/work/segments/0001.json`, { doc_id, page_index: 1, text: '본문' }],
+    [`${doc_id}/work/pages/ocr_targets.json`, { pages: [{ page_index: 0, reason: 'all', has_images: true }, { page_index: 1, reason: 'all' }] }],
+    [`${doc_id}/work/ocr/result.json`, { pages: [
+      { page_index: 0, width: 10, height: 10, blocks: [blk], figures: [] }, // 표·글자만 → 제외 (has_images여도)
+      { page_index: 1, width: 10, height: 10, blocks: [blk], figures: [{ label: 'seal', bbox: [0, 0, 5, 5] }] }, // 도장 → 대상
+    ] }],
+  ]);
+  const put: string[] = [];
+  const png = (await import('pngjs')).PNG;
+  const img = png.sync.write(new png({ width: 10, height: 10 }));
+  const scan = makePiiScan({
+    store, listKeys: async (pre) => [...objs.keys()].filter((k) => k.startsWith(pre)), getJson: async <T>(k: string) => { if (!objs.has(k)) throw new Error('nf'); return objs.get(k) as T; },
+    putJson: async (k, v) => { objs.set(k, v); }, getBytes: async () => new Uint8Array(img), putBytes: async (k) => { put.push(k); },
+  });
+  const r = await scan({ doc_id, workflow_id: 'wf' } as never);
+  assert.deepEqual(put, [`${doc_id}/masked/pages/0001.png`]);
+  assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 1);
+});
