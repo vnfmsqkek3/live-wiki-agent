@@ -45,7 +45,8 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
 }
 
 // ── KB Retrieve ────────────────────────────────────────
-export interface Hit { text: string; score: number; metadata: Record<string, unknown> }
+/** weak: 재정렬 1위가 근거 기준(RERANK_TOP1_MIN) 미만이지만 RELATED_MIN 이상 — 근거로 쓰지 않고 "관련 가능 문서"로만 보여 준다 */
+export interface Hit { text: string; score: number; metadata: Record<string, unknown>; weak?: boolean }
 /** filter 없음 = 운영자 시점 원시 조회 (측정 전용, Tool은 항상 필터를 넣는다) */
 export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> }
 
@@ -59,6 +60,9 @@ export const RERANKED = 15;
  *  ponytail: 고정값. 문서가 늘면 같은 보정(무관·관련 질문 top1 분포)으로 다시 잰다. HYBRID 대체 중에는 점수 체계가 달라 미적용 */
 export const RERANK_TOP1_MIN = 0.30;
 export const RERANK_RATIO = 0.4;
+/** 관련 가능 문서 하한 (11/17 실측: "개인정보 수집" 같은 짧은 자연어 질의는 관련 조문이어도 1위 0.13~0.26, 무관 질의는 0.017~0.094.
+ *  0.30 미만은 근거로 단정하지 않되 버리지도 않고 related로 보여 준다). ponytail: 고정값, 평가 세트 늘면 재보정 */
+export const RELATED_MIN = 0.10;
 
 export class BedrockRetriever implements Retriever {
   private readonly c: BedrockAgentRuntimeClient;
@@ -95,7 +99,9 @@ export class BedrockRetriever implements Retriever {
     const hits = (r.retrievalResults ?? []).map((x) => ({ text: x.content?.text ?? "", score: x.score ?? 0, metadata: (x.metadata ?? {}) as Record<string, unknown> }));
     if (!rerankArn) return hits;
     const top = Math.max(0, ...hits.map((h) => h.score));
-    return top < RERANK_TOP1_MIN ? [] : hits.filter((h) => h.score >= top * RERANK_RATIO);
+    if (top < RELATED_MIN) return [];
+    const kept = hits.filter((h) => h.score >= top * RERANK_RATIO);
+    return top < RERANK_TOP1_MIN ? kept.map((h) => ({ ...h, weak: true })) : kept;
   }
 }
 
@@ -119,6 +125,8 @@ export interface Result {
   effective_from: string; // YYYY-MM-DD
   authority_status: AuthorityStatus; freshness: Freshness;
   search_status: "FOUND" | "HISTORICAL" | "DELETED";
+  /** 근거 기준 미달, 참고용 (related에만 들어감) */
+  weak?: boolean;
   // 추가 정보
   document_type: string; provision_id: string; path_label: string; provision_status: string;
   conditional: boolean; effective_to: string; score: number;
@@ -165,7 +173,7 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
-      business_path: strs(m["business_path"]), tags: strs(m["tags"]),
+      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(h.weak ? { weak: true } : {}),
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -201,10 +209,11 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     const hits = await deps.retriever.retrieve(q.text, buildFilter(actor, o));
     const states = await deps.states.get([...new Set(hits.map((h) => String(h.metadata["doc_id"])))]);
     const { kept, dropped } = revalidate(hits, states, actor, o);
-    // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7)
-    const top = kept.slice(0, k);
+    // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
+    const top = kept.filter((r) => !r.weak).slice(0, k);
+    const related = kept.filter((r) => r.weak).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
-    return { search_status, items: top, dropped_after_revalidation: dropped, pii_masked: q.masked };
+    return { search_status, items: top, ...(related.length ? { related } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
   }
 
   return {
