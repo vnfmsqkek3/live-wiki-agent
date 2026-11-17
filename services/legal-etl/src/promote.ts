@@ -1,6 +1,6 @@
 // 단계 11 Promote: 승인 바인딩 소비(APPROVED→USED) 후 마스킹본을 published 버킷으로 + .metadata.json (interfaces.md 3·5·7.1장)
 import { createHash } from "node:crypto";
-import { MetadataSidecar, OPEN_END, figureLine } from "@hanaeum/schemas";
+import { MetadataSidecar, OPEN_END, figureLine, stepFailure } from "@hanaeum/schemas";
 import type { DocumentMetadata, Figure, IndexGroup, StepInput, StepOutput } from "@hanaeum/schemas";
 import type { DocumentRecord, ObjectStore, Records } from "./store.ts";
 
@@ -22,7 +22,7 @@ export const publishedPrefix = (d: Pick<DocumentRecord, "document_type" | "doc_i
 const todayYmd = () => Number(new Date().toISOString().slice(0, 10).replaceAll("-", ""));
 
 export function buildMetadata(doc: DocumentRecord, approval_id: string, content_hash: string): DocumentMetadata {
-  if (doc.authority_status === "REJECTED") throw new Error("REJECTED 문서는 게시 불가");
+  if (doc.authority_status === "REJECTED") throw stepFailure("RejectedDocument", "반려된 문서라 게시할 수 없습니다.", "반려 사유를 고쳐 새로 올려 주세요.");
   return {
     doc_id: doc.doc_id,
     document_type: doc.document_type,
@@ -50,7 +50,7 @@ export interface PromoteInput extends StepInput { approval_id?: string; publishe
 export async function promoteStep(input: PromoteInput, store: ObjectStore, records: Records): Promise<StepOutput> {
   const doc = await records.getDocument(input.doc_id);
   if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
-  if (doc.version !== input.version) throw new Error(`버전 불일치: record v${doc.version} ≠ input v${input.version}`);
+  if (doc.version !== input.version) throw stepFailure("VersionMismatch", `승인한 버전(v${input.version})과 현재 문서 버전(v${doc.version})이 달라 게시를 멈췄습니다.`, "최신 버전으로 다시 게시 요청해 주세요.");
 
   // 승인은 원본 객체 해시에 묶인다 (interfaces.md 7.1). 승인 이후 원본이 바뀌었으면 여기서 막힌다.
   const originals = await store.list(input.bucket, `${input.doc_id}/original.`);
@@ -58,13 +58,17 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
   const original = await store.get(input.bucket, originals[0]!);
   const apr = input.approval_id ? await records.getApproval(input.approval_id) : await records.findApproval(input.doc_id, input.version, input.workflow_id);
   if (!apr || !hashMatches(apr.content_hash, original)) {
-    throw Object.assign(new Error(`승인 바인딩 불일치 또는 재사용: ${apr?.approval_id ?? "승인 레코드 없음"}`), { name: "ApprovalBindingError" });
+    throw stepFailure("ApprovalBindingError", apr ? "승인 이후 원본 파일이 바뀌었거나 이미 사용된 승인이라 게시하지 않았습니다." : "이 문서 버전의 승인 기록이 없어 게시하지 않았습니다.", "문서를 다시 게시 요청해 승인을 새로 받아 주세요.");
   }
   // 마스킹본만 게시 (원문·work/ 는 절대 published로 가지 않음). 페이지 수가 이번 추출 결과와 정확히 같아야 함 (이전 실행의 잔여 페이지 혼입 차단)
   const { page_count } = JSON.parse((await store.get(input.bucket, `${input.doc_id}/work/text_layer.json`)).toString()) as { page_count: number };
   const expected = Array.from({ length: page_count }, (_, i) => `${input.doc_id}/masked/segments/${String(i).padStart(4, "0")}.json`);
   const segKeys = (await store.list(input.bucket, `${input.doc_id}/masked/segments/`)).filter((k) => k.endsWith(".json"));
-  if (segKeys.join() !== expected.join()) throw new Error(`마스킹 세그먼트 불일치: ${segKeys.length}개 / 기대 ${page_count}개`);
+  if (segKeys.join() !== expected.join()) {
+    throw segKeys.length < page_count
+      ? stepFailure("MaskedSegmentsMismatch", `개인정보를 가린 본문이 ${segKeys.length}쪽뿐이라(전체 ${page_count}쪽) 게시를 멈췄습니다.`, "검사 단계가 끝나지 않았을 수 있습니다. 잠시 뒤 다시 게시 요청하거나 관리자에게 알려 주세요.")
+      : stepFailure("MaskedSegmentsMismatch", `이전 처리의 쪽이 섞여 있어(본문 ${segKeys.length}쪽, 이번 문서 ${page_count}쪽) 게시를 멈췄습니다.`, "문서를 다시 올려 처음부터 처리해 주세요. 반복되면 관리자에게 알려 주세요.");
+  }
   const texts: string[] = []; const figs: string[] = [];
   for (const [page, k] of segKeys.entries()) {
     const seg = JSON.parse((await store.get(input.bucket, k)).toString()) as { text: string; figures?: Figure[] };
@@ -72,10 +76,17 @@ export async function promoteStep(input: PromoteInput, store: ObjectStore, recor
     for (const f of seg.figures ?? []) if (f.description?.trim()) figs.push(figureLine(page, f));
   }
   const content = [texts.join("\n"), ...figs].join("\n");
-  if (!content.trim()) throw new Error("게시할 본문이 비어 있음");
+  if (!content.trim()) throw stepFailure("EmptyContent", "게시할 본문이 비어 있습니다(모든 쪽에서 글자를 찾지 못함).", "글자가 들어 있는 원본을 다시 올려 주세요.");
 
   const contentHash = sha256(content);
-  const meta = MetadataSidecar.parse({ metadataAttributes: buildMetadata(doc, apr.approval_id, contentHash) });
+  const parsed = MetadataSidecar.safeParse({ metadataAttributes: buildMetadata(doc, apr.approval_id, contentHash) });
+  if (!parsed.success) {
+    const fields = parsed.error.issues.map((i) => i.message).join(", ");
+    throw doc.document_type === "REGULATION" && /law_id|revision_id/u.test(fields)
+      ? stepFailure("RegulationNotInRegistry", "공식 규정으로 분류됐지만 공식 원본 목록(Registry)에서 이 규정을 찾지 못해 게시할 수 없습니다.", "공식 규정 원본 PDF가 맞는지 확인하거나, 업무 노하우라면 분류를 '노하우'로 바꿔 다시 게시 요청해 주세요.")
+      : stepFailure("InvalidMetadata", `문서 정보가 부족해 게시할 수 없습니다(${fields.slice(0, 120)}).`, "제목·부서·공개 범위를 확인한 뒤 다시 게시 요청해 주세요.");
+  }
+  const meta = parsed.data;
   // 게시 가능 여부(세그먼트·본문·메타데이터)를 다 확인한 뒤에 승인을 소비한다 (입력 결함으로 실패해도 승인이 소모되지 않게).
   // 조건부 전환은 레코드에 저장된 해시 값 그대로로 (형식 차이와 무관하게 위에서 바이트 일치를 확인함)
   await records.consumeApproval({ approval_id: apr.approval_id, doc_id: input.doc_id, version: input.version, content_hash: apr.content_hash, workflow_id: input.workflow_id });

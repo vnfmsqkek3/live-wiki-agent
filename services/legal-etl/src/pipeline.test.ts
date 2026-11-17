@@ -34,7 +34,7 @@ function tinyPdf(pages: string[]): Buffer {
 }
 
 test("3a: PDF 페이지별 글자 수로 OCR 대상 판정, 미지원 형식은 실패", async () => {
-  const layer = await extractTextLayer(tinyPdf(["SYNTHETIC Hanbit Bank loan regulation article 12 approval threshold text", ""]), "pdf", DOC);
+  const layer = await extractTextLayer(tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]), "pdf", DOC);
   assert.equal(layer.page_count, 2);
   assert.equal(layer.pages[0]!.needs_ocr, false);
   assert.equal(layer.pages[1]!.needs_ocr, true);
@@ -74,7 +74,7 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   r.approvals.set("apr_bad", { approval_id: "apr_bad", doc_id: DOC, version: 1, content_hash: sha256("다른 내용"), status: "APPROVED" });
 
   const pin = { ...input, approval_id: "apr_bad", published_bucket: P };
-  await assert.rejects(promoteStep(pin, s, r), /승인 바인딩/u); // 해시 불일치
+  await assert.rejects(promoteStep(pin, s, r), { name: "ApprovalBindingError" }); // 해시 불일치
   assert.equal((await s.list(P, "")).length, 0, "실패 시 published에 아무것도 없음");
 
   const out = await promoteStep({ ...pin, approval_id: "apr_1" }, s, r);
@@ -87,13 +87,13 @@ test("3a→5→11: F-001 정상 흐름, 승인 1회만 사용, 메타데이터 �
   // 이전 실행의 잔여 마스킹 페이지가 섞이면 실패
   await s.put(Q, `${DOC}/masked/segments/0007.json`, JSON.stringify({ text: "옛 페이지" }));
   r.approvals.set("apr_2", { approval_id: "apr_2", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
-  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), /세그먼트 불일치/u);
+  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), /이전 처리의 쪽이 섞여/u);
   assert.equal(r.approvals.get("apr_2")!.status, "APPROVED", "게시 실패 시 승인을 소비하지 않음");
   // 규정인데 law_id 없음(Registry 대조 전) → 메타데이터 검증 실패, 승인은 그대로
   s.objects.delete(`${Q}/${DOC}/masked/segments/0007.json`);
   const full = r.documents.get(DOC)!;
   r.documents.set(DOC, { ...full, law_id: undefined, revision_id: undefined });
-  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), /law_id/u);
+  await assert.rejects(promoteStep({ ...pin, approval_id: "apr_2" }, s, r), { name: "RegulationNotInRegistry" });
   assert.equal(r.approvals.get("apr_2")!.status, "APPROVED");
   r.documents.set(DOC, full);
 
@@ -116,11 +116,12 @@ test("12: 폴링 계약 — 첫 호출 시작·PENDING, 재호출 상태 조회,
   assert.equal((await kbIngestStep(input, api, r, s, env)).status, "PENDING");
   assert.equal(starts, 1, "재호출 시 Job을 다시 시작하지 않음 (멱등)");
   state = { status: "COMPLETE", failed: 1, failureReasons: [] };
-  await assert.rejects(kbIngestStep(input, api, r, s, env), /실패 문서 1건/u);
+  await assert.rejects(kbIngestStep(input, api, r, s, env), /1건이 실패/u);
   state = { status: "COMPLETE", failed: 0, failureReasons: [] };
   assert.equal((await kbIngestStep(input, api, r, s, env)).status, "OK");
-  state = { status: "FAILED", failed: 0, failureReasons: ["x"] };
-  await assert.rejects(kbIngestStep(input, api, r, s, env), /FAILED/u);
+  state = { status: "FAILED", failed: 0, failureReasons: ["Access denied to OpenSearch index"] };
+  await assert.rejects(kbIngestStep(input, api, r, s, env), (e: Error & { user_message?: string; details?: string }) =>
+    e.user_message === "검색 색인에 실패했습니다." && !/[A-Za-z]{4,}/u.test(e.message) && /FAILED: Access denied/u.test(e.details!)); // 화면 문장에 AWS 영문 금지, 원문은 details
 });
 
 test("11: approval_id 없이 문서 버전으로 승인 조회, S3 ChecksumSHA256(base64) 형식 해시도 일치 판정", async () => {
@@ -199,4 +200,54 @@ test("Promote: 마스킹 세그먼트의 figures를 본문 끝에 페이지 표�
   r.approvals.set("apr_f", { approval_id: "apr_f", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
   const out = await promoteStep({ ...input, published_bucket: P }, s, r);
   assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시");
+});
+
+test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔 쪽은 쪽 번호와 함께 (사용자 지시 11/17)", async () => {
+  const s = new MemoryObjectStore();
+  await s.put(Q, `${DOC}/original.xlsx`, Buffer.from("x"));
+  const u = await textLayerStep(input, s);
+  assert.equal(u.status, "BLOCKED");
+  assert.equal(u.findings![0]!.code, "UNSUPPORTED_FORMAT");
+  assert.match(u.findings![0]!.user_message!, /\.xlsx 형식/u);
+  assert.match(u.findings![0]!.fix_hint!, /PDF·DOCX·HWPX/u);
+  const s2 = new MemoryObjectStore();
+  await s2.put(Q, `${DOC}/original.pdf`, Buffer.from("%PDF-1.7\n깨진 파일"));
+  assert.equal((await textLayerStep(input, s2)).findings![0]!.code, "CORRUPT_PDF");
+  const s3 = new MemoryObjectStore();
+  await s3.put(Q, `${DOC}/original.docx`, Buffer.from("zip 아님"));
+  assert.equal((await textLayerStep(input, s3)).findings![0]!.code, "CORRUPT_OFFICE");
+  // 2쪽 PDF(2쪽은 빈 쪽) → 2쪽 스캔 안내, 처리는 계속(OK)
+  const s4 = new MemoryObjectStore();
+  await s4.put(Q, `${DOC}/original.pdf`, tinyPdf(["SYNTHETIC Hana Bank loan regulation article 12 approval threshold text", ""]));
+  const ok = await textLayerStep(input, s4);
+  assert.equal(ok.status, "OK");
+  assert.deepEqual(ok.findings!.map((f) => [f.code, f.severity, f.location?.page]), [["SCANNED_PAGE", "LOW", 2]]);
+});
+
+test("조문 구조 이상은 쪽·문장 위치로 안내, 문장 일부는 개인정보를 가린 뒤 담음, 부칙은 제외", async () => {
+  const { structureFindings } = await import("./segment.ts");
+  const segs = [
+    { page_index: 0, text: "제1조(목적) 가.\n제2조(정의) 나." },
+    { page_index: 1, text: "제5조(보관) 다.\n제4조(문의) 담당 800101-1234567 에게 문의한다.\n부칙\n제1조(시행일) 시행.\n제1조(경과) 중복" },
+  ];
+  const f = structureFindings(segs, "w");
+  assert.equal(f.length, 1);
+  assert.equal(f[0]!.location!.page, 2);
+  assert.match(f[0]!.location!.excerpt!, /\[주민등록번호\]/u);
+  assert.doesNotMatch(JSON.stringify(f), /1234567/u, "원문 식별값 금지");
+  assert.match(f[0]!.user_message!, /^2쪽 .*번호 순서/u);
+  assert.deepEqual(structureFindings([{ page_index: 0, text: "노하우 메모: 제12조 참고" }], "w"), [], "조문형 문서가 아니면 검사 안 함");
+});
+
+test("Promote 예외는 올린 사람이 읽는 문장 + 조치 (Registry에 없는 규정)", async () => {
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  const original = Buffer.from("SYNTHETIC 규정");
+  await s.put(Q, `${DOC}/original.md`, original);
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 1 }));
+  await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: "제1조(목적) 목적." }));
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "R", document_type: "REGULATION", authority_status: "UNVERIFIED", dept: "여신", acl_groups: ["ALL"] });
+  r.approvals.set("apr_r", { approval_id: "apr_r", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
+  await assert.rejects(promoteStep({ ...input, published_bucket: P }, s, r), (e: Error & { user_message?: string; fix_hint?: string }) =>
+    e.name === "RegulationNotInRegistry" && /Registry/u.test(e.user_message!) && /노하우/u.test(e.fix_hint!) && /\(조치: /u.test(e.message));
+  assert.equal(r.approvals.get("apr_r")!.status, "APPROVED", "게시 실패 시 승인 미소비");
 });

@@ -25,7 +25,8 @@ export interface ClauseStore {
   revisionByHash(hash: string): Promise<RevisionRecord | undefined>;
 }
 
-export const relPath = (provisionId: string) => provisionId.slice(provisionId.indexOf("/") + 1);
+import { relPath } from "@hanaeum/legal-parser";
+export { relPath };
 const squash = (s: string) => s.replace(/\s+/gu, "");
 /** 질의 문장 속 법령명 매칭: 완전 일치 우선, 없으면 문장에 포함된 가장 긴 법령명 */
 export function matchLawName(text: string, laws: { law_id: string; law_name: string }[]): string | undefined {

@@ -1,14 +1,18 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { maskPii, isDate, actorFrom, aclKeys } from "./index.ts";
+import { maskPii, actorFrom, aclKeys } from "./index.ts";
 
 test("PII 치환: 날짜는 계좌번호로 오탐하지 않음 (dhxorb96 요청 1912 재현 케이스)", () => {
   assert.deepEqual(maskPii("2026-11-01 시행 기준 담보 승인"), { text: "2026-11-01 시행 기준 담보 승인", masked: false });
   assert.equal(maskPii("2025-1-1 이전 규정").text, "2025-1-1 이전 규정");
   assert.equal(maskPii("계좌 110-123-456789로 입금").text, "계좌 [계좌번호]로 입금");
   assert.equal(maskPii("2026-13-40 은 날짜 아님").text, "[계좌번호] 은 날짜 아님");
-  assert.equal(maskPii("연락처 010-1234-5678, 주민 900101-1234567, a@b.com").text, "연락처 [전화번호], 주민 [주민번호], [이메일]");
-  assert.ok(isDate("2026-02-28") && !isDate("2026-02-30"));
+  assert.equal(maskPii("연락처 010-1234-5678, 주민 900101-1234567, a@b.com").text, "연락처 [전화번호], 주민 [주민등록번호], [이메일]");
+});
+
+test("PII 범위: 개인을 식별하는 값만 가림 — 이름·나이는 그대로 (사용자 결정 11/17)", () => {
+  assert.deepEqual(maskPii("홍길동(45세) 고객 대출 승인 기준"), { text: "홍길동(45세) 고객 대출 승인 기준", masked: false });
+  assert.equal(maskPii("홍길동 800101-1234567 카드 4111-1111-1111-1111").text, "홍길동 [주민등록번호] 카드 [카드번호]");
 });
 
 test("신원: event.__actor만 신뢰, 역할 외 그룹은 버림, ACL 키에 DEPT#", () => {

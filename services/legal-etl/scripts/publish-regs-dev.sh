@@ -23,7 +23,7 @@ for f in ["tests/fixtures/registry/registry.json","tests/fixtures/registry/regis
     if re.sub(r"^.*/|\.txt$","",r["fixture"])==sys.argv[1]: print("[SYNTHETIC] %s (%s)" % (r["law_name"], r["revision_id"])); sys.exit()' "$1"; }
 doc() { call "$AT" GET "/v1/documents/$1"; }
 
-AT=$(token demo-author); PT=$(token demo-approver)
+AT=$(token user); PT=$(token admin) # 계정 2종: user(USER+AUTHOR) 업로드·admin 승인 (자기 승인 금지)
 declare -A DOC
 # 1) 업로드 전부 (파이프라인은 승인 대기까지 병렬로 진행)
 IDS=()

@@ -3,7 +3,7 @@
 // 노하우·매뉴얼: Markdown 제목(##) 단위, 없으면 문서 전체.
 // 임베딩 입력(contentBody) = augmented_search_text = 문맥 헤더 + 실제 본문. original_text는 인용용으로 메타데이터에 분리.
 import { parseLaw } from "@hanaeum/legal-parser";
-import { FIGURE_RE } from "@hanaeum/schemas";
+import { FIGURE_RE, isoOfYmd } from "@hanaeum/schemas";
 import type { DocumentMetadata, Provision, ProvisionStatus } from "@hanaeum/schemas";
 
 export interface Chunk {
@@ -18,7 +18,7 @@ export interface Chunk {
 // ponytail: 글자 수 근사. Titan V2 한도(8k 토큰)보다 충분히 작게 잡음. 실측 후 토크나이저 기준으로 교체
 export const MAX_CHUNK_CHARS = 1800;
 
-const fmtDate = (ymd: number) => `${String(ymd).slice(0, 4)}-${String(ymd).slice(4, 6)}-${String(ymd).slice(6, 8)}`;
+const fmtDate = isoOfYmd;
 
 /** 노드 + 하위 노드 원문을 순서대로 이어붙임 (마커 포함) */
 function subtree(p: Provision, children: Map<string, Provision[]>): Provision[] {

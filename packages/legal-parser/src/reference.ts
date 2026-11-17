@@ -1,10 +1,10 @@
 // Reference Resolver (docs/01 7.8). 참조 표현을 추출해 실제 provision_id로 해석한다.
 // 해석 결과는 반드시 파싱된 조문 집합에 존재해야 하며, 없으면 target_id=null(미해결) + issue.
-import { SUBITEM_CODES } from "@hanaeum/schemas";
+import { SUBITEM_CHARS, SUBITEM_CODES } from "@hanaeum/schemas";
 import type { ParsedLaw, Provision, Reference, SubitemChar } from "@hanaeum/schemas";
 import type { LawMeta } from "./parse.ts";
 
-const SUB = "[가나다라마바사아자차카타파하]";
+const SUB = `[${SUBITEM_CHARS.join("")}]`;
 const EXTERNAL = new RegExp(String.raw`「([^」]+)」\s*제(\d+)조(?:의(\d+))?(?:\s*제(\d+)항)?(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");
 const ABSOLUTE = new RegExp(String.raw`제(\d+)조(?:의(\d+))?(?:\s*제(\d+)항)?(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");
 const PARA_ONLY = new RegExp(String.raw`(?<![조\d])제(\d+)항(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");

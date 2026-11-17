@@ -4,6 +4,7 @@ import { diffLaws } from "@hanaeum/legal-parser";
 import type { ProvisionChange } from "@hanaeum/legal-parser";
 import type { ParsedLaw } from "@hanaeum/schemas";
 import type { GraphStore } from "./store.ts";
+import { overlaps } from "./store.ts";
 
 export interface ImpactItem {
   doc_id: string; wiki_id: string; title: string;
@@ -31,9 +32,8 @@ export async function analyzeImpact(oldLaw: ParsedLaw, newLaw: ParsedLaw, graph:
   };
 
   const paths = changes.map((c) => c.path);
-  const overlapsAny = (p: string, c: ProvisionChange) => p === c.path || p.startsWith(c.path + "/") || c.path.startsWith(p + "/");
   for (const row of (await graph.citers(newLaw.law_id, paths)).filter((r) => canSee(r.acl))) {
-    for (const c of changes) if (overlapsAny(row.path, c)) add(row, "DIRECT", c);
+    for (const c of changes) if (overlaps(row.path, c.path)) add(row, "DIRECT", c);
   }
   // 간접: 변경 조문을 참조하는 다른 조문을 인용한 노하우 (1홉)
   const refs = await graph.referrers(newLaw.law_id, paths);
@@ -41,8 +41,8 @@ export async function analyzeImpact(oldLaw: ParsedLaw, newLaw: ParsedLaw, graph:
   if (viaPaths.length) {
     for (const row of (await graph.citers(newLaw.law_id, viaPaths)).filter((r) => canSee(r.acl))) {
       if (byDoc.get(row.wiki_doc_id)?.relation === "DIRECT") continue;
-      for (const r of refs.filter((x) => overlapsAny(row.path, { path: x.from_path } as ProvisionChange))) {
-        const c = changes.find((x) => overlapsAny(r.to_path, x))!;
+      for (const r of refs.filter((x) => overlaps(row.path, x.from_path))) {
+        const c = changes.find((x) => overlaps(r.to_path, x.path))!;
         add(row, "INDIRECT", c, `${r.from_path} → ${r.to_path}`);
       }
     }

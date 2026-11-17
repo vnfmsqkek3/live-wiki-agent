@@ -1,13 +1,20 @@
 // 문서보관함 페이지 하이라이트 (요청기록 20261116-2220): 검사·검증 결과를 "몇 페이지 몇 번째 글자부터"로 바꾼다.
 // 밑줄마다 이유·근거(조문 원문·시행일)·수정할 사항. 모델 판단은 인용 원문 대조를 통과한 것만 밑줄로 쓴다.
+import { isoOfYmd } from "@hanaeum/schemas";
 import type { ClauseStore } from "./store.ts";
 import type { RegistryMatch } from "./registry.ts";
 
-export type MarkKind = "CONFLICT" | "OUTDATED" | "INSUFFICIENT" | "REGISTRY_MISMATCH" | "PII_UNCERTAIN" | "INJECTION";
+export type MarkKind = "CONFLICT" | "OUTDATED" | "INSUFFICIENT" | "SUPPLEMENT" | "CONFIRMED" | "REGISTRY_MISMATCH" | "PII_UNCERTAIN" | "INJECTION";
+/** 화면 표시 이름 (한 곳에서 정함). 고칠 곳(틀림)과 확인 필요(근거 없음)·실무 보완(규정 범위 안 구체화)을 구분한다 */
+export const MARK_LABEL: Record<MarkKind, string> = {
+  CONFLICT: "고칠 곳", OUTDATED: "개정 전 인용", REGISTRY_MISMATCH: "공식 원본과 다름",
+  INSUFFICIENT: "확인 필요", SUPPLEMENT: "실무 보완(참고)", CONFIRMED: "근거 확인됨",
+  PII_UNCERTAIN: "개인정보 확인 필요", INJECTION: "지시문 의심",
+};
 export interface Basis { provision_id: string; label: string; text: string; effective_from?: string }
 export interface Mark {
   page: number | null; start: number | null; end: number | null; // 위치를 못 찾으면 null (문서 단위 표시)
-  severity: "HIGH" | "MEDIUM" | "LOW"; kind: MarkKind; reason: string; basis?: Basis; fix?: string;
+  severity: "HIGH" | "MEDIUM" | "LOW"; kind: MarkKind; label: string; reason: string; basis?: Basis; fix?: string;
 }
 export interface MarkSources {
   /** dhxorb96 KnowhowValidation (apps/api/src/steps/knowhow.ts) */
@@ -53,7 +60,7 @@ function locateNear(pages: string[], needle: string, anchor: string): { page: nu
   return hits.length === 1 ? hits[0]! : null;
 }
 
-const iso = (n?: number) => (n ? `${String(n).slice(0, 4)}-${String(n).slice(4, 6)}-${String(n).slice(6, 8)}` : undefined);
+const iso = (n?: number) => (n ? isoOfYmd(n) : undefined);
 
 /** 조문 ID → 근거 (원문·표기·시행일). 저장소에 없으면 undefined */
 async function basisOf(store: ClauseStore, pid: string): Promise<Basis | undefined> {
@@ -75,14 +82,17 @@ const at = (pages: string[], needle: string) => locate(pages, needle) ?? { page:
 export async function buildMarks(pages: string[], src: MarkSources, store: ClauseStore): Promise<Mark[]> {
   const marks: Mark[] = [];
   for (const it of src.knowhow?.items ?? []) {
-    if (it.relation !== "CONFLICTS" && it.relation !== "INSUFFICIENT") continue;
-    if (it.relation === "CONFLICTS" && !it.verified_quote) continue; // 인용 원문 대조 실패한 충돌 판단은 밑줄로 확정하지 않음
+    // 판정 → 표시. 모델 판단은 인용 원문 대조를 통과한 것만 확정(충돌·일치). 실무 보완 = 규정이 정한 범위 안에서 노하우가 구체화한 내용(의무 아님)
+    const kind: MarkKind | undefined = { CONFLICTS: "CONFLICT", INSUFFICIENT: "INSUFFICIENT", SUPPLEMENTS: "SUPPLEMENT", SUPPORTS: "CONFIRMED" }[it.relation] as MarkKind | undefined;
+    if (!kind) continue;
+    if ((kind === "CONFLICT" || kind === "CONFIRMED") && !it.verified_quote) continue;
     const basis = await basisOf(store, it.provision_id);
+    const fix = { CONFLICT: `근거 조문에 맞게 수정: "${it.quote}"`, INSUFFICIENT: "근거 조문을 명시하거나 담당 부서에 확인해 주세요",
+      SUPPLEMENT: "규정이 요구하는 의무가 아니라 권장 사항임을 문장에 밝혀 주세요 (예: '첨부하는 것을 권장한다')" } as Partial<Record<MarkKind, string>>;
     marks.push({
-      ...at(pages, it.statement), kind: it.relation === "CONFLICTS" ? "CONFLICT" : "INSUFFICIENT",
-      severity: it.relation === "CONFLICTS" ? "HIGH" : "MEDIUM", reason: it.reason,
-      ...(basis ? { basis } : {}),
-      fix: it.relation === "CONFLICTS" ? `근거 조문에 맞게 수정: "${it.quote}"` : "근거 조문을 명시하거나 담당 부서 확인",
+      ...at(pages, it.statement), kind, label: MARK_LABEL[kind],
+      severity: kind === "CONFLICT" ? "HIGH" : kind === "INSUFFICIENT" ? "MEDIUM" : "LOW", reason: it.reason,
+      ...(basis ? { basis } : {}), ...(fix[kind] ? { fix: fix[kind] } : {}),
     });
   }
   for (const o of src.knowhow?.outdated ?? []) {
@@ -93,7 +103,7 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     const lawWord = (cited?.label ?? o.label).split(" ").slice(0, -1).pop() ?? "";
     const where = locate(pages, cited?.text ?? "") ?? locateNear(pages, o.label.split(" ").pop() ?? o.label, lawWord);
     marks.push({
-      ...(where ?? { page: null, start: null, end: null }), kind: "OUTDATED", severity: "HIGH",
+      ...(where ?? { page: null, start: null, end: null }), kind: "OUTDATED", label: MARK_LABEL.OUTDATED, severity: "HIGH",
       reason: `개정 전 조문 인용 (${cited?.effective_from ?? "이전 버전"} 시행분)`,
       ...(basis ? { basis } : {}), fix: basis ? `현행 ${basis.label}(${basis.effective_from ?? ""} 시행)으로 수정: "${basis.text}"` : "현행 조문으로 수정",
     });
@@ -112,7 +122,7 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       if (uploaded[path] && inOfficial) marked.push(path); // 항 구성이 달라도 조 단위 1건으로
       marks.push({
         ...(uploaded[path] ? at(pages, uploaded[path]) : { page: null, start: null, end: null }),
-        kind: "REGISTRY_MISMATCH", severity: "HIGH",
+        kind: "REGISTRY_MISMATCH", label: MARK_LABEL.REGISTRY_MISMATCH, severity: "HIGH",
         reason: uploaded[path] ? (inOfficial ? "공식 원본과 내용이 다름" : "공식 원본에 없는 조문") : "공식 원본의 조문이 빠짐",
         ...(basis ? { basis } : {}), fix: inOfficial ? `공식 원문으로 수정: "${basis?.text ?? official[path]}"` : "출처 확인 후 삭제 또는 근거 제시",
       });
@@ -124,7 +134,7 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
       : f.code.startsWith("PII_UNCERTAIN") || f.code === "PII_GUARDRAIL" ? "PII_UNCERTAIN" : undefined;
     if (!kind) continue;
     const m = /^page:(\d+)$/u.exec(f.evidence_ref);
-    marks.push({ page: m ? Number(m[1]) : null, start: null, end: null, kind, severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM", reason: f.message,
+    marks.push({ page: m ? Number(m[1]) : null, start: null, end: null, kind, label: MARK_LABEL[kind], severity: f.severity === "HIGH" ? "HIGH" : "MEDIUM", reason: f.message,
       fix: kind === "PII_UNCERTAIN" ? "개인정보 여부 확인 후 삭제 또는 가림" : "지시문 형태 문구 삭제" });
   }
   return marks.sort((a, b) => (a.page ?? 1e9) - (b.page ?? 1e9) || (a.start ?? 0) - (b.start ?? 0));

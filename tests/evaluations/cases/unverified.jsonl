@@ -1,0 +1,5 @@
+{"id": "UV-01", "tool": "search_legal_clause", "query": "가상여신거래법 제99조", "as_of": "2026-12-15", "why": "구조 파싱 이슈가 있는 법령(L-001, parse_ok=false)에서 없는 조문 → 부재 단정 금지"}
+{"id": "UV-02", "tool": "search_legal_clause", "query": "한국은행법 제3조", "as_of": "2026-12-15", "why": "저장소에 등록되지 않은 외부 법령 → 확인 불가"}
+{"id": "UV-03", "tool": "search_legal_clause", "query": "하나은행 기업여신 심사규정 제12조", "as_of": "2024-06-01", "why": "등록된 가장 이른 버전(2025-01-01)보다 이전 기준일 → 그 시점 원문 없음"}
+{"id": "UV-04", "tool": "search_wiki", "query": "가상자산 거래소 상장 심사 기준", "as_of": "2026-12-15", "why": "게시 문서에 근거 없음 → 빈 결과는 UNVERIFIED (법령에 없다고 단정 금지) (관련도 판정은 실제 Rerank 점수로만 가능 — 오프라인 에뮬레이터는 제외)", "live_only": true}
+{"id": "UV-05", "tool": "search_wiki", "query": "하나은행 퇴직연금 운용 지침 제4조", "as_of": "2026-12-15", "why": "존재하지 않는 내부 규정 → 확인 불가 (관련도 판정은 실제 Rerank 점수로만 가능 — 오프라인 에뮬레이터는 제외)", "live_only": true}

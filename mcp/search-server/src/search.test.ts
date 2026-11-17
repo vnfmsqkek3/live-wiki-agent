@@ -171,3 +171,12 @@ test("그림 묘사 청크는 검색되지만 quotable=false, 스니펫에 '원�
   assert.match(fig.snippet, /^\[그림 설명 · 원문 아님\] 표: 현장 실사 체크리스트 사진$/u);
   assert.ok(r.items.filter((x) => x.provision_id !== "K-001#fig0").every((x) => x.quotable));
 });
+
+test("Rerank 관련도: 1위 게이트(0.30) + 1위 대비 40% (실측 보정)", async () => {
+  const { BedrockRetriever } = await import("./index.ts");
+  const fake = (scores: number[]) => ({ send: async () => ({ retrievalResults: scores.map((score, i) => ({ content: { text: `t${i}` }, score, metadata: {} })) }) }) as unknown as ConstructorParameters<typeof BedrockRetriever>[2];
+  const r = (s: number[]) => new BedrockRetriever("KB", "cohere.rerank-v3-5:0", fake(s)).retrieve("q");
+  assert.deepEqual((await r([0.536, 0.233, 0.125])).map((h) => h.score), [0.536, 0.233], "개인정보 수집: 정의 조문은 남고 잡음은 빠짐");
+  assert.deepEqual(await r([0.248, 0.2]), [], "무관 질문 최고 0.248 → 근거 없음");
+  assert.equal((await new BedrockRetriever("KB", undefined, fake([0.01])).retrieve("q")).length, 1, "Rerank 없으면 미적용");
+});

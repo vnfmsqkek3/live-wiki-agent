@@ -11,7 +11,9 @@ export interface ProvisionChange {
   numbers_changed: { old: string[]; new: string[] }; // 수치·금액 변화 (조건 변경 신호)
 }
 
-const rel = (id: string) => id.slice(id.indexOf("/") + 1);
+/** provision_id → 버전 무관 상대 경로 (LAW@REV/ 뒤) */
+export const relPath = (id: string) => id.slice(id.indexOf("/") + 1);
+const rel = relPath;
 const NUM = /\d+(?:[.,]\d+)?\s*(?:억|만|천)?\s*(?:원|%|퍼센트|일|개월|년|회|배)?/gu;
 const nums = (s: string) => [...s.matchAll(NUM)].map((m) => m[0].replace(/\s+/gu, "")).filter((x) => /\D/u.test(x));
 
