@@ -47,3 +47,12 @@ test("recordsFromEnv: GOV_STORE=postgres면 PostgreSQL, 아니면 DynamoDB", () 
   assert.ok(recordsFromEnv({ GOV_STORE: "dynamo", TABLE_DOCUMENTS: "t" }) instanceof DynamoRecords);
   assert.ok(recordsFromEnv({ GOV_STORE: "postgres", DB_CLUSTER_ARN: "arn:c", DB_SECRET_ARN: "arn:s", DB_NAME: "d" }) instanceof PgRecords);
 });
+
+test("PgRecords.saveFindings: 트랜잭션 안에서 그 단계 Finding만 교체 (replaceStepFindings)", async () => {
+  const { q, calls } = fake([[{ doc_id: "doc_X" }], [], [], []]);
+  let inTx = 0;
+  const r = new PgRecords(q, { query: q, tx: async (fn) => { inTx++; return fn(q); } });
+  await r.saveFindings("doc_X", "SegmentBuild", [{ finding_id: "fnd_1", step: "SegmentBuild", severity: "HIGH", code: "NO_TEXT", message: "m", evidence_ref: "e", user_message: "글자를 찾지 못했습니다" }]);
+  assert.equal(inTx, 1);
+  assert.ok(calls.some((c) => /findings/u.test(c.sql)), "findings 테이블에 씀");
+});
