@@ -15,7 +15,7 @@ locals {
   steps = [
     "malware_check", "file_structure_check", "text_layer_extract", "page_render", "ocr_if_needed",
     "segment_build", "pii_scan", "image_describe", "injection_scan", "page_summarize", "classify", "trust_gate", "wait_for_approval",
-    "promote", "kb_ingest", "graph_upsert", "finalize", "explain_findings",
+    "promote", "kb_ingest", "graph_upsert", "finalize", "explain_findings", "purge_document",
   ]
   # yoyo0704 소유 단계 Lambda (workflows/src/steps)
   own_steps = {

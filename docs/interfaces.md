@@ -99,7 +99,17 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | MalwareCheck | — | GuardDuty 태그 `GuardDutyMalwareScanStatus`. THREATS_FOUND→BLOCKED, UNSUPPORTED·FAILED→REVIEW_REQUIRED, 15분 무응답→예외 |
 | PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason,has_images}]}` | PDF 페이지 글자 수 < 50·깨진 문자 > 20%·그림 있음만 렌더링(가로 2000px). 이미지는 원본이 대상. DOCX·HWPX는 안에 든 그림을 쪽별로 이어 붙인 PNG(`reason:"embedded_images"`, 쪽 번호는 TextLayerExtract와 동일). 읽을 수 없는 그림 형식(EMF·WMF 등)은 Finding `FIGURE_FORMAT_UNSUPPORTED`(MEDIUM, 쪽 위치) |
 | PageSummarize | `{doc}/masked/summaries/{nnnn}.json` `{doc_id, page_index, page, summary, keywords[≤8], clause_refs[], page_type, char_count, figure_count, segment_key, model, generated_at}`, `{doc}/masked/summary.json` `{doc_id, version, page_count, pages[]}` | 입력은 masked/segments(text + figures)만, MODEL_HAIKU. clause_refs는 본문에 실제로 있는 조문 표기만. 판정은 바꾸지 않음(OK). 오케스트레이터 순서 InjectionScan → PageSummarize → Classify (env `PAGE_SUMMARIZE=on`) |
+| PurgeDocument | — | 문서 삭제 흐름 전용(사용자 결정 11/17 B). Documents `lifecycle=DELETED` 일 때만, `published/{legal,knowledge}/{doc_id}/`·`quarantine/{doc_id}/` 모든 버전·삭제 마커 삭제. 아니면 예외 `NotDeleted` |
 | OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
+
+### 6.0 문서 삭제 흐름 (사용자 결정 11/17 B)
+
+| 순서 | 주체 | 동작 |
+|---|---|---|
+| 1 | API `DELETE /v1/documents/{id}` (dhxorb96) | 작성자 본인 또는 관리자. 감사 `DOCUMENT_DELETE` → `lifecycle=DELETED`, `deleted_reason`·`deleted_by` (이 시점부터 검색·보관함·가이드 제외) → `InvokeAgentRuntime({action:"delete"})` |
+| 2 | 오케스트레이터 `deleteGraph` (dhxorb96) | `purge_document` → `kb_ingest`(재색인, KB 에서 제거) → `graph_upsert`(`action:"delete"`) |
+| 3 | `graph_upsert` `action:"delete"` (let522mj) | Documents `lifecycle=DELETED` 확인 후 Neptune `deleteDoc(doc_id)` |
+| 남김 | — | Documents META(이력)·Approvals·AuditEvents (감사) |
 
 ### 6.1 AgentCore 파이프라인 (11/16 전환 완료, Step Functions 폐기)
 

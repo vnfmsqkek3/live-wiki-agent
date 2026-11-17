@@ -30,7 +30,7 @@ module "stack" {
   agents_source_ref = "b516427" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
-    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "interceptor", "mcp-privacy", "mcp-approval",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "interceptor", "mcp-privacy", "mcp-approval",
   ]
 }
 

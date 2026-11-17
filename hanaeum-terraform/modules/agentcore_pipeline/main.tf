@@ -164,6 +164,11 @@ resource "aws_bedrockagentcore_gateway_target" "step" {
                 type        = "string"
                 description = "finalize 전용: PUBLISHED | BLOCKED | REJECTED"
               }
+              property {
+                name        = "action"
+                type        = "string"
+                description = "graph_upsert 전용: delete 면 문서 노드·관계 삭제 (문서 삭제 흐름)"
+              }
             }
           }
         }
