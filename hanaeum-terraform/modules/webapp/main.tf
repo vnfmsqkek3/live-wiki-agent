@@ -212,10 +212,10 @@ resource "aws_iam_role_policy" "api" {
       # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/segments/*" },
       # 실패·검토 사유 위치 표시: PII 를 칠한 페이지 이미지 위에 bbox 강조 (요청기록 20261117-0106)
-      { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${var.quarantine_bucket.arn}/*/masked/pages/*", "${var.quarantine_bucket.arn}/*/masked/explanation.json", "${var.quarantine_bucket.arn}/*/masked/summary.json", "${var.quarantine_bucket.arn}/*/masked/summaries/*", "${var.quarantine_bucket.arn}/*/masked/structured/*"] },
+      { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${var.quarantine_bucket.arn}/*/masked/pages/*", "${var.quarantine_bucket.arn}/*/masked/explanation.json", "${var.quarantine_bucket.arn}/*/masked/summary.json", "${var.quarantine_bucket.arn}/*/masked/summaries/*", "${var.quarantine_bucket.arn}/*/masked/structured/*", "${var.quarantine_bucket.arn}/*/masked/view/*"] }, # view: 원본 보기 쪽 이미지 presign (11/17)
       {
         Effect    = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn
-        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*"] } }
+        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*", "*/masked/view/*"] } }
       },
       # 근거 조문 밑줄(buildMarks)
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = var.tables["regulations"].arn },
