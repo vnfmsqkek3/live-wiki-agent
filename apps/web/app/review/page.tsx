@@ -97,6 +97,17 @@ function ReviewView() {
         {STAGES.map((s, i) => <li key={s} aria-current={i + 1 === stage ? 'step' : undefined} className={i + 1 < stage ? 'done' : ''}>{s}</li>)}
       </ol>
 
+      {/* 주 행동을 위로 고정 (Fable 11/18): 단계 → 고칠 것 N건 → 게시 요청 */}
+      <div className="submit-bar" role="region" aria-label="게시 요청">
+        <ol className="steps-line" aria-label="진행 단계">
+          <li className="done">올리기</li>
+          <li className={r.lifecycle === 'QUARANTINED' ? 'now' : 'done'}>AI 검사</li>
+          <li className={r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : r.lifecycle === 'QUARANTINED' ? '' : 'done'}>고칠 것{open.length > 0 && <b className="num"> {open.length}</b>}</li>
+          <li className={submitted || r.lifecycle === 'PENDING_APPROVAL' ? 'now' : ''}>게시 요청</li>
+        </ol>
+        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `고칠 것 ${open.length}건 남음` : '검토 마치고 게시 요청'}</button>
+        <p aria-live="polite" className="note submit-msg">{msg}</p>
+      </div>
       <div className="layout-a review-layout"><div className="primary">
       {r.workflow_failure && <p className="notice" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="notice">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
@@ -232,10 +243,6 @@ function ReviewView() {
         )}
       </div>
 
-      <div className="actions" style={{ marginTop: 24 }}>
-        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `고칠 것 ${open.length}건을 먼저 고치세요` : '게시 요청'}</button>
-      </div>
-      <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
       </aside></div>
     </>
   );

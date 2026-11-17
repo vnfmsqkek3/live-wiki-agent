@@ -53,7 +53,7 @@ const TABS = [
   { href: '/library', label: '보관함', icon: <Icon name="library" /> },
   { href: '/guide', label: '가이드', icon: <Icon name="guide" /> },
   { href: '/upload', label: '등록', icon: <Icon name="upload" /> },
-  { href: '/admin', label: '관리', icon: <Icon name="approval" /> },
+  { href: '/admin', label: '결재함', icon: <Icon name="approval" /> },
 ];
 
 export function Tabs() {

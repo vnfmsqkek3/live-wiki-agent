@@ -79,6 +79,11 @@ export default function Admin() {
         <div><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></div>
       </div>
 
+      {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
+      <div className="actions ops-row" aria-label="운영 도구">
+        <Link className="btn" href="/admin/impact"><Icon name="alert" />규정 변경 영향</Link>
+        <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
+      </div>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
         <div className="approval-category-group" aria-label="결재할 일">
@@ -86,11 +91,11 @@ export default function Admin() {
           <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
-                <span className="flag"><Icon name="alert" />검토 필요</span>
+                <span className="flag"><Icon name="alert" />출처 확인 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                 {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
-                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. 제목을 누르면 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
-                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
+                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. '다른 곳 보기'에서 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
+                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
               </li>
             ))}
           </PaginatedList>
@@ -101,7 +106,7 @@ export default function Admin() {
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                 {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
-                <span className="flag"><Icon name="approval" />AI 검사 통과 · {i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'}</span>
+                <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'} · AI 검사 통과</span>
                 <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
                 {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
                 {i.version?.changes?.length ? (
@@ -112,9 +117,11 @@ export default function Admin() {
                 <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
                 {!done[i.approval_id] && (
                   <div className="actions">
-                    <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
+                    {/* 사람이 확인 → 판단 순서: 문서 확인을 먼저, 같은 크기의 버튼으로 (사용자 지적 11/18: 밑줄 글자라 안 보임) */}
+                    <Link className="btn" href={detail(i.doc_id)}><Icon name="library" />문서 확인</Link>
+                    <span className="actions-gap" aria-hidden="true" />
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
-                    <Link className="linklike" href={detail(i.doc_id)}>자세히</Link>
+                    <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
                   </div>
                 )}
               </li>
@@ -128,7 +135,7 @@ export default function Admin() {
             <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger card-grid admin-grid">
               {after.map((i) => (
                 <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-                  <span className="seal official"><Icon name="clock" />게시 진행</span>
+                  <span className="kind-tag"><Icon name="clock" />게시 진행</span>
                   <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
                   {i.workflow_failure
                     ? <p className="error">게시 처리에 실패했습니다. 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
@@ -144,7 +151,7 @@ export default function Admin() {
               <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger card-grid admin-grid">
                 {blocked.map((i) => (
                   <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
-                    <span className="flag"><Icon name="alert" />검토 필요</span>
+                    <span className="flag"><Icon name="alert" />자동 차단</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                     {i.findings.slice(0, 3).map((f, n) => <p key={n} className="quote">{f.user_message ?? f.message}</p>)}
                   </li>
@@ -156,11 +163,6 @@ export default function Admin() {
       </div>
 
       <KnowledgeDebt />
-      <h2 className="section">운영 도구</h2>
-      <div className="actions" style={{ marginTop: 0 }}>
-        <Link className="btn" href="/admin/runs">Agent 실행 기록</Link>
-        <Link className="btn" href="/admin/impact">규정 변경 영향</Link>
-      </div>
     </>
   );
 }

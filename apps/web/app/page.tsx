@@ -16,6 +16,7 @@ export default function Home() {
   const [mine, setMine] = useState<LibraryCard[]>([]);
   const [todo, setTodo] = useState<{ approvals: number; mismatch: number } | null>(null);
   const [s, setS] = useState<Session | undefined>();
+  const [fail, setFail] = useState(false);
   useEffect(() => {
     const cur = getSession();
     setS(cur);
@@ -25,7 +26,7 @@ export default function Home() {
       const pub = r.items.filter((i) => i.lifecycle === 'PUBLISHED');
       setItems(pub);
       setMine(r.items.filter((i) => i.lifecycle !== 'PUBLISHED'));
-    }).catch(() => setItems([]));
+    }).catch(() => { setItems([]); setFail(true); });
     if (isAdmin(g)) {
       Promise.all([
         api<{ items: unknown[] }>('GET', '/v1/approvals?status=PENDING').then((r) => r.items.length).catch(() => 0),
@@ -50,11 +51,17 @@ export default function Home() {
         {MOCK && <p className="note demo-note">서버에 연결되지 않아 하나은행(가상 데이터) 예시를 보여주고 있습니다.</p>}
       </section>
       {(todo || (isAuthor && mine.length > 0)) && <section className="home-todo" aria-label="할 일 요약">
-        <strong>처리할 일</strong>
-        {todo && <Link href="/admin">게시 승인 대기 <b className="num">{todo.approvals}</b> · 출처 확인 필요 <b className="num">{todo.mismatch}</b><span className="sr-only"> 승인 관리로 가기</span></Link>}
-        {isAuthor && mine.length > 0 && <details className="mine-summary"><summary>내가 올린 문서 <b className="num">{mine.length}</b>건 진행 중</summary><PaginatedList label="내가 올린 문서" pageKey="mine_page" className="mine-list">{mine.map((i) => <li key={i.doc_id}><Link href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link> · {STATE[i.lifecycle] ?? '상태 확인 필요'} · <span className="num">{i.uploaded_at.slice(0, 10)}</span></li>)}</PaginatedList></details>}
-        {isAuthor && <Link href="/upload">새 문서 등록</Link>}
+        <h2 className="section">내 할 일</h2>
+        {/* 큰 숫자 칸 (Fable 재배치안 11/18): 누르면 그 화면으로. 실제 건수만 쓴다 */}
+        <div className="todo-tiles">
+          {todo && <Link className="todo-tile" href="/admin"><b className="num">{todo.approvals}</b><span>결재 대기</span></Link>}
+          {todo && <Link className="todo-tile" href="/admin"><b className="num">{todo.mismatch}</b><span>출처 확인 필요</span></Link>}
+          {isAuthor && mine.length > 0 && <a className="todo-tile" href="#mine"><b className="num">{mine.length}</b><span>내 문서 진행 중</span></a>}
+          {isAuthor && <Link className="todo-tile add" href="/upload"><Icon name="upload" /><span>새 문서 올리기</span></Link>}
+        </div>
+        {isAuthor && mine.length > 0 && <details className="mine-summary" id="mine"><summary>내가 올린 문서 <b className="num">{mine.length}</b>건 진행 중</summary><PaginatedList label="내가 올린 문서" pageKey="mine_page" className="mine-list">{mine.map((i) => <li key={i.doc_id}><Link href={['IN_REVIEW', 'PENDING_APPROVAL', 'QUARANTINED'].includes(i.lifecycle) ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link> · {STATE[i.lifecycle] ?? '상태 확인 필요'} · <span className="num">{i.uploaded_at.slice(0, 10)}</span></li>)}</PaginatedList></details>}
       </section>}
+      {fail && <p className="error" role="alert">문서 목록을 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</p>}
       {items.length > 0 && <section className="home-recent" aria-labelledby="recent-title">
         <div className="section-heading"><h2 className="section" id="recent-title">최근 게시된 문서</h2><Link href="/library">문서보관함 전체 보기 <Icon name="arrow" /></Link></div>
         <PaginatedList label="최근 게시된 문서" pageSize={3} className="ledger card-grid">

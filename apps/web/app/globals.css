@@ -764,3 +764,52 @@ details.more > summary { cursor:pointer; color:var(--navy-600); font-weight:600;
 .inline-fig { margin:6px 0 14px 1.5em; max-width:480px; }
 .inline-fig .fig-thumb img { width:100%; height:auto; }
 .page-figure-hidden { margin:0; }
+/* 결재란 재정의 (Fable 검토 11/18): 목록은 도장 1개 + 글자, 상세·결재는 3칸 + 칸 아래 일자·승인자 */
+.kyul.mini.one { display:inline-flex; align-items:center; gap:8px; }
+.kyul.mini.one .stamp { width:var(--stamp-mini); height:var(--stamp-mini); font-size:calc(var(--stamp-mini) * .3); }
+.kyul.mini.one .seal-text { font:600 var(--fs-small)/1.2 var(--font-display); }
+.kyul.mini.one.tone-ok .seal-text { color:var(--green-700); }
+.kyul.mini.one.tone-bad .seal-text { color:var(--coral-700); }
+.kyul.mini.one.tone-wait .seal-text { color:var(--ink-700); }
+.kyul.full .kyul-cell { grid-template-rows:auto calc(var(--stamp-full) + 20px) auto; }
+.kyul-who { display:block; width:100%; min-height:22px; padding:3px 4px; border-top:1px solid var(--line); text-align:center; font:500 12px/1.4 var(--font-num); color:var(--ink-700); }
+.stamp.wait { border-color:var(--ink-500); }
+.aside-sub { margin:16px 0 6px; font:600 var(--fs-small)/1.3 var(--font-display); color:var(--ink-500); }
+/* 상세 카드 두 묶음: 판단할 것(건수) / 참고 (Fable 재배치안 11/18) */
+.detail-cards .cards-head { grid-column:1 / -1; margin:8px 0 0; font:600 var(--fs-small)/1.3 var(--font-display); color:var(--ink-500); }
+.detail-cards .cards-head.judge { order:0; } .detail-cards .detail-card.judge { order:1; }
+.detail-cards .cards-head.ref { order:2; } .detail-cards .detail-card:not(.judge) { order:3; }
+.detail-cards:not(:has(.detail-card.judge)) .cards-head.judge { display:none; }
+.detail-card .card-count { font:700 var(--fs-h3)/1 var(--font-num); color:var(--green-700); }
+.detail-card.judge .card-count { color:var(--coral-700); }
+/* 결재 카드 (사용자 지적·Fable 11/18): 종류는 중립 태그, 행동 순서 = 문서 확인 → 반려 · 승인 */
+.kind-tag { display:inline-flex; align-items:center; gap:6px; margin:0 0 8px; padding:4px 10px; border:1px solid var(--line); border-radius:999px; font:600 var(--fs-small)/1.3 var(--font-display); color:var(--ink-700); background:#fff; }
+.kind-tag svg { width:15px; height:15px; }
+.admin-grid .actions { flex-wrap:wrap; align-items:center; }
+.admin-grid .actions .actions-gap { flex:1 1 0; min-width:0; }
+.ops-row { margin:8px 0 24px; }
+/* 안내는 네이비, 오류만 코랄 (Fable 11/18) */
+.notice { border-color:color-mix(in srgb, var(--navy-600) 25%, #fff); background:var(--navy-050); color:var(--navy-900); }
+/* 보조 글자 최소 14px (Fable 11/18: 작고 빽빽함) */
+:root { --fs-small: clamp(14px, 13.6px + .1vw, 15px); }
+.note, .meta { font-size:var(--fs-small); }
+.tabs .nav-links a { font-size:max(13px, .8rem); }
+/* 홈 할 일: 큰 숫자 칸 (Fable 11/18) */
+.home-todo { display:block; }
+.home-todo .section { margin:0 0 12px; }
+.todo-tiles { display:grid; grid-template-columns:repeat(auto-fit, minmax(150px, 1fr)); gap:12px; }
+.todo-tile { display:grid; gap:4px; min-height:96px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; color:var(--navy-900); text-decoration:none; align-content:center; }
+.todo-tile b { font:700 clamp(28px, 24px + 1vw, 40px)/1 var(--font-num); color:var(--green-700); }
+.todo-tile span { font:600 var(--fs-small)/1.3 var(--font-display); }
+.todo-tile.add { color:var(--green-700); justify-items:start; }
+.todo-tile.add svg { width:28px; height:28px; }
+.todo-tile:hover, .todo-tile:focus-visible { border-color:var(--green-700); }
+/* 검토 화면 게시 요청 막대 (Fable 11/18) */
+.submit-bar { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; align-items:center; gap:12px 16px; margin:0 0 16px; padding:12px 16px; background:#fff; border:1px solid var(--line); border-radius:var(--radius); }
+.submit-bar .submit-msg { flex-basis:100%; margin:0; }
+.submit-bar .submit-msg:empty { display:none; }
+.steps-line { display:flex; flex-wrap:wrap; gap:4px 8px; margin:0; padding:0; list-style:none; flex:1 1 auto; font:600 var(--fs-small)/1.3 var(--font-display); color:var(--ink-500); }
+.steps-line li + li::before { content:"›"; margin-right:8px; color:var(--line); }
+.steps-line .done { color:var(--green-700); }
+.steps-line .now { color:var(--navy-900); text-decoration:underline; text-underline-offset:4px; }
+.steps-line b { color:var(--coral-700); }

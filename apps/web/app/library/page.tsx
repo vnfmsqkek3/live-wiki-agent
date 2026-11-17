@@ -44,8 +44,9 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
   </dialog>;
 }
 /** filled: 내용이 있는 카드(사용자 요청: 초록 테두리 + '내용 있음' 글자, 색만으로 구분하지 않음) */
-function CardLabel({ title, filled }: { title: string; filled: boolean }) {
-  return <>{title}{filled && <span className="card-state">내용 있음</span>}</>;
+function CardLabel({ title, filled, count }: { title: string; filled: boolean; count?: number }) {
+  // 건수가 있으면 건수, 없으면 '내용 있음' (판단용 카드는 건수를 크게, Fable 재배치안 11/18)
+  return <>{title}{count !== undefined ? <span className="card-count num">{count}건</span> : filled && <span className="card-state">내용 있음</span>}</>;
 }
 const CLAIM_REL: Record<string, string> = { SUPPORTS: '규정과 일치', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', INSUFFICIENT: '관련 조문 확인 필요', UNRELATED: '관련 없음' };
 type Basis = { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string };
@@ -101,9 +102,9 @@ function ZoomDialog({ url, onClose }: { url: string | null; onClose: () => void 
   );
 }
 
-function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
+function DetailCard({ title, children, filled = true, group = 'ref', count }: { title: string; children: ReactNode; filled?: boolean; group?: 'judge' | 'ref'; count?: number }) {
   const [open, setOpen] = useState(false);
-  return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
+  return <><button type="button" className={`detail-card ${group}${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} count={count} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
 }
 
 function List() {
@@ -404,18 +405,14 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
   const figMap = Object.fromEntries((page?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
+  const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
   const jump = (i: number, n: number) => { setImages(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
-  const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
-  return (
-    <>
-      <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
-      <header className="document-header">
-      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
-      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div><dl className="meta-grid">
+  // 문서 정보는 머리에서 빼 '한눈에 보기' 패널로 (Fable 재배치안 11/18: 머리는 제목·상태 문장·결재란만)
+  const docMeta = (<dl className="meta-grid">
         {d.category_path && d.category_id && <><dt>분류</dt><dd><Link href={`/library?category=${encodeURIComponent(d.category_id)}`}>{d.category_path.split('/').join(' › ')}</Link></dd></>}
         {!d.category_path && d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
@@ -424,7 +421,16 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd><span className="num">{day(d.updated_at)}</span></dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
-      </dl></header>
+      </dl>);
+  const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
+  return (
+    <>
+      <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
+      <header className="document-header">
+      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
+        who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
+      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>
+      </header>
       {editing !== false && <WikiEditor docId={d.doc_id} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} onCancel={() => setEditing(false)} />}
 
       <div className="detail-layout"><div className="detail-body">
@@ -455,7 +461,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>
             <button type="button" className="btn" aria-pressed={showImages} onClick={() => setImages(true)}>필터링된 원문</button>
           </div>
-          {showImages ? <OriginalPages docId={d.doc_id} start={p + 1} fallback={page.text} /> : (
+          {showImages ? <div className="document-columns"><div><OriginalPages docId={d.doc_id} start={p + 1} fallback={page.text} /></div><aside className="page-checks" aria-label="한눈에 보기"><h3 className="section">한눈에 보기</h3>{docMeta}</aside></div> : (
           <div className="document-columns"><div className="sheet page" onClick={(e) => {
             const t = e.target as HTMLElement;
             const z = t.closest<HTMLElement>('[data-zoom]')?.dataset.zoom;
@@ -470,7 +476,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             <ZoomDialog url={zoomUrl} onClose={() => setZoomUrl(null)} />
             </div>
           </div>
-          <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>
+          <aside className="page-checks" aria-label="한눈에 보기"><h3 className="section">한눈에 보기</h3>{docMeta}<h4 className="aside-sub">이 쪽</h4>
             <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>
           </aside>          </div>
           )}
@@ -479,11 +485,12 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 
       </div><div className="document-more">
       <div className="detail-cards" aria-label="문서 상세 항목">
+      <p className="cards-head judge">판단할 것</p><p className="cards-head ref">참고</p>
       {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
-      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}
+      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled count={numbered.length + d.doc_marks.length} /></button>}
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
-      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
-      {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
+      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완" count={notes.length}><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
+      {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
         onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); window.scrollTo({ top: 0, behavior: 'smooth' }); } : undefined} /></DetailPopup></>}
       <Versions id={d.doc_id} />      {d.verification && (
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
@@ -497,7 +504,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         </section></DetailCard>
       )}
       {(d.claims?.length ?? 0) > 0 && (
-        <DetailCard title="이 문서의 주장">
+        <DetailCard title="이 문서의 주장" count={d.claims!.length}>
           <p className="note">이 문서의 문장마다 근거 조문과 판정, 그리고 같은 조문을 근거로 쓴 다른 게시 문서들이 어떻게 판정됐는지입니다.</p>
           <ol className="claims">{d.claims!.map((c) => (
             <li key={c.claim_id}>
@@ -512,7 +519,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         </DetailCard>
       )}
       {d.verification && d.verification.basis.length > 0 && (
-        <DetailCard title="비교한 대상">
+        <DetailCard title="비교한 대상" group="judge" count={groupBasis(d.verification.basis).length}>
           {d.verification.basis.length > 0 && (
             <>
               <p className="note" style={{ margin: '10px 0 4px' }}>이 문서의 문장을 어느 조문과 비교했고 결과가 어땠는지입니다. 같은 조문은 한 번만 보여 줍니다.</p>
