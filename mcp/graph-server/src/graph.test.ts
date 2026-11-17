@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { MemoryClauseStore } from "@hanaeum/regulation-server";
 import { fixtureClauseStore } from "../../regulation-server/src/fixtures.ts";
-import { MemoryGraphStore, graphUpsertStep, graphTools, extractCitations, upsertStatements, lawGraph, BATCH } from "./index.ts";
+import { MemoryGraphStore, graphDeleteStep, graphUpsertStep, graphTools, extractCitations, upsertStatements, lawGraph, BATCH } from "./index.ts";
 import { parseLaw } from "@hanaeum/legal-parser";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
@@ -136,4 +136,17 @@ test("단계 13 입력 구성: 공통 입력만으로 Documents·게시본을 �
   const inp = await buildUpsertInput({ workflow_id: "wf_x", doc_id: "K-001", version: 1, bucket: "q", prefix: "", actor: { sub: "s", groups: [] } }, r, s, fixtureClauseStore(), "pub");
   assert.deepEqual(inp.citations!.map((c) => c.provision_id).sort(), frontCites("documents/K-001.md").sort());
   assert.equal(inp.document_type, "KNOWHOW");
+});
+
+test("삭제 흐름(interfaces 6.0): DELETED만 그래프에서 지움, 아니면 NotDeleted, 분류 전 문서는 할 일 없이 OK", async () => {
+  const { graph } = await loaded();
+  const has = () => [...graph.nodes.values()].some((x) => x.props["doc_id"] === "K-001");
+  const rec = (d: unknown) => ({ getDocument: async () => d as never });
+  await assert.rejects(graphDeleteStep("K-001", rec({ lifecycle: "PUBLISHED" }), graph), { name: "NotDeleted" });
+  await assert.rejects(graphDeleteStep("K-001", rec(undefined), graph), { name: "NotDeleted" });
+  assert.ok(has());
+  assert.deepEqual(await graphDeleteStep("K-001", rec({ lifecycle: "DELETED" }), graph), { status: "OK" });
+  assert.ok(!has());
+  const unclassified = { getDocument: async () => { throw Object.assign(new Error("x"), { name: "UnclassifiedDocument" }); } };
+  assert.deepEqual(await graphDeleteStep("K-404", unclassified, graph), { status: "OK" });
 });

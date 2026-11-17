@@ -8,6 +8,7 @@ import { extractCitations } from "./citations.ts";
 import type { Citation } from "./model.ts";
 import { DynamoClauseStore } from "@hanaeum/regulation-server";
 import { NeptuneGraphStore } from "./store.ts";
+import type { GraphStore } from "./store.ts";
 import { graphTools } from "./tools.ts";
 import { graphUpsertStep } from "./upsert-step.ts";
 import type { GraphUpsertInput } from "./upsert-step.ts";
@@ -42,8 +43,22 @@ export async function buildUpsertInput(input: StepInput, records: Records, store
   };
 }
 
+/** 문서 삭제 흐름 마지막 단계 (interfaces.md 6.0): Documents가 DELETED일 때만 그 문서의 노드·관계를 지운다.
+ *  분류 전 문서(UnclassifiedDocument)는 게시된 적이 없어 그래프에 없음 → 할 일 없이 OK */
+export async function graphDeleteStep(docId: string, records: Pick<Records, "getDocument">, graph: Pick<GraphStore, "deleteDoc">): Promise<{ status: "OK" }> {
+  let doc;
+  try { doc = await records.getDocument(docId); }
+  catch (err) { if ((err as Error).name === "UnclassifiedDocument") return { status: "OK" }; throw err; }
+  if (!doc) throw Object.assign(new Error(`Documents 레코드 없음: ${docId}`), { name: "NotDeleted" });
+  if (doc.lifecycle !== "DELETED") throw Object.assign(new Error(`삭제 표시(DELETED)가 아닌 문서는 그래프에서 지우지 않음: ${docId} (${doc.lifecycle})`), { name: "NotDeleted" });
+  await graph.deleteDoc(docId);
+  return { status: "OK" };
+}
+
 export const graphUpsertHandler = async (event: unknown) => {
   const d = deps();
-  const input = await buildUpsertInput(StepInput.parse(event), new DynamoRecords({ documents: e["TABLE_DOCUMENTS"]!, approvals: e["TABLE_APPROVALS"]! }), new S3ObjectStore(), d.clauses, e["BUCKET_PUBLISHED"]!);
-  return graphUpsertStep(input, d.graph, d.clauses);
+  const records = new DynamoRecords({ documents: e["TABLE_DOCUMENTS"]!, approvals: e["TABLE_APPROVALS"]! });
+  const input = StepInput.parse(event); // action은 공통 입력 밖의 값이라 parse가 지움 → 원본 event에서 읽는다
+  if ((event as { action?: unknown }).action === "delete") return graphDeleteStep(input.doc_id, records, d.graph);
+  return graphUpsertStep(await buildUpsertInput(input, records, new S3ObjectStore(), d.clauses, e["BUCKET_PUBLISHED"]!), d.graph, d.clauses);
 };

@@ -42,7 +42,10 @@ export async function kbIngestStep(input: StepInput, api: IngestionApi, records:
   catch (e) { if ((e as Error).name !== "NoSuchKey") throw e; }
 
   if (!state) {
-    const doc = await records.getDocument(input.doc_id);
+    let doc;
+    try { doc = await records.getDocument(input.doc_id); }
+    // 분류 전 문서는 게시(색인)된 적이 없다 → 삭제 흐름(interfaces.md 6.0)에서 재색인할 것 없음
+    catch (e) { if ((e as Error).name === "UnclassifiedDocument") return { status: "OK" }; throw e; }
     if (!doc) throw new Error(`Documents 레코드 없음: ${input.doc_id}`);
     const ds = doc.document_type === "REGULATION" ? env.KB_DS_LEGAL_ID : env.KB_DS_KNOWLEDGE_ID;
     // clientToken 결정적: 저장 전에 Lambda가 죽어 재호출돼도 같은 Job (멱등).
