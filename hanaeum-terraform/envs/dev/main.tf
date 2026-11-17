@@ -34,7 +34,7 @@ module "stack" {
   lambda_refs = {
     yoyo0704 = "620108a" # workflows·auth-triggers·services/ocr
     dhxorb96 = "577d30e" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
-    let522mj = "0b4ecf4" # PR #36 개정 시 주장 재검증·SUPERSEDED 영향 제외 (+#32 분류 필터)
+    let522mj = "7a886ef" # PR #33 그림 속 글자 분리 (+#36 주장 재검토, #32 분류 필터)
   }
 
   ocr_source_ref = "6b52ef3" # PP-StructureV3 표·레이아웃 + figures (11/17)
