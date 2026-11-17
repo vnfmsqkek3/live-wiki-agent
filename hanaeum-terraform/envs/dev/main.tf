@@ -20,8 +20,10 @@ module "stack" {
   source        = "../../stack"
   demo_password = var.demo_password
   env           = "dev"
-  name_suffix   = "-dev"
-  owner         = "team"
+  # 거버넌스 저장소 (사용자 결정 11/17, interfaces.md 10장): 13시 전환
+  governance_store = "postgres"
+  name_suffix      = "-dev"
+  owner            = "team"
 
   # 공유 dev 는 개인 dev 자원을 참조하지 않는다 (사용자 지시 11/16, 요청기록 2242, docs/06).
   # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
@@ -43,7 +45,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "a10314f" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
+  webapp_source_ref = "946b4b0" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
   agents_source_ref = "a10314f" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 

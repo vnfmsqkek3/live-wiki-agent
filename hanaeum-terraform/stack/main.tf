@@ -182,7 +182,8 @@ module "aurora" {
   kms_key_arn         = module.kms.key_arn
   vpc_id              = module.network.vpc_id
   data_subnet_ids     = module.network.subnet_ids["data"]
-  min_acu             = var.env == "prod" ? 0.5 : 0
+  # dev 도 0.5: 0 ACU 자동 일시정지에서 깨는 데 수십 초(11/17 실측 DatabaseResumingException) → 화면 QA 중 첫 요청이 느려짐
+  min_acu             = 0.5
   deletion_protection = var.env == "prod"
 }
 
