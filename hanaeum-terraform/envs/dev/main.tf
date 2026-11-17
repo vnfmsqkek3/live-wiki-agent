@@ -33,8 +33,8 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "c66bd12" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "3f05a4d" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "de538bc" # PR #28 OCR 조문 번호 보정 (+#27 표·#26 전부 OCR)
+    dhxorb96 = "776110d" # 정리본 쪽 맥락·업무 분류·주장 저장 (dhxorb96)
+    let522mj = "b1085de" # PR #32 업무 분류 필터·category_path (+#28 조문 번호)
   }
 
   ocr_source_ref = "6b52ef3" # PP-StructureV3 표·레이아웃 + figures (11/17)
@@ -45,8 +45,8 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "3f05a4d" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
-  agents_source_ref = "3f05a4d" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "776110d" # 분류 트리·주장 카드·지식 상태·정리본 개편
+  agents_source_ref = "776110d" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
