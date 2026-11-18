@@ -335,3 +335,14 @@ test('buildDocPages 보정(11/18 dev 개인정보 가이드 2쪽): 라벨 제목
   assert.equal(r[0]!.title, '개인정보 수집·이용 업무 가이드');
   assert.ok(!r[0]!.parts.some((x) => /내부 교육용/.test(x.markdown)));
 });
+
+test('buildDocPages 안전장치: 앞 쪽이 2열 표로 끝나면 다음 쪽 첫 "A / B" 줄들을 표 행으로 이어 붙인다 (11/18 dev)', async () => {
+  const { buildDocPages, structurePrompt } = await import('../src/steps/structure.ts');
+  const r = buildDocPages([
+    { page: 1, markdown: '## 1. 업무 처리 개요\n| 단계 | 내용 |\n|---|---|\n| 안내 | 수집 목적·항목·보유 기간 |' },
+    { page: 2, markdown: '## 확인 / 처리 근거 및 동의 필요 여부\n등록 / 최소 정보 입력 및 권한 통제\n사후 관리 / 목적 변경 및 보유 기간 점검\n## 2. 보관\n5년' },
+  ]);
+  assert.equal(r.length, 1);
+  assert.match(r[0]!.parts[0]!.markdown, /\| 안내 \|.*\n\| 확인 \| 처리 근거 및 동의 필요 여부 \|\n\| 등록 \|.*\n\| 사후 관리 \| 목적 변경 및 보유 기간 점검 \|/);
+  assert.match(structurePrompt(1, '본문', [], '| 안내 | 수집 목적 |'), /<prev_page_tail[^>]*>\n\| 안내 \| 수집 목적 \|/);
+});

@@ -285,7 +285,9 @@ export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJ
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
       try {
-        const r = await deps.structure!(structurePrompt(s.page_index, s.text, s.figures));
+        const pv = segs.find((x) => x.page_index === s.page_index - 1);
+        const prevTail = (pv?.page_markdown?.trim() ? pv.page_markdown : pv?.text ?? '').split('\n').map((l) => l.trim()).filter(Boolean).slice(-5).join('\n');
+        const r = await deps.structure!(structurePrompt(s.page_index, s.text, s.figures, mask(prevTail, detectPii(prevTail))));
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
         const f = faithful(s.text, md, s.figures);
         if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }

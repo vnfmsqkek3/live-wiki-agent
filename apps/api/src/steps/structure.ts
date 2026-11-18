@@ -7,7 +7,7 @@ export const STRUCTURE_SYSTEM = `당신은 문서 편집자다. 은행 내부 �
 입력: <body> 본문 글자(PDF·OCR, 줄바꿈이 엉망일 수 있음), <figures> 그 쪽 그림·캡처마다 AI가 쓴 설명(n번), <figure_text> 그림 속 글자(참고용, 깨진 글자가 많음).
 - 쪽 전체 맥락이 한 흐름으로 읽히게: 본문 순서를 따르되, 본문의 [그림 n] 자리나 관련 단계 바로 뒤에 그 그림 내용을 한두 문장으로 넣는다.
 - 본문 글자는 바꾸지 않는다: 단어·숫자·조문 번호를 그대로 쓴다. 요약·생략 금지. 끊긴 줄은 잇고, 제목은 ## / ###, 번호 목록은 원래 번호 그대로('1.마감' → '1. 마감').
-- 짧은 '항목 | 설명' 줄이나 왼쪽 라벨+오른쪽 설명 줄이 2개 이상 이어지면(테두리 없는 표 포함) 2열 마크다운 표로 쓴다. 표의 행·라벨로 제목(#)을 만들지 않는다. 쪽 첫 줄들이 앞 쪽 끝 표의 이어짐으로 보이면 같은 열의 표 행으로 계속 쓴다(머리행 없이).
+- 짧은 '항목 | 설명' 줄이나 왼쪽 라벨+오른쪽 설명 줄이 2개 이상 이어지면(테두리 없는 표 포함) 2열 마크다운 표로 쓴다. 표의 행·라벨로 제목(#)을 만들지 않는다. 쪽 첫 줄들이 앞 쪽 끝 표의 이어짐으로 보이면(<prev_page_tail> 이 표로 끝나면 먼저 확인) 같은 열의 표 행으로 계속 쓴다(머리행 없이). <prev_page_tail> 내용은 출력하지 않는다.
 - 쪽 맨 위·아래의 머리말·꼬리말(기관명·부서명·'내부 교육용'·쪽 번호)은 쓰지 않는다.
 - 절차는 번호 단계로, 화면의 메뉴·버튼·입력란 이름은 **굵게**.
 - 그림에서 온 문장은 끝에 '(그림 n)'을 붙인다. 그림 설명에 없는 내용을 지어내지 않는다. 그림 속 깨진 글자는 옮기지 않는다(뜻이 분명한 버튼·메뉴 이름만).
@@ -33,10 +33,12 @@ export function splitPage(text: string) {
 export const needsStructure = (text: string, figures: PageFigure[] = []) =>
   figures.length > 0 || (splitPage(text).body.trim().length >= 80 && !/^#{1,3} \S/m.test(text));
 
-export const structurePrompt = (page_index: number, text: string, figures: PageFigure[] = []) => {
+export const structurePrompt = (page_index: number, text: string, figures: PageFigure[] = [], prevTail = '') => {
   const { body, figureText } = splitPage(text);
   const figs = figures.map((f, i) => `${i + 1}. [${f.kind ?? '그림'}] ${f.description ?? ''}${f.intent ? ` / 의도: ${f.intent}` : ''}${f.overlay_text ? ` / 표기: ${f.overlay_text.replace(/\n/g, ' ')}` : ''}`).join('\n');
-  return `<page n="${page_index + 1}">\n<body>\n${body.slice(0, 8000)}\n</body>${figs ? `\n<figures>\n${figs.slice(0, 4000)}\n</figures>` : ''}${figureText ? `\n<figure_text>\n${figureText.slice(0, 3000)}\n</figure_text>` : ''}\n</page>`;
+  // 앞 쪽 끝 5줄(맥락만, 다시 쓰지 않음): 앞 쪽이 표로 끝나면 이 쪽 첫 줄들이 같은 표의 이어짐인지 판단 (11/18 dev)
+  const prev = prevTail.trim() ? `<prev_page_tail note="앞 쪽 끝. 맥락만, 출력하지 않는다">\n${prevTail.slice(-800)}\n</prev_page_tail>\n` : '';
+  return prev + `<page n="${page_index + 1}">\n<body>\n${body.slice(0, 8000)}\n</body>${figs ? `\n<figures>\n${figs.slice(0, 4000)}\n</figures>` : ''}${figureText ? `\n<figure_text>\n${figureText.slice(0, 3000)}\n</figure_text>` : ''}\n</page>`;
 };
 
 /** 그림 출처 표시 '(그림 n)'은 대조에서 뺀다 */
@@ -116,13 +118,25 @@ export function buildDocPages(src: { page: number; markdown: string }[], max = 2
   for (const p of clean) {
     if (!p.markdown) { if (out.length) out[out.length - 1]!.pages.push(p.page); continue; }
     const cur = out[out.length - 1];
-    const first = p.markdown.split('\n').find((l) => l.trim()) ?? '';
     const last = cur?.parts[cur.parts.length - 1]?.markdown.split('\n').filter((l) => l.trim()).pop() ?? '';
-    const tableGoesOn = !!cur && isRow(last) && isRow(first);
+    // 안전장치: 앞 조각이 표 행으로 끝나고 이 쪽 첫 줄들이 '#* A / B' 짧은 줄이면 '| A | B |' 행으로 바꾼다 (11/18 dev)
+    if (cur && isRow(last)) {
+      const cols = (last.match(/\|/g)?.length ?? 0) - 1;
+      const ls = p.markdown.split('\n'); let j = 0;
+      while (j < ls.length) {
+        const m = /^#*\s*([^|/\n]{1,40}?)\s+\/\s+([^|\n]{1,60})$/.exec(ls[j]!.trim());
+        if (!ls[j]!.trim()) { j++; continue; }
+        if (!m || cols !== 2) break;
+        ls[j] = `| ${m[1]!.trim()} | ${m[2]!.trim()} |`; j++;
+      }
+      p.markdown = ls.join('\n').trim();
+    }
+    const first2 = p.markdown.split('\n').find((l) => l.trim()) ?? '';
+    const tableGoesOn = !!cur && isRow(last) && isRow(first2);
     // 표지·목차·장 구분처럼 제목만 있는 짧은 쪽들만 모인 페이지면 다음 내용을 붙인다
     const onlyShort = !!cur && cur.parts.every((x) => x.markdown.length < 200 && x.markdown.split('\n').filter((l) => l.trim()).length <= 2);
     // 장 경계는 번호 붙은 제목(1. · 01 · 제n장 · Ⅰ.)만 인정. 'A / B' 같은 짧은 라벨 제목은 경계가 아님 (11/18 dev 개인정보 가이드)
-    const startsChapter = /^#{1,2}\s*(?:제\s*\d+\s*[장절편]|\d{1,2}[.)]?\s|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?\s)/.test(first) && !/\s\/\s/.test(first);
+    const startsChapter = !tableGoesOn && /^#{1,2}\s*(?:제\s*\d+\s*[장절편]|\d{1,2}[.)]?\s|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?\s)/.test(first2) && !/\s\/\s/.test(first2);
     if (cur && (tableGoesOn ? size(cur) <= max * 2 : (onlyShort || (!startsChapter && size(cur) + p.markdown.length <= max)))) {
       let md = p.markdown;
       if (tableGoesOn) {
