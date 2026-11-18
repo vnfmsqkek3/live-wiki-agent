@@ -1,3 +1,4 @@
+data "aws_region" "current" {}
 # 역할 그룹 5종 (interfaces.md 2장 role) + 데모 계정. 데모 비밀번호는 Secrets Manager 에만 둔다.
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
@@ -153,6 +154,56 @@ resource "aws_secretsmanager_secret_version" "demo" {
   secret_id     = aws_secretsmanager_secret.demo.id
   secret_string = jsonencode({ for k, v in local.demo : k => { roles = v, password = coalesce(var.demo_password, random_password.demo[k].result) } })
 }
+
+# 외부 MCP 연결 (사용자 요구 11/18: 다른 챗봇·문서 생성 앱이 같은 Gateway 도구를 쓰게). 서버 간 client_credentials, 읽기 범위만.
+# 사람 사용자 없이 들어오므로 Gateway interceptor 가 acl ALL(공개) 문서·읽기 도구만 허용한다(dhxorb96).
+resource "random_id" "auth_domain" { byte_length = 3 }
+
+resource "aws_cognito_user_pool_domain" "this" {
+  domain       = "${var.n.prefix}-auth${var.n.suffix}-${random_id.auth_domain.hex}"
+  user_pool_id = aws_cognito_user_pool.this.id
+}
+
+resource "aws_cognito_resource_server" "mcp" {
+  identifier   = "hanaeum-mcp"
+  name         = "${var.n.prefix}-mcp${var.n.suffix}"
+  user_pool_id = aws_cognito_user_pool.this.id
+  scope {
+    scope_name        = "read"
+    scope_description = "위키 검색·근거·규정·그래프·정리본 읽기"
+  }
+}
+
+resource "aws_cognito_user_pool_client" "mcp_external" {
+  name                                 = "${var.n.prefix}-cognito-mcp-external${var.n.suffix}"
+  user_pool_id                         = aws_cognito_user_pool.this.id
+  generate_secret                      = true
+  allowed_oauth_flows_user_pool_client = true
+  allowed_oauth_flows                  = ["client_credentials"]
+  allowed_oauth_scopes                 = ["${aws_cognito_resource_server.mcp.identifier}/read"]
+  supported_identity_providers         = ["COGNITO"]
+  access_token_validity                = 60
+  token_validity_units { access_token = "minutes" }
+}
+
+resource "aws_secretsmanager_secret" "mcp_external" {
+  name                    = "${var.n.prefix}/mcp-external-client${var.n.suffix}"
+  kms_key_id              = var.kms_key_arn
+  recovery_window_in_days = 0
+}
+
+resource "aws_secretsmanager_secret_version" "mcp_external" {
+  secret_id = aws_secretsmanager_secret.mcp_external.id
+  secret_string = jsonencode({
+    client_id      = aws_cognito_user_pool_client.mcp_external.id
+    client_secret  = aws_cognito_user_pool_client.mcp_external.client_secret
+    token_endpoint = "https://${aws_cognito_user_pool_domain.this.domain}.auth.${data.aws_region.current.region}.amazoncognito.com/oauth2/token"
+    scope          = "${aws_cognito_resource_server.mcp.identifier}/read"
+  })
+}
+
+output "mcp_external_client_id" { value = aws_cognito_user_pool_client.mcp_external.id }
+output "mcp_external_secret" { value = aws_secretsmanager_secret.mcp_external.name }
 
 output "user_pool_id" { value = aws_cognito_user_pool.this.id }
 output "client_id" { value = aws_cognito_user_pool_client.web.id }

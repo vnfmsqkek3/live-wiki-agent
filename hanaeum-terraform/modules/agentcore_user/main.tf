@@ -23,6 +23,10 @@ variable "image_tag" {
 }
 variable "model_sonnet" { type = string }
 variable "model_haiku" { type = string } # 가이드 여러 번 찾기 항목 뽑기 (11/18)
+variable "extra_allowed_clients" {
+  type    = list(string)
+  default = [] # 외부 MCP 연결 client_credentials 클라이언트 (11/18)
+}
 
 data "aws_region" "this" {}
 data "aws_caller_identity" "me" {}
@@ -98,7 +102,7 @@ resource "aws_bedrockagentcore_gateway" "user" {
   authorizer_configuration {
     custom_jwt_authorizer {
       discovery_url   = local.discovery
-      allowed_clients = [var.cognito_client_id]
+      allowed_clients = concat([var.cognito_client_id], var.extra_allowed_clients)
     }
   }
   interceptor_configuration {

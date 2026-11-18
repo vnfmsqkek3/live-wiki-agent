@@ -150,17 +150,18 @@ resource "terraform_data" "agent_image" {
 
 # 사용자 Gateway + 가이드 Runtime (docs/01 11장)
 module "user" {
-  source               = "../modules/agentcore_user"
-  n                    = local.n
-  kms_key_arn          = module.kms.key_arn
-  cognito_user_pool_id = module.cognito.user_pool_id
-  cognito_client_id    = module.cognito.client_id
-  interceptor_arn      = module.team["interceptor"].arn
-  schema_bucket        = { name = module.s3.buckets["artifact"].name, arn = module.s3.buckets["artifact"].arn }
-  model_sonnet         = var.models["MODEL_SONNET"]
-  model_haiku          = var.models["MODEL_HAIKU"]
-  create_runtime       = local.agents_ref != null
-  image_tag            = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
+  source                = "../modules/agentcore_user"
+  n                     = local.n
+  kms_key_arn           = module.kms.key_arn
+  cognito_user_pool_id  = module.cognito.user_pool_id
+  cognito_client_id     = module.cognito.client_id
+  interceptor_arn       = module.team["interceptor"].arn
+  schema_bucket         = { name = module.s3.buckets["artifact"].name, arn = module.s3.buckets["artifact"].arn }
+  model_sonnet          = var.models["MODEL_SONNET"]
+  model_haiku           = var.models["MODEL_HAIKU"]
+  extra_allowed_clients = [module.cognito.mcp_external_client_id]
+  create_runtime        = local.agents_ref != null
+  image_tag             = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
   targets = {
     search     = { lambda_arn = module.team["mcp-search"].arn, tools_json = file("${path.module}/../../mcp/search-server/tools.json") }
     regulation = { lambda_arn = module.team["mcp-regulation"].arn, tools_json = file("${path.module}/../../mcp/regulation-server/tools.json") }
@@ -246,4 +247,5 @@ resource "aws_ssm_parameter" "p" {
 output "ssm_prefix" { value = "/hanaeum-mvp/${var.env}/" }
 output "web_url" { value = try(module.webapp[0].url, null) }
 output "demo_users_secret" { value = module.cognito.demo_users_secret }
+output "mcp_external_secret" { value = module.cognito.mcp_external_secret }
 output "network" { value = module.network }

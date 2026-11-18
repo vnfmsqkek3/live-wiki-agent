@@ -51,4 +51,5 @@ module "stack" {
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
 output "demo_users_secret" { value = module.stack.demo_users_secret }
+output "mcp_external_secret" { value = module.stack.mcp_external_secret }
 output "web_url" { value = module.stack.web_url }
