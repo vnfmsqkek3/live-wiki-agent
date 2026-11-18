@@ -540,7 +540,7 @@ export function createApp(deps: Deps) {
       const v = d?.previous_doc_id && status === 'PENDING' ? await versionDiff(c.get('actor'), d).catch(() => null) : null;
       // 규칙 3: 승인자는 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히'(문서 상세)
       const summary_line = (d?.summary ?? '').split(/(?<=[.다])\s+/u)[0]?.slice(0, 140) || null;
-      return { ...r, task_token: undefined, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD',
+      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD',
         ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
@@ -562,7 +562,11 @@ export function createApp(deps: Deps) {
     // 반려·재검증은 변경된 객체에도 가능해야 하므로 바인딩 검증은 APPROVE에만 적용
     // 버전 ID는 불변 → 현재 객체 버전이 게시 요청 때와 같아야 승인. 해시는 Promote가 바이트로 재검증한다
     const bind = { s3_version_id: status === 'APPROVED' ? head.s3_version_id : apr.s3_version_id, content_hash: apr.content_hash };
-    const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, ...(a.username ? { approver_name: a.username } : {}), reason: b.reason, ...bind });
+    // 자기 결재: 관리자(PLATFORM_OPERATOR)만 허용 — 사용자 결정 11/18("MVP라서 상관없어", 사용자 직접 확인). 그 밖의 결재자는 금지 유지
+    const self = apr.author_sub === a.sub;
+    if (self && !hasRole(a, ['PLATFORM_OPERATOR'])) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
+    const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, ...(a.username ? { approver_name: a.username } : {}), reason: b.reason, ...bind, ...(self ? { self_approved: true } : {}) });
+    if (self) await audit(c, 'SELF_APPROVAL', apr.approval_id);
     const now = new Date().toISOString();
     if (b.decision === 'REVALIDATE') await store.putDoc({ ...d, lifecycle: 'IN_REVIEW', freshness: 'REVIEW_REQUIRED', updated_at: now });
     else if (status === 'REJECTED') await store.putDoc({ ...d, lifecycle: 'BLOCKED', authority_status: 'REJECTED', updated_at: now });

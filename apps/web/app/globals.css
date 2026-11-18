@@ -868,3 +868,4 @@ html:has(.submit-bar) { scroll-padding-top:120px; }
 .clarify-input .field { flex:1 1 220px; }
 .clarify-dismiss { margin-top:8px; }
 .clarify-dismiss .field { flex:1 1 220px; }
+.kind-tag.own { margin-left:6px; border-color:var(--navy-600); color:var(--navy-600); }

@@ -73,14 +73,15 @@ export function postgresStore(d: Db = connect()): PostgresStore {
       return (await q('SELECT * FROM approvals WHERE status = :status ORDER BY created_at', { status })).map((r) => compact<ApprovalRecord>(r));
     },
     async decideApproval(id, n) {
-      const [r] = await q(`UPDATE approvals SET status = :next, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = now()
-        WHERE approval_id = :id AND status = 'PENDING' AND author_sub <> :ap AND s3_version_id = :v AND content_hash = :h RETURNING *`,
-      { id, next: n.status, ap: n.approver_sub, an: n.approver_name ?? null, r: n.reason, v: n.s3_version_id, h: n.content_hash });
+      // 자기 결재는 API 가 관리자(PLATFORM_OPERATOR)에게만 self_approved=true 로 허용 (DB 제약 approvals_no_self_approval 과 같은 규칙)
+      const [r] = await q(`UPDATE approvals SET status = :next, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = now(), self_approved = :self
+        WHERE approval_id = :id AND status = 'PENDING' AND ${n.self_approved ? 'author_sub = :ap' : 'author_sub <> :ap'} AND s3_version_id = :v AND content_hash = :h RETURNING *`,
+      { id, next: n.status, ap: n.approver_sub, an: n.approver_name ?? null, r: n.reason, v: n.s3_version_id, h: n.content_hash, self: !!n.self_approved });
       if (r) return compact<ApprovalRecord>(r);
       const cur = await getApproval(id); // 실패 사유 분류용 재조회 (DynamoDB 구현과 같은 오류)
       if (!cur) throw new ApiError('NOT_FOUND', 'approval not found');
       if (cur.status !== 'PENDING') throw new ApiError('CONFLICT', 'approval is not pending');
-      if (cur.author_sub === n.approver_sub) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
+      if ((cur.author_sub === n.approver_sub) !== !!n.self_approved) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
       throw new ApiError('CONFLICT', 'document changed after review');
     },
     async consumeApproval(id) {

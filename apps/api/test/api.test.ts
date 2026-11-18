@@ -10,6 +10,7 @@ const USERS: Record<string, Actor> = {
   author2: { sub: 'u-author2', groups: ['AUTHOR'], dept: 'loan' },
   approver: { sub: 'u-approver', groups: ['REG_APPROVER'], dept: 'compliance' },
   authorApprover: { sub: 'u-author', groups: ['AUTHOR', 'REG_APPROVER'] }, // 같은 sub로 자기 승인 시도
+  authorAdmin: { sub: 'u-author', groups: ['AUTHOR', 'REG_APPROVER', 'PLATFORM_OPERATOR'] }, // 관리자 본인 문서 (11/18 허용)
   user: { sub: 'u-user', groups: ['USER'], dept: 'loan' },
 };
 
@@ -97,7 +98,18 @@ test('보안: 자기 승인 거부', async () => {
   const t = setup();
   const { approval_id } = await submitted(t);
   const r = await t.call('authorApprover', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
-  assert.equal(r.status, 403);
+  assert.equal(r.status, 403); // 일반 결재자(REG_APPROVER)는 본인 문서 승인 금지 유지
+});
+
+test('관리자(PLATFORM_OPERATOR)는 본인 문서 승인 가능 — self_approved, 감사 SELF_APPROVAL, 결재함 own 표시 (사용자 결정 11/18)', async () => {
+  const t = setup();
+  const { approval_id } = await submitted(t);
+  const list = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; own: boolean }[] };
+  assert.equal(list.items.find((i) => i.approval_id === approval_id)?.own, true);
+  const r = await t.call('authorAdmin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
+  assert.equal(r.status, 200);
+  assert.equal((await t.store.getApproval(approval_id))?.self_approved, true);
+  assert.ok((t.store as unknown as { audits: { action: string }[] }).audits.some((a) => a.action === 'SELF_APPROVAL'));
 });
 
 test('보안: 검사 후 파일 변경 시 승인 거부 (409)', async () => {

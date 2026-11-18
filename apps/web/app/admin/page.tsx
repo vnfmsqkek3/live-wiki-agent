@@ -10,7 +10,7 @@ import { accountLabel } from '../lib/roles';
 import { Icon } from '../icons';
 import { Seal } from '../seal';
 
-interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string }
+interface Item { approval_id: string; doc_id: string; own?: boolean; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string }
 interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_MISMATCH' | 'BLOCKED'; findings: { message: string; user_message?: string; evidence_ref: string }[] }
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
@@ -111,6 +111,7 @@ export default function Admin() {
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                 {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
                 <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'} · AI 검사 통과</span>
+                {i.own && <span className="kind-tag own" title="관리자 본인이 올린 문서입니다. 승인하면 자기 승인으로 기록됩니다.">본인 문서</span>}
                 <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
                 {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
                 {i.version?.changes?.length ? (

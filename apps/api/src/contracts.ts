@@ -149,6 +149,8 @@ export interface ApprovalRecord {
   reason?: string;
   decided_at?: string;
   created_at: string;
+  /** 관리자 본인 문서 결재 (사용자 결정 11/18) */
+  self_approved?: boolean;
 }
 
 /** 수정 초안. Agent가 만들지만 게시되지 않는다 (사람 재승인 필요, docs/01 6장) */

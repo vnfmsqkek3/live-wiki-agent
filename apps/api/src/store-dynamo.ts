@@ -64,12 +64,12 @@ export function dynamoStore(t: Tables, client = new DynamoDBClient({})): Store {
       try {
         const r = await db.send(new UpdateCommand({
           TableName: t.approvals, Key: { pk: `APR#${id}`, sk: 'META' },
-          ConditionExpression: 'attribute_exists(pk) AND #s = :pending AND author_sub <> :ap AND s3_version_id = :v AND content_hash = :h',
-          UpdateExpression: 'SET #s = :next, gsi1pk = :g, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = :at',
+          ConditionExpression: `attribute_exists(pk) AND #s = :pending AND ${n.self_approved ? 'author_sub = :ap' : 'author_sub <> :ap'} AND s3_version_id = :v AND content_hash = :h`,
+          UpdateExpression: 'SET #s = :next, gsi1pk = :g, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = :at, self_approved = :self',
           ExpressionAttributeNames: { '#s': 'status' },
           ExpressionAttributeValues: {
             ':pending': 'PENDING', ':next': n.status, ':g': `APR_STATUS#${n.status}`, ':ap': n.approver_sub, ':an': n.approver_name ?? '', ':r': n.reason,
-            ':at': new Date().toISOString(), ':v': n.s3_version_id, ':h': n.content_hash,
+            ':at': new Date().toISOString(), ':v': n.s3_version_id, ':h': n.content_hash, ':self': !!n.self_approved,
           },
           ReturnValues: 'ALL_NEW',
         }));
@@ -79,7 +79,7 @@ export function dynamoStore(t: Tables, client = new DynamoDBClient({})): Store {
         const cur = await getApproval(id); // 실패 사유 분류용 재조회
         if (!cur) throw new ApiError('NOT_FOUND', 'approval not found');
         if (cur.status !== 'PENDING') throw new ApiError('CONFLICT', 'approval is not pending');
-        if (cur.author_sub === n.approver_sub) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
+        if ((cur.author_sub === n.approver_sub) !== !!n.self_approved) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
         throw new ApiError('CONFLICT', 'document changed after review');
       }
     },
