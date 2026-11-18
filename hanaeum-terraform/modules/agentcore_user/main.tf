@@ -138,6 +138,8 @@ resource "aws_bedrockagentcore_gateway_target" "t" {
     }
   }
   depends_on = [aws_iam_role_policy.gateway]
+  # Gateway 는 도구 스키마를 대상 생성 때만 읽는다(11/18 get_wiki_document 추가가 반영 안 됨) → 스키마가 바뀌면 대상을 다시 만든다
+  lifecycle { replace_triggered_by = [aws_s3_object.schema[each.key]] }
 }
 
 resource "aws_bedrockagentcore_policy" "user_tools" {
