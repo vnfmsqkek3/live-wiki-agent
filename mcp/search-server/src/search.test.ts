@@ -377,6 +377,7 @@ test("related: 질의 핵심어가 없는 조각·그림 설명 조각은 '관�
   assert.deepEqual(queryTerms("개인정보에서 [전화번호] MFC"), ["개인정보", "mfc"]); // 조사·가림 표시 제거, 소문자
   assert.equal(hasTerm("성명 [개인정보] 연락처", ["개인정보"]), false); // 가림 표시는 핵심어로 안 침
   assert.equal(hasTerm("개인 정보 수집 동의서", ["개인정보"]), true); // 띄어쓰기 무시
+  assert.equal(hasTerm("[개인정보 보호법]제15조제1항에 따라", ["개인정보"]), true); // 대괄호 법령명은 가림 표시가 아님
   assert.equal(hasTerm("MFC-L5700DN 드라이버", ["mfc"]), true);
   assert.equal(hasTerm("아무 글", []), true);
 });
