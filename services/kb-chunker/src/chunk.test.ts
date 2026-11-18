@@ -168,3 +168,47 @@ test("쪽 맥락은 본문 조각 검색 머리·page_context로만, 쪽 정리�
   const reg = chunkDocument("제1조(목적) 이 규정은 정한다.\n⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 요약", meta({ document_type: "REGULATION", law_id: "SYN-X", law_name: "x", revision_id: "2026-11-01" }));
   assert.ok(reg.every((c) => !c.metadata.evidence_kind));
 });
+
+test("장(章): 0 채운 장 번호가 커질 때만 새 장, 번호 없는 쪽·글자 없는 쪽은 앞 장을 이음 (과천 매뉴얼, PR #43 리뷰)", () => {
+  const pages = ["표지 MEGAZONE", "목차", "01.층별 복합기 정보", "01 층별 복합기 정보\n| ① | N620 |", "02.삼성 복합기 드라이버", "1. 다운로드 자료실 접속", "3. 압축 해제 후 설치", "", "① 드라이버 받기", "03 신도 복합기"];
+  const cs = chunkDocument(pages.join("\n\f\n") + "\n⟦그림 p7⟧ 그림 1 속 글자: 설치 완료", meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const at = (p: number) => cs.find((c) => !c.metadata.has_figure && c.metadata.source_page === p)?.metadata;
+  assert.equal(at(0)!.section, undefined);
+  assert.deepEqual([at(3)!.section, at(3)!.section_pages], ["01 층별 복합기 정보", "3-4"]);
+  // 단계 번호 "1."·"3."·"①"은 장을 가로채지 않음, 2장은 5~9쪽
+  for (const p of [5, 6, 8]) assert.deepEqual([at(p)!.section, at(p)!.section_pages], ["02 삼성 복합기 드라이버", "5-9"], `p${p}`);
+  assert.equal(cs.find((c) => c.metadata.has_figure)!.metadata.section, "02 삼성 복합기 드라이버"); // 글자 없는 8쪽 그림도 같은 장
+  assert.deepEqual([at(9)!.section, at(9)!.section_pages], ["03 신도 복합기", "10-10"]);
+  assert.ok(chunkDocument("제1조(목적) 이 규정은 정한다.", meta()).every((c) => !c.metadata.section));
+});
+
+test("장 번호: 10장 이상도 이어지고, 구분자 없는 숫자(전화번호)·건너뛴 큰 번호 단계는 장 아님 (PR #43 재리뷰)", () => {
+  const pages = ["09 아홉째 장", "10 열째 장", "02-1234-5678 대표번호", "15. 설치 단계", "11.열한째 장"];
+  const cs = chunkDocument(pages.join("\n\f\n"), meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  const sec = (p: number) => cs.find((c) => c.metadata.source_page === p)!.metadata.section;
+  assert.deepEqual([0, 1, 2, 3, 4].map(sec), ["09 아홉째 장", "10 열째 장", "10 열째 장", "10 열째 장", "11 열한째 장"]);
+});
+
+test("검색 텍스트에서 마스킹 흔적 제거, 인용 원문은 그대로 (사용자 지적 11/18: 가린 문서가 '개인정보' 검색에 걸림)", () => {
+  const txt = "주소 종류 [개인정보] / 등록명 [개인정보] 입력 후 저장\n담당 [전화번호] {LICENSE_PLATE}\n\f\n⟦그림 p1⟧ 쪽 정리(AI, 그림 기준): 주소록 등록 화면. 일부 입력 필드는 [개인정보]로 가려져 있다. 중앙에 개인정보 가림 처리된 회색 박스. / 표기: 다운로드 / 개인정보 / 개인정보 / 의도: 등록";
+  const cs = chunkDocument(txt, meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  for (const c of cs) assert.doesNotMatch(c.augmented_search_text, /개인정보|전화번호|LICENSE_PLATE|가려져|가림/u, c.augmented_search_text);
+  assert.match(cs[0]!.augmented_search_text, /주소 종류 \/ 등록명 입력 후 저장/u);
+  assert.match(cs.find((c) => c.metadata.has_figure)!.augmented_search_text, /주소록 등록 화면\./u);
+  assert.match(cs[0]!.metadata.original_text, /\[개인정보\]/u); // 인용·화면은 그대로
+  // 규정 본문의 "마스킹 처리" 문장은 진짜 내용 → 남김
+  assert.match(chunkDocument("제3조(보관) 주민등록번호는 마스킹 처리하여 보관한다.", meta())[0]!.augmented_search_text, /마스킹 처리하여 보관한다/u);
+});
+
+test("마스킹 흔적 제거 경계 (PR #44 리뷰): 실제 기능 설명은 남김, 접두 유지, 다 지워지면 원래대로, 긴 줄도 빠름", () => {
+  const km = meta({ document_type: "MANUAL", index_group: "wiki-knowledge" });
+  const fig = (t: string) => chunkDocument(`본문\n⟦그림 p0⟧ ${t}`, km).find((c) => c.metadata.has_figure)!.augmented_search_text.split("\n")[1]!;
+  assert.equal(fig("쪽 정리(AI, 그림 기준): 회색 박스로 가려져 있다. 조회 화면이다."), "쪽 정리(AI, 그림 기준): 조회 화면이다.");
+  assert.match(fig("쪽 정리(AI, 그림 기준): 주민번호 뒷자리가 마스킹된 상태로 표시된다. 처리 시간 1.5초."), /마스킹된 상태로 표시된다\. 처리 시간 1\.5초\./u);
+  assert.equal(fig("그림 1 속 글자: [개인정보]"), "그림 1 속 글자: [개인정보]"); // 다 지워지면 원래대로
+  assert.equal(fig("그림 1 속 글자: 메뉴 / 개인정보 / 비밀번호 변경"), "그림 1 속 글자: 메뉴 / 비밀번호 변경");
+  const t0 = Date.now(); fig("쪽 정리(AI, 그림 기준): " + "가".repeat(50000) + " 가림 처리"); assert.ok(Date.now() - t0 < 500, "선형 시간");
+  // 쪽 맥락의 칸 이름 "개인정보"도 빠짐
+  const pc = chunkDocument("본문\n⟦그림 p0⟧ 쪽 맥락(AI, 그림 기준): 등록 › 그림 1: 개인정보", km)[0]!;
+  assert.doesNotMatch(pc.augmented_search_text + (pc.metadata.page_context ?? ""), /개인정보/u);
+});
