@@ -1,4 +1,6 @@
-# 외부 MCP 연결 안내 (하나이음 위키)
+# 외부 MCP 연결 안내 — hanaeum-wiki-mcp (하나이음 위키)
+
+MCP 서버 이름은 `hanaeum-wiki-mcp` 로 통일합니다(다른 위키 MCP 와 헷갈리지 않게, 사용자 결정 11/18). 클라이언트 설정의 서버 키·scope 모두 이 이름을 씁니다.
 
 다른 챗봇·문서 생성 앱이 위키의 검색·근거·규정·정리본을 MCP 도구로 쓰는 방법입니다. 계약은 `docs/interfaces.md` 11장.
 
@@ -13,7 +15,7 @@
 curl -s -X POST "$TOKEN_ENDPOINT" \
   -H "Content-Type: application/x-www-form-urlencoded" \
   -u "$CLIENT_ID:$CLIENT_SECRET" \
-  -d "grant_type=client_credentials&scope=hanaeum-mcp/read"
+  -d "grant_type=client_credentials&scope=hanaeum-wiki-mcp/read"
 # → {"access_token": "...", "expires_in": 3600}
 ```
 
@@ -21,7 +23,7 @@ curl -s -X POST "$TOKEN_ENDPOINT" \
 ```json
 {
   "mcpServers": {
-    "hanaeum-wiki": {
+    "hanaeum-wiki-mcp": {
       "url": "<USER_GATEWAY_URL>",
       "headers": { "Authorization": "Bearer <access_token>" }
     }

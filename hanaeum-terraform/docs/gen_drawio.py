@@ -83,7 +83,7 @@ group(130, 105, 1950, 1180, "us-east-1", "region", "#00A4A6", dashed=1)
 # 엣지(글로벌)
 waf = icon(170, 150, "waf", "security", "WAF\nCommon·KnownBadInputs·rate")
 cf = icon(300, 150, "cloudfront", "network", "CloudFront\n/v1/* 캐시 없음·SSE")
-cog = icon(170, 290, "cognito", "security", "Cognito User Pool\nuser·approver·admin\n외부 MCP client_credentials\n(hanaeum-mcp/read)")
+cog = icon(170, 290, "cognito", "security", "Cognito User Pool\nuser·approver·admin\n외부 MCP client_credentials\n(hanaeum-wiki-mcp/read)")
 
 # ---------- VPC ----------
 group(420, 120, 640, 640, "VPC (public · app · data 서브넷)", "vpc", "#8C4FFF")

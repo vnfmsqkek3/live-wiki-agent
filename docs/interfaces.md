@@ -286,12 +286,12 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 조회 (API, dhxorb96) | 상세: 주장 목록(문장·관계·근거 조문·인용·상태). 조문 기준: "지지 N / 충돌 N" (`GROUP BY provision_id, relation`). 관리자: `SELECT * FROM knowledge_debt` (conflicts·review_required·unverified·healthy·docs_needing_attention) |
 | 나중 (칸만 있음) | `condition`(적용 조건), `group_id`·`embedding`(중복 묶기), Neptune CLAIM 노드 |
 
-## 11. 외부 MCP 연결 (Owner yoyo0704, 사용자 요구 11/18 "다른 챗봇·문서 생성 앱을 붙일 수 있게")
+## 11. 외부 MCP 연결 — `hanaeum-wiki-mcp` (Owner yoyo0704, 사용자 요구 11/18 "다른 챗봇·문서 생성 앱을 붙일 수 있게", 이름 결정 11/18)
 
 | 항목 | 계약 |
 |---|---|
 | 엔드포인트 | 사용자 Gateway(AgentCore, MCP) 그대로: SSM `/hanaeum-mvp/{env}/USER_GATEWAY_URL` |
-| 인증 | Cognito client_credentials. 시크릿 `hanaeum-mvp/mcp-external-client{-env}` = {client_id, client_secret, token_endpoint, scope `hanaeum-mcp/read`}. 토큰 60분. Gateway allowed_clients 에 등록됨 |
+| 인증 | Cognito client_credentials. 시크릿 `hanaeum-mvp/mcp-external-client{-env}` = {client_id, client_secret, token_endpoint, scope `hanaeum-wiki-mcp/read`}. 토큰 60분. Gateway allowed_clients 에 등록됨 |
 | 신원 (dhxorb96 interceptor) | 사람 sub 없는 토큰(client_id = 외부 클라이언트) → `__actor {sub:"client:{client_id}", groups:[]}`: acl ALL(공개) 게시 문서만 |
 | 도구 허용 (dhxorb96 interceptor) | 읽기만: search_wiki·retrieve_evidence·search_legal_clause·get_clause·get_official_policy·verify_version·resolve_reference·compare_versions·trace_impact·get_dependencies·get_wiki_document(신규). 거부: create_review_request·draft_change·detect_sensitive_data·masking_preview·get_status |
 | 신규 도구 get_wiki_document (let522mj search-server) | 입력 {doc_id}. 출력 {doc_id, title, document_type, category_path, version, freshness, pages:[{page, markdown(정리본, 마스킹), source}], doc_pages(묶음)}. PUBLISHED·현재 버전·acl 확인. 문서 생성형 앱이 원문 대신 정리본을 받아 씀 |

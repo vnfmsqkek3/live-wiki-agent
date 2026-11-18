@@ -165,8 +165,8 @@ resource "aws_cognito_user_pool_domain" "this" {
 }
 
 resource "aws_cognito_resource_server" "mcp" {
-  identifier   = "hanaeum-mcp"
-  name         = "${var.n.prefix}-mcp${var.n.suffix}"
+  identifier   = "hanaeum-wiki-mcp"
+  name         = "${var.n.prefix}-wiki-mcp${var.n.suffix}"
   user_pool_id = aws_cognito_user_pool.this.id
   scope {
     scope_name        = "read"
