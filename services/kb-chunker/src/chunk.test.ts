@@ -199,3 +199,16 @@ test("검색 텍스트에서 마스킹 흔적 제거, 인용 원문은 그대로
   // 규정 본문의 "마스킹 처리" 문장은 진짜 내용 → 남김
   assert.match(chunkDocument("제3조(보관) 주민등록번호는 마스킹 처리하여 보관한다.", meta())[0]!.augmented_search_text, /마스킹 처리하여 보관한다/u);
 });
+
+test("마스킹 흔적 제거 경계 (PR #44 리뷰): 실제 기능 설명은 남김, 접두 유지, 다 지워지면 원래대로, 긴 줄도 빠름", () => {
+  const km = meta({ document_type: "MANUAL", index_group: "wiki-knowledge" });
+  const fig = (t: string) => chunkDocument(`본문\n⟦그림 p0⟧ ${t}`, km).find((c) => c.metadata.has_figure)!.augmented_search_text.split("\n")[1]!;
+  assert.equal(fig("쪽 정리(AI, 그림 기준): 회색 박스로 가려져 있다. 조회 화면이다."), "쪽 정리(AI, 그림 기준): 조회 화면이다.");
+  assert.match(fig("쪽 정리(AI, 그림 기준): 주민번호 뒷자리가 마스킹된 상태로 표시된다. 처리 시간 1.5초."), /마스킹된 상태로 표시된다\. 처리 시간 1\.5초\./u);
+  assert.equal(fig("그림 1 속 글자: [개인정보]"), "그림 1 속 글자: [개인정보]"); // 다 지워지면 원래대로
+  assert.equal(fig("그림 1 속 글자: 메뉴 / 개인정보 / 비밀번호 변경"), "그림 1 속 글자: 메뉴 / 비밀번호 변경");
+  const t0 = Date.now(); fig("쪽 정리(AI, 그림 기준): " + "가".repeat(50000) + " 가림 처리"); assert.ok(Date.now() - t0 < 500, "선형 시간");
+  // 쪽 맥락의 칸 이름 "개인정보"도 빠짐
+  const pc = chunkDocument("본문\n⟦그림 p0⟧ 쪽 맥락(AI, 그림 기준): 등록 › 그림 1: 개인정보", km)[0]!;
+  assert.doesNotMatch(pc.augmented_search_text + (pc.metadata.page_context ?? ""), /개인정보/u);
+});

@@ -306,3 +306,23 @@ test("expand section: 걸린 조각의 같은 장 조각을 쪽 순서로 함께
   assert.deepEqual(e.items.map((i) => i.provision_id), ["K-001#p11", "K-001#p12", "K-001#p13", "K-001#p13s10"]); // 쪽·숫자 순서, 다른 장·인용 불가 그림 제외
   await assert.rejects(t.search_wiki({ query: "x", expand: "all" }, user), /expand/u);
 });
+
+test("related 하한 (PR #44 리뷰): Rerank 1위가 근거 미달이면 0.10 미만 조각은 숨김, HYBRID 대체(재정렬 없음)는 하한 미적용", async () => {
+  const { BedrockRetriever } = await import("./search.ts");
+  const mk = (rerankScores: number[] | Error) => {
+    const r = new BedrockRetriever("kb", "arn:rerank");
+    (r as unknown as { c: { send: (cmd: { input: { retrievalConfiguration: { vectorSearchConfiguration: { rerankingConfiguration?: unknown } } } }) => Promise<unknown> } }).c = {
+      send: async (cmd) => {
+        const rr = !!cmd.input.retrievalConfiguration.vectorSearchConfiguration.rerankingConfiguration;
+        if (rr && rerankScores instanceof Error) throw rerankScores;
+        const sc = rr ? rerankScores as number[] : [0.02, 0.01];
+        return { retrievalResults: sc.map((score, i) => ({ score, content: { text: `t${i}` }, metadata: { provision_id: `p${i}` } })) };
+      },
+    };
+    return r;
+  };
+  const weak = await mk([0.25, 0.11, 0.09]).retrieve("q");
+  assert.deepEqual(weak.map((h) => [h.metadata["provision_id"], h.weak]), [["p0", true], ["p1", true]]);
+  const fallback = await mk(Object.assign(new Error("no model access"), { name: "AccessDeniedException" })).retrieve("q");
+  assert.equal(fallback.length, 2); // 대체 경로는 점수 체계가 달라 하한 없음
+});

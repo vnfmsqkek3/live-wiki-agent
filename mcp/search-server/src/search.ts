@@ -118,7 +118,8 @@ export class BedrockRetriever implements Retriever {
     if (!rerankArn) return hits;
     const top = Math.max(0, ...hits.map((h) => h.score));
     if (top < RELATED_MIN) return [];
-    const kept = hits.filter((h) => h.score >= top * RERANK_RATIO);
+    // 근거 미달(weak)이면 조각마다 RELATED_MIN 하한도 (1위 대비 비율로 남은 0.1 미만 잡음 숨김, 사용자 지적 11/18). Rerank 점수에만 적용
+    const kept = hits.filter((h) => h.score >= Math.max(top * RERANK_RATIO, top < RERANK_TOP1_MIN ? RELATED_MIN : 0));
     return top < RERANK_TOP1_MIN ? kept.map((h) => ({ ...h, weak: true })) : kept;
   }
 }
@@ -333,8 +334,7 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     }
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
     const top = kept.filter((r) => !r.weak).slice(0, k);
-    // 관련 가능 문서도 조각마다 하한 (1위 대비 비율로 남은 0.1 미만 잡음·재구성 질의만 맞은 약한 결과 숨김, 사용자 지적 11/18)
-    const related = kept.filter((r) => r.weak && r.score >= RELATED_MIN).slice(0, k);
+    const related = kept.filter((r) => r.weak).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
     const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
     return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
