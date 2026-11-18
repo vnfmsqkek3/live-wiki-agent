@@ -113,10 +113,10 @@ function ReviewView() {
         <ol className="steps-line" aria-label="진행 단계">
           <li className="done">올리기</li>
           <li className={blocked ? 'bad' : r.lifecycle === 'QUARANTINED' ? 'now' : 'done'}>AI 검사{blocked && ' · 차단'}</li>
-          <li className={blocked || r.lifecycle === 'QUARANTINED' ? '' : r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : 'done'}>고칠 것{open.length > 0 && <b className="num"> {open.length}</b>}</li>
+          <li className={blocked || r.lifecycle === 'QUARANTINED' ? '' : r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : 'done'}>고칠 것·확인{open.length > 0 && <b className="num"> {open.length}</b>}</li>
           <li className={submitted || r.lifecycle === 'PENDING_APPROVAL' ? 'now' : ''}>게시 요청</li>
         </ol>
-        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `고칠 것 ${open.length}건 남음` : '검토 마치고 게시 요청'}</button>
+        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `남은 일 ${open.length}건` : '검토 마치고 게시 요청'}</button>
         <p aria-live="polite" className="note submit-msg">{msg}</p>
       </div>
       <div className="layout-a review-layout"><div className="primary">
