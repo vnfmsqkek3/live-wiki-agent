@@ -187,7 +187,7 @@ function ReviewView() {
               {f.suggestion && <p><strong>AI 수정 제안:</strong> {f.suggestion}</p>}
               {!f.acknowledged && canFix && <div className="actions">
                 {f.code === 'KNOWHOW_CONFLICT' && <button type="button" className="btn solid" onClick={() => applyFix(f)}>{f.suggestion ? '제안대로 고치기' : '직접 고치기'}</button>}
-                {f.code === 'KNOWHOW_CONFLICT' && isAdmin && <button type="button" className="btn" onClick={() => { setEditFocus(f.excerpt); setEditInit((editInit !== null ? cur ?? editInit : null) ?? r.text!); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>편집기로 바로가기</button>}
+                {f.code === 'KNOWHOW_CONFLICT' && isAdmin && <button type="button" className="btn" onClick={() => { const t = (editInit !== null ? cur ?? editInit : null) ?? r.text!; setEditFocus(f.excerpt && t.includes(f.excerpt) ? f.excerpt : f.suggestion ?? f.excerpt); setEditInit(t); /* 제안대로 고친 뒤면 원문이 없으므로 고친 문장을 고른다 (prod 2회차 H5) */ setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>편집기로 바로가기</button>}
                 {f.code === 'KNOWHOW_CONFLICT' && <details className="clarify-dismiss"><summary>그대로 사용</summary>
                   <div className="actions" style={{ marginTop: 4 }}>
                     <input className="field" aria-label="그대로 사용 사유" placeholder="사유 한 줄 (승인자에게 보입니다)" maxLength={200} value={keep[f.finding_id] ?? ''} onChange={(e) => setKeep((t) => ({ ...t, [f.finding_id]: e.target.value }))} />
