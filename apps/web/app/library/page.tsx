@@ -218,7 +218,7 @@ function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; o
         </blockquote>
       )}
       {m.fix && m.fix !== m.revision && <p className={trio ? 'note' : undefined}><strong>고칠 내용</strong> {m.fix}</p>}
-      {locked && m.original && <p className="note">{locked}</p>}
+      {locked && m.original && <><p className="note">{locked}</p>{locked.startsWith('규정') && <div className="actions"><Link className="btn solid" href="/upload">공식 원본 다시 올리기</Link></div>}</>}
       {inline && draft === null && <div className="actions">{ai && <button type="button" className="btn solid" onClick={() => setDraft(m.revision!)}>AI 제안대로 수정</button>}<button type="button" className={ai ? 'btn' : 'btn solid'} onClick={() => setDraft(m.original!)}>{ai ? '직접 수정' : '수정'}</button></div>}
       {inline && draft !== null && <div className="fix-edit">
         <label className="lbl" htmlFor={`fix-in-${n ?? 'd'}`}>고친 문장</label>
@@ -551,7 +551,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const body = d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n');
   const editAt = canWikiEdit ? (text: string, to?: string) => { const ai = !!to && body.includes(text); setFixOpen(false); setEditFocus(ai ? to : text); setEditing(ai ? body.replace(text, to!) : ''); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ block: 'start' }), 0); } : undefined;
   // 수정 버튼이 없는 이유를 카드에 적는다 (규정은 위키 수정 불가: 공식 원본 파일로만 바뀐다)
-  const fixLocked = canWikiEdit ? undefined : d.freshness === 'SUPERSEDED' ? '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요.' : (d.document_type ?? 'KNOWHOW') === 'REGULATION' ? '규정은 이 화면에서 고칠 수 없습니다. 공식 원본 파일을 문서 등록에서 다시 올려 주세요.' : d.lifecycle !== 'PUBLISHED' ? '게시 전 문서는 검토 화면에서 고칩니다.' : undefined;
+  const fixLocked = canWikiEdit ? undefined : d.freshness === 'SUPERSEDED' ? '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요.' : (d.document_type ?? 'KNOWHOW') === 'REGULATION' ? '규정은 이 화면에서 고칠 수 없습니다. 공식 원본 파일을 다시 올리면 AI가 공식 원본과 대조해 검증합니다.' : d.lifecycle !== 'PUBLISHED' ? '게시 전 문서는 검토 화면에서 고칩니다.' : undefined;
   const jump = (i: number, n: number) => { setImages(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   // 문서 정보는 머리에서 빼 '한눈에 보기' 패널로 (Fable 재배치안 11/18: 머리는 제목·상태 문장·결재란만)
   const docMeta = (<dl className="meta-grid">
