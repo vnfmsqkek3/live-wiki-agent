@@ -926,3 +926,5 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .todo-list { list-style:none; margin:0 0 12px; padding:0; }
 .todo-list li { padding:10px 0; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
 .todo-list li:last-child { border-bottom:0; }
+
+.detail-card.judge .card-count:not(.warn) { color:var(--navy-900); } /* 0건은 경고색 아님 (11/18 dev 시험) */

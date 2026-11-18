@@ -5,7 +5,7 @@ import { PageHeader } from '../page-header';
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError, getSession, type DocChange, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
-import { decideApproval, rejectSource } from '../lib/decide';
+import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
 import { Icon } from '../icons';
 import { Seal } from '../seal';
@@ -77,14 +77,15 @@ export default function Admin() {
   }, []);
 
   async function onRejectSource(docId: string) {
-    const r = await rejectSource(docId);
+    const r = await rejectSource(docId, opinion[docId] ?? '');
     if (!r) return;
     if (r.status) setDone((d) => ({ ...d, [docId]: r.status! }));
     setMsg(r.msg);
   }
 
+  const [opinion, setOpinion] = useState<Record<string, string>>({}); // 카드별 결재 의견
   async function decide(id: string, decision: 'APPROVE' | 'REJECT') {
-    const r = await decideApproval(id, decision);
+    const r = await decideApproval(id, decision, opinion[id] ?? '');
     if (!r) return;
     if (r.status) setDone((d) => ({ ...d, [id]: r.status! }));
     setMsg(r.msg);
@@ -123,7 +124,7 @@ export default function Admin() {
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                 {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
                 <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. '다른 곳 보기'에서 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
-                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
+                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <><input className="field" aria-label="반려 사유" maxLength={300} placeholder="반려 사유 (예: 공식 원본과 승인 기준 금액이 다름)" value={opinion[i.doc_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.doc_id]: e.target.value }))} /><div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div></>}
               </li>
             ))}
           </PaginatedList>
@@ -146,6 +147,11 @@ export default function Admin() {
                 <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
                 {!done[i.approval_id] && (
                   <div className="actions">
+                    <div className="opinion">
+                      <label className="lbl" htmlFor={`op-${i.approval_id}`}>결재 의견</label>
+                      <div className="actions" style={{ marginTop: 4 }}>{APPROVE_CHIPS.map((c) => <button key={c} type="button" className={`btn chip-btn${opinion[i.approval_id] === c ? ' solid' : ''}`} onClick={() => setOpinion((x) => ({ ...x, [i.approval_id]: c }))}>{c}</button>)}</div>
+                      <input id={`op-${i.approval_id}`} className="field" maxLength={300} placeholder="의견 직접 입력 (반려는 사유 필수)" value={opinion[i.approval_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.approval_id]: e.target.value }))} />
+                    </div>
                     {/* 사람이 확인 → 판단 순서: 문서 확인을 먼저, 같은 크기의 버튼으로 (사용자 지적 11/18: 밑줄 글자라 안 보임) */}
                     <Link className="btn" href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}><Icon name="library" />{viewed[i.doc_id] ? '확인함 · 다시 보기' : '문서 확인'}</Link>
                     <span className="actions-gap" aria-hidden="true" />

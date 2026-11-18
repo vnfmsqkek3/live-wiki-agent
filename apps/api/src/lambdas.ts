@@ -147,6 +147,8 @@ export function makeInjectionScan(deps: SegmentDeps) {
 export function makeReferenceCheck(deps: SegmentDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     if (!deps.findClarify) return { status: 'OK', findings: [] };
+    // 규정은 위키에서 고칠 수 없어 '확인 필요' 질문을 만들지 않는다 (11/18 dev 시험)
+    if (((await deps.store.getDoc(i.doc_id))?.document_type ?? '') === 'REGULATION') return { status: 'OK', findings: [] };
     // 전체 시간 예산 240초: Gateway 가 도구 호출을 ~300초에 끊는다 (11/18 dev 과천 가상판 실패). 넘으면 남은 웹 검색은 건너뛴다
     const t0 = Date.now(); const budget = Number(process.env.REFCHECK_BUDGET_MS ?? 240_000);
     const left = () => budget - (Date.now() - t0);

@@ -115,6 +115,8 @@ export function keepCandidates(cands: ClarifyCandidate[], docText: string, pageT
     const pt = c.page && pageText ? pageText(c.page) : undefined;
     if (clarifySeverity(c, pt) === 'MEDIUM' && !pt?.includes(b)) continue; // 잠금 항목은 그 쪽 원문에 그대로 있어야
     if (claimsIncomplete(c) && !reallyIncomplete(b, pt ?? docText)) continue;
+    // 이미 직책·부서인 말(심사역·영업점장·여신심사부)은 '누가 하는지' 질문이 아님 (11/18 dev 시험 오탐)
+    if (c.kind === 'VAGUE_ACTOR' && !ACTOR_VAGUE.test(c.span || c.item) && /(역|장|원|관|팀|부|실|센터|위원회)$/.test((c.span || c.item).trim())) continue;
     seen.add(b); out.push(c);
   }
   return out;

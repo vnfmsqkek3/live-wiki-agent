@@ -15,7 +15,7 @@ import { isRowText, rowAsTable } from '../clarify';
 import { Icon } from '../icons';
 import { RefSuggestions, withReference, type RefSuggestion } from '../ref-suggestions';
 import { Changes, PageFacts } from '../issues';
-import { decideApproval, rejectSource } from '../lib/decide';
+import { decideApproval, rejectSource, APPROVE_CHIPS } from '../lib/decide';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 /** ISO 시각 → 'YYYY-MM-DD' (한국 시간) */
@@ -280,20 +280,24 @@ function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: str
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState(false);
   const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) setDone(true); };
+  const [opinion, setOpinion] = useState('');
   if (!r.source_mismatch && !r.approval_id) return null;
   return (
     <section aria-labelledby="decide-h">
       <h3 className="section" id="decide-h">결재</h3>
-      {!done && (
+      {!done && <>
+        <label className="lbl" htmlFor="decide-op">{r.source_mismatch ? '반려 사유' : '결재 의견'}</label>
+        {!r.source_mismatch && <div className="actions" style={{ marginTop: 4 }}>{APPROVE_CHIPS.map((c) => <button key={c} type="button" className={`btn chip-btn${opinion === c ? ' solid' : ''}`} onClick={() => setOpinion(c)}>{c}</button>)}</div>}
+        <input id="decide-op" className="field" maxLength={300} value={opinion} placeholder={r.source_mismatch ? '예: 공식 원본과 승인 기준 금액이 다름' : '의견 직접 입력 (반려는 사유 필수)'} onChange={(e) => setOpinion(e.target.value)} />
         <div className="actions">
           {r.source_mismatch
-            ? <button className="btn" onClick={() => run(() => rejectSource(docId))}>반려</button>
+            ? <button className="btn" onClick={() => run(() => rejectSource(docId, opinion))}>반려</button>
             : <>
-                <button className="btn solid" onClick={() => run(() => decideApproval(r.approval_id!, 'APPROVE'))}>승인</button>
-                <button className="btn" onClick={() => run(() => decideApproval(r.approval_id!, 'REJECT'))}>반려</button>
+                <button className="btn" onClick={() => run(() => decideApproval(r.approval_id!, 'REJECT', opinion))}>반려</button>
+                <button className="btn solid" onClick={() => run(() => decideApproval(r.approval_id!, 'APPROVE', opinion))}>승인</button>
               </>}
         </div>
-      )}
+      </>}
       <p aria-live="polite" className="note">{msg}</p>
     </section>
   );
@@ -466,7 +470,9 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const k = page ? dps.findIndex((g) => g.pages.includes(page.page)) : -1;
   const figOf = (n: number) => Object.fromEntries((d.pages.find((pg) => pg.page === n)?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
   const goDoc = (j: number) => { const n = dps[j]?.pages[0]; const i = d.pages.findIndex((pg) => pg.page === n); if (i >= 0) go(i); };
-  const range = (g: { pages: number[] }) => (g.pages.length > 1 ? `${Math.min(...g.pages)}~${Math.max(...g.pages)}` : `${g.pages[0]}`);
+  // 쪽 번호는 원본 쪽 순서(1부터)로 보여 준다 (11/18 dev 시험: '원본 0쪽')
+  const nth = (n: number) => d.pages.findIndex((pg) => pg.page === n) + 1;
+  const range = (g: { pages: number[] }) => { const a = g.pages.map(nth).filter((x) => x > 0); return a.length > 1 ? `${Math.min(...a)}~${Math.max(...a)}` : `${a[0] ?? 1}`; };
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
   const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';

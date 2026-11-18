@@ -127,7 +127,7 @@ for (const file of FILES) {
   await sleep(4000);
   check('L1', locked === 'locked', `열어 보기 전 승인 버튼 ${locked}`);
   await go('/admin', 5000);
-  const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; b.click(); return 'clicked'; })()`);
+  const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '원문과 근거 조문을 확인함')?.click(); setTimeout(() => b.click(), 300); return 'clicked'; })()`); // 결재 의견은 카드 입력란(11/18, prompt 대신)
   await sleep(4000);
   const adminMsg = await ev("document.querySelector('p[aria-live]')?.textContent ?? ''");
   check('F5', approved === 'clicked' && /승인했습니다/.test(adminMsg), `admin 탭 ${a.tabs.join('·')} · 결재함 ${approved} · ${adminMsg.slice(0, 80)}`, await shot(`${tag}-F5-admin`));

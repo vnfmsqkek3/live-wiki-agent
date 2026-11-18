@@ -76,7 +76,8 @@ function ReviewView() {
   const reviewOpen = (r.reviews ?? []).filter((x) => !x.acknowledged);
   const fixOpen = (r.fixes ?? []).filter((f) => !f.acknowledged);
   const open = [...fixOpen, ...clarifyOpen, ...reviewOpen]; // 게시 요청 잠금 = 고칠 것 + 확인 필요(잠금 항목)
-  const canFix = r.lifecycle === 'IN_REVIEW' && r.text !== undefined;
+  // 규정은 위키에서 고칠 수 없다(사용자 결정 11/17) → 고치기·반영 버튼을 보이지 않는다 (11/18 dev 시험)
+  const canFix = r.lifecycle === 'IN_REVIEW' && r.text !== undefined && (r.classification?.document_type ?? '') !== 'REGULATION';
   /** AI 수정 제안 적용: 그 문장을 제안 문장으로 바꾼 본문으로 편집기를 연다 */
   const applyFix = (f: Fix) => setEditInit(f.suggestion && r.text!.includes(f.excerpt) ? r.text!.replace(f.excerpt, f.suggestion) : r.text!);
   async function ack(f: Fix) {
