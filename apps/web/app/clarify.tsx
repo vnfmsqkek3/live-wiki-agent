@@ -1,4 +1,5 @@
 'use client';
+// 출처 링크는 같은 탭에서 연다: 로그인은 탭 단위(sessionStorage)라 새 탭은 다시 로그인을 요구한다 (사용자 지적 11/18)
 // 확인 필요 (계약 interfaces 6.5, 사용자 요구 11/18): 질문 · 원문 강조 · AI 제안(출처) · [적용][직접 입력][해당 없음] → 카드 안 전/후 → "n건 반영하고 저장".
 // 저장은 항목별 before→after 를 모아 /edit 한 번(새 버전 → 재검사 → 사람 승인). 담당자는 이름 대신 부서·직책.
 import Link from 'next/link';
@@ -77,7 +78,7 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
               <div key={n} className="clarify-sugg">
                 <span className={`src-badge ${s.source.type.toLowerCase()}`}>{SRC[s.source.type]}</span>
                 <span>{s.value}</span>
-                {s.source.type === 'WIKI' && s.source.doc_id && <Link href={`/library?id=${encodeURIComponent(s.source.doc_id)}${s.source.page ? `&page=${s.source.page}` : ''}`} target="_blank">{s.source.title ?? '출처 문서'}{s.source.page ? ` ${s.source.page}쪽` : ''}</Link>}
+                {s.source.type === 'WIKI' && s.source.doc_id && <Link href={`/library?id=${encodeURIComponent(s.source.doc_id)}${s.source.page ? `&page=${s.source.page}` : ''}`} prefetch={false} title={`${s.source.title ?? '출처 문서'}${s.source.page ? ` ${s.source.page}쪽` : ''}`}>문서 바로가기</Link>}
                 {s.source.type === 'WEB' && s.source.url && <a href={s.source.url} target="_blank" rel="noopener noreferrer">{s.source.title ?? s.source.url}</a>}
                 {canFix && <button type="button" className={`btn${after === s.after ? ' solid' : ''}`} aria-pressed={after === s.after} onClick={() => setPick((p) => ({ ...p, [c.finding_id]: s.after }))}>적용</button>}
               </div>
