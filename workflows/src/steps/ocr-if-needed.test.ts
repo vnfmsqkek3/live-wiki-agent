@@ -74,14 +74,16 @@ describe("OcrIfNeeded", () => {
     expect(f.saved).toEqual([[]]);
   });
 
-  it("REVIEW_REQUIRED on low-confidence pages", async () => {
+  it("low-confidence pages: no warning, marked for vision fallback", async () => {
     const f = fake(2, 0.7);
     const h = makeHandler(f.d);
     await h(input);
     f.complete();
     const out = await h(input);
-    expect(out.status).toBe("REVIEW_REQUIRED");
-    expect(out.findings!.map((x) => x.code)).toEqual(["OCR_LOW_CONFIDENCE", "OCR_LOW_CONFIDENCE"]);
+    expect(out.status).toBe("OK");
+    expect(out.findings).toBeUndefined();
+    const low = [...f.s3.entries()].find(([k]) => k.endsWith("masked/ocr_low_pages.json"))?.[1];
+    expect(JSON.parse(low as string).low_pages).toEqual([0, 1]);
   });
 
   it("throws when SageMaker reports failure", async () => {

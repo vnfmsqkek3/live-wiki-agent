@@ -103,9 +103,9 @@ export function makeHandler(d: Deps) {
     // 인식률 95% 미만 쪽은 ImageDescribe 가 Sonnet Vision 으로 다시 읽는다(사용자 결정 11/18). 쪽 번호·평균만, 글자 없음 → masked/ 에 둠
     const low_pages = pages.filter((p) => (pageAvg(p) ?? 1) < PASS_PAGE).map((p) => p.page_index);
     await d.put(`${e.doc_id}/masked/ocr_low_pages.json`, JSON.stringify({ doc_id: e.doc_id, low_pages }));
-    const findings = lowConfidence(e.doc_id, pages);
-    await d.saveFindings(e.doc_id, STEP, findings);
-    return { status: findings.some((f) => f.severity === "MEDIUM") ? "REVIEW_REQUIRED" : "OK", output_key: resultKey, findings };
+    // 사용자 결정 11/18 "경고는 없애줘": 95% 미만 쪽은 Vision 이 다시 읽으므로 OCR 저신뢰 경고를 내지 않는다 (lowConfidence 는 기준 기록용으로 남김)
+    await d.saveFindings(e.doc_id, STEP, []);
+    return { status: "OK", output_key: resultKey };
   };
 }
 
