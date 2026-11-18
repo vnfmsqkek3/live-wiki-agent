@@ -368,3 +368,27 @@ test("docPages: 상한을 넘으면 next_page, 한 쪽이 상한보다 길면 �
   assert.equal(r.pages.length, 1); assert.equal(r.pages[0]!.cut, true); assert.equal(r.next_page, 2);
   assert.equal(docPages([big, "\f", "둘째 쪽 본문입니다"].join("\n"), 2).pages[0]!.markdown, "둘째 쪽 본문입니다");
 });
+
+test("related: 질의 핵심어가 없는 조각·그림 설명 조각은 '관련 가능 문서'로 내지 않음 (yoyo0704 실측 11/18)", async () => {
+  const { queryTerms, hasTerm } = await import("./search.ts");
+  const terms = queryTerms("개인정보 관련된 문서를 찾아줘 개인정보");
+  assert.deepEqual(terms, ["개인정보"]);
+  assert.equal(hasTerm("브라더 MFC-L5700DN 다운로드 페이지 전체 드라이버", ["개인정보"]), false);
+  assert.deepEqual(queryTerms("개인정보에서 [전화번호] MFC"), ["개인정보", "mfc"]); // 조사·가림 표시 제거, 소문자
+  assert.equal(hasTerm("성명 [개인정보] 연락처", ["개인정보"]), false); // 가림 표시는 핵심어로 안 침
+  assert.equal(hasTerm("개인 정보 수집 동의서", ["개인정보"]), true); // 띄어쓰기 무시
+  assert.equal(hasTerm("MFC-L5700DN 드라이버", ["mfc"]), true);
+  assert.equal(hasTerm("아무 글", []), true);
+});
+
+test("related 통합 (PR #46 리뷰): 핵심어 없는 조각·그림 설명(인용 불가) 조각은 빠지고, 핵심어 있는 조각만 남음 (rewrite=false)", async () => {
+  const { retriever, states } = setup();
+  const c0 = retriever.chunks.find((c) => c.metadata["doc_id"] === "K-001")!;
+  retriever.add("[매뉴얼 · 그림 (3쪽)]\n개인정보 다운로드 페이지 화면", { ...c0.metadata, provision_id: "K-001#fig9", has_figure: true, original_text: "" });
+  const weak = { retrieve: async (q: string, f?: Parameters<typeof retriever.retrieve>[1]) => (await retriever.retrieve(q, f)).map((h) => ({ ...h, weak: true })) };
+  const t = searchTools({ retriever: weak, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "본부 여신심사위원회 개인정보", as_of: "2026-12-15", rewrite: false }, user) as { related?: { provision_id: string; snippet: string; title: string }[] };
+  assert.ok(r.related?.length, "핵심어 있는 조각은 남음");
+  assert.ok(r.related!.every((x) => x.provision_id !== "K-001#fig9"), "그림 설명은 관련 문서로 안 나감");
+  assert.ok(r.related!.every((x) => /여신심사위원회|본부|개인정보/u.test(`${x.title} ${x.snippet}`.replace(/\s+/gu, ""))));
+});
