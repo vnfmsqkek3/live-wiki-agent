@@ -435,7 +435,7 @@ resource "aws_wafv2_web_acl" "this" {
     }
     statement {
       rate_based_statement {
-        limit              = 2000
+        limit              = 10000 # 5분당 IP 1개 (11/18: Next.js 미리 불러오기 + 진행률 3초 조회 + 시험으로 2000 초과 → 403. 사무실 공용 IP 고려)
         aggregate_key_type = "IP"
       }
     }
