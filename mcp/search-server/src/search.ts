@@ -340,7 +340,10 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     }
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
     const top = kept.filter((r) => !r.weak).slice(0, k);
-    const related = kept.filter((r) => r.weak).slice(0, k);
+    // 관련 가능 문서는 질의 핵심어가 조각(제목·본문·분류)에 하나라도 있고, 인용 가능한 조각일 때만 (그림 설명만으로는 만들지 않음).
+    // 점수 하한을 올리지 않는 이유: 11/17 실측 관련 질의 1위 0.13~0.26 → 0.20이면 진짜 관련 문서도 숨음 (yoyo0704 실측 11/18, 과천 그림 설명이 "개인정보"에 걸림)
+    const terms = queryTerms(`${rw?.core ?? ""} ${rw?.alternates.join(" ") ?? ""} ${cleanQuery(q.text)}`);
+    const related = kept.filter((r) => r.weak && r.quotable && hasTerm(`${r.title} ${r.snippet} ${r.category_path ?? ""} ${r.path_label}`, terms)).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
     const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
     return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
@@ -432,3 +435,16 @@ export function docPages(content: string, fromPage = 1) {
   }
   return { page_count: texts.length, pages, ...(next && next <= texts.length ? { next_page: next } : {}) };
 }
+
+/** 질의 핵심어 (요청 어미·군더더기 제외, 2자 이상). 관련 가능 문서 거르기용 */
+const STOP_TERMS = new Set(["관련", "관련된", "문서", "문서들", "문서를", "자료", "자료를", "내용을", "규정", "내용", "방법", "어떻게", "무엇", "찾아줘", "알려줘", "있는", "대한", "대해"]);
+// 가림 표시([개인정보]·[전화번호] 등)는 질의·조각 양쪽에서 빼고 비교 (가린 문서가 "개인정보"에 걸리지 않게, PR #46 리뷰)
+const MASK_MARK = /\[[^\]\n]{1,12}\]/gu;
+const PARTICLE = /(에서|으로|에게|까지|부터|이나|과|와|을|를|이|가|은|는|에|의|도|로)$/u;
+export const queryTerms = (q: string) => [...new Set(q.replace(MASK_MARK, " ").toLowerCase().split(/[^0-9a-z가-힣]+/u)
+  .map((w) => (w.length >= 3 ? w.replace(PARTICLE, "") : w)).filter((w) => w.length >= 2 && !STOP_TERMS.has(w)))];
+/** 핵심어가 하나라도 있으면 (공백·대소문자 무시). 핵심어가 없으면 거르지 않음 */
+export const hasTerm = (hay: string, terms: string[]) => {
+  const h = hay.replace(MASK_MARK, " ").toLowerCase().replace(/\s+/gu, "");
+  return !terms.length || terms.some((t) => h.includes(t));
+};
