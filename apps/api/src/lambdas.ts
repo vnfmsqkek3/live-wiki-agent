@@ -454,7 +454,8 @@ export function makeFinalize(deps: LambdaDeps) {
     const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
       // 노하우·매뉴얼은 사람 승인이 곧 검증이다 (규정은 TrustGate Registry 대조로 VERIFIED). 승인·게시가 끝났으면 VERIFIED
-      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED', ...(base.authority_status === 'UNVERIFIED' && (base.document_type ?? base.classification?.document_type) !== 'REGULATION' ? { authority_status: 'VERIFIED' as const } : {}) }
+      // 검사 단계의 충돌 표시(REVIEW_REQUIRED)는 승인자가 판단해 승인했으므로 게시 때 CURRENT. 개정 전 조문 인용(OUTDATED)·규정 변경 사유가 있으면 유지 (prod 2회차 H8 11/19)
+      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED', ...(base.freshness === 'REVIEW_REQUIRED' && !base.freshness_reason && base.knowhow_validation?.verdict !== 'OUTDATED' ? { freshness: 'CURRENT' as const } : {}), ...(base.authority_status === 'UNVERIFIED' && (base.document_type ?? base.classification?.document_type) !== 'REGULATION' ? { authority_status: 'VERIFIED' as const } : {}) }
       : i.outcome === 'BLOCKED' ? { ...base, lifecycle: 'BLOCKED', trust_gate_result: 'QUARANTINED' }
       : base; // REJECTED: 승인 API가 이미 BLOCKED(반려) 또는 IN_REVIEW(재검증)로 바꿈
     await deps.store.putDoc(next);
