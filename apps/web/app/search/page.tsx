@@ -159,7 +159,11 @@ function Results() {
         <p className="note">열람 권한이 있는 승인 문서 중에 맞는 결과가 없습니다. 다른 표현으로 찾거나 종류를 '전체'로 바꿔 보세요.</p>
       ) : (
         <>
-          <p className="note">{items.length ? `열람 권한이 있는 승인 문서 ${items.length}건, 관련도 높은 순` : '정확한 근거로 확인된 문서는 없습니다. 아래 관련 있을 수 있는 문서를 참고하세요.'}</p>
+          {items.length ? <p className="note">열람 권한이 있는 승인 문서 {items.length}건, 관련도 높은 순</p> : (() => {
+            // 직접 정한 조문이 없음을 먼저 밝힌다 (let522mj 제안 11/18: related 만 있으면 '대상이 다르다'를 알 수 있게)
+            const r0 = related[0]; const b = r0?.matches?.find((m) => m.basis)?.basis ?? r0?.basis;
+            return <p className="notice" role="status"><strong>'{q}'을(를) 직접 정한 조문·문서는 없습니다.</strong>{r0 ? <> 비슷한 내용으로 {b ? <>「{b}」</> : <>「{r0.title}」</>}이(가) 있지만 대상이 다를 수 있으니 아래에서 확인하세요.</> : ''}</p>;
+          })()}
           <PaginatedList label="검색 결과" pageKey="page" className="ledger result-list">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
