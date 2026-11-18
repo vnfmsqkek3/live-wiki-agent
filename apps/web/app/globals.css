@@ -869,3 +869,16 @@ html:has(.submit-bar) { scroll-padding-top:120px; }
 .clarify-dismiss { margin-top:8px; }
 .clarify-dismiss .field { flex:1 1 220px; }
 .kind-tag.own { margin-left:6px; border-color:var(--navy-600); color:var(--navy-600); }
+/* 결재함 첫 화면: 할 일 숫자 + 지식 상태 (Fable A안 11/18). 데스크톱은 옆, 모바일은 아래 */
+.admin-status { display:grid; gap:16px; margin:8px 0 16px; align-items:start; }
+@media (min-width:1024px) { .admin-status { grid-template-columns:minmax(260px, 1fr) 2fr; } }
+.admin-status .counts { margin:0; }
+.admin-status .debt { margin:0; }
+.admin-status .debt .section { margin-top:0; font-size:var(--fs-h3); }
+/* 진행·참고는 접어서 줄 목록으로 */
+.admin-more { margin-top:16px; border-top:1px solid var(--line); padding-top:12px; }
+.admin-more > summary { font:600 var(--fs-body)/1.5 var(--font-display); min-height:44px; display:flex; align-items:center; gap:4px; }
+.admin-rows { display:block; }
+.admin-rows > li.entry { border:0; border-bottom:1px solid var(--line); border-radius:0; padding:10px 0 !important; box-shadow:none; }
+.admin-rows > li.entry .doc-title { font-size:var(--fs-body); margin:4px 0; }
+.admin-more .section { font-size:var(--fs-h3); margin:16px 0 4px; }

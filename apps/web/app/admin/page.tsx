@@ -78,9 +78,13 @@ export default function Admin() {
       <PageHeader title="결재함" description="출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요." action={<Link className="btn" href="/library">문서보관함</Link>} />
       {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
-      <div className="counts">
-        <a href="#pending-h"><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></a>
-        <a href="#source-h"><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></a>
+      {/* 할 일 숫자와 지식 상태를 첫 화면에 함께 (Fable A안 11/18: 카드가 쌓이면 맨 아래 지식 상태가 안 보임) */}
+      <div className="admin-status">
+        <div className="counts">
+          <a href="#pending-h"><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></a>
+          <a href="#source-h"><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></a>
+        </div>
+        <KnowledgeDebt />
       </div>
 
       {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
@@ -137,9 +141,11 @@ export default function Admin() {
           <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
         </div>
         <div className="approval-category-group" aria-label="진행·참고">
+          <details className="admin-more" open={after.some((x) => !!x.workflow_failure)}>
+            <summary>진행·참고: 승인 뒤 게시 진행 <b className="num">{after.length}</b>건{blocked.length ? <> · 자동 차단 <b className="num">{blocked.length}</b>건(최근 7일)</> : null}</summary>
           <h2 className="section">승인 뒤 게시 진행</h2>
           {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
-            <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger card-grid admin-grid">
+            <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger admin-rows">
               {after.map((i) => (
                 <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                   <span className="kind-tag"><Icon name="clock" />게시 진행</span>
@@ -155,7 +161,7 @@ export default function Admin() {
             <>
               <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
               <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
-              <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger card-grid admin-grid">
+              <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger admin-rows">
                 {blocked.map((i) => (
                   <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                     <span className="flag"><Icon name="alert" />자동 차단</span>
@@ -166,10 +172,10 @@ export default function Admin() {
               </PaginatedList>
             </>
           )}
+          </details>
         </div>
       </div>
 
-      <KnowledgeDebt />
     </>
   );
 }
