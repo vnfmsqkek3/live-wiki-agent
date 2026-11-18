@@ -106,6 +106,12 @@ test('관리자(PLATFORM_OPERATOR)는 본인 문서 승인 가능 — self_appro
   const { approval_id } = await submitted(t);
   const list = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; own: boolean }[] };
   assert.equal(list.items.find((i) => i.approval_id === approval_id)?.own, true);
+  // 그대로 사용한 규정 충돌은 결재 카드에 (승인자 판단, 사용자 결정 11/18)
+  const { doc_id } = (await t.store.getApproval(approval_id))!;
+  const dd = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...dd, findings: [{ finding_id: 'k', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'e', location: { excerpt: '재무제표 보관 기간 5년' }, acknowledged: { by: 'u', at: 't', reason: '영업점 기준' } }] });
+  const l2 = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; kept: unknown }[] };
+  assert.deepEqual(l2.items.find((i) => i.approval_id === approval_id)?.kept, [{ text: '재무제표 보관 기간 5년', reason: '영업점 기준', system: false }]);
   const r = await t.call('authorAdmin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
   assert.equal(r.status, 200);
   assert.equal((await t.store.getApproval(approval_id))?.self_approved, true);
@@ -459,6 +465,8 @@ test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·origin
   await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '시재 마감 노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
   await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
   assert.equal((await t.call('user', 'POST', '/v1/documents/doc_R/edit', { markdown: '# 규정' })).status, 409);
+  await t.store.putDoc({ ...base, doc_id: 'doc_OLD', title: '옛 판', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'SUPERSEDED' });
+  assert.equal((await t.call('user', 'POST', '/v1/documents/doc_OLD/edit', { markdown: '# 옛 판' })).status, 409); // 대체된 판은 최신에서 고친다
   const r = await t.call('user', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감\n1. 마감 30분 전 시재표 출력' });
   assert.equal(r.status, 201);
   const { doc_id, new_version } = (await r.json()) as { doc_id: string; new_version: boolean };

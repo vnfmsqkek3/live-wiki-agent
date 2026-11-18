@@ -60,6 +60,15 @@ test('단계 체인: FileStructure OK → TrustGate(분류 없음) REVIEW_REQUIR
   assert.equal(t.store.audits.at(-1)!.action, 'FINALIZE_PUBLISHED');
 });
 
+test('Finalize: 검사 단계 충돌 표시(REVIEW_REQUIRED)는 승인·게시 때 CURRENT, 규정 변경 사유·개정 전 인용은 유지 (prod 2회차 H8)', async () => {
+  for (const [extra, want] of [[{}, 'CURRENT'], [{ freshness_reason: { law_id: 'L', law_name: 'n', cited_revision: '', current_revision: '', effective_from: '', provisions: [], at: '' } }, 'REVIEW_REQUIRED'], [{ knowhow_validation: { verdict: 'OUTDATED', items: [], outdated: [], checked_at: '' } }, 'REVIEW_REQUIRED']] as const) {
+    const t = setup(pdf);
+    await t.store.putDoc({ ...t.doc, lifecycle: 'PENDING_APPROVAL', freshness: 'REVIEW_REQUIRED', ...(extra as object) });
+    await makeFinalize(t.deps)({ ...t.input, outcome: 'PUBLISHED' });
+    assert.equal((await t.store.getDoc(t.doc.doc_id))!.freshness, want);
+  }
+});
+
 test('FileStructure: 스크립트 PDF는 BLOCKED, TrustGate는 QUARANTINED→BLOCKED, Finalize BLOCKED', async () => {
   const t = setup(new TextEncoder().encode('%PDF-1.7 /OpenAction << /S /JavaScript /JS (x) >>'));
   await t.store.putDoc(t.doc);
@@ -93,6 +102,11 @@ test('TrustGate + 노하우 검증: KNOWHOW 충돌이면 REVIEW_REQUIRED·결과
   const d = (await k.store.getDoc(k.doc.doc_id))!;
   assert.equal(d.knowhow_validation?.verdict, 'CONFLICT');
   assert.equal(d.freshness, 'REVIEW_REQUIRED');
+
+  // 고친 뒤 재검사: 충돌이 없으면 첫 검사의 REVIEW_REQUIRED 를 CURRENT 로 되돌린다 (사용자 신고 11/19)
+  const fixed = { ...deps, knowhow: { ...deps.knowhow, judge: async () => ({ model: 'm', items: [{ statement: 's', provision_id: clause.provision_id, relation: 'SUPPORTS' as const, reason: 'r', quote: '현장 실사를 반드시 실시하여야 한다' }] }) } };
+  await makeTrustGate(fixed)(k.input);
+  assert.equal((await k.store.getDoc(k.doc.doc_id))!.freshness, 'CURRENT');
 });
 
 // ---- 단계 6·7·8 ----

@@ -180,7 +180,7 @@ function List() {
 
 /** 확인이 필요한 건의 세 칸: 원본 내용 · 근거 내용 · 근거를 바탕으로 한 수정 내용 (사용자 요청 11/17) */
 function Trio({ m }: { m: Mark }) {
-  const revision = m.revision ?? (m.kind === 'INSUFFICIENT' ? '근거 조문을 확인한 뒤 고쳐 주세요.' : '수정 필요 없음');
+  const revision = m.revision ?? (m.kind === 'INSUFFICIENT' ? '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.' : '수정 필요 없음');
   return (
     <dl className="trio">
       <dt>원본 내용</dt><dd>{m.original ?? <span className="note">(올린 문서에 없음)</span>}</dd>
@@ -191,7 +191,8 @@ function Trio({ m }: { m: Mark }) {
   );
 }
 
-function Fix({ m, n, on }: { m: Mark; n?: number; on?: boolean }) {
+function Fix({ m, n, on, onEdit, body }: { m: Mark; n?: number; on?: boolean; onEdit?: (text: string, to?: string) => void; body?: string }) {
+  const aiFix = !!(onEdit && m.original && m.revision && m.revision !== m.original && body?.includes(m.original)); // AI 수정 문장으로 바꿔 편집기에 연다
   const trio = m.original !== undefined || m.revision !== undefined; // 새 API(세 칸). 이전 API는 기존 표시
   return (
     <li className={`fix${on ? ' on' : ''}`} id={n ? `mark-${n}` : undefined}>
@@ -204,6 +205,7 @@ function Fix({ m, n, on }: { m: Mark; n?: number; on?: boolean }) {
         </blockquote>
       )}
       {m.fix && m.fix !== m.revision && <p className={trio ? 'note' : undefined}><strong>고칠 내용</strong> {m.fix}</p>}
+      {onEdit && m.original && <div className="actions">{aiFix && <button type="button" className="btn solid" onClick={() => onEdit(m.original!, m.revision!)}>AI 제안대로 고치기</button>}<button type="button" className="btn" onClick={() => onEdit(m.original!)}>{aiFix ? '직접 고치기' : '위키에서 고치기'}</button></div>}
     </li>
   );
 }
@@ -519,10 +521,13 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const range = (g: { pages: number[] }) => { const a = g.pages.map(nth).filter((x) => x > 0); return a.length > 1 ? `${Math.min(...a)}~${Math.max(...a)}` : `${a[0] ?? 1}`; };
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
   const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
-  const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
+  const canWikiEdit = d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION'; // 대체된 옛 판은 최신 버전에서 고친다
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
+  // 고칠 곳에서 바로 편집기로 (사용자 신고 11/19: 게시 문서의 고칠 곳에 고칠 길이 없음). 그 문장을 선택한 채 연다
+  const body = d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n');
+  const editAt = canWikiEdit ? (text: string, to?: string) => { const ai = !!to && body.includes(text); setFixOpen(false); setEditFocus(ai ? to : text); setEditing(ai ? body.replace(text, to!) : ''); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ block: 'start' }), 0); } : undefined;
   const jump = (i: number, n: number) => { setImages(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   // 문서 정보는 머리에서 빼 '한눈에 보기' 패널로 (Fable 재배치안 11/18: 머리는 제목·상태 문장·결재란만)
   const docMeta = (<dl className="meta-grid">
@@ -605,7 +610,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <div className="detail-cards" aria-label="문서 상세 항목">
       <p className="cards-head judge">판단 필요</p>
       {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled warn count={d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length} /></button>}
-      <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
+      <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} onEdit={editAt} body={body} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} onEdit={editAt} body={body} />)}</ul></>}</DetailPopup>
       {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled warn count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
         onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); } : undefined} /></DetailPopup></>}
       {d.verification && d.verification.basis.length > 0 && (
