@@ -32,7 +32,7 @@ module "stack" {
     "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "category-sweep", "reference-check", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "b782529" # workflows·auth-triggers·services/ocr
+    yoyo0704 = "ab548bd" # workflows·auth-triggers·services/ocr
     dhxorb96 = "3f49e35" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
     let522mj = "cc9e8ca" # main: #43 장 section·expand + #42 #41
   }
