@@ -40,6 +40,14 @@ const BLOCKED = 'blocked';
 const REVIEW = 'review'; // 어느 단계든 REVIEW_REQUIRED였으면 true
 
 /** 단계 노드: 앞에서 BLOCKED면 아무 것도 하지 않고 통과. PENDING이면 대기 후 같은 입력으로 재호출 (단계는 멱등) */
+/** 속도 제한(Throttled)이면 2·4·8·16초 쉬고 다시 (5회까지). 제한된 호출은 단계가 실행되지 않은 것이라 다시 불러도 안전 (yoyo0704 요청 11/18: graph_upsert "Too many requests") */
+async function callRetry(deps: Pick<PipelineDeps, 'callTool' | 'sleep'>, step: string, args: Record<string, unknown>) {
+  for (let t = 0; ; t++) {
+    try { return await deps.callTool(step, args); }
+    catch (e) { if ((e as Error).name !== 'Throttled' || t >= 4) throw e; await deps.sleep(2000 * 2 ** t); }
+  }
+}
+
 class StepNode extends Node {
   readonly step: string;
   readonly deps: PipelineDeps;
@@ -57,7 +65,7 @@ class StepNode extends Node {
     let out: StepOutput | undefined;
     try {
       for (let n = 0; ; n++) {
-        out = await this.deps.callTool(this.step, { ...this.input, ...this.extra(state) });
+        out = await callRetry(this.deps, this.step, { ...this.input, ...this.extra(state) });
         if (out.status !== 'PENDING') break;
         if (n + 1 >= (this.deps.maxPolls ?? 80)) throw new Error(`${name} polling timeout`);
         await this.deps.sleep(this.deps.pollMs ?? 15_000);
@@ -133,7 +141,7 @@ class ReviewOrBlock extends Node {
       }
     }
     const step = blocked ? 'finalize' : 'await_review';
-    const out = await this.deps.callTool(step, { ...this.input, ...(blocked ? { outcome: 'BLOCKED' } : {}) });
+    const out = await callRetry(this.deps, step, { ...this.input, ...(blocked ? { outcome: 'BLOCKED' } : {}) });
     await this.deps.record(this.input.workflow_id, this.input.doc_id, STEP_NAMES[step]!, blocked ? 'BLOCKED' : out.status);
     return done(blocked ? 'BLOCKED' : 'AWAITING_REVIEW');
   }

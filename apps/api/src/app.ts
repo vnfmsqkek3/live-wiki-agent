@@ -534,7 +534,17 @@ export function createApp(deps: Deps) {
       updated_at: at,
     });
     await audit(c, 'CLASSIFY_EDIT', d.doc_id);
-    return c.json({ document_type: b.document_type });
+    // 종류가 바뀌면 다시 검사한다: 노하우는 규정 비교, 규정은 공식 원본 대조가 종류에 따라 달라진다 (11/18 prod 시험: 매뉴얼→노하우로 바꿔도 규정 비교 없이 게시 요청 가능했음)
+    let reanalyzed = false;
+    if (prev?.document_type !== b.document_type && deps.startWorkflow) {
+      const cur = (await store.getDoc(d.doc_id))!;
+      const next = { ...cur, review_carry: makeCarry(await editText(d.doc_id), cur.findings), findings: [], lifecycle: 'QUARANTINED' as const, workflow_id: newId.wf(), updated_at: new Date().toISOString() };
+      await store.putDoc(next);
+      await store.clearFindings?.(d.doc_id);
+      await deps.startWorkflow(next);
+      reanalyzed = true;
+    }
+    return c.json({ document_type: b.document_type, reanalyzed });
   });
 
   // ---- 주장 (얇은 버전, interfaces 10.2): 문서 주장 + 같은 조문을 근거로 한 게시 문서 주장의 지지·충돌 수 ----

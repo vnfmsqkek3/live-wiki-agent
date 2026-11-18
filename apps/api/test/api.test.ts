@@ -606,3 +606,14 @@ test('위키 수정·검토 중 다시 분석은 이전 검사 결과를 저장�
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   assert.deepEqual(cleared, [doc_id, doc_id]);
 });
+
+test('검토 중 문서 종류를 바꾸면 다시 검사 (11/18 prod 시험: 매뉴얼→노하우로 바꿔도 규정 비교 없이 게시 요청 가능)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', document_type: 'MANUAL', classification: { document_type: 'MANUAL', business_path: [], tags: [], confidence: 0.8, rationale: '', source: 'MODEL' } } as never);
+  const r = (await (await t.call('author', 'POST', `/v1/documents/${doc_id}/classification`, { document_type: 'KNOWHOW', reason: '실무 체크리스트' })).json()) as { reanalyzed: boolean };
+  assert.equal(r.reanalyzed, true);
+  const n = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([n.lifecycle, n.classification?.source, n.document_type], ['QUARANTINED', 'HUMAN', 'KNOWHOW']);
+});

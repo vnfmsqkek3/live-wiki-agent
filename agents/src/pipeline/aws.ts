@@ -20,12 +20,17 @@ export async function callTool(step: string, args: Record<string, unknown>): Pro
   });
   const r = await fetch(url, { method: 'POST', headers: req.headers as Record<string, string>, body, signal: AbortSignal.timeout(900_000) });
   const text = await r.text();
+  // 속도 제한(Lambda reserved concurrency·429)은 JSON 이 아닌 글로 올 수 있다 → Throttled 로 던져 오케스트레이터가 다시 시도 (11/18 prod: graph_upsert "Too many requests")
+  const throttled = (s: string) => /too many requests|throttl|rate exceeded|TooManyRequestsException/i.test(s);
+  if (r.status === 429 || (!r.ok && throttled(text))) throw Object.assign(new Error(`gateway ${r.status} throttled`), { name: 'Throttled' });
   if (!r.ok) throw Object.assign(new Error(`gateway ${r.status}`), { name: 'GatewayError' });
   const json = JSON.parse(text.startsWith('event:') || text.startsWith('data:') ? text.split('\n').find((l) => l.startsWith('data:'))!.slice(5) : text) as {
     error?: { message: string }; result?: { isError?: boolean; content?: { type: string; text?: string }[] };
   };
+  if (json.error && throttled(json.error.message)) throw Object.assign(new Error(json.error.message.slice(0, 120)), { name: 'Throttled' });
   if (json.error) throw Object.assign(new Error(json.error.message.slice(0, 200)), { name: 'ToolError' });
   const out = json.result?.content?.find((c) => c.type === 'text')?.text ?? '{}';
+  if (throttled(out) && !out.trimStart().startsWith('{')) throw Object.assign(new Error(out.slice(0, 120)), { name: 'Throttled' });
   const parsed = JSON.parse(out) as StepOutput & { errorType?: string; errorMessage?: string };
   if (json.result?.isError || parsed.errorType) throw Object.assign(new Error((parsed.errorMessage ?? 'step failed').slice(0, 300)), { name: parsed.errorType ?? 'StepError' });
   return parsed;

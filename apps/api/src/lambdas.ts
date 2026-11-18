@@ -278,8 +278,11 @@ export function makeClassify(deps: SegmentDeps) {
       ...addFindings(d, findings),
       ...(autoTitle ? { title: autoTitle } : {}),
       ...(dates.length ? { doc_dates: dates, ...(main ? { doc_date: main } : {}) } : {}),
-      document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
-      classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
+      // 사람이 정한 문서 종류는 다시 분석해도 바꾸지 않는다 (11/18 prod 시험: 노하우로 바꾼 뒤 재분석이 매뉴얼로 되돌림)
+      ...(d.classification?.source === 'HUMAN' ? {} : {
+        document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
+        classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' as const },
+      }),
       ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),
     });
     // 업무 분류 칸 배정: 실패해도 게시는 막지 않는다 (주기 정리·보충 스크립트가 다시 배정)

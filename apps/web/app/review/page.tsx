@@ -107,9 +107,12 @@ function ReviewView() {
 
   async function saveType() {
     try {
-      await api('POST', `/v1/documents/${encodeURIComponent(id)}/classification`, { document_type: type, reason });
-      setR((x) => x && { ...x, classification: { ...x.classification!, document_type: type as 'KNOWHOW', source: 'HUMAN', confidence: 1 } });
-      setReason(''); setMsg('문서 종류를 바꿨습니다. 수정 이력이 함께 저장됩니다.');
+      const x = await api<{ reanalyzed?: boolean }>('POST', `/v1/documents/${encodeURIComponent(id)}/classification`, { document_type: type, reason });
+      setR((v) => v && { ...v, classification: { ...v.classification!, document_type: type as 'KNOWHOW', source: 'HUMAN', confidence: 1 } });
+      setReason('');
+      // 종류가 바뀌면 그 종류의 검사(노하우=규정 비교)로 다시 검사한다 → 진행 화면으로
+      if (x.reanalyzed) { setMsg('문서 종류를 바꿨습니다. 이 종류에 맞게 AI가 다시 검사합니다.'); setTimeout(() => location.reload(), 1500); }
+      else setMsg('문서 종류를 바꿨습니다. 수정 이력이 함께 저장됩니다.');
     } catch (e) { setMsg((e as ApiError).message); }
   }
   async function saveTitle() {
