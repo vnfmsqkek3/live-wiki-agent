@@ -46,12 +46,15 @@ export function searchVia(searchWiki: SearchWiki) {
 
 /** 검색 결과를 문서 단위로 묶는다 (search_wiki는 근거 인용용 조문 단위). 순서는 각 문서의 최고 순위,
  *  카드 안에는 맞은 조문(조문 표기·인용) 목록. 가이드 근거는 조문 단위 그대로 쓴다 (사용자 지적 11/17) */
-export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string; page?: number }>(hits: T[]) {
-  const by = new Map<string, T & { matches: { basis?: string; snippet: string; page?: number }[] }>();
+type MatchOf = { basis?: string; snippet: string; page?: number; quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string };
+export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string; page?: number; quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string }>(hits: T[]) {
+  const by = new Map<string, T & { matches: MatchOf[] }>();
+  // 조각별 그림 배지를 화면이 붙이도록 quotable·evidence_kind·page_context 도 넘긴다 (Fable 권고 11/18). snippet 원문은 그대로
+  const m = (h: T): MatchOf => ({ basis: h.basis, snippet: h.snippet, ...(h.page ? { page: h.page } : {}), ...(h.quotable === false ? { quotable: false } : {}), ...(h.evidence_kind ? { evidence_kind: h.evidence_kind } : {}), ...(h.page_context ? { page_context: h.page_context } : {}) });
   for (const h of hits) {
     const g = by.get(h.doc_id);
-    if (g) { if (!g.matches.some((m) => m.basis === h.basis && m.snippet === h.snippet)) g.matches.push({ basis: h.basis, snippet: h.snippet, ...(h.page ? { page: h.page } : {}) }); }
-    else by.set(h.doc_id, { ...h, matches: [{ basis: h.basis, snippet: h.snippet, ...(h.page ? { page: h.page } : {}) }] });
+    if (g) { if (!g.matches.some((x) => x.basis === h.basis && x.snippet === h.snippet)) g.matches.push(m(h)); }
+    else by.set(h.doc_id, { ...h, matches: [m(h)] });
   }
   return [...by.values()];
 }

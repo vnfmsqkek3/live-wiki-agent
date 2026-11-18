@@ -882,3 +882,8 @@ html:has(.submit-bar) { scroll-padding-top:120px; }
 .admin-rows > li.entry { border:0; border-bottom:1px solid var(--line); border-radius:0; padding:10px 0 !important; box-shadow:none; }
 .admin-rows > li.entry .doc-title { font-size:var(--fs-body); margin:4px 0; }
 .admin-more .section { font-size:var(--fs-h3); margin:16px 0 4px; }
+/* 검색 일치 조각 (Fable 권고 11/18): 가공 없이 통째로 보이지 않게 3줄(모바일 2줄)로, 그림은 배지 */
+.search-matches blockquote.clamp { display:-webkit-box; -webkit-line-clamp:3; -webkit-box-orient:vertical; overflow:hidden; }
+@media (max-width:640px) { .search-matches blockquote.clamp { -webkit-line-clamp:2; } }
+.fig-badge { display:inline-block; padding:1px 8px; border:1px solid var(--line); border-radius:999px; font:600 12px/1.6 var(--font-display); color:var(--ink-700); }
+.more-matches > summary { font:600 var(--fs-small)/1.5 var(--font-display); color:var(--navy-600); min-height:44px; display:flex; align-items:center; }

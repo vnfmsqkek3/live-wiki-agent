@@ -37,15 +37,39 @@ function DetailFilters({ value, options, onApply }: { value: Detail; options: { 
   );
 }
 
-function SearchMatches({ item }: { item: SearchItem }) {
-  const matches = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
+/** 조각 표시용 정리 (Fable 권고 11/18): 원문(snippet)은 그대로 두고 화면에서만 줄인다.
+ *  그림 설명(원문 아님)은 머리표·'screenshot:' 을 떼고 '표기:' 값만(없으면 묘사 첫 문장), '의도:'(AI 추정)는 숨김 */
+type Match = NonNullable<SearchItem['matches']>[number];
+function showMatch(m: Match): { badge?: string; text: string } {
+  const head = /^\[(그림 설명 · 원문 아님|그림 기준 · AI 정리)\]\s*/.exec(m.snippet);
+  if (!head && m.quotable !== false && m.evidence_kind !== 'FIGURE') return { text: m.snippet };
+  const body = m.snippet.replace(/^\[[^\]]*\]\s*/, '');
+  if (m.evidence_kind === 'FIGURE' || head?.[1] === '그림 기준 · AI 정리') return { badge: '그림 기준 · AI 정리', text: body };
+  const parts = body.split(/\s+\/\s+(?=(?:표기|의도):)/);
+  const label = parts.find((x) => x.startsWith('표기:'))?.replace(/^표기:\s*/, '');
+  const first = (parts[0] ?? body).replace(/^[a-z_]+:\s*/i, '').split(/(?<=[.다])\s+/)[0] ?? '';
+  return { badge: '그림 · 원문 아님', text: label || first };
+}
+function MatchItem({ m, docId }: { m: Match; docId: string }) {
+  const v = showMatch(m);
+  return <li className={m.page ? 'with-thumb' : undefined}>
+    <PageThumb docId={docId} page={m.page} />
+    {(m.basis || v.badge || m.page) && <p className="match-basis">{v.badge && <span className="fig-badge">{v.badge}</span>}{m.page && v.badge ? ` ${m.page}쪽` : ''}{m.page_context ? ` · ${m.page_context}` : ''}{m.basis && !v.badge ? m.basis : ''}</p>}
+    <blockquote className={m.basis && !v.badge ? undefined : 'clamp'}>{v.text}</blockquote>
+  </li>;
+}
+/** 기본은 앞 limit 개만, 나머지는 접기. 원문 조각을 그림 조각보다 앞에. 규정은 '조문', 그 밖은 '곳' */
+function SearchMatches({ item, limit = 2 }: { item: SearchItem; limit?: number }) {
+  const all = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
+  const isFig = (m: Match) => m.quotable === false || m.evidence_kind === 'FIGURE' || /^\[그림/.test(m.snippet);
+  const matches = [...all.filter((m) => !isFig(m)), ...all.filter(isFig)];
+  const reg = item.document_type === 'REGULATION';
+  const rest = matches.slice(limit);
   return <div className="search-matches">
-    {item.matches && item.matches.length > 1 && <p className="note">이 문서에서 일치한 조문 {matches.length}건</p>}
-    <ul>{matches.map((m, n) => <li key={n} className={m.page ? 'with-thumb' : undefined}>
-      <PageThumb docId={item.doc_id} page={m.page} />
-      {m.basis && <p className="match-basis">{m.basis}</p>}
-      <blockquote>{m.snippet}</blockquote>
-    </li>)}</ul>
+    {matches.length > 1 && <p className="note">{reg ? `이 문서에서 일치한 조문 ${matches.length}건` : `이 문서에서 일치한 곳 ${matches.length}곳`}</p>}
+    <ul>{matches.slice(0, limit).map((m, n) => <MatchItem key={n} m={m} docId={item.doc_id} />)}</ul>
+    {rest.length > 0 && <details className="more-matches"><summary>나머지 {rest.length}{reg ? '건' : '곳'} 더 보기</summary>
+      <ul>{rest.map((m, n) => <MatchItem key={n} m={m} docId={item.doc_id} />)}</ul></details>}
   </div>;
 }
 
@@ -162,7 +186,7 @@ function Results() {
                     <Seal i={{ ...i, freshness: i.freshness }} />
                     <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                                         <dl><dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
-                    <SearchMatches item={i} />
+                    <SearchMatches item={i} limit={1} />
                     <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
                   </li>
                 ))}

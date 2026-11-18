@@ -71,11 +71,11 @@ export interface SearchItem {
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
-  matches?: { basis?: string; snippet: string; page?: number }[];
+  matches?: { basis?: string; snippet: string; page?: number; quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string }[];
 }
 export const MOCK_ITEMS: SearchItem[] = [
   { doc_id: 'doc_F001', title: '기업여신 심사규정', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', updated: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', basis: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', reason: '찾는 내용과 조문이 직접 일치합니다', matches: [{ basis: '기업여신 심사규정 제12조제2항', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.' }, { basis: '기업여신 심사규정 제14조제1항', snippet: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.' }] },
-  { doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', updated: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조', effective_from: '2026-11-01', reason: '같은 업무 담당자가 자주 찾고, 근거 규정이 최신입니다' },
+  { doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', updated: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조', effective_from: '2026-11-01', reason: '같은 업무 담당자가 자주 찾고, 근거 규정이 최신입니다' , matches: [{ snippet: '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.', page: 1 }, { snippet: '[그림 설명 · 원문 아님] screenshot: 신도 복합기의 주소 등록 입력 화면 캡처로 보임. 주소 종류, 등록번호가 표시되어 있다. / 표기: 주소 등록 / *가 표시된 항목은 반드시 입력하십시오. / 의도: 신규 주소 등록 방법 안내', page: 36, quotable: false }, { snippet: '[그림 설명 · 원문 아님] screenshot: 설치 완료 화면. / 표기: 마침 버튼 / 의도: 설치 완료', page: 14, quotable: false }]},
   { doc_id: 'doc_K003', title: '소액 담보 처리 팁 (2025)', snippet: '5억원 미만은 지점 전결로 처리할 수 있다.', team: '여신심사2팀', updated: '2025-06-02', stars: 4.8, tags: ['실무사례'], authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조 (2025-01-01 개정 전)', effective_from: '2025-01-01', reason: '평점은 높지만 근거 규정이 개정되었습니다' },
 ];
 
