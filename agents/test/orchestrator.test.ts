@@ -139,3 +139,15 @@ test('참조 확인이 실패해도(Gateway 시간 초과 등) SKIPPED 로 남�
   assert.ok(order.includes('trust_gate'));
   assert.ok(t.records.some((x) => /=SKIPPED$/.test(x) && /참조|Reference/i.test(x)));
 });
+
+test('속도 제한(Throttled)이면 백오프 후 다시 → 성공, 5번 넘게 막히면 실패 (11/18 prod graph_upsert)', async () => {
+  const th = () => Object.assign(new Error('Too many requests'), { name: 'Throttled' });
+  const t = deps({ classify: (n) => (n <= 2 ? th() : { status: 'OK' }) });
+  const r = await run(ingestGraph(t.d, input), t.d, input);
+  assert.equal(r.status, 'COMPLETED');
+  assert.equal(t.calls.filter((c) => c.step === 'classify').length, 3);
+  const t2 = deps({ classify: () => th() });
+  const r2 = await run(ingestGraph(t2.d, input), t2.d, input);
+  assert.notEqual(r2.status, 'COMPLETED');
+  assert.equal(t2.calls.filter((c) => c.step === 'classify').length, 5);
+});

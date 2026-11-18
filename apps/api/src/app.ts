@@ -215,12 +215,12 @@ export function createApp(deps: Deps) {
     const fresh = { lifecycle: 'QUARANTINED' as const, trust_gate_result: undefined, findings: [], workflow_id: newId.wf(), s3_version_id: undefined, content_hash: undefined,
       knowhow_validation: undefined, ext: 'md', source: 'WIKI_EDIT' as const, updated_at: now };
     let doc: DocumentRecord;
-    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh, review_carry: makeCarry(await editText(t.doc_id), t.findings) }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석. 결정은 잇는다(원본을 쓰면 옛 결과가 지워지므로 그 전에 읽음)
+    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh, review_carry: makeCarry(await editText(t.doc_id), t.findings, !!t.knowhow_validation) }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석. 결정은 잇는다(원본을 쓰면 옛 결과가 지워지므로 그 전에 읽음)
     else if (t.lifecycle === 'PUBLISHED') doc = {
       ...fresh, doc_id: newId.doc(), version: 1, owner: a.sub, dept: a.dept ?? t.dept, acl_groups: t.acl_groups, title: t.title, title_source: 'USER',
       filename: `${t.title.slice(0, 80)}.md`, authority_status: 'UNVERIFIED', freshness: 'CURRENT', previous_doc_id: t.doc_id, created_at: now,
       // 새 버전도 이전 버전에서 답한 확인 필요·결정을 잇는다 (사용자 지적 11/18: 수정 요청 반영 뒤 이미 답한 질문이 다시 나왔다)
-      review_carry: makeCarry(await editText(t.doc_id), t.findings),
+      review_carry: makeCarry(await editText(t.doc_id), t.findings, !!t.knowhow_validation),
       ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
     };
     else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
@@ -368,12 +368,13 @@ export function createApp(deps: Deps) {
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
     // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
     const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString(),
-      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings), findings: [] } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D). 검토 중 재분석은 결과를 새로
+      // 검토 중 재분석: 결정은 잇고(Fable D) 결과는 새로. 새 실행 id 로 — 같은 id 는 '이미 끝난 실행'이라 다시 돌지 않아 지운 결과가 비어 남았다 (11/18 prod 결함 ⑤)
+      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings, !!d.knowhow_validation), findings: [], lifecycle: 'QUARANTINED' as const, workflow_id: newId.wf() } : {}) };
     await store.putDoc(doc);
     if (d.lifecycle === 'IN_REVIEW') await store.clearFindings?.(doc.doc_id); // 처음 분석·실패 재시도는 앞 단계(형식 검사) 결과를 지우지 않는다
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
-    return c.json({ workflow_id: d.workflow_id }, 202);
+    return c.json({ workflow_id: doc.workflow_id }, 202);
   });
 
   app.get('/v1/documents/:id', async (c) => {
@@ -534,7 +535,17 @@ export function createApp(deps: Deps) {
       updated_at: at,
     });
     await audit(c, 'CLASSIFY_EDIT', d.doc_id);
-    return c.json({ document_type: b.document_type });
+    // 종류가 바뀌면 다시 검사한다: 노하우는 규정 비교, 규정은 공식 원본 대조가 종류에 따라 달라진다 (11/18 prod 시험: 매뉴얼→노하우로 바꿔도 규정 비교 없이 게시 요청 가능했음)
+    let reanalyzed = false;
+    if (prev?.document_type !== b.document_type && deps.startWorkflow) {
+      const cur = (await store.getDoc(d.doc_id))!;
+      const next = { ...cur, review_carry: makeCarry(await editText(d.doc_id), cur.findings, !!cur.knowhow_validation && prev?.document_type === 'KNOWHOW'), findings: [], lifecycle: 'QUARANTINED' as const, workflow_id: newId.wf(), updated_at: new Date().toISOString() };
+      await store.putDoc(next);
+      await store.clearFindings?.(d.doc_id);
+      await deps.startWorkflow(next);
+      reanalyzed = true;
+    }
+    return c.json({ document_type: b.document_type, reanalyzed });
   });
 
   // ---- 주장 (얇은 버전, interfaces 10.2): 문서 주장 + 같은 조문을 근거로 한 게시 문서 주장의 지지·충돌 수 ----
