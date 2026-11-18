@@ -33,6 +33,13 @@ export const presignGet = (key: string, versionId: string | undefined, filename:
     Bucket: env('BUCKET_QUARANTINE'), Key: key, ...(versionId ? { VersionId: versionId } : {}),
     ResponseContentDisposition: `attachment; filename*=UTF-8''${encodeURIComponent(filename)}`,
   }), { expiresIn: 60 });
+/** 원본 보기 쪽 이미지 (masked/view, 개인정보만 가림). 5분, 화면에 바로 표시. URL은 로그·감사에 남기지 않는다 */
+export const presignView = (key: string) =>
+  getSignedUrl(s3(), new GetObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ResponseContentType: 'image/png' }), { expiresIn: 300 });
+/** masked/view 가 있는 쪽 (page_index) */
+export async function viewPageList(doc_id: string) {
+  return (await listKeys(`${doc_id}/masked/view/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n)).sort((a, b) => a - b);
+}
 export const presignPut = (key: string, len: number) =>
   getSignedUrl(s3(), new PutObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: key, ContentLength: len }), { expiresIn: 300 });
 
@@ -69,7 +76,8 @@ export async function invokePipeline(payload: Record<string, unknown>, workflow_
 
 /** 문서 처리 시작: AgentCore 오케스트레이터 start (실행 세션마다 새 ID, 상태는 DynamoDB) */
 export async function startWorkflow(d: DocumentRecord) {
-  await invokePipeline({ action: 'start', input: stepInput(d) }, d.workflow_id!);
+  // 위키 수정본(md): 변환·쪽 이미지·OCR 을 건너뛴다 (interfaces 6.2 보정, yoyo0704 34fcd5a)
+  await invokePipeline({ action: 'start', input: stepInput(d), ...(d.ext === 'md' ? { text_only: true } : {}) }, d.workflow_id!);
 }
 
 /** 사용자 삭제 정리 (interfaces 6.0): 새 workflow_id로 오케스트레이터 delete 실행 */
@@ -114,7 +122,12 @@ export async function workflowFailure(workflow_id: string) {
   const r = await new DynamoDBClient({ region: region() }).send(new QueryCommand({
     TableName: env('TABLE_WORKFLOWS'), KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': { S: `WF#${workflow_id}` } },
   }));
-  const failed = (r.Items ?? []).find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
+  // 다시 분석 중(LOCK RUNNING)이거나 마지막 실행이 실패가 아니면 옛 실패 단계를 보이지 않는다 (11/18 dev 시험: 다시 분석 직후 화면이 멈춘 채)
+  const items = r.Items ?? [];
+  if (items.some((i) => i.sk?.S?.startsWith('LOCK#') && i.status?.S === 'RUNNING')) return undefined;
+  const exec = items.find((i) => i.sk?.S === 'EXECUTION');
+  if (exec && exec.status?.S !== 'FAILED') return undefined;
+  const failed = items.find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
   // 사용자에게는 한국어 안내 문장만 (AWS·런타임 영문 오류에는 ARN·경로가 섞일 수 있어 숨김)
   const msg = failed?.message?.S;
   return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown', ...(msg && /[가-힣]/.test(msg) ? { message: msg } : {}) } : undefined;
@@ -160,8 +173,9 @@ export async function applyGuardrail(text: string) {
 /** 문서보관함: 마스킹본 페이지만 읽는다 (masked/segments). 원본·work는 읽지 않는다 */
 export async function pages(doc_id: string) {
   const keys = (await listKeys(`${doc_id}/masked/segments/`)).filter((k) => k.endsWith('.json'));
-  const segs = await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string }>(k)));
-  return segs.map((s) => ({ page: s.page_index, text: s.text }));
+  const segs = await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string; figures?: { image_key?: string }[] }>(k)));
+  // figure_keys: 그림 k(1부터)의 잘라낸 이미지 키 (ImageDescribe masked/figures, 없으면 null)
+  return segs.map((s) => ({ page: s.page_index, text: s.text, figure_keys: (s.figures ?? []).map((f) => (f.image_key && /\/masked\/figures\//.test(f.image_key) ? f.image_key : null)) }));
 }
 
 /** 관리 > Agent 실행 기록: WORKFLOWS 전체를 실행 단위로 묶는다 (EXECUTION·STEP#·LOCK#). 오류는 이름만
@@ -205,14 +219,18 @@ export async function putBytes(key: string, body: Uint8Array, contentType: strin
 export async function pageImage(doc_id: string, page_index: number) {
   return getObjectBytes(`${doc_id}/masked/pages/${String(page_index).padStart(4, '0')}.png`);
 }
+/** 잘라 둔 그림 (masked/figures/{nnnn}_{k}.png) → '쪽(1부터)-k' → 키. 위키 수정본의 '(그림 쪽-k)' 자리에 쓴다 (11/18) */
+export async function figureKeys(doc_id: string) {
+  return new Map((await listKeys(`${doc_id}/masked/figures/`)).flatMap((k) => { const m = /(\d{4})_(\d+)\.png$/.exec(k); return m ? [[`${Number(m[1]) + 1}-${Number(m[2])}`, k] as const] : []; }));
+}
 export async function pageImageList(doc_id: string) {
   return (await listKeys(`${doc_id}/masked/pages/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n));
 }
 /** AI로 다시 배치한 쪽 본문 (Classify, masked/structured/{nnnn}.json). page_index → markdown */
 export async function structuredPages(doc_id: string) {
   const keys = (await listKeys(`${doc_id}/masked/structured/`)).filter((k) => k.endsWith('.json'));
-  const rows = await Promise.all(keys.map((k) => getJson<{ page_index: number; markdown: string }>(k).catch(() => undefined)));
-  return new Map(rows.filter((r): r is { page_index: number; markdown: string } => !!r).map((r) => [r.page_index, r.markdown]));
+  const rows = await Promise.all(keys.map((k) => getJson<{ page_index: number; markdown: string; source?: string }>(k).catch(() => undefined)));
+  return new Map(rows.filter((r): r is { page_index: number; markdown: string; source?: string } => !!r).map((r) => [r.page_index, { markdown: r.markdown, source: r.source === 'VISION' ? 'VISION' as const : r.source === 'TEXT' ? 'TEXT' as const : 'AI' as const }])); // source 없는 이전 기록은 AI 재구성
 }
 export async function pageSummary(doc_id: string) {
   return getJson<{ pages?: import('./app.ts').PageMeta[] }>(`${doc_id}/masked/summary.json`);
@@ -251,4 +269,29 @@ export async function purgePrefix(prefix: string): Promise<number> {
     KeyMarker = r.IsTruncated ? r.NextKeyMarker : undefined; VersionIdMarker = r.IsTruncated ? r.NextVersionIdMarker : undefined;
   } while (KeyMarker);
   return n;
+}
+
+/** 위키 수정본 저장 (11/18 dev 시험 버그 2건)
+ *  1) 원래 올린 original.docx 등이 남아 '원본 2개'로 글자 추출이 실패했다 → 새 원본을 쓴 뒤 다른 original.* 는 지운다.
+ *  2) 이전 분석의 쪽별 결과(work/·masked/ 의 segments·structured·view 0001… )가 남아, 2쪽 PDF 를 고친 md(1쪽)를 다시 분석할 때
+ *     옛 2쪽 본문이 섞였다 → '확인 필요'가 고친 문장을 다시 물었다 (사용자 지적 11/18). 새 원본을 쓰기 전에 {doc}/ 아래 결과물을 지운다
+ *     (쓰기가 분석을 시작시키므로 먼저 지운다).
+ *  권한: API Task Role 에 quarantine 버킷 {doc}/* 의 ListBucket·DeleteObject 필요 (yoyo0704) */
+export async function putOriginalOnly(key: string, body: Uint8Array, contentType: string) {
+  const { ListObjectsV2Command, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+  const Bucket = env('BUCKET_QUARANTINE');
+  const list = async (Prefix: string) => {
+    const out: string[] = []; let ContinuationToken: string | undefined;
+    do { const r = await s3().send(new ListObjectsV2Command({ Bucket, Prefix, ContinuationToken })); out.push(...(r.Contents ?? []).map((o) => o.Key!).filter((k) => k !== key)); ContinuationToken = r.NextContinuationToken; } while (ContinuationToken);
+    return out;
+  };
+  const del = async (keys: string[]) => { for (let i = 0; i < keys.length; i += 1000) {
+    const r = await s3().send(new DeleteObjectsCommand({ Bucket, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+    if (r.Errors?.length) throw new Error(`이전 분석 결과를 지우지 못했습니다: ${r.Errors[0]!.Code}`);
+  } };
+  const doc = key.slice(0, key.lastIndexOf('/') + 1);
+  // 잘라 둔 그림(masked/figures)은 남긴다: 위키 수정본은 '(그림 쪽-k)'로 이 그림을 가리킨다 (11/18 사용자 지적: 수정 뒤 정리본에 사진이 사라짐)
+  await del((await list(doc)).filter((k) => !/\/original\.[^/]+$/.test(k) && !/\/masked\/figures\//.test(k)));
+  await putBytes(key, body, contentType);
+  await del(await list(key.replace(/original\.[^/]+$/, 'original')));
 }

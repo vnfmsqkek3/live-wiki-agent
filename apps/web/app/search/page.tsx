@@ -6,6 +6,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type LibraryCard, type SearchItem } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
+import { PageThumb } from '../page-thumb';
 
 // 문서 종류로 거른다 (태그는 AI가 붙인 자유 문구라 필터로 쓰면 0건이 되기 쉽다)
 const FILTERS = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
@@ -36,14 +37,41 @@ function DetailFilters({ value, options, onApply }: { value: Detail; options: { 
   );
 }
 
-function SearchMatches({ item }: { item: SearchItem }) {
-  const matches = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
+/** 조각 표시용 정리 (Fable 권고 11/18): 원문(snippet)은 그대로 두고 화면에서만 줄인다.
+ *  그림 설명(원문 아님)은 머리표·'screenshot:' 을 떼고 '표기:' 값만(없으면 묘사 첫 문장), '의도:'(AI 추정)는 숨김 */
+type Match = NonNullable<SearchItem['matches']>[number];
+function showMatch(m: Match): { badge?: string; text: string } {
+  const head = /^\[(그림 설명 · 원문 아님|그림 기준 · AI 정리)\]\s*/.exec(m.snippet);
+  // 표 조각은 '|' 원문 대신 행마다 '칸 · 칸'으로 (11/18 dev 시험: 검색 결과에 마크다운 표 원문)
+  const untable = (t: string) => t.split('\n').filter((l) => !/^\s*\|?\s*:?-{2,}/.test(l)).map((l) => (/^\s*\|.*\|\s*$/.test(l) ? l.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim() || '—').join(' · ') : l)).join(' / ');
+  if (!head && m.quotable !== false && m.evidence_kind !== 'FIGURE') return { text: /\|.*\|/.test(m.snippet) ? untable(m.snippet) : m.snippet };
+  const body = m.snippet.replace(/^\[[^\]]*\]\s*/, '');
+  if (m.evidence_kind === 'FIGURE' || head?.[1] === '그림 기준 · AI 정리') return { badge: '그림 기준 · AI 정리', text: body };
+  const parts = body.split(/\s+\/\s+(?=(?:표기|의도):)/);
+  const label = parts.find((x) => x.startsWith('표기:'))?.replace(/^표기:\s*/, '');
+  const first = (parts[0] ?? body).replace(/^[a-z_]+:\s*/i, '').split(/(?<=[.다])\s+/)[0] ?? '';
+  return { badge: '그림 · 원문 아님', text: label || first };
+}
+function MatchItem({ m, docId }: { m: Match; docId: string }) {
+  const v = showMatch(m);
+  return <li className={m.page ? 'with-thumb' : undefined}>
+    <PageThumb docId={docId} page={m.page} />
+    {(m.basis || v.badge || m.page) && <p className="match-basis">{v.badge && <span className="fig-badge">{v.badge}</span>}{m.page && v.badge ? ` ${m.page}쪽` : ''}{m.page_context ? ` · ${m.page_context}` : ''}{m.basis && !v.badge ? m.basis : ''}</p>}
+    <blockquote className={m.basis && !v.badge ? undefined : 'clamp'}>{v.text}</blockquote>
+  </li>;
+}
+/** 기본은 앞 limit 개만, 나머지는 접기. 원문 조각을 그림 조각보다 앞에. 규정은 '조문', 그 밖은 '곳' */
+function SearchMatches({ item, limit = 2 }: { item: SearchItem; limit?: number }) {
+  const all = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
+  const isFig = (m: Match) => m.quotable === false || m.evidence_kind === 'FIGURE' || /^\[그림/.test(m.snippet);
+  const matches = [...all.filter((m) => !isFig(m)), ...all.filter(isFig)];
+  const reg = item.document_type === 'REGULATION';
+  const rest = matches.slice(limit);
   return <div className="search-matches">
-    {item.matches && item.matches.length > 1 && <p className="note">이 문서에서 일치한 조문 {matches.length}건</p>}
-    <ul>{matches.map((m, n) => <li key={n}>
-      {m.basis && <p className="match-basis">{m.basis}</p>}
-      <blockquote>{m.snippet}</blockquote>
-    </li>)}</ul>
+    {matches.length > 1 && <p className="note">{reg ? `이 문서에서 일치한 조문 ${matches.length}건` : `이 문서에서 일치한 곳 ${matches.length}곳`}</p>}
+    <ul>{matches.slice(0, limit).map((m, n) => <MatchItem key={n} m={m} docId={item.doc_id} />)}</ul>
+    {rest.length > 0 && <details className="more-matches"><summary>나머지 {rest.length}{reg ? '건' : '곳'} 더 보기</summary>
+      <ul>{rest.map((m, n) => <MatchItem key={n} m={m} docId={item.doc_id} />)}</ul></details>}
   </div>;
 }
 
@@ -131,7 +159,11 @@ function Results() {
         <p className="note">열람 권한이 있는 승인 문서 중에 맞는 결과가 없습니다. 다른 표현으로 찾거나 종류를 '전체'로 바꿔 보세요.</p>
       ) : (
         <>
-          <p className="note">{items.length ? `열람 권한이 있는 승인 문서 ${items.length}건, 관련도 높은 순` : '정확한 근거로 확인된 문서는 없습니다. 아래 관련 있을 수 있는 문서를 참고하세요.'}</p>
+          {items.length ? <p className="note">열람 권한이 있는 승인 문서 {items.length}건, 관련도 높은 순</p> : (() => {
+            // 직접 정한 조문이 없음을 먼저 밝힌다 (let522mj 제안 11/18: related 만 있으면 '대상이 다르다'를 알 수 있게)
+            const r0 = related[0]; const b = r0?.matches?.find((m) => m.basis)?.basis ?? r0?.basis;
+            return <p className="notice" role="status"><strong>'{q}'을(를) 직접 정한 조문·문서는 없습니다.</strong>{r0 ? <> 비슷한 내용으로 {b ? <>「{b}」</> : <>「{r0.title}」</>}이(가) 있지만 대상이 다를 수 있으니 아래에서 확인하세요.</> : ''}</p>;
+          })()}
           <PaginatedList label="검색 결과" pageKey="page" className="ledger result-list">
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
@@ -160,7 +192,7 @@ function Results() {
                     <Seal i={{ ...i, freshness: i.freshness }} />
                     <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                                         <dl><dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
-                    <SearchMatches item={i} />
+                    <SearchMatches item={i} limit={1} />
                     <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
                   </li>
                 ))}

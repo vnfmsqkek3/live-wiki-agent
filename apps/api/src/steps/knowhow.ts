@@ -14,6 +14,8 @@ export interface Clause {
   effective_from: string;
   /** 인용한 버전이 현행이 아니면 같은 위치의 현행 조문 */
   current?: Omit<Clause, 'current'>;
+  /** 같은 규정의 더 새 VERIFIED 개정본(시행일이 미래여도) 같은 조문. 주장 저장 때 재검토 판정용 (let522mj 요청 11/17) */
+  newer?: { provision_id: string; text: string; deleted: boolean };
 }
 
 /** SUPPLEMENTS: 조문이 정한 범위 안에서 절차·방법을 구체화한 실무 보완 (어긋나지 않지만 규정이 요구하지는 않음, 사용자 지적 11/17) */

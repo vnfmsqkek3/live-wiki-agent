@@ -6,6 +6,9 @@ import type { DetailFilter } from './library.ts';
 export interface SearchHit {
   doc_id: string; title: string; snippet: string; provision?: string; effective_from: string;
   authority_status: string; freshness: string; search_status: string; document_type: string; business_path?: string[]; tags?: string[];
+  /** 근거가 나온 쪽 (1부터, let522mj). 그림 썸네일용 */
+  page?: number;
+  quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string;
 }
 /** 질의 재구성 (let522mj search_wiki, 요청기록/20261117-1910 1장): 문장형 질의를 핵심 검색어 + 대안 ≤2로 */
 export interface Rewritten { core: string; alternates: string[] }
@@ -15,7 +18,9 @@ export type SearchWiki = (args: Record<string, unknown>, actor: { sub: string; g
 export const toItem = (h: SearchHit) => ({
   doc_id: h.doc_id, title: h.title, snippet: h.snippet, document_type: h.document_type,
   authority_status: h.authority_status, freshness: h.freshness, effective_from: h.effective_from || undefined,
-  basis: h.provision, tags: h.tags ?? [], business_path: h.business_path ?? [], search_status: h.search_status,
+  basis: h.provision, tags: h.tags ?? [], business_path: h.business_path ?? [], search_status: h.search_status, ...(h.page ? { page: h.page } : {}),
+  // 가이드·화면이 그림 기준 근거를 구분하도록 버리지 않는다 (let522mj PR #42)
+  quotable: h.quotable, ...(h.evidence_kind ? { evidence_kind: h.evidence_kind } : {}), ...(h.page_context ? { page_context: h.page_context } : {}),
   reason: h.search_status === 'HISTORICAL' ? '현재 시행 중이 아닌 과거 조문입니다'
     : h.freshness === 'REVIEW_REQUIRED' ? '근거 규정이 바뀌어 재검토 중인 문서입니다'
     : h.provision ? '찾는 내용과 조문이 일치합니다' : '찾는 내용과 관련된 승인 문서입니다',
@@ -41,12 +46,15 @@ export function searchVia(searchWiki: SearchWiki) {
 
 /** 검색 결과를 문서 단위로 묶는다 (search_wiki는 근거 인용용 조문 단위). 순서는 각 문서의 최고 순위,
  *  카드 안에는 맞은 조문(조문 표기·인용) 목록. 가이드 근거는 조문 단위 그대로 쓴다 (사용자 지적 11/17) */
-export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string }>(hits: T[]) {
-  const by = new Map<string, T & { matches: { basis?: string; snippet: string }[] }>();
+type MatchOf = { basis?: string; snippet: string; page?: number; quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string };
+export function groupByDoc<T extends { doc_id: string; basis?: string; snippet: string; page?: number; quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string }>(hits: T[]) {
+  const by = new Map<string, T & { matches: MatchOf[] }>();
+  // 조각별 그림 배지를 화면이 붙이도록 quotable·evidence_kind·page_context 도 넘긴다 (Fable 권고 11/18). snippet 원문은 그대로
+  const m = (h: T): MatchOf => ({ basis: h.basis, snippet: h.snippet, ...(h.page ? { page: h.page } : {}), ...(h.quotable === false ? { quotable: false } : {}), ...(h.evidence_kind ? { evidence_kind: h.evidence_kind } : {}), ...(h.page_context ? { page_context: h.page_context } : {}) });
   for (const h of hits) {
     const g = by.get(h.doc_id);
-    if (g) { if (!g.matches.some((m) => m.basis === h.basis && m.snippet === h.snippet)) g.matches.push({ basis: h.basis, snippet: h.snippet }); }
-    else by.set(h.doc_id, { ...h, matches: [{ basis: h.basis, snippet: h.snippet }] });
+    if (g) { if (!g.matches.some((x) => x.basis === h.basis && x.snippet === h.snippet)) g.matches.push(m(h)); }
+    else by.set(h.doc_id, { ...h, matches: [m(h)] });
   }
   return [...by.values()];
 }

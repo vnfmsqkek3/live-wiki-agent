@@ -15,7 +15,8 @@ test('개인정보 블록만 검게, OCR 좌표 비율 보정', async () => {
   const boxes = await piiBoxes(page);
   assert.equal(boxes.length, 1);
   const out = blackout(white(200, 200), boxes, page); // 렌더가 OCR 좌표의 2배
-  assert.deepEqual(px(out, 50, 30), [0, 0, 0]);
+  assert.deepEqual(px(out, 19, 18), [200, 200, 200]); // 회색 칸(가장자리)
+  assert.ok([[200, 200, 200], [85, 85, 85]].some((c) => JSON.stringify(c) === JSON.stringify(px(out, 50, 30)))); // 칸 안: 회색 또는 '개인정보' 글자
   assert.deepEqual(px(out, 50, 130), [255, 255, 255]);
 });
 
@@ -39,7 +40,7 @@ test('PiiScan: 그림 페이지는 masked/pages 생성 + PII_IMAGE_REVIEW, OCR �
   assert.equal(r.status, 'REVIEW_REQUIRED');
   assert.ok(bytes.has(`${doc_id}/masked/pages/0000.png`));
   assert.ok(!bytes.has(`${doc_id}/masked/pages/0001.png`));
-  assert.deepEqual(px(bytes.get(`${doc_id}/masked/pages/0000.png`)!, 5, 5), [0, 0, 0]);
+  assert.notDeepEqual(px(bytes.get(`${doc_id}/masked/pages/0000.png`)!, 5, 5), [255, 255, 255]); // 가려짐(회색·글자)
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 2);
 });
 
@@ -74,7 +75,8 @@ test('PiiScan 그림 쪽 기준: OCR figures가 있으면 그 개수로, 없으�
     putJson: async (k, v) => { objs.set(k, v); }, getBytes: async () => new Uint8Array(img), putBytes: async (k) => { put.push(k); },
   });
   const r = await scan({ doc_id, workflow_id: 'wf' } as never);
-  assert.deepEqual(put, [`${doc_id}/masked/pages/0001.png`]);
+  assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0001.png`]);
+  assert.deepEqual(put.filter((k) => k.includes('/masked/view/')).sort(), [`${doc_id}/masked/view/0000.png`, `${doc_id}/masked/view/0001.png`]); // 원본 보기: 모든 쪽
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 1);
 });
 

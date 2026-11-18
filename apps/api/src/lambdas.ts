@@ -1,5 +1,6 @@
 // 단계 Lambda (Owner dhxorb96, docs/05 3장). 입출력 계약: interfaces.md 6장.
 // 진입점은 handlers.ts. 여기 함수들은 의존성을 주입받아 테스트한다.
+import { applyCarry } from './steps/carry.ts';
 import { createHash } from 'node:crypto';
 import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
@@ -11,7 +12,12 @@ import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
 import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
-import { faithful, needsStructure, structurePrompt } from './steps/structure.ts';
+import { editReview } from './steps/edit-review.ts';
+import { sitesOf, unsafeQuery } from './steps/reference-check.ts';
+import type { WebHit } from './web-search.ts';
+import { allocate, asRef, findInSameDoc, linkAcceptable, ruleCandidates, sitesFor, webQuery, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
+import { sameText } from './claims.ts';
+import { faithful, needsStructure, structurePrompt, textFallback, tightTables } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
@@ -24,6 +30,8 @@ export interface LambdaDeps {
   startWorkflow(d: DocumentRecord): Promise<void>;
   /** 노하우 검증 의존성 (regulation·search Tool). 없으면 KNOWHOW 문서는 검증 대기로 사람 검토 */
   knowhow?: KnowhowDeps & { maskedText(d: DocumentRecord): Promise<string> };
+  /** 주장 저장 (interfaces.md 10.2, PostgreSQL). 노하우 검증 items 그대로. 없으면 생략 */
+  saveClaims?(doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (statement: string) => number | null, revisedTo?: (provision_id: string) => Promise<string | undefined>): Promise<unknown>;
   /** Trusted Registry 대조 (let522mj registryMatch). text 없이 부르면 해시만 대조 */
   registry?(content_hash: string, text?: string): Promise<{ registry?: RegistryEntry & { law_name?: string; effective_to?: string; registry_doc_no?: string }; claimed?: { law_id: string; revision_id: string; clauses?: Record<string, string> } }>;
   maskedText?(d: DocumentRecord): Promise<string>;
@@ -44,13 +52,24 @@ export interface SegmentDeps {
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
   /** 업무 분류 칸 배정 (interfaces.md 10.1). 마스킹된 제목·요약만. 없으면 생략 (GOV_STORE=postgres + MODEL_EMBED 일 때만) */
   category?(doc: { doc_id: string; title: string; summary?: string }): Promise<unknown>;
+  /** 참조 확인 (interfaces 6.4): 정리본에서 확인할 대상 찾기(Haiku)와 공개 웹 검색(AgentCore Browser). 없으면 생략 */
+  /** 확인 필요 찾기 (계약 6.5) */
+  findClarify?(prompt: string): Promise<{ value: { items: ClarifyCandidate[] }; model: string }>;
+  /** 위키 조각으로 채울 값 제안 */
+  suggestClarify?(prompt: string): Promise<{ value: { suggestions: { n: number; value: string; after: string; source_id: string }[] } }>;
+  /** 사내 위키 검색 (게시 문서, 같은 분류 우선) */
+  wiki?(query: string, categoryPath?: string): Promise<WikiHit[]>;
+  /** 이 문서의 업무 분류 경로 (위키 검색 같은 분류 우선) */
+  categoryOf?(doc_id: string): Promise<string | undefined>;
+  web?: import('./web-search.ts').WebSearcher;
   /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
   structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
   /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
   getBytes?(key: string): Promise<Uint8Array>;
   putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
-type Seg = { page_index: number; text: string; figures?: import('./steps/structure.ts').PageFigure[] };
+/** page_markdown: 그림 쪽을 Vision 이 쪽 이미지 기준으로 쓴 정리본 (ImageDescribe, 사용자 결정 11/17 A). 원문 대조 대상 아님 */
+type Seg = { page_index: number; text: string; figures?: import('./steps/structure.ts').PageFigure[]; page_markdown?: string };
 const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
 
 async function maskedSegments(deps: SegmentDeps, doc_id: string) {
@@ -65,10 +84,14 @@ export function makePiiScan(deps: SegmentDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     const keys = (await deps.listKeys(`${i.doc_id}/work/segments/`)).filter((k) => k.endsWith('.json'));
     if (!keys.length) throw new Error('segments 없음');
-    const segs = await Promise.all(keys.map(async (k) => ({ page: pageOf(k), text: (await deps.getJson<Seg>(k)).text })));
-    const r = await piiScan(segs, deps.guardrail);
-    for (const m of r.masked)
-      await deps.putJson(`${i.doc_id}/masked/segments/${String(m.page).padStart(4, '0')}.json`, { doc_id: i.doc_id, page_index: m.page, text: m.text });
+    const raw = await Promise.all(keys.map(async (k) => ({ page: pageOf(k), seg: await deps.getJson<Seg & { figure_boxes?: number[][] }>(k) })));
+    const r = await piiScan(raw.map((x) => ({ page: x.page, text: x.seg.text })), deps.guardrail);
+    // figure_boxes(그림 영역 좌표 0~1000, let522mj SegmentBuild)는 좌표뿐이라 그대로 넘긴다 → ImageDescribe 가 그림을 자를 때 씀
+    const boxesOf = new Map(raw.map((x) => [x.page, x.seg.figure_boxes]));
+    for (const m of r.masked) {
+      const fb = boxesOf.get(m.page);
+      await deps.putJson(`${i.doc_id}/masked/segments/${String(m.page).padStart(4, '0')}.json`, { doc_id: i.doc_id, page_index: m.page, text: m.text, ...(Array.isArray(fb) && fb.length ? { figure_boxes: fb } : {}) });
+    }
     const img = await maskPageImages(deps, i.doc_id);
     const findings = [...(r.findings ?? []), ...img];
     await deps.store.putDoc(addFindings(d, findings));
@@ -89,19 +112,23 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
     return o && Array.isArray(o.figures) ? o.figures.length > 0 : !!p.has_images || p.reason === 'image';
   };
-  const pages = (targets?.pages ?? []).filter(isFigurePage);
-  if (!pages.length) return [];
+  // 원본 보기(사용자 요청 11/17 '원본 내용 그대로 png'): 모든 쪽을 개인정보만 검게 칠한 이미지로 masked/view/ 에 (OCR 이 있는 쪽).
+  // 그림 쪽은 같은 이미지를 masked/pages/ 에도 둔다(ImageDescribe 입력, 기존 그대로)
   const out: Finding[] = [];
-  for (const p of pages) {
+  for (const p of targets?.pages ?? []) {
     const n = String(p.page_index).padStart(4, '0');
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
+    const fig = isFigurePage(p);
     if (!o) {
-      out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
+      if (fig) out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
       continue;
     }
     const boxes = await piiBoxes(o, deps.guardrail);
-    await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o), 'image/png');
-    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}` });
+    const png = blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o);
+    await deps.putBytes(`${doc_id}/masked/view/${n}.png`, png, 'image/png');
+    if (!fig) continue;
+    await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, png, 'image/png');
+    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
   }
   return out;
 }
@@ -110,9 +137,117 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
 export function makeInjectionScan(deps: SegmentDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     const d = await mustDoc(deps.store, i.doc_id);
-    const r = injectionScan((await maskedSegments(deps, i.doc_id)).map((s) => ({ page: s.page_index, text: s.text })));
+    // Vision 정리본(page_markdown)도 검사: 모델 출력이지만 이미지 속 지시문이 옮겨질 수 있다
+    const r = injectionScan((await maskedSegments(deps, i.doc_id)).map((s) => ({ page: s.page_index, text: s.page_markdown ? `${s.text}\n${s.page_markdown}` : s.text })));
     await deps.store.putDoc(addFindings(d, r.findings));
     return r;
+  };
+}
+
+/** 참조 확인 ReferenceCheck (사용자 결정 11/18, interfaces 6.4). Classify 뒤, 게시를 막지 않는다(INFO). 어떤 실패도 OK 로 끝낸다 */
+export function makeReferenceCheck(deps: SegmentDeps) {
+  return async (i: StepInput): Promise<StepOutput> => {
+    if (!deps.findClarify) return { status: 'OK', findings: [] };
+    // 규정은 위키에서 고칠 수 없어 '확인 필요' 질문을 만들지 않는다 (11/18 dev 시험)
+    if (((await deps.store.getDoc(i.doc_id))?.document_type ?? '') === 'REGULATION') return { status: 'OK', findings: [] };
+    // 전체 시간 예산 240초: Gateway 가 도구 호출을 ~300초에 끊는다 (11/18 dev 과천 가상판 실패). 넘으면 남은 웹 검색은 건너뛴다
+    const t0 = Date.now(); const budget = Number(process.env.REFCHECK_BUDGET_MS ?? 240_000);
+    const left = () => budget - (Date.now() - t0);
+    const d = await mustDoc(deps.store, i.doc_id);
+    try {
+      // 정리본이 있으면 정리본, 없으면 마스킹 본문 (모두 개인정보를 가린 글). 적용은 화면이 이 글 기준으로 before→after
+      const segs = (await maskedSegments(deps, i.doc_id)).sort((a, b) => a.page_index - b.page_index);
+      const structured = new Map<number, string>();
+      for (const k of (await deps.listKeys(`${i.doc_id}/masked/structured/`)).filter((x) => x.endsWith('.json'))) {
+        const v = await deps.getJson<{ page_index: number; markdown: string }>(k).catch(() => undefined);
+        if (v) structured.set(v.page_index, v.markdown);
+      }
+      const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
+      const all = pages.map((p) => p.text).join('\n\n');
+      // 1) 찾기 (한 번에 모두: 링크 3 + 그 밖 12, CLARIFY_MAX)
+      // 쪽 묶음(8쪽)마다 같은 체크리스트로 훑는다: 긴 입력의 자유 판단을 줄여 실행마다 달라지는 것을 줄인다 (11/18 dev)
+      const chunks: (typeof pages)[] = []; for (let k = 0; k < pages.length; k += 8) chunks.push(pages.slice(k, k + 8));
+      const results = d.review_carry ? [] : await Promise.all(chunks.map((ch) => deps.findClarify!(clarifyPrompt(d.title, ch)).catch(() => ({ value: { items: [] as ClarifyCandidate[] }, model: '' }))));
+      const found = { model: results.find((r) => r.model)?.model ?? '', value: { items: results.flatMap((r) => r.value.items ?? []) } };
+      // 모델은 담당자·불일치·버전만, 링크·표 빈 칸은 코드 탐지 (Fable 진단 D)
+      // 한 번 검토한 뒤(위키 수정·다시 분석)에는 모델 질문을 새로 만들지 않는다: 실행마다 다른 질문이 나와 끝나지 않았다 (사용자 지적 11/18, Fable D). 규칙 질문만 고친 줄에서
+      const llm = d.review_carry ? [] : found.value.items.filter((c) => ['VAGUE_ACTOR', 'INCONSISTENT', 'OUTDATED'].includes(c.kind));
+      const pageText = (n: number) => pages.find((p) => p.page === n)?.text;
+      const cands = allocate(keepCandidates([...ruleCandidates(pages), ...llm], all, pageText, pages), pageText);
+      // 같은 문서 다른 쪽에 답이 있으면 'n쪽 참조' 제안 (잠금 여부는 바꾸지 않는다)
+      const inDoc = new Map<number, { from: number; to: number; heading?: string }>();
+      cands.forEach((c, n) => { if (c.kind === 'VAGUE_ACTOR' || c.kind === 'MISSING_VALUE') { const f = findInSameDoc(c, pages); if (f) inDoc.set(n, f); } });
+      console.log(JSON.stringify({ msg: 'clarify candidates', doc_id: d.doc_id, n: cands.length, kinds: cands.map((c) => c.kind) }));
+      const internal = (process.env.INTERNAL_DOMAINS ?? '').split(',').map((x) => x.trim()).filter(Boolean);
+      const sugg = new Map<number, ClarifySuggestion[]>(cands.map((_, n) => [n, []]));
+      for (const [n, f] of inDoc) {
+        const where = `${f.from === f.to ? f.from : `${f.from}~${f.to}`}쪽${f.heading ? ` '${f.heading}'` : ''}`;
+        sugg.get(n)!.push({ value: `${where} 참조`, after: `${cands[n]!.before.replace(/\s+$/, '')} (${where} 참조)`, source: { type: 'WIKI', doc_id: d.doc_id, page: f.from, title: '이 문서' } });
+      }
+      // 2) 사내 위키 먼저 (게시 문서만, 자기 문서 제외, 같은 분류 우선). 검색어 검사를 통과한 것만
+      if (deps.wiki && deps.suggestClarify) {
+        const qs: { n: number; c: ClarifyCandidate; hits: WikiHit[] }[] = [];
+        const category = await deps.categoryOf?.(d.doc_id).catch(() => undefined);
+        await Promise.all(cands.map(async (c, n) => {
+          const why = unsafeQuery(c.query); if (why && why !== 'internal_domain') return; // 사내 검색이라 '하나은행'·사내 도메인 낱말은 허용, 개인정보·사람 이름은 금지
+          const hits = (await deps.wiki!(c.query, category).catch(() => [] as WikiHit[])).filter((h) => h.doc_id !== d.doc_id && h.doc_id !== d.previous_doc_id).slice(0, 4);
+          if (hits.length) qs.push({ n, c, hits });
+        }));
+        if (qs.length) {
+          const out = (await deps.suggestClarify(suggestPrompt(qs)).catch(() => ({ value: { suggestions: [] } }))).value.suggestions ?? [];
+          for (const s of out) {
+            const q = qs.find((x) => x.n === s.n); const h = q?.hits.find((x) => x.id === s.source_id);
+            if (!q || !h || !safeSuggestion(q.c, s)) continue;
+            sugg.get(s.n)!.push({ value: s.value.trim(), after: s.after.trim(), source: { type: 'WIKI', doc_id: h.doc_id, title: h.title, ...(h.page ? { page: h.page } : {}) } });
+          }
+        }
+      }
+      // 3) 공개 웹은 링크·불일치·버전만, 위키 제안이 없을 때, 공식 도메인 추정이 있을 때 (최대 3건)
+      const webC = cands.map((c, n) => {
+        const pt = c.page ? pageText(c.page) ?? '' : '';
+        const q = webQuery(c, pt);
+        return { c, n, q, sites: sitesFor(`${c.before} ${c.item} ${pt}`, sitesOf(asRef(c))) };
+      }).filter(({ c, n, q, sites }) => WEB_KINDS.has(c.kind) && !sugg.get(n)!.length && q && sites.length && !unsafeQuery(q, internal)).slice(0, 3);
+      const checked_at = now();
+      if (deps.web && webC.length) {
+        // 채택 판정을 검색 안으로: 채택할 수 있는 결과가 나올 때까지 사이트별 site: 검색 → 일반 검색 (Fable 진단 C)
+        const sitesM = new Map(webC.map(({ q, sites }) => [q!, sites])); const acceptM = new Map(webC.map(({ q, sites }) => [q!, linkAcceptable(all, sites)]));
+        // 검색어마다 따로(동시 2개), 각 60초·남은 예산 안에서. 시간 초과면 그 검색어는 빈 결과
+        const one = (q: string) => {
+          const ms = Math.min(60_000, left() - 15_000);
+          if (ms <= 5_000) { console.log(JSON.stringify({ msg: 'refcheck web skipped', doc_id: d.doc_id, reason: 'budget' })); return Promise.resolve(new Map<string, WebHit[]>()); }
+          return Promise.race([deps.web!.search([q], sitesM, acceptM).catch(() => new Map<string, WebHit[]>()),
+            new Promise<Map<string, WebHit[]>>((r) => setTimeout(() => { console.log(JSON.stringify({ msg: 'refcheck web timeout', doc_id: d.doc_id, ms })); r(new Map()); }, ms))]);
+        };
+        const run = async (qs: string[]) => { const out = new Map<string, WebHit[]>(); for (let k = 0; k < qs.length; k += 2) for (const m of await Promise.all(qs.slice(k, k + 2).map(one))) for (const [q, h] of m) out.set(q, h); return out; };
+        const hits = await run([...new Set(webC.map(({ q }) => q!))]);
+        // 웹 결과는 실행마다 달라진다: 채택할 결과가 없는 검색어는 남은 시간이 있을 때만 한 번 더 (11/18 dev 1회차 빈 제안)
+        const retry = webC.filter(({ q, sites }) => !(hits.get(q!) ?? []).some(linkAcceptable(all, sites))).map(({ q }) => q!);
+        if (retry.length && left() > 75_000) for (const [q, h] of await run([...new Set(retry)])) hits.set(q, [...(hits.get(q) ?? []), ...h]);
+        console.log(JSON.stringify({ msg: 'refcheck web', doc_id: d.doc_id, queries: webC.length, results: [...hits.values()].map((h) => h.length), accepted: webC.map(({ q, sites }) => (hits.get(q!) ?? []).filter(linkAcceptable(all, sites)).length), left_ms: left() }));
+        for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
+          detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
+        for (const { c, n, q, sites } of webC) {
+          const ok = (hits.get(q!) ?? []).filter(linkAcceptable(all, sites)).sort((x, y) => new URL(x.url).pathname.length - new URL(y.url).pathname.length); // 짧은 경로 우선
+          const h = ok[0];
+          if (h) sugg.get(n)!.push({ value: h.url, after: `${c.before} (${h.url})`, source: { type: 'WEB', url: h.url, title: h.title } });
+        }
+      }
+      // 4) finding: 제안이 없어도 질문은 남긴다
+      const findings: Finding[] = cands.map((c, n) => {
+        const data: ClarifyData = { kind: c.kind, item: c.item, ...(c.page ? { page: c.page } : {}), before: c.before, ...(c.span ? { span: c.span } : {}), ...(c.table_header ? { table_header: c.table_header } : {}), question: c.question, suggestions: sugg.get(n)!, status: 'OPEN' };
+        return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: clarifySeverity(c, c.page ? pageText(c.page) : undefined), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
+          location: { ...(c.page ? { page: c.page } : {}), excerpt: c.before.slice(0, 120) },
+          user_message: c.question, fix_hint: data.suggestions.length ? '제안을 확인하고 [적용]하거나 직접 입력하세요.' : '직접 입력하거나, 해당 없으면 사유를 적어 주세요.',
+          details: { ...data, checked_at } };
+      });
+      if (findings.length) await deps.store.putDoc(addFindings(await mustDoc(deps.store, i.doc_id), findings)); // 검색 중 다른 단계가 바꾼 문서 위에 더함
+      console.log(JSON.stringify({ msg: 'clarify done', doc_id: d.doc_id, items: findings.length, with_suggestion: findings.filter((f) => (f.details as unknown as ClarifyData).suggestions.length).length, blocking: findings.filter((f) => f.severity === 'MEDIUM').length }));
+      return { status: 'OK', findings };
+    } catch (e) {
+      console.warn(JSON.stringify({ msg: 'clarify failed', doc_id: d.doc_id, err: (e as Error).name }));
+      return { status: 'OK', findings: [] };
+    }
   };
 }
 
@@ -156,21 +291,37 @@ export function makeClassify(deps: SegmentDeps) {
 
 /** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)·이미 마크다운인 쪽은 건너뜀. 원문 대조를 통과한 정리본만 저장 */
 export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
-  const todo = segs.filter((s) => needsStructure(s.text, s.figures)).slice(0, 40);
+  // 그림 쪽 Vision 정리본은 모델을 다시 부르지 않고 그대로 쓴다 (다시 가린 뒤). 원문 대조 대상 아님 → 화면에 '그림 기준' 표시
+  for (const s of segs) if (s.page_markdown?.trim()) {
+    const md = mask(s.page_markdown, detectPii(s.page_markdown)).replace(/_\((그림\s*\d+)\)_/gu, '($1)').slice(0, 6000); // '_(그림 n)_' → 화면 단추가 되는 '(그림 n)'
+    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: tightTables(md), source: 'VISION', at: now() }).catch(() => {});
+  }
+  const todo = segs.filter((s) => !s.page_markdown?.trim() && needsStructure(s.text, s.figures)).slice(0, 40);
   let saved = 0, rejected = 0, failed = 0;
+  const done = new Set<number>();
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
       try {
-        const r = await deps.structure!(structurePrompt(s.page_index, s.text, s.figures));
+        const pv = segs.find((x) => x.page_index === s.page_index - 1);
+        const prevTail = (pv?.page_markdown?.trim() ? pv.page_markdown : pv?.text ?? '').split('\n').map((l) => l.trim()).filter(Boolean).slice(-5).join('\n');
+        const r = await deps.structure!(structurePrompt(s.page_index, s.text, s.figures, mask(prevTail, detectPii(prevTail))));
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
         const f = faithful(s.text, md, s.figures);
         if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
-        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
-        saved++;
+        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: tightTables(md), source: 'AI', model: r.model, at: now() });
+        saved++; done.add(s.page_index);
       } catch (e) { failed++; console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
     }));
   }
-  return { pages: todo.length, saved, rejected, failed };
+  // 정리본이 없는 쪽(건너뜀·탈락·실패·40쪽 넘음)은 마스킹 본문을 정리본으로 둔다 → 정리본 탭은 모든 쪽이 글 (사용자 지적 11/18)
+  const has = new Set([...segs.filter((s) => s.page_markdown?.trim()).map((s) => s.page_index), ...done]);
+  const fb = textFallback(segs);
+  let fallback = 0;
+  for (const s of segs) if (!has.has(s.page_index)) {
+    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: tightTables(fb.get(s.page_index) ?? '(빈 쪽)'), source: 'TEXT', at: now() }).catch(() => {});
+    fallback++;
+  }
+  return { pages: todo.length, saved, rejected, failed, fallback };
 }
 
 const key = (d: DocumentRecord) => `${d.doc_id}/original.${d.ext}`;
@@ -245,6 +396,16 @@ export function makeTrustGate(deps: LambdaDeps) {
         extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
       }
     }
+    // 위키 수정본: 이전 버전과 비교 — 바뀐 문장에 대한 규정 판정만 남기고, 지운 중요 문장은 '고칠 것' (사용자 결정 11/17 규칙 2)
+    if (d.source === 'WIKI_EDIT' && d.previous_doc_id && deps.knowhow && result !== 'QUARANTINED') {
+      const prev = await deps.store.getDoc(d.previous_doc_id);
+      if (prev) {
+        const r = editReview(await deps.knowhow.maskedText(prev), await deps.knowhow.maskedText(d));
+        findings = [...findings.filter((f) => !f.code.startsWith('KNOWHOW_CONFLICT') || r.onChanged(f)), ...r.findings];
+        if (r.findings.length) result = 'REVIEW_REQUIRED';
+        extra = { ...extra, edit_diff: { changed: r.changed.length, removed: r.removed.length } };
+      }
+    }
     // 매뉴얼도 본문이 인용한 규정 조문을 기록한다 → 규정·노하우와 서로 연결되고, 규정 개정 시 재검토 대상이 된다 (사용자 지시 11/17)
     if (d.classification?.document_type === 'MANUAL' && result !== 'QUARANTINED' && deps.knowhow) {
       const cites = (await deps.knowhow.extractCitations(await deps.knowhow.maskedText(d))).filter((c) => c.confidence >= 0.9);
@@ -256,6 +417,16 @@ export function makeTrustGate(deps: LambdaDeps) {
     } : {};
     if (deps.maskedPages && findings.some((f) => f.location?.excerpt && !f.location.page)) findings = withPages(findings, await deps.maskedPages(d));
     await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
+    // 주장 저장: 실패해도 검증 결과(문서 기록)는 남는다. 쪽은 마스킹본에서 문장 앞부분으로 찾는다
+    const kv = extra.knowhow_validation;
+    if (kv && deps.saveClaims) {
+      const pages = deps.maskedPages ? await deps.maskedPages(d).catch(() => []) : [];
+      const squash = (t: string) => t.replace(/\s/g, '');
+      const pageOf = (st: string) => { const k = squash(st).slice(0, 30); const i = pages.findIndex((p) => squash(p.text).includes(k)); return i >= 0 ? (pages[i]!.page ?? i) + 1 : null; };
+      const k = deps.knowhow!;
+      const revisedTo = async (pid: string) => { const cl = await k.getClause(pid); return cl?.newer && (cl.newer.deleted || !sameText(cl.text, cl.newer.text)) ? cl.newer.provision_id : undefined; };
+      await deps.saveClaims(d.doc_id, kv.items, pageOf, revisedTo).catch((e: Error) => console.warn(JSON.stringify({ msg: 'claims failed', doc_id: d.doc_id, err: e.name })));
+    }
     return { status: result === 'PASS' ? 'OK' : result === 'QUARANTINED' ? 'BLOCKED' : 'REVIEW_REQUIRED', findings };
   };
 }
@@ -266,7 +437,7 @@ export function makeWaitForApproval(deps: LambdaDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     // 게시·승인 대기·차단된 문서를 다시 검토 대기로 되돌리지 않는다 (재실행 안전장치)
     if (d.lifecycle !== 'QUARANTINED' && d.lifecycle !== 'IN_REVIEW') throw new Error(`invalid lifecycle for review: ${d.lifecycle}`);
-    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', updated_at: now() });
+    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', findings: applyCarry(d.review_carry, d.findings), checked_at: now(), updated_at: now() }); // checked_at: AI 검사 끝난 시각(도장 'AI 검사' 칸, 사용자 지적 11/18) // 위키 수정 전 결정 잇기 (steps/carry.ts)
     return { status: 'OK' };
   };
 }
@@ -286,6 +457,8 @@ export function makeFinalize(deps: LambdaDeps) {
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
     // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
     if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
+    // 새 규정 게시 → 근거 규정을 못 찾은 채 게시된 노하우를 다시 검증 (사용자 지적 11/18: 규정보다 먼저 게시된 체크리스트가 '정상'으로 남음)
+    if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION') await revalidateNoBasis(deps, next, i.workflow_id);
     // 새 버전 게시 → 이전 버전은 대체됨(검색은 SUPERSEDED를 내보내지 않음). 보관함에는 버전 목록으로 남는다
     if (i.outcome === 'PUBLISHED' && next.previous_doc_id) {
       const prev = await deps.store.getDoc(next.previous_doc_id);
@@ -334,6 +507,25 @@ async function finalizeDeleted(store: Store, d: DocumentRecord, affected: string
   await store.putDoc({ ...cur, purge: { ...cur.purge, objects: cur.purge?.objects ?? 0, deleted_at: at, review_required: marked } });
   await store.audit({ at, actor: 'system:finalize', action: 'FINALIZE_DELETED', resource: d.doc_id, result: 'OK', trace_id });
   return { status: 'OK' };
+}
+
+/** 근거 없이 게시된 노하우(KNOWHOW_NO_BASIS)를 새 규정과 다시 비교. 비교할 수 없으면(마스킹 본문 만료·도구 없음) 재검토 필요로만 표시. 어긋나면 재검토 필요 + 고칠 것 */
+async function revalidateNoBasis(deps: LambdaDeps, reg: DocumentRecord, trace_id: string) {
+  const targets = (await deps.store.listDocs()).filter((d) => d.lifecycle === 'PUBLISHED' && (d.document_type ?? d.classification?.document_type) === 'KNOWHOW'
+    && d.freshness !== 'SUPERSEDED' && d.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS'));
+  // 시간 예산 240초: 도구 호출이 ~300초에 끊긴다(yoyo0704 권고 11/18). 넘으면 남은 건은 비교 없이 재검토 필요로만
+  const t0 = Date.now(); const budget = Number(process.env.REVALIDATE_BUDGET_MS ?? 240_000);
+  for (const d of targets) {
+    const k = deps.knowhow && Date.now() - t0 < budget ? await deps.knowhow.maskedText(d).then((t) => validateKnowhow(t, deps.knowhow!)).catch(() => undefined) : undefined;
+    const conflicts = k?.findings.filter((f) => f.code === 'KNOWHOW_CONFLICT').length ?? 0;
+    const stillNone = !k || k.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS');
+    const cur = (await deps.store.getDoc(d.doc_id)) ?? d;
+    const why = !k || conflicts > 0; // 비교 못 함 또는 어긋남 → 재검토 필요 (사유는 새 규정)
+    await deps.store.putDoc({ ...cur,
+      ...(k && !stillNone ? { knowhow_validation: k.validation, findings: [...cur.findings.filter((f) => f.code !== 'KNOWHOW_NO_BASIS' && f.code !== 'KNOWHOW_CONFLICT'), ...k.findings] } : {}),
+      ...(why ? { freshness: 'REVIEW_REQUIRED' as const, freshness_reason: { law_id: reg.law_id ?? reg.doc_id, law_name: reg.law_name ?? reg.title, cited_revision: '', current_revision: reg.revision_id ?? '', effective_from: reg.effective_from ?? '', provisions: [], at: now() } } : {}), updated_at: now() });
+    await deps.store.audit({ at: now(), actor: 'system:revalidate', action: why ? 'FRESHNESS_REVIEW_REQUIRED' : 'KNOWHOW_REVALIDATED', resource: d.doc_id, result: 'OK', trace_id, detail: { regulation: reg.doc_id, conflicts } });
+  }
 }
 
 async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {

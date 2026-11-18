@@ -186,6 +186,10 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `POST /v1/documents/{id}/edit` | 로그인 누구나 | 위키 수정 `{markdown}`. 게시 노하우·매뉴얼 → 새 버전(`source=WIKI_EDIT`, `previous_doc_id`, `{doc}/original.md`), 내 IN_REVIEW 문서 → 그 자리 재분석. 규정 409 |
 | `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | 수정에서 지운 중요 문장 '의도한 삭제' 확인 |
 | `GET /v1/documents/{id}` · `/progress` · `/issues` | 권한 내 | 상태·단계 진행(`ConvertToPdf` '문서 변환' 포함)·확인할 내용 |
+| `POST /v1/documents/{id}/change-requests` | 게시 문서를 읽을 수 있는 사람 | 위키 수정 요청 `{before, request}` → Haiku 판단 `{id, verdict: APPROPRIATE·INAPPROPRIATE·UNKNOWN, after, ai_reason}`. before 가 본문에 없으면 422 (11/18 사용자 결정: AI 초안 → 관리자 반영) |
+| `GET /v1/admin/change-requests` · `POST /v1/admin/change-requests/{doc}/{id}` | 결재자 | 열린 수정 요청 목록 / `{decision: APPLY·REJECT, after?, reason?}`. APPLY 는 위키 수정과 같은 길로 새 버전(→ AI 검사 → 사람 승인), REJECT 는 사유 필수 (11/18) |
+| `GET /v1/library/{id}/download?kind=original` | 상세를 볼 수 있는 사람 | 위키 수정 전 처음 올린 파일(버킷 버전). 기본은 지금 원본(위키 수정본이면 `…_수정본.md`) (11/18) |
+| `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | KNOWHOW_CONFLICT 도 허용(사유 필수, '그대로 사용' → 승인자 판단). 위키 수정 재검사에서 고치지 않은 문장의 새 충돌은 `system:recheck` 로 승인자 판단 (11/18 사용자 결정, 규칙 2 완화) |
 | `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18), `clarify[]`(확인 필요 6.5: `{finding_id, blocking, severity, kind, item, page, before, question, suggestions[], status, dismiss_reason}`), `text` 는 정리본 기준 |
 | `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | EDIT_REMOVED_KEY_SENTENCE '의도한 삭제' / CLARIFY_NEEDED '해당 없음' `{reason}`(필수, PII 마스킹, 감사 CLARIFY_DISMISS) |
 | `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |

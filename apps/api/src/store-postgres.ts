@@ -38,6 +38,7 @@ export function postgresStore(d: Db = connect()): PostgresStore {
     async getDoc(id) {
       return (await withFindings(await q('SELECT * FROM documents WHERE doc_id = :id', { id })))[0];
     },
+    async clearFindings(doc_id) { await q('DELETE FROM findings WHERE doc_id = :doc_id', { doc_id }); },
     async putDoc(doc) {
       // 문서 전체 교체 + findings 동기화. 병렬 단계가 그 사이 넣은 다른 단계의 findings는 지우지 않는다
       // (이 문서가 가진 단계의 findings만 교체: lambdas.ts addFindings와 같은 단계 단위 의미)
@@ -73,14 +74,15 @@ export function postgresStore(d: Db = connect()): PostgresStore {
       return (await q('SELECT * FROM approvals WHERE status = :status ORDER BY created_at', { status })).map((r) => compact<ApprovalRecord>(r));
     },
     async decideApproval(id, n) {
-      const [r] = await q(`UPDATE approvals SET status = :next, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = now()
-        WHERE approval_id = :id AND status = 'PENDING' AND author_sub <> :ap AND s3_version_id = :v AND content_hash = :h RETURNING *`,
-      { id, next: n.status, ap: n.approver_sub, an: n.approver_name ?? null, r: n.reason, v: n.s3_version_id, h: n.content_hash });
+      // 자기 결재는 API 가 관리자(PLATFORM_OPERATOR)에게만 self_approved=true 로 허용 (DB 제약 approvals_no_self_approval 과 같은 규칙)
+      const [r] = await q(`UPDATE approvals SET status = :next, approver_sub = :ap, approver_name = :an, reason = :r, decided_at = now(), self_approved = :self
+        WHERE approval_id = :id AND status = 'PENDING' AND ${n.self_approved ? 'author_sub = :ap' : 'author_sub <> :ap'} AND s3_version_id = :v AND content_hash = :h RETURNING *`,
+      { id, next: n.status, ap: n.approver_sub, an: n.approver_name ?? null, r: n.reason, v: n.s3_version_id, h: n.content_hash, self: !!n.self_approved });
       if (r) return compact<ApprovalRecord>(r);
       const cur = await getApproval(id); // 실패 사유 분류용 재조회 (DynamoDB 구현과 같은 오류)
       if (!cur) throw new ApiError('NOT_FOUND', 'approval not found');
       if (cur.status !== 'PENDING') throw new ApiError('CONFLICT', 'approval is not pending');
-      if (cur.author_sub === n.approver_sub) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
+      if ((cur.author_sub === n.approver_sub) !== !!n.self_approved) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
       throw new ApiError('CONFLICT', 'document changed after review');
     },
     async consumeApproval(id) {
@@ -102,7 +104,7 @@ export function postgresStore(d: Db = connect()): PostgresStore {
     },
     async audit(e) {
       // 감사 기록은 추가만 (테이블 트리거가 수정·삭제를 막는다)
-      await q('INSERT INTO audit_events (at, actor, action, resource, result, trace_id) VALUES (:at::timestamptz, :actor, :action, :resource, :result, :trace_id)', { ...e });
+      await q('INSERT INTO audit_events (at, actor, action, resource, result, trace_id, detail) VALUES (:at::timestamptz, :actor, :action, :resource, :result, :trace_id, :detail::jsonb)', { ...e, detail: e.detail ? JSON.stringify(e.detail) : null });
     },
   };
 }

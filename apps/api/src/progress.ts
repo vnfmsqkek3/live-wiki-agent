@@ -2,7 +2,7 @@
 export const INGEST_STEPS = [
   ['MalwareCheck', '악성코드 검사'], ['FileStructureCheck', '파일 구조 검사'], ['ConvertToPdf', '문서 변환'], ['TextLayerExtract', '텍스트 추출'], ['PageRender', '페이지 이미지'],
   ['OcrIfNeeded', '문자 인식'], ['SegmentBuild', '본문 정리'], ['PiiScan', '개인정보 가림'], ['ImageDescribe', '그림 분석'], ['InjectionScan', '지시문 검사'], ['PageSummarize', '쪽 요약'],
-  ['Classify', '분류·요약'], ['TrustGate', '출처·근거 검증'], ['ExplainFindings', '확인 결과 설명'], ['WaitForApproval', '검토 준비'],
+  ['Classify', '분류·요약'], ['ReferenceCheck', '참조 확인'], ['TrustGate', '출처·근거 검증'], ['ExplainFindings', '확인 결과 설명'], ['WaitForApproval', '검토 준비'],
 ] as const;
 export type StepState = 'done' | 'running' | 'pending' | 'failed' | 'blocked' | 'skipped';
 

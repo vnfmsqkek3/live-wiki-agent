@@ -11,7 +11,7 @@ export interface Mark {
   kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from: string }; fix?: string;
 }
-export interface Page { page: number; text: string }
+export interface Page { page: number; text: string; figure_keys?: (string | null)[] }
 
 const lawOf = (provision_id: string) => provision_id.split('@')[0]!;
 const revOf = (provision_id: string) => provision_id.split('@')[1]?.split('/')[0];
@@ -58,7 +58,7 @@ export function card(d: DocumentRecord, visible: DocumentRecord[]) {
     doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle, dept: d.dept,
     business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
-    uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null,
+    uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null, edited: d.source === 'WIKI_EDIT', has_original_upload: !!d.original_upload,
     mark_count: markCount(d), related: related(d, visible),
     doc_dates: d.doc_dates ?? [], version_no: d.version_no ?? null, superseded_by: d.superseded_by ?? null,
   };
@@ -121,7 +121,7 @@ export function verification(d: DocumentRecord, approval?: { approver_sub?: stri
   }
   return {
     method, basis,
-    checks: { trust_gate: d.trust_gate_result ?? null, verdict: kv?.verdict ?? null, checked_at: kv?.checked_at ?? null },
+    checks: { trust_gate: d.trust_gate_result ?? null, verdict: kv?.verdict ?? null, checked_at: d.checked_at ?? kv?.checked_at ?? null },
     approved_by: approval ? (approval.approver_name || `관리자 계정(${(approval.approver_sub ?? '').slice(0, 8)})`) : null,
     approved_at: approval?.decided_at ?? null, approval_reason: approval?.reason ?? null,
   };

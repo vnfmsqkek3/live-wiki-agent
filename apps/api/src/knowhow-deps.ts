@@ -32,8 +32,14 @@ export function clauseGetter(store: ClauseStoreLike, today = ymd) {
         status: self.status === 'DELETED' ? 'DELETED' : 'ACTIVE', effective_from: iso(r.effective_from),
       };
     };
-    const cl = await build(rev, path);
-    if (!cl) return undefined;
+    const built = await build(rev, path);
+    if (!built) return undefined;
+    // 더 새 VERIFIED 개정본(미래 시행 포함)의 같은 조문
+    const latest = revs.filter((r) => (r.authority_status ?? 'VERIFIED') === 'VERIFIED').sort((a, b) => b.effective_from - a.effective_from)[0];
+    const nb = latest && latest.effective_from > rev.effective_from ? await build(latest, path) : undefined;
+    const cl: Omit<Clause, 'current'> = latest && latest.effective_from > rev.effective_from
+      ? { ...built, newer: nb ? { provision_id: nb.provision_id, text: nb.text, deleted: nb.status === 'DELETED' } : { provision_id: `${latest.law_id}@${latest.revision_id}/${path}`, text: '', deleted: true } }
+      : built;
     const t = today();
     const cur = revs.filter((r) => r.effective_from <= t && t <= r.effective_to && (r.authority_status ?? 'VERIFIED') === 'VERIFIED')
       .sort((a, b) => b.effective_from - a.effective_from)[0];

@@ -1,3 +1,5 @@
+import { changePrompt, type ChangeRequest } from './steps/change-request.ts';
+import { makeCarry } from './steps/carry.ts';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
@@ -8,12 +10,15 @@ import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representat
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
 import {
-  ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
+  ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, EditBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
-import { hasSourceMismatch, submitForApproval } from './submit.ts';
+import { FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
+import { detectPii, mask } from './steps/pii-detect.ts';
+import { buildDocPages } from './steps/structure.ts';
+import { composePrompt, fallbackAfter, keepsRest, safeSuggestion, type ClarifyKind } from './steps/clarify.ts';
 
 export interface Deps {
   /** 브라우저 허용 출처 (CORS). 와일드카드 금지 (운영 교훈 #3) */
@@ -22,6 +27,8 @@ export interface Deps {
   store: Store;
   /** quarantine/{doc_id}/original.{ext} PUT presigned URL (SigV4, 리전 엔드포인트) */
   presignPut(key: string, contentLength: number): Promise<string>;
+  /** 위키 수정본 원문 저장 ({doc_id}/original.md). S3 이벤트로 형식 검사·분석이 시작된다 (업로드와 같은 길) */
+  putOriginal?(key: string, body: Uint8Array): Promise<void>;
   /** 현재 S3 객체의 버전·해시 (승인 바인딩 검증용) */
   headObject(key: string): Promise<{ s3_version_id: string } | undefined>;
   /** 실행 이름=workflow_id, 입력은 문서로만 결정 → 업로드 이벤트(type-detection)와 analyze가 같은 실행으로 수렴 (멱등) */
@@ -30,6 +37,9 @@ export interface Deps {
   resume(doc: DocumentRecord, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE'): Promise<boolean>;
   /** 원본 내려받기 presigned GET (quarantine original, 승인된 s3 버전) */
   presignGet?(key: string, versionId: string | undefined, filename: string): Promise<string>;
+  /** 원본 보기: 개인정보만 가린 쪽 이미지(masked/view) presigned GET 5분, 쪽 목록 */
+  presignView?(key: string): Promise<string>;
+  viewPageList?(doc_id: string): Promise<number[]>;
   /** 사용자 삭제 정리 실행 (오케스트레이터 action=delete). 없으면 DELETED 표시만 */
   deleteWorkflow?(doc: DocumentRecord): Promise<void>;
   /** let522mj search Tool과 같은 계약. ACL 필터는 서버가 actor로 만든다 */
@@ -40,6 +50,12 @@ export interface Deps {
   guideStream?(question: string, accessToken: string): Promise<ReadableStream<Uint8Array>>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string; message?: string } | undefined>;
+  /** 주장 단위 지식 (interfaces.md 10.2, PostgreSQL). 없으면 생략 */
+  claims?: {
+    list(doc_id: string): Promise<import('./claims.ts').ClaimRow[]>;
+    counts(provision_ids: string[]): Promise<Map<string, Record<string, number>>>;
+    debt(): Promise<Record<string, number>>;
+  };
   /** 업무 분류 (interfaces.md 10.1, PostgreSQL). 없으면 분류 기능 생략 */
   categories?: {
     list(): Promise<import('./categories.ts').Category[]>;
@@ -59,6 +75,7 @@ export interface Deps {
   explanation?(doc_id: string): Promise<unknown>;
   /** 마스킹된 쪽 이미지가 있는 page_index 목록 */
   pageImageList?(doc_id: string): Promise<number[]>;
+  figureKeys?(doc_id: string): Promise<Map<string, string>>;
   /** 본문이 인용한 외부 법령(「…법」, 내부 규정 저장소에 없는 것). let522mj externalLaws */
   externalLaws?(text: string): Promise<{ law_name: string; clause?: string }[]>;
   /** 외부 법령 최신 공식본 (사용자 Gateway regulation___fetch_official_law, AgentCore Browser). 사용자 토큰으로 호출 */
@@ -70,7 +87,11 @@ export interface Deps {
   /** PageSummarize(yoyo0704) 결과 masked/summary.json. 없으면 undefined */
   pageSummary?(doc_id: string): Promise<{ pages?: PageMeta[] } | undefined>;
   /** AI로 다시 배치한 쪽 본문 (page_index → markdown). 원문 대조를 통과한 쪽만 있다 */
-  structuredPages?(doc_id: string): Promise<Map<number, string>>;
+  /** 확인 필요 답을 문장에 넣기 (Haiku) */
+  composeClarify?(prompt: string): Promise<{ edits: { n: number; ok: boolean; no_change?: boolean; after: string; reason?: string }[] }>;
+  /** 위키 수정 요청 판단 (Haiku) */
+  judgeChange?(prompt: string): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
+  structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
 
 /** 쪽별 요약·메타데이터 (docs/interfaces.md 6장 PageSummarize). page_index는 0부터 */
@@ -91,6 +112,14 @@ export const ulidTime = (id: string) => {
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
 
 /** 화면으로 나가는 Finding: message를 사람이 읽는 문장으로 바꾼다 (원래 message는 감사·운영 기록에만) */
+/** 위키 편집 글과 같은 그림 표시: 쪽(1부터) n 의 '(그림 k)' → '(그림 n-k)'. 이미 'n-k' 인 위키 수정본은 그대로 (11/18) */
+const figRefs = (t: string, page?: number) => (page ? t.replace(/([([])그림\s*(\d+)([)\]])/g, (_m, a: string, k: string, b: string) => `${a}그림 ${page}-${k}${b}`) : t);
+/** 확인 필요 항목의 문장들을 편집 글과 같은 그림 표시로 (그래야 저장 때 본문에서 찾는다, 사용자 지적 11/18 '원래 문장을 찾지 못한 항목') */
+const clarifyView = (det: Record<string, unknown>) => {
+  const pg = typeof det['page'] === 'number' ? det['page'] as number : undefined;
+  const sg = (det['suggestions'] as { after?: string }[] | undefined)?.map((x) => ({ ...x, ...(x.after ? { after: figRefs(x.after, pg) } : {}) }));
+  return { ...det, ...(typeof det['before'] === 'string' ? { before: figRefs(det['before'] as string, pg) } : {}), ...(sg ? { suggestions: sg } : {}) };
+};
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
@@ -146,7 +175,7 @@ export function createApp(deps: Deps) {
 
   // ---- 문서 ----
   app.post('/v1/documents/upload-url', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const b = await body(c, UploadUrlBody);
     const ext = b.filename.split('.').pop()!.toLowerCase();
     if (!b.filename.includes('.') || !(ALLOWED_EXT as readonly string[]).includes(ext))
@@ -165,15 +194,183 @@ export function createApp(deps: Deps) {
     return c.json({ doc_id: doc.doc_id, url }, 201);
   });
 
+  // 위키 수정 (사용자 결정 11/17 규칙 1·2, interfaces 6.2). 게시된 노하우·매뉴얼 → 새 버전, 내 검토 중 문서 → 그 자리에서 다시 분석.
+  // 규정은 공식 원본 대조 대상이라 수정 불가(개정 원본 업로드만). 원본 파일은 이전 버전 근거로 남는다
+  app.post('/v1/documents/:id/edit', async (c) => {
+    const b = await body(c, EditBody);
+    const r = await editDoc(c.get('actor'), c.req.param('id'), b.markdown);
+    await audit(c, 'WIKI_EDIT', r.doc_id);
+    return c.json(r, 201);
+  });
+  /** 위키 수정 본체: 수정 요청 반영(관리자)도 같은 길로 새 버전을 만든다 */
+  const editDoc = async (a: Actor, id: string, markdown: string) => {
+    if (!deps.putOriginal) throw new ApiError('NOT_FOUND', '위키 수정이 설정되지 않았습니다');
+    const b = { markdown };
+    const t = await store.getDoc(id);
+    if (!t || t.lifecycle === 'DELETED' || (t.owner !== a.sub && !(t.lifecycle === 'PUBLISHED' && canRead(a, t.acl_groups)))) throw new ApiError('NOT_FOUND', 'document not found');
+    const type = t.document_type ?? t.classification?.document_type;
+    if (type === 'REGULATION') throw new ApiError('CONFLICT', '규정은 위키에서 고칠 수 없습니다. 개정된 원본 파일을 올려 주세요');
+    const now = new Date().toISOString();
+    const md = new TextEncoder().encode(b.markdown);
+    const fresh = { lifecycle: 'QUARANTINED' as const, trust_gate_result: undefined, findings: [], workflow_id: newId.wf(), s3_version_id: undefined, content_hash: undefined,
+      knowhow_validation: undefined, ext: 'md', source: 'WIKI_EDIT' as const, updated_at: now };
+    let doc: DocumentRecord;
+    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh, review_carry: makeCarry(await editText(t.doc_id), t.findings) }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석. 결정은 잇는다(원본을 쓰면 옛 결과가 지워지므로 그 전에 읽음)
+    else if (t.lifecycle === 'PUBLISHED') doc = {
+      ...fresh, doc_id: newId.doc(), version: 1, owner: a.sub, dept: a.dept ?? t.dept, acl_groups: t.acl_groups, title: t.title, title_source: 'USER',
+      filename: `${t.title.slice(0, 80)}.md`, authority_status: 'UNVERIFIED', freshness: 'CURRENT', previous_doc_id: t.doc_id, created_at: now,
+      // 새 버전도 이전 버전에서 답한 확인 필요·결정을 잇는다 (사용자 지적 11/18: 수정 요청 반영 뒤 이미 답한 질문이 다시 나왔다)
+      review_carry: makeCarry(await editText(t.doc_id), t.findings),
+      ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
+    };
+    else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
+    doc.figure_source = t.figure_source ?? { doc_id: t.doc_id, pages: figurePages(t) };
+    // 처음 올린 원본 파일을 기억한다(버킷 버전 관리로 남아 있음): 수정 뒤에도 '원본 파일' 다운로드 (사용자 요청 11/18)
+    if (t.source !== 'WIKI_EDIT' && t.s3_version_id) doc.original_upload = { key: quarantineKey(t), version_id: t.s3_version_id, filename: t.filename ?? `${t.title.slice(0, 80)}.${t.ext}` };
+    else if (t.original_upload) doc.original_upload = t.original_upload;
+    await store.putDoc(doc);
+    // 이전 검사 결과를 DB 에서도 지운다: putDoc 은 '새 결과에 있는 단계'만 바꿔서, 비운 결과로는 옛 고칠 것이 남았다 (11/18 dev 시험 D2, 사용자 '고칠 것이 계속 남음')
+    await store.clearFindings?.(doc.doc_id);
+    await deps.putOriginal(quarantineKey(doc), md);
+    return { doc_id: doc.doc_id, previous_doc_id: doc.previous_doc_id ?? null, new_version: doc.doc_id !== t.doc_id };
+  };
+
+  // 항목별 확인 '그대로 사용' (Fable 권고 11/18): 명시한 finding_ids 만, 사유 필수, 요청 1번·저장 1번(병렬 덮어쓰기 방지), 문서 단위 플래그 없음
+  app.post('/v1/documents/:id/findings/ack', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    const b = (await c.req.json().catch(() => ({}))) as { finding_ids?: unknown; reason?: unknown };
+    const ids = [...new Set(Array.isArray(b.finding_ids) ? b.finding_ids.map(String) : [])].slice(0, 100);
+    const reason = String(b.reason ?? '').trim().slice(0, 200);
+    if (!ids.length) throw new ApiError('VALIDATION', '확인할 항목을 고르세요');
+    if (!reason) throw new ApiError('VALIDATION', '그대로 사용하는 사유를 적어 주세요');
+    const targets = ids.map((id) => d.findings.find((x) => x.finding_id === id));
+    if (targets.some((f) => !f || !REVIEW_CODES.has(f.code))) throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
+    const at = new Date().toISOString(); const r = mask(reason, detectPii(reason));
+    await store.putDoc({ ...d, findings: d.findings.map((x) => (ids.includes(x.finding_id) ? { ...x, acknowledged: { by: a.sub, at, reason: r } } : x)), updated_at: at });
+    for (const id of ids) await audit(c, 'FINDING_ACK', `${d.doc_id}#${id}`);
+    return c.json({ acked: ids });
+  });
+
+  // '의도한 삭제' 확인: 수정에서 지운 중요 문장을 올린 사람이 일부러 지웠다고 확인 (게시 요청 잠금 해제, 승인자에게는 보임)
+  app.post('/v1/documents/:id/findings/:fid/ack', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    const f = d.findings.find((x) => x.finding_id === c.req.param('fid'));
+    if (!f || !['EDIT_REMOVED_KEY_SENTENCE', 'CLARIFY_NEEDED', 'KNOWHOW_CONFLICT'].includes(f.code)) throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
+    const at = new Date().toISOString();
+    // 확인 필요 '해당 없음': 사유 한 줄 필수, 감사 기록, 승인 화면 '자세히'에 보인다 (계약 6.5)
+    let details = f.details;
+    if (f.code === 'CLARIFY_NEEDED') {
+      const reason = String(((await c.req.json().catch(() => ({}))) as { reason?: unknown }).reason ?? '').trim().slice(0, 200);
+      if (!reason) throw new ApiError('VALIDATION', '해당 없음 사유를 적어 주세요');
+      details = { ...(f.details ?? {}), status: 'DISMISSED', dismiss_reason: mask(reason, detectPii(reason)) };
+    }
+    // 규정 충돌 '그대로 사용': 제안을 적용할 수 없을 때 사유 필수, 승인자 카드에 보인다 (사용자 결정 11/18, 규칙 2 완화)
+    let reason: string | undefined;
+    if (f.code === 'KNOWHOW_CONFLICT') {
+      const r = String(((await c.req.json().catch(() => ({}))) as { reason?: unknown }).reason ?? '').trim().slice(0, 200);
+      if (!r) throw new ApiError('VALIDATION', '그대로 사용하는 사유를 적어 주세요');
+      reason = mask(r, detectPii(r));
+    }
+    await store.putDoc({ ...d, findings: d.findings.map((x) => (x === f ? { ...x, acknowledged: { by: a.sub, at, ...(reason ? { reason } : {}) }, ...(details ? { details } : {}) } : x)), updated_at: at });
+    await audit(c, f.code === 'CLARIFY_NEEDED' ? 'CLARIFY_DISMISS' : f.code === 'KNOWHOW_CONFLICT' ? 'CONFLICT_KEEP' : 'FINDING_ACK', d.doc_id);
+    return c.json({ ok: true });
+  });
+
+  // 확인 필요 답 넣기 (사용자 요청 11/18): 답 → AI 가 문장에 넣고 걸러서 before→after 를 돌려준다. 저장은 화면의 위키 편집기에서 사람이
+  app.post('/v1/documents/:id/clarify/compose', async (c) => {
+    const d = await loadDoc(c, c.req.param('id'));
+    const b = (await c.req.json().catch(() => ({}))) as { answers?: { finding_id?: string; answer?: string }[] };
+    const items = (b.answers ?? []).slice(0, 10).map((x, n) => {
+      const f = d.findings.find((y) => y.finding_id === x.finding_id && y.code === 'CLARIFY_NEEDED');
+      const det = (f?.details ?? {}) as { kind?: string; item?: string; before?: string; question?: string; span?: string };
+      const answer = mask(String(x.answer ?? '').trim(), detectPii(String(x.answer ?? '')));
+      return f && det.before && answer ? { n, finding_id: f.finding_id, page: (det as { page?: number }).page, before: det.before, question: det.question ?? '', answer, ...(det.span ? { span: det.span } : {}), cand: { kind: (det.kind ?? 'MISSING_VALUE') as ClarifyKind, item: det.item ?? '', before: det.before, question: det.question ?? '', in_procedure: false, query: '' } } : undefined;
+    }).filter((x): x is NonNullable<typeof x> => !!x);
+    if (!items.length) throw new ApiError('VALIDATION', '답을 적은 항목이 없습니다');
+    const out = deps.composeClarify ? (await deps.composeClarify(composePrompt(items)).catch(() => ({ edits: [] }))).edits : [];
+    const edits = items.map((q) => {
+      const e = out.find((x) => x.n === q.n);
+      // 모델이 없거나 실패하면 대상 낱말 자리에 답을 넣는다
+      const ai = e?.ok !== false && e?.after?.trim() && keepsRest(q.before, q.span, e.after.trim()) ? e.after.trim() : '';
+      // 담당자는 모델이 이름을 빼고 넣는다. 모델이 없거나 실패하면 담당자 답은 그대로 넣지 않는다(이름이 섞였을 수 있음, Fable C)
+      const after = ai || (q.cand.kind === 'VAGUE_ACTOR' ? '' : fallbackAfter(q.before, q.cand.item, q.span, q.answer));
+      const ok = e?.ok !== false && !!after && safeSuggestion(q.cand, { value: q.answer, after }, false);
+      return { finding_id: q.finding_id, before: figRefs(q.before, q.page), after: figRefs(mask(after, detectPii(after)), q.page), ok, ...(ok && e?.reason ? { note: e.reason } : {}), ...(e?.no_change ? { no_change: true } : {}), ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : !after ? 'AI가 답을 넣지 못했습니다. 잠시 뒤 다시 눌러 주세요.' : '개인정보(전화번호·이메일 등)가 들어갔거나 문장이 바뀌지 않았습니다' }) };
+    });
+    await audit(c, 'CLARIFY_COMPOSE', d.doc_id);
+    return c.json({ edits });
+  });
+
+  // 위키 수정 요청 (사용자 결정 11/18): 게시 문서를 읽을 수 있는 사람 누구나. AI 가 적절성·초안을 붙여 관리자에게. 게시는 관리자 반영(새 버전) → AI 검사 → 사람 승인
+  app.post('/v1/documents/:id/change-requests', async (c) => {
+    const a = c.get('actor');
+    const d = await store.getDoc(c.req.param('id'));
+    if (!d || d.lifecycle !== 'PUBLISHED' || !canRead(a, d.acl_groups)) throw new ApiError('NOT_FOUND', 'document not found');
+    const b = (await c.req.json().catch(() => ({}))) as { before?: unknown; request?: unknown };
+    const before = String(b.before ?? '').trim().slice(0, 500), raw = String(b.request ?? '').trim().slice(0, 500);
+    if (!before || !raw) throw new ApiError('VALIDATION', '고칠 부분과 고칠 내용을 모두 적어 주세요');
+    const text = await editText(d.doc_id);
+    const at = text.indexOf(before);
+    if (at < 0) throw new ApiError('VALIDATION', '선택한 부분을 문서에서 찾지 못했습니다. 문서 글을 그대로 골라 주세요');
+    const request = mask(raw, detectPii(raw));
+    const j = deps.judgeChange ? await deps.judgeChange(changePrompt(before, request, text.slice(Math.max(0, at - 1500), at + before.length + 1500))).catch(() => undefined) : undefined;
+    const after = j?.after?.trim();
+    const okAfter = j?.verdict === 'APPROPRIATE' && after && after !== before && !detectPii(after).length ? after : undefined;
+    const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: a.sub, at: new Date().toISOString(), before, request,
+      verdict: j ? (j.verdict === 'APPROPRIATE' && !okAfter ? 'UNKNOWN' : j.verdict) : 'UNKNOWN', ...(okAfter ? { after: okAfter } : {}), ai_reason: j?.reason?.slice(0, 300) ?? 'AI 판단을 받지 못했습니다', status: 'OPEN' };
+    const cur = (await store.getDoc(d.doc_id))!;
+    await store.putDoc({ ...cur, change_requests: [...(cur.change_requests ?? []), cr].slice(-50) });
+    await audit(c, 'CHANGE_REQUEST', d.doc_id);
+    return c.json({ id: cr.id, verdict: cr.verdict, after: cr.after ?? null, ai_reason: cr.ai_reason }, 201);
+  });
+  app.get('/v1/admin/change-requests', async (c) => {
+    need(c, APPROVERS);
+    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED' })))
+      .sort((x, y) => y.at.localeCompare(x.at));
+    return c.json({ items });
+  });
+  app.post('/v1/admin/change-requests/:doc/:id', async (c) => {
+    need(c, APPROVERS);
+    const a = c.get('actor');
+    const b = (await c.req.json().catch(() => ({}))) as { decision?: unknown; reason?: unknown; after?: unknown };
+    const d = await store.getDoc(c.req.param('doc'));
+    const cr = d?.change_requests?.find((r) => r.id === c.req.param('id'));
+    if (!d || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
+    const at = new Date().toISOString(); const reason = String(b.reason ?? '').trim().slice(0, 200);
+    let next: Partial<ChangeRequest>;
+    if (b.decision === 'REJECT') {
+      if (!reason) throw new ApiError('VALIDATION', '반려 사유를 적어 주세요');
+      next = { status: 'REJECTED', decision_reason: mask(reason, detectPii(reason)) };
+    } else if (b.decision === 'APPLY') {
+      const after = String(b.after ?? cr.after ?? '').trim();
+      if (!after || after === cr.before) throw new ApiError('VALIDATION', '바꿀 문장을 적어 주세요');
+      if (detectPii(after).length) throw new ApiError('VALIDATION', '개인정보가 들어간 문장은 넣을 수 없습니다');
+      const text = await editText(d.doc_id);
+      if (!text.includes(cr.before)) throw new ApiError('CONFLICT', '문서가 바뀌어 요청한 부분을 찾지 못했습니다');
+      const r = await editDoc(a, d.doc_id, text.replace(cr.before, after));
+      next = { status: 'APPLIED', new_doc_id: r.doc_id, ...(reason ? { decision_reason: mask(reason, detectPii(reason)) } : {}) };
+    } else throw new ApiError('VALIDATION', 'decision 은 APPLY 또는 REJECT');
+    const cur = (await store.getDoc(d.doc_id))!;
+    await store.putDoc({ ...cur, change_requests: (cur.change_requests ?? []).map((r) => (r.id === cr.id ? { ...r, ...next, decided_by: a.sub, decided_at: at } : r)) });
+    await audit(c, b.decision === 'REJECT' ? 'CHANGE_REQUEST_REJECT' : 'CHANGE_REQUEST_APPLY', d.doc_id);
+    return c.json({ ok: true, new_doc_id: next.new_doc_id ?? null });
+  });
+
   app.post('/v1/documents/:id/analyze', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
     const head = await deps.headObject(quarantineKey(d));
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
     // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
-    const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString() };
+    const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString(),
+      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings), findings: [] } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D). 검토 중 재분석은 결과를 새로
     await store.putDoc(doc);
+    if (d.lifecycle === 'IN_REVIEW') await store.clearFindings?.(doc.doc_id); // 처음 분석·실패 재시도는 앞 단계(형식 검사) 결과를 지우지 않는다
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
     return c.json({ workflow_id: d.workflow_id }, 202);
@@ -257,13 +454,27 @@ export function createApp(deps: Deps) {
   });
 
   app.get('/v1/documents/:id/review', async (c) => {
-    const a = need(c, ['AUTHOR', ...APPROVERS]);
+    const a = c.get('actor');
     const d = await loadDoc(c, c.req.param('id'));
-    if (hasRole(a, ['AUTHOR']) && !hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
+    if (!hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
+    // 규칙 2: 올린 사람이 고칠 것 (규정과 어긋난 문장은 AI 수정 제안과 함께, 지운 중요 문장은 '의도한 삭제' 확인)
+    const sugg = new Map((d.knowhow_validation?.items ?? []).map((it) => [it.statement, it.suggestion]));
+    const fixes = d.findings.filter((f) => FIX_CODES.has(f.code)).map((f) => {
+      const ex = f.location?.excerpt ?? '';
+      const st = [...sugg.keys()].find((s) => s.includes(ex.slice(0, 40)) || ex.includes(s.slice(0, 40)));
+      return { finding_id: f.finding_id, code: f.code, message: f.user_message ?? f.message, excerpt: st ?? ex, suggestion: st ? sugg.get(st) ?? null : null, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, ack_reason: f.acknowledged?.reason ?? null };
+    });
+    // 고칠 본문 = 정리본(없으면 원문 글) — 위키 편집기·확인 필요 적용과 같은 기준 (before 가 이 글에 있어야 바꿀 수 있다)
+    const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? await editText(d.doc_id) : undefined;
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
-    return c.json({ workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
-      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
+    const suggestions = d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as Record<string, unknown>) }));
+    // 확인 필요 (계약 6.5): 질문·원문·제안·잠금 여부. 화면이 항목별 적용을 모아 /edit 한 번
+    // 항목별 확인(개인정보·비밀값): 쪽·사유·처리 여부
+    const reviews = d.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM').map((f) => ({ finding_id: f.finding_id, code: f.code, page: f.location?.page ?? (/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ? Number(/^page:(\d+)/.exec(f.evidence_ref)![1]) : null), message: f.user_message ?? f.message, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, reason: f.acknowledged?.reason ?? null }));
+    const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) }));
+    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+      can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
   app.get('/v1/documents/:id/progress', async (c) => {
@@ -298,15 +509,17 @@ export function createApp(deps: Deps) {
   });
 
   app.post('/v1/documents/:id/submit', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const d = await loadDoc(c, c.req.param('id'));
-    const apr = await submitForApproval(store, d, a.sub);
+    let apr;
+    try { apr = await submitForApproval(store, d, a.sub); }
+    catch (e) { await audit(c, 'SUBMIT_REJECTED', `${d.doc_id}#open=${d.findings.filter(isOpenFix).length}`).catch(() => {}); throw e; } // 거절도 남긴다 (11/18: 결재함 0 원인 추적)
     await audit(c, 'SUBMIT', d.doc_id);
     return c.json({ approval_id: apr.approval_id }, 201);
   });
 
   app.post('/v1/documents/:id/classification', async (c) => {
-    const a = need(c, ['AUTHOR']);
+    const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const b = await body(c, ClassificationBody);
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
@@ -322,6 +535,24 @@ export function createApp(deps: Deps) {
     });
     await audit(c, 'CLASSIFY_EDIT', d.doc_id);
     return c.json({ document_type: b.document_type });
+  });
+
+  // ---- 주장 (얇은 버전, interfaces 10.2): 문서 주장 + 같은 조문을 근거로 한 게시 문서 주장의 지지·충돌 수 ----
+  async function docClaimsView(d: DocumentRecord) {
+    if (!deps.claims) return [];
+    const rows = await deps.claims.list(d.doc_id).catch(() => []);
+    const counts = await deps.claims.counts([...new Set(rows.map((r) => r.provision_id).filter((x): x is string => !!x))]).catch(() => new Map<string, Record<string, number>>());
+    const labels = new Map((d.knowhow_validation?.items ?? []).map((it) => [it.provision_id, it.label]));
+    return rows.map((r) => {
+      const c = r.provision_id ? counts.get(r.provision_id) ?? {} : {};
+      return { ...r, label: (r.provision_id && labels.get(r.provision_id)) || r.provision_id,
+        on_provision: r.provision_id ? { supports: (c.SUPPORTS ?? 0) + (c.SUPPLEMENTS ?? 0), conflicts: c.CONFLICTS ?? 0, unclear: c.INSUFFICIENT ?? 0 } : null };
+    });
+  }
+  // 관리자: 지식 부채 (게시 문서 주장 기준). knowledge_debt 뷰 그대로
+  app.get('/v1/admin/knowledge-debt', async (c) => {
+    need(c, APPROVERS);
+    return c.json(deps.claims ? await deps.claims.debt() : { conflicts: 0, review_required: 0, unverified: 0, healthy: 0, docs_needing_attention: 0 });
   });
 
   // ---- 업무 분류 (사용자 결정 11/17 A: AI 가 배정·생성·병합, 관리자는 선택적 이름 수정·병합) ----
@@ -412,6 +643,16 @@ export function createApp(deps: Deps) {
   });
 
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----
+  // 결재함 '게시 요청 전' (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서 — 게시 요청을 눌러야 결재할 수 있다
+  app.get('/v1/admin/in-review', async (c) => {
+    need(c, APPROVERS);
+    const me = c.get('actor').sub;
+    const items = (await store.listDocs()).filter((d) => d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED')
+      .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 50)
+      .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at }));
+    return c.json({ items });
+  });
+
   app.get('/v1/review-queue', async (c) => {
     need(c, APPROVERS);
     const docs = await store.listDocs();
@@ -448,8 +689,10 @@ export function createApp(deps: Deps) {
       const d = await store.getDoc(r.doc_id);
       const failure = d?.workflow_id && d.lifecycle !== 'PUBLISHED' && status !== 'PENDING' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
       const v = d?.previous_doc_id && status === 'PENDING' ? await versionDiff(c.get('actor'), d).catch(() => null) : null;
-      return { ...r, task_token: undefined, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure,
-        ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count } } : {}) };
+      // 규칙 3: 승인자는 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히'(문서 상세)
+      const summary_line = (d?.summary ?? '').split(/(?<=[.다])\s+/u)[0]?.slice(0, 140) || null;
+      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD',
+        ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
     return c.json({ items: items.filter((i) => i.lifecycle && i.lifecycle !== 'DELETED' && (status !== 'PENDING' || i.lifecycle === 'PENDING_APPROVAL')) });
@@ -470,7 +713,11 @@ export function createApp(deps: Deps) {
     // 반려·재검증은 변경된 객체에도 가능해야 하므로 바인딩 검증은 APPROVE에만 적용
     // 버전 ID는 불변 → 현재 객체 버전이 게시 요청 때와 같아야 승인. 해시는 Promote가 바이트로 재검증한다
     const bind = { s3_version_id: status === 'APPROVED' ? head.s3_version_id : apr.s3_version_id, content_hash: apr.content_hash };
-    const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, ...(a.username ? { approver_name: a.username } : {}), reason: b.reason, ...bind });
+    // 자기 결재: 관리자(PLATFORM_OPERATOR)만 허용 — 사용자 결정 11/18("MVP라서 상관없어", 사용자 직접 확인). 그 밖의 결재자는 금지 유지
+    const self = apr.author_sub === a.sub;
+    if (self && !hasRole(a, ['PLATFORM_OPERATOR'])) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
+    const decided = await store.decideApproval(apr.approval_id, { status, approver_sub: a.sub, ...(a.username ? { approver_name: a.username } : {}), reason: b.reason, ...bind, ...(self ? { self_approved: true } : {}) });
+    if (self) await audit(c, 'SELF_APPROVAL', apr.approval_id);
     const now = new Date().toISOString();
     if (b.decision === 'REVALIDATE') await store.putDoc({ ...d, lifecycle: 'IN_REVIEW', freshness: 'REVIEW_REQUIRED', updated_at: now });
     else if (status === 'REJECTED') await store.putDoc({ ...d, lifecycle: 'BLOCKED', authority_status: 'REJECTED', updated_at: now });
@@ -500,6 +747,17 @@ export function createApp(deps: Deps) {
 
   // ---- 버전 관리 (사용자 요청 11/17, let522mj 요청 1211). 연결은 작성자가 확인한 경우에만 ----
   const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
+  // 쪽마다 1부터인 '(그림 k)'를 '(그림 쪽-k)'로: 위키 수정본은 한 쪽이 되므로 그림을 쪽까지 가리켜야 한다 (11/18 사진 사라짐)
+  const editText = async (id: string) => {
+    const ps = deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
+    const st = deps.structuredPages ? await deps.structuredPages(id).catch(() => new Map<number, { markdown: string }>()) : new Map<number, { markdown: string }>();
+    return ps.map((p) => figRefs(st.get(p.page)?.markdown ?? p.text, p.page + 1)).join('\n\n');
+  };
+  /** 그림을 보여도 되는 쪽: 그림 개인정보 확인이 남지 않은 쪽 (1부터) */
+  const figurePages = (t: DocumentRecord) => {
+    const open = new Set(t.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM' && !f.acknowledged).map((f) => f.location?.page ?? Number(/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ?? NaN)));
+    return Array.from({ length: 300 }, (_, i) => i + 1).filter((n) => !open.has(n));
+  };
   const texts = async (id: string) => (deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page).map((p) => p.text) : []);
   /** 직전 버전과 바뀐 곳. 직전 버전을 볼 권한이 없으면 내용 없이 개수만 */
   const versionDiff = async (a: Actor, d: DocumentRecord, prevDoc?: DocumentRecord) => {
@@ -521,6 +779,26 @@ export function createApp(deps: Deps) {
     const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f) && inCat(rep.doc_id))
       .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
     return c.json({ items });
+  });
+  // 원본 보기 (사용자 요청 11/17 '원본 내용 그대로 png, 쪽별 파일 presigned URL'): 모든 쪽, 개인정보만 가린 이미지.
+  // 가리지 않은 원본은 올린 사람·결재자의 원본 다운로드로만. URL 은 로그·감사에 남기지 않는다
+  app.get('/v1/library/:id/pages', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const d = await libraryDoc(c, vis);
+    if (!deps.presignView || !deps.viewPageList) return c.json({ items: [] });
+    const pages = await deps.viewPageList(d.doc_id);
+    const items = await Promise.all(pages.slice(0, 300).map(async (i) => ({ page: i + 1, url: await deps.presignView!(`${d.doc_id}/masked/view/${String(i).padStart(4, '0')}.png`) })));
+    return c.json({ items, expires_in: 300 });
+  });
+  // 보관함 쪽 이미지: 문서를 볼 수 있는 사람이면 누구나 (개인정보를 가린 masked/pages 만)
+  app.get('/v1/library/:id/pages/:page/image', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const d = await libraryDoc(c, vis);
+    const n = Number(c.req.param('page'));
+    if (!Number.isInteger(n) || n < 1 || n > 2000) throw new ApiError('VALIDATION', 'page: 1 이상 정수');
+    const png = deps.pageImage ? await deps.pageImage(d.doc_id, n - 1).catch(() => undefined) : undefined;
+    if (!png) throw new ApiError('NOT_FOUND', 'page image not found');
+    return new Response(new Blob([new Uint8Array(png)]), { headers: { 'content-type': 'image/png', 'cache-control': 'private, max-age=300' } });
   });
   // 외부 법령 최신본 참고 (미검증). 첫 조회는 Browser라 수십 초 → 상세 본문과 따로 부른다
   app.get('/v1/library/:id/external-laws', async (c) => {
@@ -558,7 +836,16 @@ export function createApp(deps: Deps) {
   app.get('/v1/library/:id/download', async (c) => {
     const d = await libraryDoc(c, await visibleDocs(c.get('actor')));
     if (!deps.presignGet || d.purge?.original_at || d.purge?.deleted_at) throw new ApiError('NOT_FOUND', '원본 파일이 없습니다 (검증 실패·삭제로 지워짐)');
-    const filename = d.filename ?? `${d.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)}.${d.ext}`;
+    // 위키에서 고친 문서는 원본이 md 로 바뀐다: 파일 이름 확장자를 실제 내용에 맞춘다 (전에는 '….pdf' 이름으로 md 가 내려와 열리지 않았다, 11/18)
+    // ?kind=original: 위키 수정 전 처음 올린 파일 (올린 파일 형식 그대로, 사용자 요청 11/18)
+    if (c.req.query('kind') === 'original' && d.original_upload) {
+      const o = d.original_upload;
+      const url = await deps.presignGet(o.key, o.version_id, o.filename);
+      await audit(c, 'DOCUMENT_DOWNLOAD', d.doc_id);
+      return c.json({ url, filename: o.filename });
+    }
+    const base = (d.filename ?? d.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)).replace(/\.[^.]+$/, '');
+    const filename = `${base}${d.source === 'WIKI_EDIT' ? '_수정본' : ''}.${d.ext}`;
     const url = await deps.presignGet(quarantineKey(d), d.s3_version_id, filename);
     await audit(c, 'DOCUMENT_DOWNLOAD', d.doc_id);
     return c.json({ url, filename });
@@ -587,13 +874,28 @@ export function createApp(deps: Deps) {
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const lawNames = vis.flatMap((x) => (x.law_name ? [x.law_name] : [])); // 인용 조문을 등록 규정 이름과 묶기
-    const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, string>()) : new Map<number, string>();
+    const figUrls = new Map<number, { k: number | string; url: string | null }[]>(await Promise.all(pages.map(async (p) => [p.page, await Promise.all((p.figure_keys ?? []).map(async (key, k) =>
+      ({ k: k + 1, url: key && deps.presignView ? await deps.presignView(key).catch(() => null) : null })))] as const)));
+    // 위키 수정본: '(그림 쪽-k)'는 원래 문서의 잘라 둔 그림 (개인정보 확인을 마친 쪽만)
+    if (d.source === 'WIKI_EDIT' && d.figure_source && deps.figureKeys && deps.presignView && pages[0]) {
+      const fk = await deps.figureKeys(d.figure_source.doc_id).catch(() => new Map<string, string>());
+      const okPages = new Set(d.figure_source.pages);
+      const extra = await Promise.all([...fk].filter(([pk]) => okPages.has(Number(pk.split('-')[0]))).map(async ([pk, key]) => ({ k: pk, url: await deps.presignView!(key).catch(() => null) })));
+      figUrls.set(pages[0].page, [...(figUrls.get(pages[0].page) ?? []), ...extra]);
+    }
+    const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>()) : new Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>();
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
     return c.json({
       ...base,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
+      claims: await docClaimsView(d),
+      // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
+      clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) })),
+      suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
+      // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
+      image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
       can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
@@ -605,8 +907,12 @@ export function createApp(deps: Deps) {
       ...docDatesOf(d, pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
-      pages: pages.map((p, i) => ({ page: p.page, text: p.text, structured: structuredMap.get(p.page) ?? null, ...meta.get(p.page),
-        clause_groups: clauseGroups(meta.get(p.page)?.clause_refs ?? [], p.text, d.law_name, lawNames), summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
+      // 정리본 보기 페이지: 내용 단위로 묶음 (사용자 요청 11/18, 보기용 — 인용·색인은 쪽 단위)
+      doc_pages: buildDocPages(pages.map((p) => ({ page: p.page, markdown: structuredMap.get(p.page)?.markdown ?? p.text }))),
+      pages: pages.map((p, i) => ({ page: p.page, text: p.text, structured: structuredMap.get(p.page)?.markdown ?? null, structured_source: structuredMap.get(p.page)?.source ?? null, ...meta.get(p.page),
+        clause_groups: clauseGroups(meta.get(p.page)?.clause_refs ?? [], p.text, d.law_name, lawNames),
+        // 정리본 '(그림 k)' 아래 인라인 그림 (ImageDescribe 가 잘라낸 masked/figures, presigned 5분). k 는 1부터
+        figures: figUrls.get(p.page) ?? [], summary: meta.get(p.page)?.summary || (sum.get(p.page) ?? null), marks: marks.filter((m) => m.page === i) })),
     });
   });
 

@@ -71,11 +71,11 @@ export interface SearchItem {
   tags: string[]; authority_status: 'VERIFIED' | 'UNVERIFIED'; freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED';
   document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL';
   basis?: string; effective_from?: string; reason: string;
-  matches?: { basis?: string; snippet: string }[];
+  matches?: { basis?: string; snippet: string; page?: number; quotable?: boolean; evidence_kind?: 'FIGURE'; page_context?: string }[];
 }
 export const MOCK_ITEMS: SearchItem[] = [
   { doc_id: 'doc_F001', title: '기업여신 심사규정', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.', team: '여신정책부', updated: '2026-11-01', stars: 4.6, tags: ['공식규정', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'REGULATION', basis: '기업여신 심사규정 제12조제2항', effective_from: '2026-11-01', reason: '찾는 내용과 조문이 직접 일치합니다', matches: [{ basis: '기업여신 심사규정 제12조제2항', snippet: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.' }, { basis: '기업여신 심사규정 제14조제1항', snippet: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.' }] },
-  { doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', updated: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조', effective_from: '2026-11-01', reason: '같은 업무 담당자가 자주 찾고, 근거 규정이 최신입니다' },
+  { doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', snippet: '감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.', team: '여신심사1팀', updated: '2026-10-21', stars: 4.4, tags: ['체크리스트', '여신'], authority_status: 'VERIFIED', freshness: 'CURRENT', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조', effective_from: '2026-11-01', reason: '같은 업무 담당자가 자주 찾고, 근거 규정이 최신입니다' , matches: [{ snippet: '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.', page: 1 }, { snippet: '[그림 설명 · 원문 아님] screenshot: 신도 복합기의 주소 등록 입력 화면 캡처로 보임. 주소 종류, 등록번호가 표시되어 있다. / 표기: 주소 등록 / *가 표시된 항목은 반드시 입력하십시오. / 의도: 신규 주소 등록 방법 안내', page: 36, quotable: false }, { snippet: '[그림 설명 · 원문 아님] screenshot: 설치 완료 화면. / 표기: 마침 버튼 / 의도: 설치 완료', page: 14, quotable: false }]},
   { doc_id: 'doc_K003', title: '소액 담보 처리 팁 (2025)', snippet: '5억원 미만은 지점 전결로 처리할 수 있다.', team: '여신심사2팀', updated: '2025-06-02', stars: 4.8, tags: ['실무사례'], authority_status: 'VERIFIED', freshness: 'REVIEW_REQUIRED', document_type: 'KNOWHOW', basis: '기업여신 심사규정 제12조 (2025-01-01 개정 전)', effective_from: '2025-01-01', reason: '평점은 높지만 근거 규정이 개정되었습니다' },
 ];
 
@@ -117,6 +117,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: [
       { approval_id: 'apr_K001', doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },
     ] };
+  if (path === '/v1/admin/knowledge-debt') return { conflicts: 1, review_required: 2, unverified: 3, healthy: 12, docs_needing_attention: 2 };
   if (path === '/v1/review-queue')
     return { items: [{ doc_id: 'doc_F003', title: '기업여신 심사규정 (출처 미확인 사본)', dept: '여신', findings: [{ message: '공식 원본과 내용 불일치 (조문 1개: ARTICLE:12/PARAGRAPH:1, 원본 5억원 · 업로드본 3억원). 위조 확정 아님, 출처 검토 필요', evidence_ref: 'SYN-LOAN-001@2026-11-01' }] }] };
   if (/\/v1\/documents\/.+\/source-review/.test(path)) return { lifecycle: 'BLOCKED' };
@@ -159,8 +160,10 @@ function mockProgress(): Progress {
 export interface DocDate { kind: string; date: string; page: number }
 /** PageSummarize 쪽 메타데이터 (masked/summary.json) */
 export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; clause_groups?: { law: string | null; clauses: string[] }[]; page_type?: string }
-export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
+export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string }
+export interface Fix { finding_id: string; code: string; message: string; excerpt: string; suggestion: string | null; fix_hint: string | null; acknowledged: boolean; ack_reason?: string | null }
 export interface Review {
+  fixes?: Fix[]; reviews?: import('../review-items').ReviewItem[]; clarify?: import('../clarify').ClarifyItem[]; text?: string; source?: 'UPLOAD' | 'WIKI_EDIT'; suggestions?: import('../ref-suggestions').RefSuggestion[];
   doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
   authority_status: string;
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
@@ -169,6 +172,7 @@ export interface Review {
   title_source?: 'AUTO' | 'USER'; can_edit?: boolean;
   doc_date?: DocDate; doc_dates?: DocDate[];
   previous_doc_id?: string; version_no?: number;
+  version?: { previous: { doc_id: string; title: string; version_no: number }; count: number; changes: DocChange[] } | null;
   knowhow_validation?: KnowhowValidation;
   workflow_failure?: { step: string; error: string };
 }
@@ -179,6 +183,9 @@ export interface KnowhowValidation {
   model?: string;
 }
 const MOCK_REVIEW: Review = {
+  text: '1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 담당자의 확인을 받아 나중에 작성한다.',
+  clarify: [{ finding_id: 'fnd_C1', kind: 'VAGUE_ACTOR', item: '담당자', page: 1, before: '실사 보고서는 담당자의 확인을 받아 나중에 작성한다.', question: "이 '담당자'는 어느 부서의 어떤 직책인가요?", blocking: true, severity: 'MEDIUM', status: 'OPEN',
+    suggestions: [{ value: '여신심사부 심사역', after: '실사 보고서는 여신심사부 심사역의 확인을 받아 나중에 작성한다.', source: { type: 'WIKI', doc_id: 'doc_F001', title: '[SYNTHETIC] 기업여신 심사규정', page: 3 } }] }],
   doc_id: 'doc_MOCK', title: '소액 부동산 담보대출 빠른 처리 팁', lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', authority_status: 'UNVERIFIED',
   classification: { document_type: 'KNOWHOW', confidence: 0.82, rationale: '절차·체크 항목 중심의 실무 문서이며 공식 규정 번호 체계가 없습니다.', source: 'MODEL' },
   knowhow_validation: {
@@ -196,8 +203,8 @@ const MOCK_REVIEW: Review = {
   masked_preview: '1. 감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.\n2. 담당자 연락처 [전화번호]로 평가 일정을 확인한다.\n3. 입금 계좌 [계좌번호]는 고객 확인 후 기재한다.',
 };
 
-export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string }
-export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; dropped_steps: number; uncertainty: string }
+export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
+export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; sections?: { title: string; note: string; steps: { text: string; sources: Evidence[] }[]; fallback?: string; source_note?: string }[]; dropped_steps: number; uncertainty: string }
 const MOCK_GUIDE: Guide = {
   status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,
   evidence: [],
@@ -224,7 +231,7 @@ export interface LibraryCard {
   category_path?: string | null; category_id?: string | null;
   doc_id: string; title: string; document_type?: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; lifecycle: string;
   business_path: string[]; tags: string[]; summary: string | null; authority_status: 'VERIFIED' | 'UNVERIFIED' | 'REJECTED';
-  freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number;
+  freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number; edited?: boolean; has_original_upload?: boolean;
   version_count?: number;
   doc_dates?: DocDate[]; version_no?: number | null; superseded_by?: string | null;
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string } | null;
@@ -242,7 +249,9 @@ export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
   findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number }[];
 }
-export interface LibraryDoc extends LibraryCard { review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
+export interface Claim { claim_id: string; seq: number; statement: string; page: number | null; provision_id: string | null; label: string | null; relation: string; reason: string; quote: string | null; verified: boolean; status: string; on_provision: { supports: number; conflicts: number; unclear: number } | null }
+export interface LibraryDoc extends LibraryCard {
+  claims?: Claim[]; doc_pages?: { title: string; pages: number[]; parts: { page: number; markdown: string }[] }[]; clarify?: import('../clarify').ClarifyItem[]; image_pages?: number[]; suggestions?: import('../ref-suggestions').RefSuggestion[]; review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; structured_source?: 'TEXT' | 'VISION' | 'AI' | null; figures?: { k: number | string; url: string | null }[]; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [
@@ -345,3 +354,8 @@ export interface DocChange { kind: 'ADDED' | 'REMOVED' | 'CHANGED'; where: strin
 export interface VersionDiff { previous: { doc_id: string; title: string; version_no: number }; count: number; changes: DocChange[] }
 export interface VersionItem { doc_id: string; title: string; version_no: number; lifecycle: string; freshness: string; updated_at: string; current: boolean; effective_from?: string | null }
 export interface VersionCandidates { linked: { doc_id: string; title: string; version_no: number } | null; version_no?: number; items: { doc_id: string; title: string; score: number; reason: string }[] }
+
+/** 결재자가 이 문서를 열어 봤는지 (사용자 결정 11/18: 열어 보기 전 승인 잠금). 탭 단위 기록, 서버 기록 아님 */
+const VIEWED = 'hanaeum.viewed';
+export function viewedDocs(): Record<string, boolean> { try { return JSON.parse(sessionStorage.getItem(VIEWED) ?? '{}') as Record<string, boolean>; } catch { return {}; } }
+export function markViewed(id: string) { try { sessionStorage.setItem(VIEWED, JSON.stringify({ ...viewedDocs(), [id]: true })); } catch { /* 저장소 차단 */ } }

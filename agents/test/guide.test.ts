@@ -113,3 +113,74 @@ test('같은 규정의 여러 조문: 출처는 조문 ID로 정확히 대조, �
   assert.equal(r.steps[0]!.sources[0]!.provision, '기업여신 심사규정 제12조');
   assert.equal(r.dropped_steps, 1);
 });
+
+test('그림·쪽 맥락(quotable=false)은 <context>로만 전달하고 출처로는 못 씀 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  let prompt = '';
+  const fig = { doc_id: 'doc_M', title: '과천 매뉴얼', snippet: '[그림] 4층 배치도: ⑤ 브라더', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, quotable: false };
+  const body = { doc_id: 'doc_M', provision_id: 'doc_M#p8', title: '과천 매뉴얼', snippet: '⑤ 브라더 HL-L6400 IP 10.0.4.15', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const };
+  const r = await guide('4층 프린터 연결', { model: 'm', search: async () => [fig, body],
+    draft: async (p) => { prompt = p; return { steps: [{ text: '(그림 기준) 4층 ⑤ 브라더 IP 확인', sources: ['doc_M#p8'] }, { text: '그림만 근거', sources: ['doc_M#fig1'] }], uncertainty: '' }; } });
+  assert.match(prompt, /<context [^>]*>[\s\S]*4층 배치도[\s\S]*<\/context>/);
+  assert.doesNotMatch(prompt.split('<context')[0]!, /4층 배치도/);
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.evidence.length, 1);
+});
+
+test('매뉴얼 그림·화면 정리본은 그림 기준 근거로 인용(표시 자동), 규정 그림은 인용 불가 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const shot = { doc_id: 'doc_M', provision_id: 'doc_M#fig3', title: '과천 매뉴얼', snippet: '설치 창에서 [다음]을 누른다', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, quotable: true, evidence_kind: 'FIGURE' as const, document_type: 'MANUAL', page: 12 };
+  const regFig = { doc_id: 'doc_R', provision_id: 'doc_R#fig1', title: '규정', snippet: '결재 흐름도', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, quotable: true, evidence_kind: 'FIGURE' as const, document_type: 'REGULATION' };
+  const r = await guide('드라이버 설치', { model: 'm', search: async () => [shot, regFig],
+    draft: async () => ({ steps: [{ text: '설치 창에서 [다음]을 누릅니다', sources: ['doc_M#fig3'] }, { text: '결재 흐름', sources: ['doc_R#fig1'] }], uncertainty: '' }) });
+  assert.equal(r.steps.length, 1);
+  assert.equal(r.steps[0]!.text, '(그림 기준 · 12쪽) 설치 창에서 [다음]을 누릅니다');
+  assert.equal(r.steps[0]!.sources[0]!.figure, true);
+  assert.match(r.uncertainty, /그림 기준\(AI 정리\) 근거/);
+  assert.equal(r.dropped_steps, 1);
+});
+
+test('여러 번 찾기: 1차 근거의 항목마다 2차 검색(같은 문서 우선), 못 찾은 항목은 불확실 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = (doc: string, id: string, snippet: string) => ({ doc_id: doc, provision_id: id, title: '과천 매뉴얼', snippet, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const });
+  const calls: string[] = [];
+  let prompt = '';
+  const r = await guide('4층 프린터 연결', { model: 'm',
+    search: async (q) => { calls.push(q); return q.startsWith('브라더') ? [E('doc_X', 'doc_X#1', '다른 문서'), E('doc_M', 'doc_M#p14', '브라더 드라이버 설치: setup.exe 실행')] : q.startsWith('삼성') ? [] : [E('doc_M', 'doc_M#p8', '4층: ⑤ 브라더, ⑧ 삼성')]; },
+    expand: async () => ['브라더', '삼성'],
+    draft: async (p) => { prompt = p; return { steps: [{ text: '[브라더] setup.exe 실행', sources: ['doc_M#p14'] }], uncertainty: '' }; } });
+  assert.deepEqual(calls.map((c) => c.split(' ')[0]), ['4층', '브라더', '삼성']);
+  assert.ok(prompt.indexOf('doc_M#p14') < prompt.indexOf('doc_X#1'), '같은 문서 조각 우선');
+  assert.match(prompt, /<items[^>]*>\["브라더","삼성"\]<\/items>/);
+  assert.equal(r.steps.length, 1);
+  assert.match(r.uncertainty, /삼성 절차는 근거에서 더 찾지 못했습니다/);
+});
+
+test('섹션 형식: 종류×갈래 조합마다 2차 검색, 섹션 단계 출처 검증, 근거 없는 조합은 안내만 (11/18)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = (id: string, snippet: string) => ({ doc_id: 'doc_M', provision_id: id, title: '과천 매뉴얼', snippet, authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const });
+  const calls: string[] = [];
+  const r = await guide('4층 프린터 연결', { model: 'm',
+    search: async (q, o) => { calls.push(q); if (q !== '4층 프린터 연결') assert.equal(o?.expand, 'section'); return q.startsWith('macOS 삼성') ? [E('doc_M#p20', '삼성 macOS 설치')] : q.startsWith('4층') ? [E('doc_M#p8', '4층 목록')] : []; },
+    expand: async () => ({ items: ['삼성', '브라더'], variants: ['macOS', 'Windows'] }),
+    draft: async () => ({ steps: [], uncertainty: '', sections: [
+      { title: '4층 프린터 목록', note: '', fallback: '', steps: [{ text: '⑧ 삼성', sources: ['doc_M#p8'] }] },
+      { title: 'macOS에서 삼성 프린터 연결', note: '', fallback: '안 될 때: 드라이버를 직접 선택', steps: [{ text: '설치 파일 실행', sources: ['doc_M#p20'] }, { text: '지어낸 단계', sources: ['none'] }] },
+      { title: 'macOS에서 브라더 프린터 연결', note: '매뉴얼에 해당 절차 없음', fallback: '', steps: [] },
+    ] }) });
+  assert.deepEqual(calls.slice(1).map((c) => c.split(' ').slice(0, 2).join(' ')), ['macOS 삼성', 'Windows 삼성', 'macOS 브라더', 'Windows 브라더']);
+  assert.equal(r.sections?.length, 3);
+  assert.equal(r.sections![1]!.steps.length, 1);
+  assert.equal(r.sections![2]!.note, '매뉴얼에 해당 절차 없음');
+  assert.equal(r.sections![1]!.fallback, '안 될 때: 드라이버를 직접 선택');
+  assert.equal(r.steps.length, 2);
+  assert.equal(r.dropped_steps, 1);
+});
+
+test('불확실 안내의 근거 ID 는 문서 이름으로 바꾼다 (11/18 dev 시험)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = { doc_id: 'doc_K', provision_id: 'doc_K#s2', title: '서류 체크리스트', snippet: 's', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const };
+  const r = await guide('q', { model: 'm', search: async () => [E], draft: async () => ({ steps: [{ text: 'a', sources: ['doc_K#s2'] }], uncertainty: '노하우(doc_K#s2) "…"는 규정과 상충 — 규정을 따름.' }) });
+  assert.match(r.uncertainty, /^「서류 체크리스트」 "…"는 규정과 상충/);
+  assert.doesNotMatch(r.uncertainty, /doc_K/);
+});

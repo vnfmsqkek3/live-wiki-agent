@@ -23,7 +23,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Tabs />
         <main id="content">
           <Gate>{children}</Gate>
-          <p className="synthetic-footer">여기 있는 모든 문서는 시연용 하나은행 가상 데이터(SYNTHETIC)이며, 실제 하나은행의 규정·자료가 아닙니다.</p>
+          {/* 공통 푸터: 모든 화면에서 화면 맨 아래에 항상 보임 (사용자 요청 11/18) */}
+          <footer className="synthetic-footer site-footer">여기 있는 모든 문서는 시연용 하나은행 가상 데이터(SYNTHETIC)이며, 실제 하나은행의 규정·자료가 아닙니다.</footer>
         </main>
       </body>
     </html>

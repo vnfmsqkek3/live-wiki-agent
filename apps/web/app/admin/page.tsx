@@ -4,26 +4,102 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type Role } from '../lib/api';
-import { decideApproval, rejectSource } from '../lib/decide';
+import { api, ApiError, getSession, type DocChange, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
+import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
 import { Icon } from '../icons';
 import { Seal } from '../seal';
 
-interface Item { approval_id: string; doc_id: string; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number } }
+interface Item { approval_id: string; doc_id: string; own?: boolean; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string }
 interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_MISMATCH' | 'BLOCKED'; findings: { message: string; user_message?: string; evidence_ref: string }[] }
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
+
+/** 지식 부채 (게시 문서 주장 기준, interfaces 10.2): 지금 손봐야 할 지식이 얼마나 쌓였나 */
+function KnowledgeDebt() {
+  const [k, setK] = useState<Record<string, number> | null>(null);
+  useEffect(() => { api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null)); }, []);
+  if (!k) return null;
+  const rows: [string, string, string][] = [['conflicts', '규정과 어긋난 주장', 'bad'], ['review_required', '근거 개정으로 재검토', 'bad'], ['unverified', '근거 확인 필요', 'wait'], ['healthy', '근거 확인된 주장', 'ok'], ['docs_needing_attention', '손봐야 할 문서', 'bad']];
+  return (
+    <section aria-labelledby="debt-h" className="debt">
+      <h2 className="section" id="debt-h">지식 상태</h2>
+      <dl className="debt-grid">{rows.map(([key, label, tone]) => <div key={key} className={`debt-cell ${tone}`}><dt>{label}</dt><dd className="num">{k[key] ?? 0}</dd></div>)}</dl>
+    </section>
+  );
+}
 
 /** 결재 진행: 공통 결재란. 승인하면 승인 칸에 도장이 찍힌다(한 번의 서명 동작) */
 function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
   return <Seal size="full" stampedNow={!!approved} i={{ authority_status: approved ? 'VERIFIED' : 'UNVERIFIED', document_type: 'KNOWHOW', lifecycle: approved ? 'PUBLISHED' : 'PENDING_APPROVAL' }} />;
 }
 
+/** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
+/** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; ai_reason?: string; at: string };
+function ChangeRequests() {
+  const [items, setItems] = useState<CR[] | null>(null);
+  const [edit, setEdit] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api<{ items: CR[] }>('GET', '/v1/admin/change-requests').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
+  async function decide(i: CR, decision: 'APPLY' | 'REJECT') {
+    setMsg('');
+    try {
+      const r = await api<{ new_doc_id: string | null }>('POST', `/v1/admin/change-requests/${encodeURIComponent(i.doc_id)}/${encodeURIComponent(i.id)}`, { decision, reason: why[i.id] ?? '', after: edit[i.id] ?? i.after ?? '' });
+      if (r.new_doc_id) { location.href = `/review?id=${encodeURIComponent(r.new_doc_id)}`; return; }
+      setItems((x) => x && x.filter((y) => y.id !== i.id));
+    } catch (e) { setMsg((e as ApiError).message); }
+  }
+  if (!items?.length) return null;
+  const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
+  return (
+    <section aria-labelledby="cr-h" className="fix-list">
+      <h2 className="section" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h2>
+      <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
+      <ol className="fixes">{items.map((i) => (
+        <li key={i.id} className="fix">
+          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span></p>
+          <blockquote className="basis"><p>{i.before}</p></blockquote>
+          <p><strong>요청:</strong> {i.request}</p>
+          {i.ai_reason && <p className="note">AI 의견: {i.ai_reason}</p>}
+          <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
+          <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
+          <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
+          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim()} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
+        </li>
+      ))}</ol>
+      {msg && <p className="error" role="alert">{msg}</p>}
+    </section>
+  );
+}
+
+function InReview() {
+  const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number }[] | null>(null);
+  useEffect(() => { api<{ items: NonNullable<typeof items> }>('GET', '/v1/admin/in-review').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
+  if (!items?.length) return null;
+  return (
+    <details className="admin-more" open={items.some((i) => i.own)}>
+      <summary>게시 요청 전(작성자 검토 중) <b className="num">{items.length}</b>건 — 작성자가 '게시 요청'을 눌러야 결재할 수 있습니다</summary>
+      <ul className="todo-list">{items.map((i) => (
+        <li key={i.doc_id}>
+          <Link href={i.own ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link>
+          {i.own && <span className="kind-tag own">본인 문서</span>}
+          <span className="note">{i.lifecycle === 'QUARANTINED' ? 'AI 검사 중' : i.open ? `남은 일 ${i.open}건` : '게시 요청만 남음'}</span>
+          {i.own && i.lifecycle === 'IN_REVIEW' && <Link className="btn" href={`/review?id=${encodeURIComponent(i.doc_id)}`} prefetch={false}>검토 화면에서 게시 요청</Link>}
+        </li>
+      ))}</ul>
+    </details>
+  );
+}
+
 export default function Admin() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [mismatch, setMismatch] = useState<Mismatch[]>([]);
   const [done, setDone] = useState<Record<string, 'APPROVED' | 'REJECTED'>>({});
+  // 결재자가 문서를 열어 봤는지: 열어 보기 전에는 승인 잠금 (사용자 결정 11/18)
+  const [viewed, setViewed] = useState<Record<string, boolean>>({});
+  useEffect(() => setViewed(viewedDocs()), []);
+  const markViewed = (id: string) => { markViewedDoc(id); setViewed(viewedDocs()); };
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
   const [role, setRole] = useState('');
@@ -39,14 +115,15 @@ export default function Admin() {
   }, []);
 
   async function onRejectSource(docId: string) {
-    const r = await rejectSource(docId);
+    const r = await rejectSource(docId, opinion[docId] ?? '');
     if (!r) return;
     if (r.status) setDone((d) => ({ ...d, [docId]: r.status! }));
     setMsg(r.msg);
   }
 
+  const [opinion, setOpinion] = useState<Record<string, string>>({}); // 카드별 결재 의견
   async function decide(id: string, decision: 'APPROVE' | 'REJECT') {
-    const r = await decideApproval(id, decision);
+    const r = await decideApproval(id, decision, opinion[id] ?? '');
     if (!r) return;
     if (r.status) setDone((d) => ({ ...d, [id]: r.status! }));
     setMsg(r.msg);
@@ -60,41 +137,66 @@ export default function Admin() {
       <PageHeader title="결재함" description="출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요." action={<Link className="btn" href="/library">문서보관함</Link>} />
       {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
-      <div className="counts">
-        <div><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></div>
-        <div><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></div>
+      {/* 할 일 숫자와 지식 상태를 첫 화면에 함께 (Fable A안 11/18: 카드가 쌓이면 맨 아래 지식 상태가 안 보임) */}
+      <div className="admin-status">
+        <div className="counts">
+          <a href="#pending-h"><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></a>
+          <a href="#source-h"><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></a>
+        </div>
+        <KnowledgeDebt />
       </div>
 
+      {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
+      <div className="actions ops-row" role="group" aria-label="운영 도구">
+        <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
+        <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
+      </div>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
         <div className="approval-category-group" aria-label="결재할 일">
-          {source.length > 0 && <h2 className="section">출처 확인이 먼저 필요한 문서</h2>}
+          {source.length > 0 && <h2 className="section" id="source-h">출처 확인이 먼저 필요한 문서</h2>}
           <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
-                <span className="flag"><Icon name="alert" />검토 필요</span>
+                <span className="flag"><Icon name="alert" />출처 확인 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                 {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
-                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. 제목을 누르면 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
-                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <div className="actions"><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div>}
+                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. '다른 곳 보기'에서 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
+                {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <><input className="field" aria-label="반려 사유" maxLength={300} placeholder="반려 사유 (예: 공식 원본과 승인 기준 금액이 다름)" value={opinion[i.doc_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.doc_id]: e.target.value }))} /><div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div></>}
               </li>
             ))}
           </PaginatedList>
 
-          <h2 className="section">게시 승인 대기</h2>
+          <h2 className="section" id="pending-h">게시 승인 대기</h2>
           {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
           <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-                <span className="flag"><Icon name="alert" />승인 대기</span>
-                <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
-                <p className="note">{i.detail ?? '작성자 검토가 끝났습니다.'} 제목을 누르면 본문과 확인할 곳을 볼 수 있습니다.</p>
-                {i.version && <p className="flag" style={{ display: 'block' }}>새 버전 v{i.version.version_no ?? 2} · 이전 「{i.version.previous_title}」 대비 바뀐 곳 {i.version.changes_count}건 (상세에서 비교)</p>}
+                {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
+                <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'} · AI 검사 통과</span>
+                {i.own && <span className="kind-tag own" title="관리자 본인이 올린 문서입니다. 승인하면 자기 승인으로 기록됩니다.">본인 문서</span>}
+                <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
+                {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
+                {i.version?.changes?.length ? (
+                  <ul className="mini-changes" aria-label="바뀐 부분">{i.version.changes.slice(0, 3).map((c, n) => (
+                    <li key={n}>{c.kind !== 'ADDED' && <del>{c.old_text.slice(0, 90)}</del>}{c.kind !== 'REMOVED' && <ins>{c.new_text.slice(0, 90)}</ins>}</li>
+                  ))}{i.version.changes_count > 3 && <li className="note">외 {i.version.changes_count - 3}곳</li>}</ul>
+                ) : !i.version && <p className="note">처음 올라온 문서입니다.</p>}
                 <ApprovalBox stage={done[i.approval_id] === 'APPROVED' ? 3 : (i.stage ?? 2)} approved={done[i.approval_id] === 'APPROVED'} />
                 {!done[i.approval_id] && (
                   <div className="actions">
-                    <button className="btn solid" onClick={() => decide(i.approval_id, 'APPROVE')}>승인</button>
+                    <div className="opinion">
+                      <label className="lbl" htmlFor={`op-${i.approval_id}`}>결재 의견</label>
+                      <div className="actions" style={{ marginTop: 4 }}>{APPROVE_CHIPS.map((c) => <button key={c} type="button" className={`btn chip-btn${opinion[i.approval_id] === c ? ' solid' : ''}`} onClick={() => setOpinion((x) => ({ ...x, [i.approval_id]: c }))}>{c}</button>)}</div>
+                      <input id={`op-${i.approval_id}`} className="field" maxLength={300} placeholder="의견 직접 입력 (반려는 사유 필수)" value={opinion[i.approval_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.approval_id]: e.target.value }))} />
+                    </div>
+                    {/* 사람이 확인 → 판단 순서: 문서 확인을 먼저, 같은 크기의 버튼으로 (사용자 지적 11/18: 밑줄 글자라 안 보임) */}
+                    <Link className="btn" href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}><Icon name="library" />{viewed[i.doc_id] ? '확인함 · 다시 보기' : '문서 확인'}</Link>
+                    <span className="actions-gap" aria-hidden="true" />
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
+                    {/* 열어 보기 전 승인 잠금 (사용자 결정 11/18). 반려는 열지 않아도 가능 */}
+                    <button className={`btn${viewed[i.doc_id] ? ' solid' : ''}`} onClick={() => decide(i.approval_id, 'APPROVE')} disabled={!viewed[i.doc_id]} aria-describedby={viewed[i.doc_id] ? undefined : `lock-${i.approval_id}`}>승인</button>
+                    {!viewed[i.doc_id] && <p className="note lock-hint" id={`lock-${i.approval_id}`}>문서를 열어 확인한 뒤 승인할 수 있습니다.</p>}
                   </div>
                 )}
               </li>
@@ -103,12 +205,16 @@ export default function Admin() {
           <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
         </div>
         <div className="approval-category-group" aria-label="진행·참고">
+          <ChangeRequests />
+          <InReview />
+          <details className="admin-more" open={after.some((x) => !!x.workflow_failure)}>
+            <summary>진행·참고: 승인 뒤 게시 진행 <b className="num">{after.length}</b>건{blocked.length ? <> · 자동 차단 <b className="num">{blocked.length}</b>건(최근 7일)</> : null}</summary>
           <h2 className="section">승인 뒤 게시 진행</h2>
           {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
-            <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger card-grid admin-grid">
+            <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger admin-rows">
               {after.map((i) => (
                 <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
-                  <span className="seal official"><Icon name="clock" />게시 진행</span>
+                  <span className="kind-tag"><Icon name="clock" />게시 진행</span>
                   <h3 className="doc-title">{i.title ?? '제목 없는 문서'}</h3>
                   {i.workflow_failure
                     ? <p className="error">게시 처리에 실패했습니다. 운영 담당자 확인이 필요합니다. 승인은 그대로 유지됩니다.</p>
@@ -121,10 +227,10 @@ export default function Admin() {
             <>
               <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
               <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
-              <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger card-grid admin-grid">
+              <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger admin-rows">
                 {blocked.map((i) => (
                   <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
-                    <span className="flag"><Icon name="alert" />검토 필요</span>
+                    <span className="flag"><Icon name="alert" />자동 차단</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                     {i.findings.slice(0, 3).map((f, n) => <p key={n} className="quote">{f.user_message ?? f.message}</p>)}
                   </li>
@@ -132,14 +238,10 @@ export default function Admin() {
               </PaginatedList>
             </>
           )}
+          </details>
         </div>
       </div>
 
-      <h2 className="section">운영 도구</h2>
-      <div className="actions" style={{ marginTop: 0 }}>
-        <Link className="btn" href="/admin/runs">Agent 실행 기록</Link>
-        <Link className="btn" href="/admin/impact">규정 변경 영향</Link>
-      </div>
     </>
   );
 }
