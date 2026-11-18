@@ -58,7 +58,7 @@ export default function Upload() {
 
   return (
     <>
-      <PageHeader title="문서 등록" description="파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다." action={<button className="btn solid" type="submit" form="upload-form" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button>} />
+      <PageHeader title="문서 등록" description="파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다." />
       <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
       <div className="layout-a upload-layout"><div className="primary"><form id="upload-form" onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
@@ -74,6 +74,8 @@ export default function Upload() {
 
         <label className="lbl">문서 종류</label>
         <p className="note" style={{ margin: '6px 0 0' }}>분석이 끝나면 규정, 노하우, 매뉴얼 중 하나로 제안합니다. 검토할 때 바꿀 수 있습니다.</p>
+        {/* 주 행동은 입력란 바로 아래 (사용자 요청 11/18) */}
+        <div className="actions"><button className="btn solid" type="submit" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button></div>
 
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
         {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}
