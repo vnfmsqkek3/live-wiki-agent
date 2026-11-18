@@ -17,17 +17,14 @@ export class S3Published implements PublishedReader {
   constructor(bucket: string) { this.bucket = bucket; }
   private async text(key: string) {
     try { return await (await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))).Body!.transformToString("utf-8"); }
-    catch (e) { if ((e as Error).name === "NoSuchKey" || (e as Error).name === "AccessDenied") return undefined; throw e; }
+    catch (e) { if ((e as Error).name === "NoSuchKey") return undefined; throw e; } // 권한 오류는 숨기지 않음 (설정 실수가 "없음"으로 보이지 않게)
   }
-  async get(doc_id: string) {
-    for (const p of ["knowledge", "legal"]) {
-      const content = await this.text(`${p}/${doc_id}/content.txt`);
-      if (content === undefined) continue;
-      const side = await this.text(`${p}/${doc_id}/content.txt.metadata.json`);
-      if (!side) return undefined;
-      return { content, meta: (JSON.parse(side) as { metadataAttributes: Record<string, unknown> }).metadataAttributes };
-    }
-    return undefined;
+  async get(doc_id: string, document_type?: string) {
+    // 위치 규칙은 Promote publishedPrefix와 같음 (규정 legal/, 그 밖 knowledge/)
+    const p = `${document_type === "REGULATION" ? "legal" : "knowledge"}/${doc_id}/content.txt`;
+    const content = await this.text(p);
+    const side = content === undefined ? undefined : await this.text(`${p}.metadata.json`);
+    return content === undefined || !side ? undefined : { content, meta: (JSON.parse(side) as { metadataAttributes: Record<string, unknown> }).metadataAttributes };
   }
 }
 
@@ -42,7 +39,7 @@ export class PgDocStates implements DocStates {
     const out = new Map<string, DocState>();
     if (!ids.length) return out;
     const rows = await this.q<Record<string, unknown>>(
-      `SELECT doc_id, lifecycle, authority_status, (attrs->>'conditional')::boolean AS conditional, freshness, acl_groups, published_content_hash, version,
+      `SELECT doc_id, lifecycle, authority_status, (attrs->>'conditional')::boolean AS conditional, freshness, acl_groups, published_content_hash, version, document_type,
               attrs->>'effective_from' AS effective_from, attrs->>'effective_to' AS effective_to
        FROM documents WHERE doc_id = ANY(ARRAY(SELECT jsonb_array_elements_text(:ids::jsonb)))`, { ids });
     for (const r of rows) {
@@ -85,7 +82,7 @@ export class DynamoDocStates implements DocStates {
       let keys: Record<string, unknown>[] | undefined = ids.slice(i, i + 100).map((doc_id) => ({ pk: `DOC#${doc_id}`, sk: "META" }));
       for (let attempt = 0; keys?.length; attempt++) {
         if (attempt > 5) throw new Error("BatchGet 미처리 키 재시도 초과");
-        const r: import("@aws-sdk/lib-dynamodb").BatchGetCommandOutput = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: keys, ProjectionExpression: "doc_id, lifecycle, authority_status, conditional, freshness, acl_groups, published_content_hash, effective_from, effective_to, version" } } }));
+        const r: import("@aws-sdk/lib-dynamodb").BatchGetCommandOutput = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: keys, ProjectionExpression: "doc_id, lifecycle, authority_status, conditional, freshness, acl_groups, published_content_hash, effective_from, effective_to, version, document_type" } } }));
         // 승인 API(dhxorb96)는 시행일을 "YYYY-MM-DD"로 저장. 비교는 YYYYMMDD 숫자로
         for (const it of r.Responses?.[this.table] ?? []) out.set(String(it["doc_id"]), { ...it, effective_from: day(it["effective_from"]), effective_to: day(it["effective_to"]) } as DocState);
         keys = r.UnprocessedKeys?.[this.table]?.Keys;

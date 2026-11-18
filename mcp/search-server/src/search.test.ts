@@ -6,6 +6,8 @@ import { regulationTools } from "@hanaeum/regulation-server";
 import { fixtureClauseStore } from "../../regulation-server/src/fixtures.ts";
 import type { DocumentMetadata } from "@hanaeum/schemas";
 import type { DocState, DocStates } from "./search.ts";
+import { createHash } from "node:crypto";
+const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 import { buildFilter, inCategory, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
@@ -332,20 +334,37 @@ test("get_wiki_document: 게시본을 쪽별로 (본문 TEXT, 글자 없는 캡�
   const { retriever } = setup();
   const DOC = "doc_01KAAAAAAAAAAAAAAAAAAAAAAA";
   const content = ["1쪽 본문\n| 층 | 모델 |\n|---|---|\n| 4층 | N620 |", "\f", "[그림 1]", "⟦그림 p0⟧ 그림 1 속 글자: 4층", "⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 4층 평면도", "⟦그림 p1⟧ 쪽 정리(AI, 그림 기준): 설치 완료 화면"].join("\n");
-  const st = { doc_id: DOC, lifecycle: "PUBLISHED", authority_status: "UNVERIFIED", freshness: "CURRENT", acl_groups: ["ALL"], published_content_hash: "h1", version: 2 } as DocState;
+  const st = { doc_id: DOC, lifecycle: "PUBLISHED", authority_status: "UNVERIFIED", freshness: "CURRENT", acl_groups: ["ALL"], published_content_hash: sha("CONTENT"), version: 2, effective_from: 20260101, effective_to: 99991231 } as DocState;
   const s2 = { get: async (ids: string[]) => new Map(ids.includes(DOC) ? [[DOC, st]] : []) } as unknown as DocStates;
-  let meta: Record<string, unknown> = { title: "과천 매뉴얼", document_type: "MANUAL", content_hash: "h1", category_path: "총무/사무기기" };
-  const t = searchTools({ retriever, states: s2, regulation: regulationTools(fixtureClauseStore()), published: { get: async () => ({ content, meta }) } });
+  const meta: Record<string, unknown> = { title: "과천 매뉴얼", document_type: "MANUAL", category_path: "총무/사무기기" };
+  st.published_content_hash = sha(content);
+  let body = content;
+  const t = searchTools({ retriever, states: s2, regulation: regulationTools(fixtureClauseStore()), published: { get: async () => ({ content: body, meta }) } });
   const r = await t.get_wiki_document({ doc_id: DOC }, user) as unknown as { version: number; category_path: string; page_count: number; pages: { page: number; markdown: string; source: string; ai_summary?: string }[] };
   assert.equal(r.version, 2); assert.equal(r.category_path, "총무/사무기기"); assert.equal(r.page_count, 2);
   assert.deepEqual(r.pages[0], { page: 1, markdown: "1쪽 본문\n| 층 | 모델 |\n|---|---|\n| 4층 | N620 |", source: "TEXT", ai_summary: "4층 평면도" });
   assert.deepEqual(r.pages[1], { page: 2, markdown: "설치 완료 화면", source: "VISION" }); // 그림 속 글자 줄은 안 나감
-  meta = { ...meta, content_hash: "old" }; // 게시 동기화 중
-  await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /NOT_FOUND|없거나/u);
-  meta = { ...meta, content_hash: "h1" };
+  body = content + "\n새 버전"; // 게시 도중(본문 해시가 기록과 다름)
+  await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /없거나/u);
+  body = content;
+  // 폐지된 문서는 기본 제외, include_history면 historical
+  st.effective_to = 20260601;
+  await assert.rejects(t.get_wiki_document({ doc_id: DOC, as_of: "2026-12-01" }, user), /없거나/u);
+  assert.equal((await t.get_wiki_document({ doc_id: DOC, as_of: "2026-12-01", include_history: true }, user) as { historical?: boolean }).historical, true);
+  st.effective_to = 99991231;
+  // 이어 받기
+  assert.deepEqual((await t.get_wiki_document({ doc_id: DOC, from_page: 2 }, user) as unknown as { pages: { page: number }[] }).pages.map((p) => p.page), [2]);
   st.acl_groups = ["DEPT#수신"];
   await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /없거나/u); // 권한 없음도 같은 응답
   st.acl_groups = ["ALL"]; st.lifecycle = "IN_REVIEW" as DocState["lifecycle"];
   await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /없거나/u);
   await assert.rejects(t.get_wiki_document({ doc_id: "../x" }, user), /doc_id/u);
+});
+
+test("docPages: 상한을 넘으면 next_page, 한 쪽이 상한보다 길면 잘라서라도 (PR #45 리뷰)", async () => {
+  const { docPages } = await import("./search.ts");
+  const big = "가".repeat(50_000);
+  const r = docPages([big, "\f", "둘째 쪽 본문입니다"].join("\n"));
+  assert.equal(r.pages.length, 1); assert.equal(r.pages[0]!.cut, true); assert.equal(r.next_page, 2);
+  assert.equal(docPages([big, "\f", "둘째 쪽 본문입니다"].join("\n"), 2).pages[0]!.markdown, "둘째 쪽 본문입니다");
 });

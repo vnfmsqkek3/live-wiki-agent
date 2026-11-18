@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // Search MCP: search_wiki, retrieve_evidence, search_legal_clause (docs/04 4.3, docs/01 8.6·8.7)
 // 하드 게이트(ACL·공식성·유효기간)는 Rerank 전에 서버가 필터로 강제하고, 결과는 DynamoDB 현재 상태로 다시 검증한다.
 import { BedrockAgentRuntimeClient, RetrieveCommand } from "@aws-sdk/client-bedrock-agent-runtime";
@@ -134,9 +135,11 @@ export interface DocState {
   published_content_hash: string; // Promote가 기록한 게시본 해시 (Documents.content_hash는 원본 해시라 다름)
   effective_from?: number; effective_to?: number; // 현재 유효기간 (새 버전 시행 시 갱신). KB 메타데이터보다 우선
   version?: number;
+  document_type?: string; // 게시본 위치(legal/·knowledge/)를 정하는 데만 씀
 }
 /** 게시본 읽기 (published 버킷 content.txt + .metadata.json). 문서 전체 조회(get_wiki_document)용 */
 export interface PublishedReader { get(doc_id: string, document_type?: string): Promise<{ content: string; meta: Record<string, unknown> } | undefined> }
+const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 export interface DocStates {
   get(docIds: string[]): Promise<Map<string, DocState>>;
   /** 현재 분류 경로 (분류 필터를 쓸 때만, PostgreSQL). 재분류·병합 뒤 KB 메타데이터가 낡아도 현재 분류로 거르기 위해 */
@@ -357,12 +360,18 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
       const st = (await deps.states.get([doc_id])).get(doc_id);
       const keys = aclKeys(actor);
       if (!st || st.lifecycle !== "PUBLISHED" || st.authority_status === "REJECTED" || !st.acl_groups.some((g) => keys.includes(g))) throw notFound();
-      const pub = await deps.published?.get(doc_id);
-      // 게시 동기화 중(옛 게시본)이면 내주지 않음 — 검색 재검증과 같은 기준
-      if (!pub || pub.meta["content_hash"] !== st.published_content_hash) throw notFound();
+      const pub = await deps.published?.get(doc_id, st.document_type);
+      // 본문 자체의 해시로 확인 (사이드카보다 본문이 먼저 써지는 게시 도중에도 버전이 섞이지 않게, PR #45 리뷰)
+      if (!pub || sha256(pub.content) !== st.published_content_hash) throw notFound();
+      // 폐지·시행 전·대체된 문서는 검색과 같이 기본 제외 (include_history면 historical 표시로)
+      const asOf = asOfYmd(args), now = current(st, pub.meta, asOf);
+      if (!now && args["include_history"] !== true) throw notFound();
+      const from = st.effective_from ?? Number(pub.meta["effective_from"]), to = st.effective_to ?? Number(pub.meta["effective_to"]);
+      const fromPage = Math.max(1, Math.floor(Number(args["from_page"] ?? 1)) || 1);
       return { doc_id, title: pub.meta["title"], document_type: pub.meta["document_type"], ...(st.version ? { version: st.version } : {}),
         ...(pub.meta["category_path"] ? { category_path: pub.meta["category_path"] } : {}), authority_status: st.authority_status, freshness: st.freshness,
-        ...docPages(pub.content) };
+        effective_from: isoDate(from), effective_to: isoDate(to), conditional: st.conditional === true, ...(now ? {} : { historical: true }),
+        ...docPages(pub.content, fromPage) };
     },
 
     async retrieve_evidence(args: Record<string, unknown>, actor: Actor) {
@@ -390,12 +399,12 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
   };
 }
 
-// ponytail: 응답 상한 글자 수 (Lambda 응답 6MB·모델 문맥 고려). 넘으면 뒤쪽 쪽은 truncated로 알림
-const DOC_CHARS_MAX = 200_000;
+// ponytail: 응답 상한 글자 수 (외부 챗봇 문맥 고려 ~2만 토큰). 넘으면 next_page로 이어 받기
+const DOC_CHARS_MAX = 40_000;
 const SUMMARY_LINE = /^⟦그림 p(\d+)⟧ 쪽 정리\(AI, 그림 기준\)(?: \(이어서 \d+\))?: (.*)$/u;
 /** 게시본 → 쪽별 본문. 본문(OCR, 표는 마크다운)이 있으면 TEXT, 글자가 거의 없는 화면 캡처 쪽은 AI 그림 정리본(VISION).
  *  그림 속 글자·그림 설명·쪽 맥락 줄(⟦그림 …⟧)은 원문이 아니라 내보내지 않는다 (정리본만 ai_summary로) */
-export function docPages(content: string) {
+export function docPages(content: string, fromPage = 1) {
   const lines = content.split("\n");
   const summary = new Map<number, string>();
   const body: string[] = [];
@@ -405,15 +414,21 @@ export function docPages(content: string) {
     else if (!l.startsWith("⟦그림 p")) body.push(l);
   }
   const texts = body.join("\n").split(/\n?\f\n?/u);
-  let used = 0, truncated = false;
-  const pages: { page: number; markdown: string; source: "TEXT" | "VISION"; ai_summary?: string }[] = [];
+  let used = 0, next: number | undefined;
+  const pages: { page: number; markdown: string; source: "TEXT" | "VISION"; ai_summary?: string; cut?: true }[] = [];
   for (const [i, t0] of texts.entries()) {
+    if (i + 1 < fromPage) continue;
     const t = t0.trim(), ai = summary.get(i);
     const thin = t.replace(/\[그림 \d+\]/gu, "").replace(/\s+/gu, "").length < 10; // ponytail: 10자 미만이면 캡처 쪽으로 봄
     const p = thin && ai ? { page: i + 1, markdown: ai, source: "VISION" as const } : { page: i + 1, markdown: t, source: "TEXT" as const, ...(ai ? { ai_summary: ai } : {}) };
     const size = p.markdown.length + (("ai_summary" in p && p.ai_summary) ? p.ai_summary.length : 0);
-    if (used + size > DOC_CHARS_MAX) { truncated = true; break; }
+    if (used + size > DOC_CHARS_MAX) {
+      // 한 쪽만으로 상한을 넘으면 그 쪽을 잘라서라도 넣음 (빈 응답 방지)
+      if (!pages.length) pages.push({ ...p, markdown: p.markdown.slice(0, DOC_CHARS_MAX), cut: true });
+      next = (pages.at(-1)?.page ?? i) + 1;
+      break;
+    }
     used += size; pages.push(p);
   }
-  return { page_count: texts.length, pages, ...(truncated ? { truncated: true } : {}) };
+  return { page_count: texts.length, pages, ...(next && next <= texts.length ? { next_page: next } : {}) };
 }
