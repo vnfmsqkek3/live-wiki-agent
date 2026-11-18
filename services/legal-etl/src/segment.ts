@@ -229,18 +229,8 @@ export async function segmentStep(input: StepInput, store: ObjectStore): Promise
   for (const s of segments) {
     await store.put(input.bucket, `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, JSON.stringify(s));
   }
-  const low = segments.filter((s) => s.low_confidence);
-  const findings: Finding[] = low.map((s) => {
-    const msg = s.avg_confidence === null
-      ? `${s.page_index + 1}쪽 글자가 모두 그림(화면 캡처 등) 속 글자로 분류됐습니다. 원본이 화면 캡처가 아니라 문서를 스캔한 것이면 확인해 주세요.`
-      : `${s.page_index + 1}쪽 글자 인식(OCR) 신뢰도가 낮아(평균 ${Math.round(s.avg_confidence * 100)}%) 일부 글자가 틀렸을 수 있습니다.`;
-    return {
-      finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM", code: "LOW_OCR_CONFIDENCE", message: msg,
-      evidence_ref: `${work}/segments/${String(s.page_index).padStart(4, "0")}.json`, location: { page: s.page_index + 1 },
-      user_message: msg, fix_hint: "글자가 흐리거나 작으면 300dpi 이상으로 선명하게 다시 스캔하거나, 원본 프로그램에서 'PDF로 저장'해 올려 주세요.",
-    };
-  });
-  findings.push(...structureFindings(segments, work));
+  // OCR 저신뢰 경고는 내지 않는다 (사용자 결정 11/18 17시: 95% 미만 쪽은 ImageDescribe가 Vision으로 다시 읽음). 세그먼트의 avg_confidence·low_confidence는 그대로 남김
+  const findings: Finding[] = structureFindings(segments, work);
   const review = findings.some((f) => f.severity !== "LOW");
   return { status: review ? "REVIEW_REQUIRED" : "OK", output_key: `${work}/segments/`, findings };
 }
