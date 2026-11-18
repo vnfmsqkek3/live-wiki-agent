@@ -93,6 +93,8 @@ export interface DocumentRecord {
   change_requests?: import('./steps/change-request.ts').ChangeRequest[];
   /** 위키 수정 전 처음 올린 원본 파일 (버킷 버전). '원본 파일' 다운로드 */
   original_upload?: { key: string; version_id: string; filename: string };
+  /** 위키 수정본의 '(그림 쪽-k)'가 가리키는 그림: 원래 문서와 그림을 보여도 되는 쪽(개인정보 확인을 마친 쪽) */
+  figure_source?: { doc_id: string; pages: number[] };
   /** WIKI_EDIT: 위키 수정본(정리본 마크다운, 사용자 결정 11/17 규칙 1). 없으면 파일 업로드 */
   source?: 'UPLOAD' | 'WIKI_EDIT';
   /** 위키 수정본의 이전 버전 대비 문장 수 (TrustGate 수정분 검수) */

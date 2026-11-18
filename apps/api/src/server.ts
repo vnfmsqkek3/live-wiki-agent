@@ -10,7 +10,7 @@ import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
 import { searchVia, type SearchWiki } from './search.ts';
-import { putOriginalOnly, deleteWorkflow, presignGet, env, explanation, pageSummary, structuredPages, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowRuns, workflowSteps, presignView, viewPageList } from './aws.ts';
+import { figureKeys, putOriginalOnly, deleteWorkflow, presignGet, env, explanation, pageSummary, structuredPages, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowRuns, workflowSteps, presignView, viewPageList } from './aws.ts';
 
 // 문서보관함 밑줄: let522mj buildMarks (PR #8). 패키지에 없으면 밑줄 없이 동작
 type BuildMarks = (pages: string[], src: Record<string, unknown>, store: unknown) => Promise<Mark[]>;
@@ -82,12 +82,13 @@ const app = createApp({
   marks,
   pageImage,
   pageImageList,
+  figureKeys,
   explanation,
   pageSummary,
   structuredPages,
   externalLaws,
   judgeChange: async (prompt: string) => (await structured<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>('HAIKU', CHANGE_SYSTEM, prompt, 'submit_judgement', CHANGE_SCHEMA as unknown as Record<string, unknown>)).value,
-  composeClarify: async (prompt: string) => (await structured<{ edits: { n: number; ok: boolean; after: string; reason?: string }[] }>('HAIKU', COMPOSE_SYSTEM, prompt, 'submit_edits', COMPOSE_SCHEMA as unknown as Record<string, unknown>)).value,
+  composeClarify: async (prompt: string) => (await structured<{ edits: { n: number; ok: boolean; no_change?: boolean; after: string; reason?: string }[] }>('HAIKU', COMPOSE_SYSTEM, prompt, 'submit_edits', COMPOSE_SCHEMA as unknown as Record<string, unknown>)).value,
   ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),
 });

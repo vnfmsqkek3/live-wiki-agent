@@ -75,6 +75,7 @@ export interface Deps {
   explanation?(doc_id: string): Promise<unknown>;
   /** 마스킹된 쪽 이미지가 있는 page_index 목록 */
   pageImageList?(doc_id: string): Promise<number[]>;
+  figureKeys?(doc_id: string): Promise<Map<string, string>>;
   /** 본문이 인용한 외부 법령(「…법」, 내부 규정 저장소에 없는 것). let522mj externalLaws */
   externalLaws?(text: string): Promise<{ law_name: string; clause?: string }[]>;
   /** 외부 법령 최신 공식본 (사용자 Gateway regulation___fetch_official_law, AgentCore Browser). 사용자 토큰으로 호출 */
@@ -87,7 +88,7 @@ export interface Deps {
   pageSummary?(doc_id: string): Promise<{ pages?: PageMeta[] } | undefined>;
   /** AI로 다시 배치한 쪽 본문 (page_index → markdown). 원문 대조를 통과한 쪽만 있다 */
   /** 확인 필요 답을 문장에 넣기 (Haiku) */
-  composeClarify?(prompt: string): Promise<{ edits: { n: number; ok: boolean; after: string; reason?: string }[] }>;
+  composeClarify?(prompt: string): Promise<{ edits: { n: number; ok: boolean; no_change?: boolean; after: string; reason?: string }[] }>;
   /** 위키 수정 요청 판단 (Haiku) */
   judgeChange?(prompt: string): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
@@ -213,6 +214,7 @@ export function createApp(deps: Deps) {
       ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
     };
     else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
+    doc.figure_source = t.figure_source ?? { doc_id: t.doc_id, pages: figurePages(t) };
     // 처음 올린 원본 파일을 기억한다(버킷 버전 관리로 남아 있음): 수정 뒤에도 '원본 파일' 다운로드 (사용자 요청 11/18)
     if (t.source !== 'WIKI_EDIT' && t.s3_version_id) doc.original_upload = { key: quarantineKey(t), version_id: t.s3_version_id, filename: t.filename ?? `${t.title.slice(0, 80)}.${t.ext}` };
     else if (t.original_upload) doc.original_upload = t.original_upload;
@@ -285,7 +287,7 @@ export function createApp(deps: Deps) {
       // 담당자는 모델이 이름을 빼고 넣는다. 모델이 없거나 실패하면 담당자 답은 그대로 넣지 않는다(이름이 섞였을 수 있음, Fable C)
       const after = ai || (q.cand.kind === 'VAGUE_ACTOR' ? '' : fallbackAfter(q.before, q.cand.item, q.span, q.answer));
       const ok = e?.ok !== false && !!after && safeSuggestion(q.cand, { value: q.answer, after }, false);
-      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok && e?.reason ? { note: e.reason } : {}), ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : !after ? 'AI가 답을 넣지 못했습니다. 잠시 뒤 다시 눌러 주세요.' : '개인정보(전화번호·이메일 등)가 들어갔거나 문장이 바뀌지 않았습니다' }) };
+      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok && e?.reason ? { note: e.reason } : {}), ...(e?.no_change ? { no_change: true } : {}), ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : !after ? 'AI가 답을 넣지 못했습니다. 잠시 뒤 다시 눌러 주세요.' : '개인정보(전화번호·이메일 등)가 들어갔거나 문장이 바뀌지 않았습니다' }) };
     });
     await audit(c, 'CLARIFY_COMPOSE', d.doc_id);
     return c.json({ edits });
@@ -732,10 +734,17 @@ export function createApp(deps: Deps) {
 
   // ---- 버전 관리 (사용자 요청 11/17, let522mj 요청 1211). 연결은 작성자가 확인한 경우에만 ----
   const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.document_type;
+  // 쪽마다 1부터인 '(그림 k)'를 '(그림 쪽-k)'로: 위키 수정본은 한 쪽이 되므로 그림을 쪽까지 가리켜야 한다 (11/18 사진 사라짐)
   const editText = async (id: string) => {
     const ps = deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
     const st = deps.structuredPages ? await deps.structuredPages(id).catch(() => new Map<number, { markdown: string }>()) : new Map<number, { markdown: string }>();
-    return ps.map((p) => st.get(p.page)?.markdown ?? p.text).join('\n\n');
+    const multi = ps.length > 1 || (ps[0]?.figure_keys ?? []).some(Boolean);
+    return ps.map((p) => { const t = st.get(p.page)?.markdown ?? p.text; return multi ? t.replace(/([([])그림\s*(\d+)([)\]])/g, (_m, a: string, k: string, b: string) => `${a}그림 ${p.page + 1}-${k}${b}`) : t; }).join('\n\n');
+  };
+  /** 그림을 보여도 되는 쪽: 그림 개인정보 확인이 남지 않은 쪽 (1부터) */
+  const figurePages = (t: DocumentRecord) => {
+    const open = new Set(t.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM' && !f.acknowledged).map((f) => f.location?.page ?? Number(/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ?? NaN)));
+    return Array.from({ length: 300 }, (_, i) => i + 1).filter((n) => !open.has(n));
   };
   const texts = async (id: string) => (deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page).map((p) => p.text) : []);
   /** 직전 버전과 바뀐 곳. 직전 버전을 볼 권한이 없으면 내용 없이 개수만 */
@@ -853,8 +862,15 @@ export function createApp(deps: Deps) {
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const lawNames = vis.flatMap((x) => (x.law_name ? [x.law_name] : [])); // 인용 조문을 등록 규정 이름과 묶기
-    const figUrls = new Map(await Promise.all(pages.map(async (p) => [p.page, await Promise.all((p.figure_keys ?? []).map(async (key, k) =>
+    const figUrls = new Map<number, { k: number | string; url: string | null }[]>(await Promise.all(pages.map(async (p) => [p.page, await Promise.all((p.figure_keys ?? []).map(async (key, k) =>
       ({ k: k + 1, url: key && deps.presignView ? await deps.presignView(key).catch(() => null) : null })))] as const)));
+    // 위키 수정본: '(그림 쪽-k)'는 원래 문서의 잘라 둔 그림 (개인정보 확인을 마친 쪽만)
+    if (d.source === 'WIKI_EDIT' && d.figure_source && deps.figureKeys && deps.presignView && pages[0]) {
+      const fk = await deps.figureKeys(d.figure_source.doc_id).catch(() => new Map<string, string>());
+      const okPages = new Set(d.figure_source.pages);
+      const extra = await Promise.all([...fk].filter(([pk]) => okPages.has(Number(pk.split('-')[0]))).map(async ([pk, key]) => ({ k: pk, url: await deps.presignView!(key).catch(() => null) })));
+      figUrls.set(pages[0].page, [...(figUrls.get(pages[0].page) ?? []), ...extra]);
+    }
     const structuredMap = deps.structuredPages ? await deps.structuredPages(d.doc_id).catch(() => new Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>()) : new Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>();
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);

@@ -49,9 +49,11 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
   async function compose(c: ClarifyItem) {
     setBusy(true); setMsg('');
     try {
-      const r = await api<{ edits: { after: string; ok: boolean; reason?: string; note?: string }[] }>('POST', `/v1/documents/${encodeURIComponent(docId)}/clarify/compose`, { answers: [{ finding_id: c.finding_id, answer: typing[c.finding_id]!.trim() }] });
+      const r = await api<{ edits: { after: string; ok: boolean; reason?: string; note?: string; no_change?: boolean }[] }>('POST', `/v1/documents/${encodeURIComponent(docId)}/clarify/compose`, { answers: [{ finding_id: c.finding_id, answer: typing[c.finding_id]!.trim() }] });
       const e = r.edits[0];
-      if (e?.ok) { setPick((p) => ({ ...p, [c.finding_id]: e.after })); if (e.note) setMsg(e.note); } else setMsg(e?.reason ?? '이 답은 넣을 수 없습니다.');
+      // '지금 문장이 맞다'는 답(예: 다른 모델임)은 고칠 값이 아니라 확인 결과 → 그 답을 사유로 '해당 없음' (사용자 지적 11/18)
+      if (e?.no_change) { const reason = `확인함: ${typing[c.finding_id]!.trim()}`; await api('POST', `/v1/documents/${encodeURIComponent(docId)}/findings/${encodeURIComponent(c.finding_id)}/ack`, { reason }); onDismissed(c.finding_id, reason); setMsg('지금 문장이 맞다는 답이라 고치지 않고 확인한 것으로 처리했습니다.'); }
+      else if (e?.ok) { setPick((p) => ({ ...p, [c.finding_id]: e.after })); if (e.note) setMsg(e.note); } else setMsg(e?.reason ?? '이 답은 넣을 수 없습니다.');
     } catch (e) { setMsg((e as ApiError).message); }
     setBusy(false);
   }

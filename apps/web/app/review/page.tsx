@@ -7,7 +7,8 @@ import { ReviewItems } from '../review-items';
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, dateLine, type Finding, type Fix, type Review } from '../lib/api';
+import { api, ApiError, dateLine, getSession, type Finding, type Fix, type Review } from '../lib/api';
+import { can } from '../lib/roles';
 import { WikiEditor } from '../wiki-editor';
 import { RefSuggestions, withReference } from '../ref-suggestions';
 import { IssueList, PageFacts, VersionLink } from '../issues';
@@ -117,7 +118,12 @@ function ReviewView() {
     } catch (e) { setMsg((e as ApiError).message); }
   }
   async function submit() {
-    try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true); setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.'); }
+    try {
+      await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true);
+      // 결재 권한이 있으면 바로 결재함으로 (사용자 지적 11/18). 아니면 안내만
+      if (can(getSession()?.groups, '/admin')) { setMsg('게시를 요청했습니다. 결재함으로 이동합니다.'); setTimeout(() => { location.href = '/admin'; }, 800); }
+      else setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.');
+    }
     catch (e) { setMsg((e as ApiError).message || '지금 상태에서는 게시를 요청할 수 없습니다.'); }
   }
 
@@ -164,7 +170,9 @@ function ReviewView() {
           {/* 다른 할 일(확인 필요·개인정보 확인)이 있으면 '고칠 것이 없습니다'를 크게 쓰지 않는다 (11/18 dev 시험) */}
           {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">규정과 어긋난 문장은 없습니다.</p>}
           {/* 확인할 내용이 남아 있으면 '검토할 게 없다'로 읽히지 않게 (11/18 사용자 보고) */}
-          {!open.length && uncertain > 0 && <p className="notice">규정과 어긋난 문장은 없습니다. 다만 개인정보 가림·글자 인식 등 <strong>확인할 내용 {uncertain}건</strong>이 있습니다. 아래 '자세히: 검사별 결과'에서 확인해 주세요.</p>}
+          {/* 확인할 내용(게시를 막지 않음)은 여기서 바로 무엇인지·할 일을 보여 준다 (사용자 지적 11/18: 자세히에서 입력칸을 찾았다) */}
+          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>규정과 어긋난 문장은 없습니다. 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
+            <ul>{r.findings.filter((f) => f.severity !== 'LOW').map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
           {!open.length && uncertain === 0 && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
           <ol className="fixes">{(r.fixes ?? []).map((f) => (
             <li key={f.finding_id} id={`fx-${f.finding_id}`} className={`fix${f.acknowledged ? ' done' : ''}`}>

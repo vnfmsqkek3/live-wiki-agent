@@ -219,6 +219,10 @@ export async function putBytes(key: string, body: Uint8Array, contentType: strin
 export async function pageImage(doc_id: string, page_index: number) {
   return getObjectBytes(`${doc_id}/masked/pages/${String(page_index).padStart(4, '0')}.png`);
 }
+/** 잘라 둔 그림 (masked/figures/{nnnn}_{k}.png) → '쪽(1부터)-k' → 키. 위키 수정본의 '(그림 쪽-k)' 자리에 쓴다 (11/18) */
+export async function figureKeys(doc_id: string) {
+  return new Map((await listKeys(`${doc_id}/masked/figures/`)).flatMap((k) => { const m = /(\d{4})_(\d+)\.png$/.exec(k); return m ? [[`${Number(m[1]) + 1}-${Number(m[2])}`, k] as const] : []; }));
+}
 export async function pageImageList(doc_id: string) {
   return (await listKeys(`${doc_id}/masked/pages/`)).map((k) => Number(/(\d{4})\.png$/.exec(k)?.[1] ?? NaN)).filter((n) => Number.isInteger(n));
 }
@@ -286,7 +290,8 @@ export async function putOriginalOnly(key: string, body: Uint8Array, contentType
     if (r.Errors?.length) throw new Error(`이전 분석 결과를 지우지 못했습니다: ${r.Errors[0]!.Code}`);
   } };
   const doc = key.slice(0, key.lastIndexOf('/') + 1);
-  await del((await list(doc)).filter((k) => !/\/original\.[^/]+$/.test(k)));
+  // 잘라 둔 그림(masked/figures)은 남긴다: 위키 수정본은 '(그림 쪽-k)'로 이 그림을 가리킨다 (11/18 사용자 지적: 수정 뒤 정리본에 사진이 사라짐)
+  await del((await list(doc)).filter((k) => !/\/original\.[^/]+$/.test(k) && !/\/masked\/figures\//.test(k)));
   await putBytes(key, body, contentType);
   await del(await list(key.replace(/original\.[^/]+$/, 'original')));
 }

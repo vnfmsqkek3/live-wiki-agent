@@ -160,7 +160,7 @@ function mockProgress(): Progress {
 export interface DocDate { kind: string; date: string; page: number }
 /** PageSummarize 쪽 메타데이터 (masked/summary.json) */
 export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; clause_groups?: { law: string | null; clauses: string[] }[]; page_type?: string }
-export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string }
+export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string }
 export interface Fix { finding_id: string; code: string; message: string; excerpt: string; suggestion: string | null; fix_hint: string | null; acknowledged: boolean; ack_reason?: string | null }
 export interface Review {
   fixes?: Fix[]; reviews?: import('../review-items').ReviewItem[]; clarify?: import('../clarify').ClarifyItem[]; text?: string; source?: 'UPLOAD' | 'WIKI_EDIT'; suggestions?: import('../ref-suggestions').RefSuggestion[];
@@ -251,7 +251,7 @@ export interface ReviewInfo {
 }
 export interface Claim { claim_id: string; seq: number; statement: string; page: number | null; provision_id: string | null; label: string | null; relation: string; reason: string; quote: string | null; verified: boolean; status: string; on_provision: { supports: number; conflicts: number; unclear: number } | null }
 export interface LibraryDoc extends LibraryCard {
-  claims?: Claim[]; doc_pages?: { title: string; pages: number[]; parts: { page: number; markdown: string }[] }[]; clarify?: import('../clarify').ClarifyItem[]; image_pages?: number[]; suggestions?: import('../ref-suggestions').RefSuggestion[]; review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; structured_source?: 'TEXT' | 'VISION' | 'AI' | null; figures?: { k: number; url: string | null }[]; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
+  claims?: Claim[]; doc_pages?: { title: string; pages: number[]; parts: { page: number; markdown: string }[] }[]; clarify?: import('../clarify').ClarifyItem[]; image_pages?: number[]; suggestions?: import('../ref-suggestions').RefSuggestion[]; review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; structured_source?: 'TEXT' | 'VISION' | 'AI' | null; figures?: { k: number | string; url: string | null }[]; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
 const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [

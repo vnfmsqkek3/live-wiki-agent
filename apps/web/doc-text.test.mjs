@@ -71,3 +71,7 @@ test('blank lines between table rows keep one table (사용자 지적 11/18)', (
   assert.doesNotMatch(html, /\|/);
   assert.match(visible(html), /다음 문단$/);
 });
+test('위키 수정본의 (그림 쪽-k)는 그 그림을 보여 준다 (11/18 사진 사라짐)', () => {
+  const html = renderToStaticMarkup(React.createElement(DocText, { text: '1. 드라이버를 설치한다 (그림 6-1)\n2. 다음 (그림 2)', figures: { '6-1': 'https://x/f61.png', 2: 'https://x/f2.png' }, hideFigRefs: true }));
+  assert.match(html, /f61\.png/); assert.match(html, /f2\.png/); assert.doesNotMatch(html, /그림 6-1\)/);
+});
