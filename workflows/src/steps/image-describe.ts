@@ -159,8 +159,10 @@ export function makeHandler(d: Deps) {
     // 없거나 못 읽으면 폴백 없이 진행 (ListBucket 없는 role 은 없는 키에 403. 폴백은 보조 기능이라 단계를 실패시키지 않음)
     const low = new Set((await d.getJson<{ low_pages?: number[] }>(`${e.doc_id}/masked/ocr_low_pages.json`).catch(() => undefined))?.low_pages ?? []);
     const one = async (page_index: number) => {
-      const ref = `${e.doc_id}/masked/pages/${nnnn(page_index)}.png`;
-      const png = await d.getBytes(ref);
+      // 그림 쪽은 masked/pages, 그림 없는 저인식 쪽은 개인정보만 가린 쪽 전체 이미지 masked/view (11/19: 그림 없는 95% 미만 쪽이 비전에서 빠지던 문제)
+      let ref = `${e.doc_id}/masked/pages/${nnnn(page_index)}.png`;
+      let png = await d.getBytes(ref);
+      if (!png && low.has(page_index)) png = await d.getBytes((ref = `${e.doc_id}/masked/view/${nnnn(page_index)}.png`));
       if (!png) return;
       const segKey = `${e.doc_id}/masked/segments/${nnnn(page_index)}.json`;
       const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index, text: "" };
@@ -184,7 +186,7 @@ export function makeHandler(d: Deps) {
       await d.putJson(segKey, { ...seg, figures, ...pm });
       described += figures.length;
     };
-    const pages = await d.listMaskedPages(e.doc_id);
+    const pages = [...new Set([...(await d.listMaskedPages(e.doc_id)), ...low])].sort((a, b) => a - b);
     for (let i = 0; i < pages.length; i += CONCURRENCY) await Promise.all(pages.slice(i, i + CONCURRENCY).map(one));
     findings.sort((a, b) => (a.location?.page ?? 0) - (b.location?.page ?? 0));
     await d.saveFindings(e.doc_id, STEP, findings);
