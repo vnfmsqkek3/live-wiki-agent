@@ -411,7 +411,7 @@ test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEX
   // 3-1d) 제목이 따로 있어도 큰 그림 안에 조문 머리가 2개 이상이면 본문
   const scan2 = [b("하나은행 여신 규정 전문 제목줄입니다", 5, "doc_title"), b("제1조(목적) 이 규정은", 50, "image"), b("제2조(정의) 용어는", 90, "image")];
   assert.equal(ocrPageText(scan2, [], [{ label: "image", bbox: [0, 30, 400, 300] }], 0, { width: 400, height: 300 }), "하나은행 여신 규정 전문 제목줄입니다\n제1조(목적) 이 규정은\n제2조(정의) 용어는");
-  // 3-1e) 흐린 스캔(신뢰도 0.8, 조문 머리 1개)이 그림으로 빠져도 저신뢰 경고는 뜸 (재리뷰 MEDIUM-F)
+  // 3-1e) 흐린 스캔(신뢰도 0.8, 조문 머리 1개)이 그림으로 빠져도 low_confidence 표시는 남음 (재리뷰 MEDIUM-F. 경고 finding은 11/18 17시 사용자 결정으로 제거)
   {
     const { buildSegments } = await import("./segment.ts");
     const blur = [b("제3조(정의) 이 규정에서", 20, "image", 0.8), b("1. 여신이란", 60, "image", 0.8), b("2. 담보란", 100, "image", 0.8)];
