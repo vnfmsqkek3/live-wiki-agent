@@ -324,3 +324,14 @@ test('buildDocPages: 짧은 쪽은 다음과 합치고 장 제목에서 나누�
   assert.equal((all.match(/\| 항목 \| 목적 \|/g) ?? []).length, 1);
   assert.ok(!/MEGAZONE|SYNTHETIC/.test(all));
 });
+
+test('buildDocPages 보정(11/18 dev 개인정보 가이드 2쪽): 라벨 제목·영문 머리말은 경계·제목 아님, 2쪽 문서 꼬리말·구분자+쪽번호 줄 제거', async () => {
+  const { buildDocPages } = await import('../src/steps/structure.ts');
+  const r = buildDocPages([
+    { page: 1, markdown: '## HANBIT BANK / OPERATIONS GUIDE\n## 개인정보 수집·이용 업무 가이드\n1. 업무 처리 개요\n### 안내 / 수집 목적·항목·보유 기간\n한빛은행 | 업무운영본부 | 내부 교육용 합성 자료 / 1' },
+    { page: 2, markdown: '## 확인 / 처리 근거 및 동의 필요 여부\n## 등록 / 최소 정보 입력\n## 2. 보관과 파기\n5년 보관\n한빛은행 | 업무운영본부 | 내부 교육용 합성 자료 / 2' },
+  ]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0]!.title, '개인정보 수집·이용 업무 가이드');
+  assert.ok(!r[0]!.parts.some((x) => /내부 교육용/.test(x.markdown)));
+});

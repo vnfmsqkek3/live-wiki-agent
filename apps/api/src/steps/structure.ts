@@ -7,6 +7,8 @@ export const STRUCTURE_SYSTEM = `당신은 문서 편집자다. 은행 내부 �
 입력: <body> 본문 글자(PDF·OCR, 줄바꿈이 엉망일 수 있음), <figures> 그 쪽 그림·캡처마다 AI가 쓴 설명(n번), <figure_text> 그림 속 글자(참고용, 깨진 글자가 많음).
 - 쪽 전체 맥락이 한 흐름으로 읽히게: 본문 순서를 따르되, 본문의 [그림 n] 자리나 관련 단계 바로 뒤에 그 그림 내용을 한두 문장으로 넣는다.
 - 본문 글자는 바꾸지 않는다: 단어·숫자·조문 번호를 그대로 쓴다. 요약·생략 금지. 끊긴 줄은 잇고, 제목은 ## / ###, 번호 목록은 원래 번호 그대로('1.마감' → '1. 마감').
+- 짧은 '항목 | 설명' 줄이나 왼쪽 라벨+오른쪽 설명 줄이 2개 이상 이어지면(테두리 없는 표 포함) 2열 마크다운 표로 쓴다. 표의 행·라벨로 제목(#)을 만들지 않는다. 쪽 첫 줄들이 앞 쪽 끝 표의 이어짐으로 보이면 같은 열의 표 행으로 계속 쓴다(머리행 없이).
+- 쪽 맨 위·아래의 머리말·꼬리말(기관명·부서명·'내부 교육용'·쪽 번호)은 쓰지 않는다.
 - 절차는 번호 단계로, 화면의 메뉴·버튼·입력란 이름은 **굵게**.
 - 그림에서 온 문장은 끝에 '(그림 n)'을 붙인다. 그림 설명에 없는 내용을 지어내지 않는다. 그림 속 깨진 글자는 옮기지 않는다(뜻이 분명한 버튼·메뉴 이름만).
 - 'SYNTHETIC — …' 표시·머리글은 빼지 않는다. [주민등록번호] 같은 가림 표시와 {…} 표시는 그대로 둔다. 복원·추측 금지.
@@ -103,9 +105,11 @@ export function buildDocPages(src: { page: number; markdown: string }[], max = 2
   const seen = new Map<string, number>();
   for (const ls of lines) {
     const t = ls.map((l) => l.trim()).filter(Boolean);
-    for (const l of new Set([...t.slice(0, 2), ...t.slice(-3)])) if (l.length <= 40 && !/^#/.test(l)) seen.set(l, (seen.get(l) ?? 0) + 1);
+    for (const l of new Set([...t.slice(0, 2), ...t.slice(-3)])) if (l.length <= 40 && !/^#/.test(l) && !isRow(l)) seen.set(l, (seen.get(l) ?? 0) + 1); // 표 행(이어지는 표의 머리행)은 머리말이 아님
   }
-  const drop = (l: string) => (seen.get(l.trim()) ?? 0) >= 3 || /SYNTHETIC|가상 데이터|실제 하나은행|^\(빈 쪽\)$|^confidential$/i.test(l.trim());
+  const need = src.length >= 6 ? 3 : Math.max(2, Math.ceil(src.length / 2)); // 짧은 문서는 과반(최소 2쪽)
+  const FOOTER = /\S\s*\|\s*\S.*\|.*\S\s+\d{1,3}\s*$|^\s*-?\s*\d{1,3}\s*-?\s*$/; // '기관 | 부서 | … n' 처럼 구분자 + 쪽 번호, 또는 쪽 번호만
+  const drop = (l: string) => (seen.get(l.trim()) ?? 0) >= need || (FOOTER.test(l) && !/^\s*\|/.test(l)) || /SYNTHETIC|가상 데이터|합성 자료|실제 하나은행|^\(빈 쪽\)$|^confidential$/i.test(l.trim());
   const clean = src.map((p, i) => ({ page: p.page, markdown: lines[i]!.filter((l) => !drop(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim() }));
   const out: DocPage[] = [];
   const size = (g: DocPage) => g.parts.reduce((n, x) => n + x.markdown.length, 0);
@@ -117,7 +121,8 @@ export function buildDocPages(src: { page: number; markdown: string }[], max = 2
     const tableGoesOn = !!cur && isRow(last) && isRow(first);
     // 표지·목차·장 구분처럼 제목만 있는 짧은 쪽들만 모인 페이지면 다음 내용을 붙인다
     const onlyShort = !!cur && cur.parts.every((x) => x.markdown.length < 200 && x.markdown.split('\n').filter((l) => l.trim()).length <= 2);
-    const startsChapter = /^#{1,2}\s/.test(first);
+    // 장 경계는 번호 붙은 제목(1. · 01 · 제n장 · Ⅰ.)만 인정. 'A / B' 같은 짧은 라벨 제목은 경계가 아님 (11/18 dev 개인정보 가이드)
+    const startsChapter = /^#{1,2}\s*(?:제\s*\d+\s*[장절편]|\d{1,2}[.)]?\s|[ⅠⅡⅢⅣⅤⅥⅦⅧⅨⅩ]+[.)]?\s)/.test(first) && !/\s\/\s/.test(first);
     if (cur && (tableGoesOn ? size(cur) <= max * 2 : (onlyShort || (!startsChapter && size(cur) + p.markdown.length <= max)))) {
       let md = p.markdown;
       if (tableGoesOn) {
@@ -135,6 +140,8 @@ export function buildDocPages(src: { page: number; markdown: string }[], max = 2
       if (md) cur.parts.push({ page: p.page, markdown: md });
     } else out.push({ title: '', pages: [p.page], parts: [{ page: p.page, markdown: p.markdown }] });
   }
-  for (const g of out) g.title = g.parts.map((x) => x.markdown.match(/^#{1,3}\s*(.+)$/m)?.[1]).find(Boolean)?.slice(0, 60) ?? `${g.pages[0]}쪽`;
+  // 제목: 영문 대문자 머리말·'A / B' 라벨은 건너뛰고 다음 # 제목
+  const okTitle = (t: string) => !/^[A-Z0-9 &/.,'-]+$/.test(t.trim()) && !/\s\/\s/.test(t);
+  for (const g of out) g.title = g.parts.flatMap((x) => [...x.markdown.matchAll(/^#{1,3}\s*(.+)$/gm)].map((m) => m[1]!.trim())).find(okTitle)?.slice(0, 60) ?? `${g.pages[0]}쪽`;
   return out;
 }
