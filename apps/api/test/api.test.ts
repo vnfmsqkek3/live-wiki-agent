@@ -106,6 +106,12 @@ test('관리자(PLATFORM_OPERATOR)는 본인 문서 승인 가능 — self_appro
   const { approval_id } = await submitted(t);
   const list = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; own: boolean }[] };
   assert.equal(list.items.find((i) => i.approval_id === approval_id)?.own, true);
+  // 그대로 사용한 규정 충돌은 결재 카드에 (승인자 판단, 사용자 결정 11/18)
+  const { doc_id } = (await t.store.getApproval(approval_id))!;
+  const dd = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...dd, findings: [{ finding_id: 'k', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'e', location: { excerpt: '재무제표 보관 기간 5년' }, acknowledged: { by: 'u', at: 't', reason: '영업점 기준' } }] });
+  const l2 = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; kept: unknown }[] };
+  assert.deepEqual(l2.items.find((i) => i.approval_id === approval_id)?.kept, [{ text: '재무제표 보관 기간 5년', reason: '영업점 기준', system: false }]);
   const r = await t.call('authorAdmin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
   assert.equal(r.status, 200);
   assert.equal((await t.store.getApproval(approval_id))?.self_approved, true);

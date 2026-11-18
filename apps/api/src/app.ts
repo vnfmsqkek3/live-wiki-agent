@@ -703,7 +703,9 @@ export function createApp(deps: Deps) {
       const v = d?.previous_doc_id && status === 'PENDING' ? await versionDiff(c.get('actor'), d).catch(() => null) : null;
       // 규칙 3: 승인자는 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히'(문서 상세)
       const summary_line = (d?.summary ?? '').split(/(?<=[.다])\s+/u)[0]?.slice(0, 140) || null;
-      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD',
+      // 올린 사람이 '그대로 사용'한 규정 충돌·재검사에서 새로 나온 충돌은 승인자가 판단 (사용자 결정 11/18) → 카드에 보인다
+      const kept = (d?.findings ?? []).filter((f) => f.code === 'KNOWHOW_CONFLICT' && f.acknowledged).map((f) => ({ text: (f.location?.excerpt ?? '').slice(0, 120), reason: f.acknowledged!.reason ?? '', system: f.acknowledged!.by.startsWith('system:') }));
+      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
         ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
