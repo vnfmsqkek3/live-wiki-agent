@@ -941,3 +941,6 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
   .print-only .inline-fig img { max-width: 100%; break-inside: avoid; }
   body { background: #fff; }
 }
+
+/* 편집기로 바로가기: 위에 고정된 게시 요청 막대에 제목이 가리지 않게 (11/18 화면 확인) */
+#wiki-editor { scroll-margin-top: 150px; }
