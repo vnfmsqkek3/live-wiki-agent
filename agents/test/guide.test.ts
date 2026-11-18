@@ -184,3 +184,11 @@ test('불확실 안내의 근거 ID 는 문서 이름으로 바꾼다 (11/18 dev
   assert.match(r.uncertainty, /^「서류 체크리스트」 "…"는 규정과 상충/);
   assert.doesNotMatch(r.uncertainty, /doc_K/);
 });
+
+test('불확실 안내에 내부 구간 표시(#s1)·상태 코드(freshness=…)가 남지 않는다 (11/18 prod 시험)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = { doc_id: 'doc_K', provision_id: 'doc_K#s2', title: '서류 체크리스트', snippet: 's', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const };
+  const r = await guide('q', { model: 'm', search: async () => [E], draft: async () => ({ steps: [{ text: 'a', sources: ['doc_K#s2'] }], uncertainty: '체크리스트(doc_K#s1, #s2)는 freshness=REVIEW_REQUIRED(재검토 필요) 상태입니다.' }) });
+  assert.doesNotMatch(r.uncertainty, /#s\d|freshness=|doc_K/);
+  assert.match(r.uncertainty, /「서류 체크리스트」/);
+});

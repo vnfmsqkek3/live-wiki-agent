@@ -39,15 +39,20 @@ async function publish(id) {
 const review = async (id) => (await api('GET', `/v1/documents/${id}/review`)).j;
 
 // 1) 올리기
-const reg = await upload(`${P}/tests/fixtures/documents/pdf/F-001.pdf`, 'F-001.pdf', '[시험] 기업여신 심사규정');
+// QA_SKIP_REG=1: 시드 규정(같은 law_id)이 이미 게시돼 있으면 F-001 을 올리지 않는다 (1회차: 시드와 겹쳐 '근거 규정이 바뀌어 재검토' 발생)
+const SKIP_REG = process.env.QA_SKIP_REG === '1';
+const reg = SKIP_REG ? null : await upload(`${P}/tests/fixtures/documents/pdf/F-001.pdf`, 'F-001.pdf', '[시험] 기업여신 심사규정');
 const man = await upload(`${IN}/과천사옥_복합기_스캐너_설치_매뉴얼_12쪽.pdf`, '과천사옥_복합기_스캐너_설치_매뉴얼_12쪽.pdf', '[시험] 과천사옥 복합기 스캐너 설치 매뉴얼');
 console.log('uploaded', reg, man);
-let d = await until(reg);
-check('A1', d.lifecycle === 'IN_REVIEW', `규정 분석 → ${d.lifecycle}`);
-// 2) 규정 게시 → 체크리스트는 규정 게시 뒤에 올린다(규정과 비교되게)
-let p = await publish(reg); check('A2', p.ok, `규정 게시요청·결재·게시: ${p.why}`);
-let lib = (await api('GET', `/v1/library/${reg}`)).j;
-check('A3', !!lib.verification?.checks?.checked_at, `도장 AI 검사 날짜(checked_at) ${lib.verification?.checks?.checked_at ?? '없음'}`);
+let d, p, lib;
+if (!SKIP_REG) {
+  d = await until(reg);
+  check('A1', d.lifecycle === 'IN_REVIEW', `규정 분석 → ${d.lifecycle}`);
+  // 2) 규정 게시 → 체크리스트는 규정 게시 뒤에 올린다(규정과 비교되게)
+  p = await publish(reg); check('A2', p.ok, `규정 게시요청·결재·게시: ${p.why}`);
+  lib = (await api('GET', `/v1/library/${reg}`)).j;
+  check('A3', !!lib.verification?.checks?.checked_at, `도장 AI 검사 날짜(checked_at) ${lib.verification?.checks?.checked_at ?? '없음'}`);
+} else console.log('SKIP A1~A3 (QA_SKIP_REG=1, 시드 규정으로 비교)');
 const chk = await upload(`${IN}/QA_여신서류접수체크리스트_SYNTHETIC.docx`, 'QA_여신서류접수체크리스트_SYNTHETIC.docx', '[시험] 기업여신 서류 접수 체크리스트');
 await until(chk);
 let rv = await review(chk);
