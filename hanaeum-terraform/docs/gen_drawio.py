@@ -69,7 +69,7 @@ def edge(a, b, label="", color="#545B64", dashed=0, num=None, exit=None, entry=N
 BLUE, GREEN, PURPLE, RED, GRAY = "#147EBA", "#2E7D32", "#7B1FA2", "#C62828", "#545B64"
 
 # ---------- 제목 ----------
-text(20, 10, 1500, 30, "Hanaeum Wiki — prod AWS 아키텍처 (Terraform hanaeum-terraform/envs/prod, us-east-1 · 11/18 13시 기준)", fs=18, bold=1)
+text(20, 10, 1500, 30, "Hanaeum Wiki — prod AWS 아키텍처 (Terraform hanaeum-terraform/envs/prod 단일 환경, us-east-1 · 11/19 기준)", fs=18, bold=1)
 text(20, 40, 1700, 22, "모든 리소스는 terraform apply 한 번으로 생성 · 빌드는 AWS CodeBuild 안에서만 · 데이터는 SYNTHETIC(하나은행 가상 데이터) · 리소스 이름 hanaeum-mvp-{약어}-{용도}", fs=11, color=GRAY)
 
 # ---------- 사용자 ----------
@@ -81,7 +81,6 @@ group(110, 75, 1990, 1225, "AWS Cloud", "cloud", "#232F3E")
 group(130, 105, 1950, 1180, "us-east-1", "region", "#00A4A6", dashed=1)
 
 # 엣지(글로벌)
-waf = icon(170, 150, "waf", "security", "WAF\nCommon·KnownBadInputs·rate")
 cf = icon(300, 150, "cloudfront", "network", "CloudFront\n/v1/* 캐시 없음·SSE")
 cog = icon(170, 290, "cognito", "security", "Cognito User Pool\nuser·approver·admin\n외부 MCP client_credentials\n(hanaeum-wiki-mcp/read)")
 
@@ -126,9 +125,9 @@ gwp = icon(360, 830, "bedrock", "ai", "AgentCore Gateway\npipeline (MCP)\nPolicy
 text(170, 1000, 360, 110, "Cedar: 오케스트레이터 Role 만 단계 Tool 허용, 그 외 기본 거부\nObservability: 로그 → CloudWatch, Trace → X-Ray(Transaction Search)", fs=10, color=GRAY)
 steps = [
     ("MalwareCheck", "lambda"), ("FileStructureCheck", "lambda"), ("ConvertToPdf\nLibreOffice", "lambda"), ("TextLayerExtract", "lambda"), ("PageRender\n모든 쪽", "lambda"),
-    ("OcrIfNeeded\nPP-StructureV3", "lambda"), ("SegmentBuild\n그림 글자 분리", "lambda"), ("PiiScan\n+ Guardrail", "lambda"), ("ImageDescribe\n그림 쪽 정리본", "lambda"),
+    ("OcrIfNeeded\n쪽 평균 95% 미만 표시", "lambda"), ("SegmentBuild\n그림 글자 분리", "lambda"), ("PiiScan\n+ Guardrail", "lambda"), ("ImageDescribe\n그림 쪽·95% 미만 쪽\nVision 정리본", "lambda"),
     ("InjectionScan", "lambda"), ("PageSummarize\n쪽 요약", "lambda"), ("Classify\n분류·정리본", "lambda"), ("ReferenceCheck\n확인 필요", "lambda"), ("TrustGate\n검증·주장", "lambda"), ("await_review\n사람 승인", "lambda"),
-    ("Promote", "lambda"), ("KbIngest", "lambda"), ("GraphUpsert", "lambda"), ("ExplainFindings\n실패 사유 설명", "lambda"), ("Finalize", "lambda"), ("PurgeDocument\n삭제 흐름", "lambda"),
+    ("Promote", "lambda"), ("KbIngest", "lambda"), ("GraphUpsert", "lambda"), ("ExplainFindings\n실패 사유 설명", "lambda"), ("Finalize\n노하우 재검증", "lambda"), ("PurgeDocument\n삭제 흐름", "lambda"),
 ]
 sx, sy = 560, 820
 step_ids = {}
@@ -144,7 +143,7 @@ text(455, 395, 570, 50, "API → Aurora(문서·결재·감사, Data API) · Dyn
 
 # ---------- AI / 검색 ----------
 box(1270, 430, 810, 430, "AI · 검색", stroke=RED, fill="#FDF3F3")
-sm = icon(1300, 470, "sagemaker", "ai", "SageMaker Async\nPaddleOCR PP-StructureV3\n(GPU g4dn · 10쪽 청크·3병렬)\nprod 최소 0대 · dev 1대")
+sm = icon(1300, 470, "sagemaker", "ai", "SageMaker Async\nPaddleOCR PP-StructureV3\n(GPU g4dn · 10쪽 청크·3병렬)\n최소 1 · 최대 1대 (상시)")
 br = icon(1470, 470, "bedrock", "ai", "Bedrock 모델\nClaude Sonnet·Haiku\nTitan Embed·Cohere Rerank\n(질의 재구성: Haiku)")
 grd = icon(1640, 470, "bedrock", "ai", "Bedrock Guardrail\nPII ANONYMIZE\n(카드·비밀번호·키 등)")
 kb = icon(1300, 640, "bedrock", "ai", "Bedrock Knowledge Base\nHYBRID + Rerank 0.30\n쪽·장 단위 · 쪽 맥락 머리")
@@ -175,11 +174,10 @@ cw = icon(1000, 1350, "cloudwatch_2", "mgmt", "CloudWatch\nGenAI Observability\n
 xr = icon(1160, 1350, "xray", "mgmt", "X-Ray\nTransaction Search")
 iam = icon(1320, 1350, "identity_and_access_management", "security", "IAM\n단계별 최소 권한\nmodel-caller 태그")
 tfs = icon(1500, 1350, "s3", "storage", "S3 tfstate\n(bootstrap, use_lockfile)\n+ DB 마이그레이션 local-exec")
-text(1650, 1350, 420, 100, "GitHub(public) 커밋 ref → CodeBuild clone → 빌드\nlambda_refs·webapp_source_ref·agents_source_ref·ocr_source_ref 로 버전 고정", fs=10, color=GRAY)
+text(1650, 1350, 420, 100, "GitHub(public) 커밋 ref → CodeBuild clone → 빌드\nlambda_refs·webapp_source_ref·agents_source_ref·ocr_source_ref 로 버전 고정\nprotect_data=false(시험 단계): 삭제 보호 해제 → destroy·재배포 가능", fs=10, color=GRAY)
 
 # ---------- 흐름 ----------
-edge(u, waf, "HTTPS", BLUE, num="①")
-edge(waf, cf, "", BLUE)
+edge(u, cf, "HTTPS", BLUE, num="①")
 edge(cf, alb, "", BLUE)
 edge(alb, web, "/", BLUE)
 edge(alb, api, "/v1/*", BLUE)
@@ -206,7 +204,7 @@ edge(cb3, ecr, "", GRAY)
 
 # 범례
 box(150, 1475, 1930, 60, "", stroke="#D5DBDB", fill="#FFFFFF", bold=0)
-text(165, 1485, 1900, 50, "흐름: ① 접속(WAF→CloudFront→ALB→ECS) ② 로그인(Cognito) ③ 원본 업로드(S3 quarantine) ④ 이벤트(EventBridge→SQS→type-detection) ⑤ AgentCore 오케스트레이터가 단계 Tool 호출 → 사람 승인 → 게시·색인·그래프 ⑥ 가이드 질의(Runtime→사용자 Gateway Tool, SSE) ⑦ 문서 삭제(DELETE → 같은 오케스트레이터 deleteGraph) ⑧ 외부 MCP(client_credentials 토큰 → 사용자 Gateway, 공개 문서 읽기만).  "
+text(165, 1485, 1900, 50, "흐름: ① 접속(CloudFront→ALB→ECS, WAF 없음: 사용자 결정 11/18) ② 로그인(Cognito) ③ 원본 업로드(S3 quarantine) ④ 이벤트(EventBridge→SQS→type-detection) ⑤ AgentCore 오케스트레이터가 단계 Tool 호출 → 사람 승인 → 게시·색인·그래프 ⑥ 가이드 질의(Runtime→사용자 Gateway Tool, SSE) ⑦ 문서 삭제(DELETE → 같은 오케스트레이터 deleteGraph) ⑧ 외부 MCP(client_credentials 토큰 → 사용자 Gateway, 공개 문서 읽기만).  "
      "선: 파랑=요청/오케스트레이션, 초록=데이터 저장, 빨강=AI·검색, 보라=사용자 경로·그래프, 점선=부수 호출.", fs=11)
 
 xml = ('<mxfile host="app.diagrams.net"><diagram id="prod" name="prod AWS"><mxGraphModel dx="1600" dy="1200" grid="1" gridSize="10" guides="1" '
