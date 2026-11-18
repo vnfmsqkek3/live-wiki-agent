@@ -76,7 +76,9 @@ export class AgentCoreWebSearcher implements WebSearcher {
           const links = raw.map((l) => ({ ...l, host: hostOf(l.href, l.text) }))
             .filter((l) => !(l.host && isCommunity(`https://${l.host}/`)))
             .sort((x, y) => Number(!official(x.host)) - Number(!official(y.host)));
-          for (const { href: u, title: linkText } of links) {
+          for (const { href: u, title: linkText, host } of links) {
+            // 채택 판정이 있고 공식 도메인을 알면, 공식이 아닌 결과는 열지 않는다(제3자 드라이버 사이트에 시간을 쓰지 않게, 11/18 dev 349초)
+            if (ok && siteList.length && host && !official(host) && !/\.(go\.kr|gov|or\.kr)$/.test(host)) continue;
             if ((ok ? hits.some(ok) : hits.length >= this.perQuery) || opened >= 10) break;
             opened++;
             try {

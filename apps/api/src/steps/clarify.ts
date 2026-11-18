@@ -170,7 +170,7 @@ export const webQuery = (c: ClarifyCandidate, pageText = '') => {
 };
 /** 링크 제안 채택: 공식 도메인 + 경로·제목에 download·다운로드·자료실·support + 문서에 없는 모델 토큰 없음 */
 export const linkAcceptable = (docText: string, sites: string[]) => (h: { url: string; title: string }) =>
-  isOfficial(h.url, sites) && !isCommunity(h.url) && /download|다운로드|자료실|support/i.test(`${decodeURIComponent(h.url)} ${h.title}`) && sameModelPage(docText, h);
+  isOfficial(h.url, sites) && !isCommunity(h.url) && /download|다운로드|자료실|support|드라이버|driver|solution/i.test(`${decodeURIComponent(h.url)} ${h.title}`) && sameModelPage(docText, h);
 
 /** 제안 검사: after 가 before 를 바꾼 것이어야 하고, 개인정보(사람 이름·연락처 등)가 없어야 한다. 담당자는 부서+직책만 */
 export function safeSuggestion(c: ClarifyCandidate, s: { value: string; after: string }): boolean {
