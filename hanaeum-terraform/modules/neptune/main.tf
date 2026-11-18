@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호·저장소 강제 삭제 금지 (stack local.protect)
+}
 # Neptune Serverless (조문·노하우 관계 그래프, Change Impact). docs/04 5장, IAM 인증, data 서브넷.
 # 11/20 일정이었으나 사용자 지시(기능 축소 금지·오늘 안에)로 앞당김. 쓰기는 graph-upsert(reserved concurrency 1)만.
 variable "n" { type = object({ prefix = string, suffix = string }) }
@@ -51,8 +55,8 @@ resource "aws_neptune_cluster" "this" {
   neptune_subnet_group_name           = aws_neptune_subnet_group.this.name
   vpc_security_group_ids              = [aws_security_group.neptune.id]
   backup_retention_period             = var.n.suffix == "" ? 7 : 1
-  skip_final_snapshot                 = var.n.suffix != ""
-  deletion_protection                 = var.n.suffix == ""
+  skip_final_snapshot                 = !var.protect
+  deletion_protection                 = var.protect
   apply_immediately                   = true
   serverless_v2_scaling_configuration {
     min_capacity = 1 # ponytail: 최소 1 NCU 상시 과금. 데모 후 사용 없으면 0.0(자동 일시정지 지원 버전)으로 검토

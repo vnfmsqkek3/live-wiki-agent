@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호·저장소 강제 삭제 금지 (stack local.protect)
+}
 data "aws_region" "current" {}
 # 역할 그룹 5종 (interfaces.md 2장 role) + 데모 계정. 데모 비밀번호는 Secrets Manager 에만 둔다.
 variable "n" { type = object({ prefix = string, suffix = string }) }
@@ -26,7 +30,7 @@ locals {
 
 resource "aws_cognito_user_pool" "this" {
   name                = "${var.n.prefix}-cognito-users${var.n.suffix}"
-  deletion_protection = var.n.suffix == "" ? "ACTIVE" : "INACTIVE"
+  deletion_protection = var.protect ? "ACTIVE" : "INACTIVE"
   user_pool_tier      = "ESSENTIALS" # Pre Token Generation V2(access token 커스텀 claim) 필요
   lambda_config {
     pre_token_generation_config {

@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호·저장소 강제 삭제 금지 (stack local.protect)
+}
 # 사용자 경로 (docs/01 11장, 13항 5 축소 복원): 공유 사용자 Gateway + 가이드 Agent Runtime.
 #   Gateway `hanaeum-mvp-gw-user`: CUSTOM_JWT(Cognito access token), REQUEST interceptor 가 tools/call 인자에 `__actor` 주입(dhxorb96)
 #     Target = search·regulation·graph·privacy·approval → Tool `{target}___{tool}`. 스키마는 각 tools.json(name·description·inputSchema)
@@ -174,7 +178,7 @@ resource "terraform_data" "resync" {
 resource "aws_ecr_repository" "guide" {
   name                 = "${var.n.prefix}-ecr-guide${var.n.suffix}"
   image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.n.suffix != ""
+  force_delete         = !var.protect
   image_scanning_configuration { scan_on_push = true }
   encryption_configuration {
     encryption_type = "KMS"
