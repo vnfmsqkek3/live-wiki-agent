@@ -129,6 +129,14 @@ export function ruleCandidates(pages: { page: number; text: string }[]): Clarify
       const m = LINK_RE.exec(l); if (!m || isTableRow(l)) continue;
       out.push({ kind: 'MISSING_LINK', item: makerOf(l) ? `${makerOf(l)} ${m[1]}` : m[1]!, page: p.page, before: l.slice(0, 300), question: '이 링크의 주소는 무엇인가요?', in_procedure: false, query: '' });
     }
+    // 문장 속 애매한 값·담당자도 코드로 (11/18 dev 시험: '기한 내 제출'이 안 나옴 — 모델은 빈 값을 더 맡지 않음)
+    for (const l of lines) {
+      if (isTableRow(l) || /^#/.test(l)) continue;
+      const v = VALUE_VAGUE.exec(l);
+      if (v) { out.push({ kind: 'MISSING_VALUE', item: v[0], span: v[0], page: p.page, before: l.slice(0, 300), question: `'${v[0]}'은(는) 구체적으로 언제·얼마·무엇인가요?`, in_procedure: true, query: '' }); continue; }
+      const a = ACTOR_VAGUE.exec(l);
+      if (a) out.push({ kind: 'VAGUE_ACTOR', item: a[0], span: a[0], page: p.page, before: l.slice(0, 300), question: `이 '${a[0]}'은(는) 어느 부서의 어떤 직책인가요?`, in_procedure: true, query: l.replace(ACTOR_VAGUE, ' ').replace(/^\s*\d+[.)]\s*/, '').replace(/\s+/g, ' ').trim().slice(0, 60) }); // 검색어에 '…는 담당자'가 있으면 사람 이름 거르기에 걸린다
+    }
     const header = lines.find(isTableRow);
     for (const l of lines) {
       if (!isTableRow(l) || l === header || /^\|?\s*:?-{2,}/.test(l) || isBlankTemplateRow(l)) continue;

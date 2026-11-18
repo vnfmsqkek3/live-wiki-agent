@@ -912,3 +912,17 @@ html:has(.submit-bar) { scroll-padding-top:120px; }
 .arrow-btn.prev svg { transform:scaleX(-1); }
 .arrow-btn:disabled { opacity:.35; cursor:default; }
 .arrow-btn:not(:disabled):hover, .arrow-btn:focus-visible { border-color:var(--green-700); color:var(--green-700); }
+/* 공통 레이아웃 (사용자 요청 11/18): 본문 영역을 화면 높이 이상으로, 푸터는 화면 맨 아래에 항상 고정(본문 열 안, sticky) */
+main#content { min-height:100dvh; display:flex; flex-direction:column; }
+main#content > .site-footer { position:sticky; bottom:0; z-index:4; margin:auto 0 0; padding:10px 0; background:var(--paper); border-top:1px solid var(--rule); font-size:13px; color:var(--ink-700); }
+@media (max-width:1023px) { main#content { min-height:calc(100dvh - var(--tab-h)); } main#content > .site-footer { bottom:calc(var(--tab-h) + env(safe-area-inset-bottom)); } }
+/* 홈 (사용자 요청 11/18): 새 문서 올리기는 검색 버튼 위, 할 일 3칸은 누른 칸 내용만 아래에 */
+.hero-actions { display:flex; justify-content:flex-end; margin:0 0 8px; }
+.todo-tiles { grid-template-columns:repeat(3, minmax(0, 1fr)); }
+@media (max-width:640px) { .todo-tiles { grid-template-columns:1fr; } }
+button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
+.todo-tile[aria-selected="true"] { border-color:var(--green-700); box-shadow:inset 0 0 0 1px var(--green-700); }
+.todo-panel { margin-top:12px; padding:16px; border:1px solid var(--line); border-radius:var(--radius); background:#fff; }
+.todo-list { list-style:none; margin:0 0 12px; padding:0; }
+.todo-list li { padding:10px 0; border-bottom:1px solid var(--line); display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.todo-list li:last-child { border-bottom:0; }

@@ -367,14 +367,15 @@ test('Clarify 흐름: 위키 제안(부서+직책, 사람 이름 버림), 담당
       C0({ kind: 'VAGUE_ACTOR', item: '관련 부서', before: '문의는 관련 부서로 한다.', query: '문의 부서' }),
     ] }, model: 'm' }),
     wiki: async (q) => (q.startsWith('대출') ? [{ id: 'w1', doc_id: 'doc_other', title: '여신 업무 분장', text: '대출 신청서 승인: 여신심사부 심사역' }] : [{ id: 'w2', doc_id: 'doc_other', title: '조직', text: '문의: 홍길동 대리' }]),
-    suggestClarify: async () => ({ value: { suggestions: [
-      { n: 0, value: '여신심사부 심사역', after: '대출 신청서는 여신심사부 심사역의 승인을 받은 뒤 접수한다.', source_id: 'w1' },
-      { n: 1, value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' },
-    ] } }),
+    // 후보 순서가 바뀌어도 되게: 프롬프트의 <q n> 블록 내용으로 답한다
+    suggestClarify: async (prompt) => ({ value: { suggestions: [...prompt.matchAll(/<q n="(\d+)"[^>]*>([\s\S]*?)<\/q>/g)].flatMap((m) => /대출/.test(m[2]!)
+      ? [{ n: Number(m[1]), value: '여신심사부 심사역', after: '대출 신청서는 여신심사부 심사역의 승인을 받은 뒤 접수한다.', source_id: 'w1' }]
+      : /문의/.test(m[2]!) ? [{ n: Number(m[1]), value: '홍길동 대리', after: '문의는 홍길동 대리에게 한다.', source_id: 'w2' }] : []) } }),
     web: { search: async (qs) => { searched.push(qs); return new Map(); } },
   });
   const r = await step(t.input);
-  const [actor, dept] = r.findings!.map((f) => ({ sev: f.severity, d: f.details as { suggestions: { value: string; source: { type: string } }[]; page: number } }));
+  const by = (k: string) => r.findings!.filter((f) => (f.details as { before: string }).before.includes(k)).map((f) => ({ sev: f.severity, d: f.details as { suggestions: { value: string; source: { type: string } }[]; page: number } }))[0];
+  const actor = by('대출'), dept = by('문의');
   assert.deepEqual([actor!.sev, actor!.d.suggestions[0]!.value, actor!.d.suggestions[0]!.source.type, actor!.d.page], ['MEDIUM', '여신심사부 심사역', 'WIKI', 2]);
   assert.equal(dept!.d.suggestions.length, 0); // 사람 이름 제안은 버림
   assert.deepEqual(searched, []); // 담당자는 웹 금지
@@ -411,4 +412,12 @@ test('Clarify 시간 예산: 웹 검색이 끝나지 않아도 예산 안에 OK 
     assert.ok(Date.now() - t1 < 15_000);
     assert.equal(r.findings!.length, 1); // 링크 항목은 질문만 남음
   } finally { delete process.env.REFCHECK_BUDGET_MS; }
+});
+
+test('규칙 탐지(11/18 dev 시험): 문장 속 기한 내·담당자도 코드로 질문, span 은 그 낱말', async () => {
+  const { ruleCandidates, clarifySeverity } = await import('../src/steps/clarify.ts');
+  const r = ruleCandidates([{ page: 1, text: '2. 담보 서류는 기한 내 제출받는다.\n1. 신청서는 담당자의 승인을 받은 뒤 접수한다.\n| ② | 감정평가서 | 여신심사부 |  |' }]);
+  const v = r.find((c) => c.kind === 'MISSING_VALUE' && c.span === '기한 내')!;
+  assert.ok(v && clarifySeverity(v) === 'MEDIUM');
+  assert.ok(r.some((c) => c.kind === 'VAGUE_ACTOR' && c.span === '담당자'));
 });

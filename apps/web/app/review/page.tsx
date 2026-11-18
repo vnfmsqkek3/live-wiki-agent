@@ -45,10 +45,21 @@ function ReviewView() {
       .then((x) => {
         setR(x); setType(x.classification?.document_type ?? '');
         // 검사 중이면 진행률을 보다가 끝나면 다시 읽는다 (규칙 2: AI 가 검사한다)
+        // 새로고침(location.reload) 대신 검토 정보를 다시 읽는다: 진행률이 '끝남'이어도 문서가 아직 검사 중이면
+        // 새로고침이 무한 반복돼 요청이 폭증했다(11/18 dev: WAF 차단·빈 화면). 바뀐 게 없으면 간격을 2.5→10초로 늘린다
         if (x.lifecycle === 'QUARANTINED') {
+          let wait = 2500, last = -1, n = 0;
           const tick = () => api<{ total: number; done: number; finished: boolean; halted: boolean }>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
-            .then((p) => { setPct(p.total ? Math.round((p.done / p.total) * 100) : 0); if (p.finished || p.halted) location.reload(); else setTimeout(tick, 2500); })
-            .catch(() => setTimeout(tick, 4000));
+            .then(async (p) => {
+              setPct(p.total ? Math.round((p.done / p.total) * 100) : 0);
+              if (p.finished || p.halted) {
+                const y = await api<Review>('GET', `/v1/documents/${encodeURIComponent(id)}/review`);
+                if (y.lifecycle !== 'QUARANTINED') { setR(y); setType(y.classification?.document_type ?? ''); return; }
+              }
+              wait = p.done === last ? Math.min(10_000, wait * 1.5) : 2500; last = p.done;
+              if (++n < 240) setTimeout(tick, wait);
+            })
+            .catch(() => setTimeout(tick, 8000));
           tick();
         }
       })
@@ -125,7 +136,8 @@ function ReviewView() {
         onDismissed={(fid, reason) => setR((x) => x && { ...x, clarify: x.clarify!.map((c) => (c.finding_id === fid ? { ...c, status: 'DISMISSED', dismiss_reason: reason, blocking: false } : c)) })} />}
       {r.lifecycle === 'IN_REVIEW' && (
         <section aria-labelledby="fix-h" className="fix-list">
-          <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : '고칠 것이 없습니다'}</h2>
+          {/* 다른 할 일(확인 필요·개인정보 확인)이 있으면 '고칠 것이 없습니다'를 크게 쓰지 않는다 (11/18 dev 시험) */}
+          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">규정과 어긋난 문장은 없습니다.</p>}
           {/* 확인할 내용이 남아 있으면 '검토할 게 없다'로 읽히지 않게 (11/18 사용자 보고) */}
           {!open.length && uncertain > 0 && <p className="notice">규정과 어긋난 문장은 없습니다. 다만 개인정보 가림·글자 인식 등 <strong>확인할 내용 {uncertain}건</strong>이 있습니다. 아래 '자세히: 검사별 결과'에서 확인해 주세요.</p>}
           {!open.length && uncertain === 0 && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}

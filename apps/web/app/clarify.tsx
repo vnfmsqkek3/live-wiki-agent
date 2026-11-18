@@ -62,7 +62,7 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
           <li key={c.finding_id} className={`fix${done ? ' done' : ''}`}>
             <p className="fix-head">{KIND[c.kind]}{c.page ? ` · ${c.page}쪽` : ''}{c.blocking && !done ? ' · 게시 요청 전에 처리' : ''}{c.status === 'DISMISSED' ? ` · 해당 없음(${c.dismiss_reason ?? ''})` : ''}</p>
             <p><strong>{c.question}</strong></p>
-            <blockquote className="basis"><p>{c.before.split(c.span || c.item).flatMap((part, n, a) => (n < a.length - 1 ? [part, <mark key={n}>{c.span || c.item}</mark>] : [part]))}</p></blockquote>
+            <blockquote className="basis"><p>{/^\s*\|/.test(c.before) ? c.before.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim() || '(빈 칸)').join(' · ') : c.before.split(c.span || c.item).flatMap((part, n, a) => (n < a.length - 1 ? [part, <mark key={n}>{c.span || c.item}</mark>] : [part]))}</p></blockquote>
             {!done && c.suggestions.map((s, n) => (
               <div key={n} className="clarify-sugg">
                 <span className={`src-badge ${s.source.type.toLowerCase()}`}>{SRC[s.source.type]}</span>

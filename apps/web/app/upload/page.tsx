@@ -12,6 +12,7 @@ const SCOPES = [['ALL', '전 직원'], ['DEPT#여신', '여신 부서'], ['DEPT#
 
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
+  const [sentFile, setSentFile] = useState<File | null>(null); // 이미 올린 파일은 다시 올리지 않게 (11/18 dev 시험)
   const [title, setTitle] = useState('');
   const [acl, setAcl] = useState('ALL');
   const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; msg?: string; doc_id?: string }>({ kind: 'idle' });
@@ -21,13 +22,13 @@ export default function Upload() {
   // 분석 진행: 끝나거나 멈출 때까지 2초마다 확인
   useEffect(() => {
     if (state.kind !== 'done' || !state.doc_id) return;
-    let stop = false;
+    let stop = false; let wait = 2000, last = -1;
     const tick = async () => {
       try {
         const p = await api<Progress>('GET', `/v1/documents/${state.doc_id}/progress`);
         if (stop) return;
         setProg(p);
-        if (!p.finished && !p.halted) setTimeout(tick, 2000);
+        if (!p.finished && !p.halted) { wait = p.done === last ? Math.min(10_000, wait * 1.5) : 2000; last = p.done; setTimeout(tick, wait); } // 바뀐 게 없으면 간격을 늘린다(WAF 요청 수 제한)
       } catch { if (!stop) setTimeout(tick, 4000); }
     };
     tick();
@@ -38,6 +39,7 @@ export default function Upload() {
   const fileErr = file && (!ACCEPT.includes(`.${ext}`) ? 'PDF, DOCX, HWPX, PNG, JPG 파일만 올릴 수 있습니다.' : file.size > MAX ? '50MB 이하 파일만 올릴 수 있습니다.' : '');
 
   async function submit(e: React.FormEvent) {
+    setSentFile(file);
     e.preventDefault();
     if (!file || fileErr) return;
     try {
@@ -75,7 +77,7 @@ export default function Upload() {
         <label className="lbl">문서 종류</label>
         <p className="note" style={{ margin: '6px 0 0' }}>분석이 끝나면 규정, 노하우, 매뉴얼 중 하나로 제안합니다. 검토할 때 바꿀 수 있습니다.</p>
         {/* 주 행동은 입력란 바로 아래 (사용자 요청 11/18) */}
-        <div className="actions"><button className="btn solid" type="submit" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button></div>
+        <div className="actions"><button className={`btn${file && file === sentFile ? '' : ' solid'}`} type="submit" disabled={!file || !!fileErr || state.kind === 'busy' || file === sentFile}>분석 시작</button>{file && file === sentFile && <span className="note">이 파일은 이미 올렸습니다. 다른 파일을 고르면 다시 시작할 수 있습니다.</span>}</div>
 
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
         {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}
