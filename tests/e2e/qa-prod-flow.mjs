@@ -49,7 +49,7 @@ let p = await publish(reg); check('A2', p.ok, `규정 게시요청·결재·게�
 let lib = (await api('GET', `/v1/library/${reg}`)).j;
 check('A3', !!lib.verification?.checks?.checked_at, `도장 AI 검사 날짜(checked_at) ${lib.verification?.checks?.checked_at ?? '없음'}`);
 const chk = await upload(`${IN}/QA_여신서류접수체크리스트_SYNTHETIC.docx`, 'QA_여신서류접수체크리스트_SYNTHETIC.docx', '[시험] 기업여신 서류 접수 체크리스트');
-d = await until(chk);
+await until(chk);
 let rv = await review(chk);
 const conflicts = (rv.fixes ?? []).filter((f) => f.code === 'KNOWHOW_CONFLICT');
 check('B1', conflicts.length > 0, `체크리스트 규정 충돌 ${conflicts.length}건: ${conflicts.map((f) => f.excerpt.slice(0, 30)).join(' / ')}`);
@@ -75,7 +75,7 @@ for (const f of conflicts) {
 }
 const ed = await api('POST', `/v1/documents/${chk}/edit`, { markdown: text });
 check('C4', ed.s === 201, `저장하고 검사받기 → ${ed.s}`);
-d = await until(chk);
+await until(chk);
 rv = await review(chk);
 const openFix = (rv.fixes ?? []).filter((f) => !f.acknowledged);
 const newClarify = (rv.clarify ?? []).filter((c) => c.status === 'OPEN');
@@ -86,7 +86,7 @@ for (const f of openFix) { const a = await api('POST', `/v1/documents/${chk}/fin
 p = await publish(chk); check('D5', p.ok, `체크리스트 게시: ${p.why}`);
 
 // 4) 매뉴얼: 확인 필요 답(no_change 포함)·개인정보 그림 확인·저장 → 게시 → 정리본 그림
-d = await until(man);
+await until(man);
 rv = await review(man);
 text = rv.text;
 for (const c of rv.clarify ?? []) {
@@ -106,7 +106,7 @@ if (reviews.length) { const a = await api('POST', `/v1/documents/${man}/findings
 const figBefore = (text.match(/그림 \d+-\d+/g) ?? []).length;
 const ed2 = await api('POST', `/v1/documents/${man}/edit`, { markdown: text });
 check('E4', ed2.s === 201, `매뉴얼 저장(링크 넣기) → ${ed2.s}, 편집 글 그림 표시 ${figBefore}곳`);
-d = await until(man);
+await until(man);
 rv = await review(man);
 const left = [...(rv.fixes ?? []).filter((f) => !f.acknowledged), ...(rv.clarify ?? []).filter((c) => c.blocking && c.status === 'OPEN'), ...(rv.reviews ?? []).filter((x) => !x.acknowledged)];
 check('E5', left.length === 0, `매뉴얼 재검사 뒤 남은 일 ${left.length}건`);
@@ -137,7 +137,7 @@ if (cr.s === 201) {
   const apl = await api('POST', `/v1/admin/change-requests/${chk}/${cr.j.id}`, { decision: 'APPLY', after: cr.j.after ?? `${target} (여신지원부)` });
   check('G2', apl.s === 200 && !!apl.j?.new_doc_id, `관리자 반영 → 새 버전 ${apl.j?.new_doc_id ?? apl.s}`);
   if (apl.j?.new_doc_id) {
-    d = await until(apl.j.new_doc_id);
+    await until(apl.j.new_doc_id);
     rv = await review(apl.j.new_doc_id);
     const reOpen = (rv.clarify ?? []).filter((c) => c.status === 'OPEN');
     check('G3', reOpen.length === 0, `새 버전 열린 확인 필요 ${reOpen.length}건 ${reOpen.map((c) => c.item).join(', ')}`);
