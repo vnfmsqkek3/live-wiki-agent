@@ -174,5 +174,36 @@
       ]
     },
     "progress": "해당 조문을 찾는 중입니다"
+  },
+  {
+    "name": "get_wiki_document",
+    "description": "게시된 문서 하나를 쪽별 본문으로 돌려줌(개인정보 가린 게시본, 지금 게시된 버전). 문서 생성·요약 앱이 원문 대신 쓰는 용도. 검색(search_wiki)으로 doc_id를 찾은 뒤 호출. 쪽마다 source: TEXT(본문, 표는 마크다운) 또는 VISION(글자 없는 화면 캡처 쪽의 AI 그림 정리본), ai_summary는 그 쪽 AI 그림 정리본(원문 아님). 없거나 볼 권한이 없거나 지금 유효하지 않으면(폐지·대체) NOT_FOUND. 응답이 길면 next_page로 이어 받음",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "doc_id": {
+          "type": "string",
+          "pattern": "^doc_[0-9A-HJKMNP-TV-Z]{26}$",
+          "description": "search_wiki 결과의 doc_id"
+        },
+        "from_page": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "이 쪽부터 (기본 1). 앞 응답의 next_page"
+        },
+        "as_of": {
+          "type": "string",
+          "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "기준일 YYYY-MM-DD. 없으면 오늘"
+        },
+        "include_history": {
+          "type": "boolean",
+          "description": "폐지·대체된 문서도 (historical 표시, 기본 false)"
+        }
+      },
+      "required": [
+        "doc_id"
+      ]
+    }
   }
 ]
