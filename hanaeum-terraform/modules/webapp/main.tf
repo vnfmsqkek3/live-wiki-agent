@@ -18,6 +18,10 @@ variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "runtime_arn_patterns" { type = list(string) } # API 가 호출하는 AgentCore Runtime (파이프라인·가이드)
 # API 검색(/v1/search: KB Retrieve·Rerank)용 KB ARN
 variable "kb_arn" { type = string }
+variable "waf_enabled" {
+  type    = bool
+  default = false # 사용자 결정 11/18 "일단 WAF 는 제외" (시험 중 요청 제한 403). 다시 켜려면 true
+}
 variable "extra_api_statements" {
   type    = list(any)
   default = []
@@ -379,6 +383,7 @@ resource "aws_ecs_service" "app" {
 
 # ---------- CloudFront + WAF ----------
 resource "aws_wafv2_web_acl" "this" {
+  count = var.waf_enabled ? 1 : 0
   name  = "${var.n.prefix}-waf-web${var.n.suffix}"
   scope = "CLOUDFRONT"
   default_action {
@@ -459,7 +464,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" { name = "Managed-AllVi
 resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   comment         = "${var.n.prefix} web+api${var.n.suffix}"
-  web_acl_id      = aws_wafv2_web_acl.this.arn
+  web_acl_id      = var.waf_enabled ? aws_wafv2_web_acl.this[0].arn : null
   price_class     = "PriceClass_200"
   is_ipv6_enabled = true
   origin {
