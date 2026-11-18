@@ -603,8 +603,12 @@ test('위키 수정·검토 중 다시 분석은 이전 검사 결과를 저장�
   assert.deepEqual(cleared, [doc_id]);
   t.objects.set(`${doc_id}/original.md`, { s3_version_id: 'v2', content_hash: 'h2' });
   await t.store.putDoc({ ...(await t.store.getDoc(doc_id))!, lifecycle: 'IN_REVIEW' });
+  const wf0 = (await t.store.getDoc(doc_id))!.workflow_id;
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   assert.deepEqual(cleared, [doc_id, doc_id]);
+  const after = (await t.store.getDoc(doc_id))!;
+  assert.notEqual(after.workflow_id, wf0, '검토 중 재분석은 새 실행 id (같은 id 는 다시 돌지 않음, prod 결함 ⑤)');
+  assert.equal(after.lifecycle, 'QUARANTINED');
 });
 
 test('검토 중 문서 종류를 바꾸면 다시 검사 (11/18 prod 시험: 매뉴얼→노하우로 바꿔도 규정 비교 없이 게시 요청 가능)', async () => {

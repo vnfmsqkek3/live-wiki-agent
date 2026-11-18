@@ -368,12 +368,13 @@ export function createApp(deps: Deps) {
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
     // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
     const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString(),
-      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings, !!d.knowhow_validation), findings: [] } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D). 검토 중 재분석은 결과를 새로
+      // 검토 중 재분석: 결정은 잇고(Fable D) 결과는 새로. 새 실행 id 로 — 같은 id 는 '이미 끝난 실행'이라 다시 돌지 않아 지운 결과가 비어 남았다 (11/18 prod 결함 ⑤)
+      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings, !!d.knowhow_validation), findings: [], lifecycle: 'QUARANTINED' as const, workflow_id: newId.wf() } : {}) };
     await store.putDoc(doc);
     if (d.lifecycle === 'IN_REVIEW') await store.clearFindings?.(doc.doc_id); // 처음 분석·실패 재시도는 앞 단계(형식 검사) 결과를 지우지 않는다
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
-    return c.json({ workflow_id: d.workflow_id }, 202);
+    return c.json({ workflow_id: doc.workflow_id }, 202);
   });
 
   app.get('/v1/documents/:id', async (c) => {
