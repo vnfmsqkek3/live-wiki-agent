@@ -266,7 +266,7 @@ locals {
     mcp-search = {
       zip = "${local.lz}/mcp_search.zip", handler = "index.handler", memory = 512, timeout = 30, model_caller = true
       # MODEL_HAIKU: 검색 질의 재구성 (사용자 결정 11/17: 문장형 질의 → 핵심어·대체 질의, PII 마스킹 후)
-      env = { KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], MODEL_HAIKU = var.models["MODEL_HAIKU"], TABLE_DOCUMENTS = local.t["documents"].name, TABLE_REGULATIONS = local.t["regulations"].name }
+      env = { KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], MODEL_HAIKU = var.models["MODEL_HAIKU"], TABLE_DOCUMENTS = local.t["documents"].name, TABLE_REGULATIONS = local.t["regulations"].name, BUCKET_PUBLISHED = local.b["published"].name }
       statements = [
         { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
@@ -274,6 +274,8 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:${var.region}::foundation-model/${var.models["MODEL_RERANK"]}" },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:BatchGetItem"], Resource = local.t["documents"].arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        # get_wiki_document (외부 MCP, let522mj PR #45): 게시본 content.txt·sidecar 읽기
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${local.b["published"].arn}/legal/*", "${local.b["published"].arn}/knowledge/*"] },
       ]
     }
   }
