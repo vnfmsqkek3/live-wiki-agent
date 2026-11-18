@@ -420,7 +420,9 @@ export function createApp(deps: Deps) {
   app.post('/v1/documents/:id/submit', async (c) => {
     const a = c.get('actor'); // 규칙 1: 로그인한 사람 누구나 (사용자 결정 11/17)
     const d = await loadDoc(c, c.req.param('id'));
-    const apr = await submitForApproval(store, d, a.sub);
+    let apr;
+    try { apr = await submitForApproval(store, d, a.sub); }
+    catch (e) { await audit(c, 'SUBMIT_REJECTED', `${d.doc_id}#open=${d.findings.filter(isOpenFix).length}`).catch(() => {}); throw e; } // 거절도 남긴다 (11/18: 결재함 0 원인 추적)
     await audit(c, 'SUBMIT', d.doc_id);
     return c.json({ approval_id: apr.approval_id }, 201);
   });
@@ -550,6 +552,16 @@ export function createApp(deps: Deps) {
   });
 
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----
+  // 결재함 '게시 요청 전' (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서 — 게시 요청을 눌러야 결재할 수 있다
+  app.get('/v1/admin/in-review', async (c) => {
+    need(c, APPROVERS);
+    const me = c.get('actor').sub;
+    const items = (await store.listDocs()).filter((d) => d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED')
+      .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 50)
+      .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at }));
+    return c.json({ items });
+  });
+
   app.get('/v1/review-queue', async (c) => {
     need(c, APPROVERS);
     const docs = await store.listDocs();

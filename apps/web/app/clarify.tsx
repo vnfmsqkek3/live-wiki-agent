@@ -4,10 +4,20 @@
 import Link from 'next/link';
 import { useState } from 'react';
 import { api, ApiError } from './lib/api';
+import { DocText } from './doc-text';
+
+/** 표 행이면 머리행과 함께 마크다운 표로 (사용자 요청 11/18: 빈 칸이 어디인지 표로 보이게). 머리행이 없던 옛 항목은 '칸 1…n' */
+export const isRowText = (s: string) => /^\s*\|.*\|\s*$/.test(s);
+export function rowAsTable(row: string, header?: string) {
+  const n = row.replace(/^\s*\||\|\s*$/g, '').split('|').length;
+  const h = header && isRowText(header) ? header : `| ${Array.from({ length: n }, (_, i) => `칸 ${i + 1}`).join(' | ')} |`;
+  const cells = row.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim() || '(빈 칸)');
+  return `${h}\n| ${Array.from({ length: n }, () => '---').join(' | ')} |\n| ${cells.join(' | ')} |`;
+}
 
 export interface ClarifyItem {
   finding_id: string; kind: 'VAGUE_ACTOR' | 'MISSING_VALUE' | 'MISSING_LINK' | 'INCONSISTENT' | 'OUTDATED';
-  item: string; page?: number; before: string; span?: string; question: string; blocking?: boolean; severity?: string;
+  item: string; page?: number; before: string; span?: string; table_header?: string; question: string; blocking?: boolean; severity?: string;
   suggestions: { value: string; after: string; source: { type: 'WIKI' | 'WEB' | 'USER'; doc_id?: string; page?: number; url?: string; title?: string } }[];
   status: 'OPEN' | 'APPLIED' | 'DISMISSED'; dismiss_reason?: string;
 }
@@ -62,7 +72,7 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
           <li key={c.finding_id} className={`fix${done ? ' done' : ''}`}>
             <p className="fix-head">{KIND[c.kind]}{c.page ? ` · ${c.page}쪽` : ''}{c.blocking && !done ? ' · 게시 요청 전에 처리' : ''}{c.status === 'DISMISSED' ? ` · 해당 없음(${c.dismiss_reason ?? ''})` : ''}</p>
             <p><strong>{c.question}</strong></p>
-            <blockquote className="basis"><p>{/^\s*\|/.test(c.before) ? c.before.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim() || '(빈 칸)').join(' · ') : c.before.split(c.span || c.item).flatMap((part, n, a) => (n < a.length - 1 ? [part, <mark key={n}>{c.span || c.item}</mark>] : [part]))}</p></blockquote>
+            {isRowText(c.before) ? <div className="basis md"><DocText text={rowAsTable(c.before, c.table_header)} /></div> : <blockquote className="basis"><p>{c.before.split(c.span || c.item).flatMap((part, n, a) => (n < a.length - 1 ? [part, <mark key={n}>{c.span || c.item}</mark>] : [part]))}</p></blockquote>}
             {!done && c.suggestions.map((s, n) => (
               <div key={n} className="clarify-sugg">
                 <span className={`src-badge ${s.source.type.toLowerCase()}`}>{SRC[s.source.type]}</span>

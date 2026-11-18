@@ -11,6 +11,8 @@ export interface ClarifyCandidate {
   before: string;
   /** before 안에 글자 그대로 있는, 답으로 바꿀 구절 (예: 관련 부서). 없으면 생략 (let522mj 제안 11/18) */
   span?: string;
+  /** 표 빈 칸 항목: 그 표의 머리행 (화면이 표로 보여 줌) */
+  table_header?: string;
   question: string;
   /** 절차·승인·한도 문장인가 (VAGUE_ACTOR·MISSING_VALUE 이면 게시 요청 잠금) */
   in_procedure: boolean;
@@ -19,7 +21,7 @@ export interface ClarifyCandidate {
   official_sites?: string[];
 }
 export interface ClarifySuggestion { value: string; after: string; source: { type: 'WIKI' | 'WEB' | 'USER'; doc_id?: string; page?: number; url?: string; title?: string } }
-export interface ClarifyData { kind: ClarifyKind; item: string; page?: number; before: string; span?: string; question: string; suggestions: ClarifySuggestion[]; status: 'OPEN' | 'APPLIED' | 'DISMISSED'; dismiss_reason?: string }
+export interface ClarifyData { kind: ClarifyKind; item: string; page?: number; before: string; span?: string; table_header?: string; question: string; suggestions: ClarifySuggestion[]; status: 'OPEN' | 'APPLIED' | 'DISMISSED'; dismiss_reason?: string }
 
 export const WEB_KINDS = new Set<ClarifyKind>(['MISSING_LINK', 'OUTDATED']); // 담당자·빠진 값은 웹 금지(내부 사정 유출·오답), 표·본문 모순(INCONSISTENT)은 위키 제안만 (11/18 dev)
 
@@ -141,7 +143,7 @@ export function ruleCandidates(pages: { page: number; text: string }[]): Clarify
     for (const l of lines) {
       if (!isTableRow(l) || l === header || /^\|?\s*:?-{2,}/.test(l) || isBlankTemplateRow(l)) continue;
       const cells = l.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim());
-      if (cells.length >= 2 && cells.some((x) => x === '')) out.push({ kind: 'MISSING_VALUE', item: '표의 빈 칸', page: p.page, before: l.slice(0, 300), question: '이 표 행의 빈 칸에 들어갈 값은 무엇인가요? 비워 둔 사유가 있으면 적어 주세요.', in_procedure: false, query: '' });
+      if (cells.length >= 2 && cells.some((x) => x === '')) out.push({ kind: 'MISSING_VALUE', item: '표의 빈 칸', page: p.page, before: l.slice(0, 300), ...(header ? { table_header: header } : {}), question: '이 표 행의 빈 칸에 들어갈 값은 무엇인가요? 비워 둔 사유가 있으면 적어 주세요.', in_procedure: false, query: '' });
     }
   }
   return out;

@@ -34,6 +34,26 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
   return <Seal size="full" stampedNow={!!approved} i={{ authority_status: approved ? 'VERIFIED' : 'UNVERIFIED', document_type: 'KNOWHOW', lifecycle: approved ? 'PUBLISHED' : 'PENDING_APPROVAL' }} />;
 }
 
+/** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
+function InReview() {
+  const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number }[] | null>(null);
+  useEffect(() => { api<{ items: NonNullable<typeof items> }>('GET', '/v1/admin/in-review').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
+  if (!items?.length) return null;
+  return (
+    <details className="admin-more" open={items.some((i) => i.own)}>
+      <summary>게시 요청 전(작성자 검토 중) <b className="num">{items.length}</b>건 — 작성자가 '게시 요청'을 눌러야 결재할 수 있습니다</summary>
+      <ul className="todo-list">{items.map((i) => (
+        <li key={i.doc_id}>
+          <Link href={i.own ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link>
+          {i.own && <span className="kind-tag own">본인 문서</span>}
+          <span className="note">{i.lifecycle === 'QUARANTINED' ? 'AI 검사 중' : i.open ? `남은 일 ${i.open}건` : '게시 요청만 남음'}</span>
+          {i.own && i.lifecycle === 'IN_REVIEW' && <Link className="btn" href={`/review?id=${encodeURIComponent(i.doc_id)}`} prefetch={false}>검토 화면에서 게시 요청</Link>}
+        </li>
+      ))}</ul>
+    </details>
+  );
+}
+
 export default function Admin() {
   const [items, setItems] = useState<Item[] | null>(null);
   const [mismatch, setMismatch] = useState<Mismatch[]>([]);
@@ -141,6 +161,7 @@ export default function Admin() {
           <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
         </div>
         <div className="approval-category-group" aria-label="진행·참고">
+          <InReview />
           <details className="admin-more" open={after.some((x) => !!x.workflow_failure)}>
             <summary>진행·참고: 승인 뒤 게시 진행 <b className="num">{after.length}</b>건{blocked.length ? <> · 자동 차단 <b className="num">{blocked.length}</b>건(최근 7일)</> : null}</summary>
           <h2 className="section">승인 뒤 게시 진행</h2>

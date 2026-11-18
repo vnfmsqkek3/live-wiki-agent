@@ -11,6 +11,7 @@ import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type Libr
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { CardBoundary } from '../card-boundary';
+import { isRowText, rowAsTable } from '../clarify';
 import { Icon } from '../icons';
 import { RefSuggestions, withReference, type RefSuggestion } from '../ref-suggestions';
 import { Changes, PageFacts } from '../issues';
@@ -407,7 +408,7 @@ function ClarifyApply({ d, canEdit, onApply }: { d: LibraryDoc; canEdit: boolean
       <li key={c.finding_id} className={`fix${c.status !== 'OPEN' ? ' done' : ''}`}>
         <p className="fix-head">{c.item}{c.page ? ` · ${c.page}쪽` : ''} · {c.status === 'OPEN' ? '처리 전' : c.status === 'DISMISSED' ? '해당 없음' : '반영함'}</p>
         <p><strong>{c.question}</strong></p>
-        <div className="basis md"><DocText text={c.before} /></div>
+        <div className="basis md"><DocText text={isRowText(c.before) ? rowAsTable(c.before, c.table_header) : c.before} /></div>
         {c.status === 'DISMISSED' && <p className="note">해당 없음 사유: {c.dismiss_reason}</p>}
         {c.status === 'OPEN' && canEdit && <>
           <label className="lbl" htmlFor={`ca-${c.finding_id}`}>답{c.suggestions[0] ? ` (제안: ${c.suggestions[0].value})` : ''}</label>

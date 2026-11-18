@@ -231,7 +231,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       }
       // 4) finding: 제안이 없어도 질문은 남긴다
       const findings: Finding[] = cands.map((c, n) => {
-        const data: ClarifyData = { kind: c.kind, item: c.item, ...(c.page ? { page: c.page } : {}), before: c.before, ...(c.span ? { span: c.span } : {}), question: c.question, suggestions: sugg.get(n)!, status: 'OPEN' };
+        const data: ClarifyData = { kind: c.kind, item: c.item, ...(c.page ? { page: c.page } : {}), before: c.before, ...(c.span ? { span: c.span } : {}), ...(c.table_header ? { table_header: c.table_header } : {}), question: c.question, suggestions: sugg.get(n)!, status: 'OPEN' };
         return { finding_id: newId.fnd(), step: 'REFERENCE_CHECK', severity: clarifySeverity(c, c.page ? pageText(c.page) : undefined), code: 'CLARIFY_NEEDED', message: `확인 필요: ${c.kind}`, evidence_ref: found.model,
           location: { ...(c.page ? { page: c.page } : {}), excerpt: c.before.slice(0, 120) },
           user_message: c.question, fix_hint: data.suggestions.length ? '제안을 확인하고 [적용]하거나 직접 입력하세요.' : '직접 입력하거나, 해당 없으면 사유를 적어 주세요.',
