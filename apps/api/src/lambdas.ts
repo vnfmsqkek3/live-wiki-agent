@@ -164,7 +164,7 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       }
       const pages = segs.map((s) => ({ page: s.page_index + 1, text: structured.get(s.page_index) ?? s.text }));
       const all = pages.map((p) => p.text).join('\n\n');
-      // 1) 찾기 (최대 5건, 계약 6.5)
+      // 1) 찾기 (한 번에 모두: 링크 3 + 그 밖 12, CLARIFY_MAX)
       // 쪽 묶음(8쪽)마다 같은 체크리스트로 훑는다: 긴 입력의 자유 판단을 줄여 실행마다 달라지는 것을 줄인다 (11/18 dev)
       const chunks: (typeof pages)[] = []; for (let k = 0; k < pages.length; k += 8) chunks.push(pages.slice(k, k + 8));
       const results = await Promise.all(chunks.map((ch) => deps.findClarify!(clarifyPrompt(d.title, ch)).catch(() => ({ value: { items: [] as ClarifyCandidate[] }, model: '' }))));

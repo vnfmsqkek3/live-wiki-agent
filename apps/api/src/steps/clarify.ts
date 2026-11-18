@@ -25,7 +25,7 @@ export interface ClarifyData { kind: ClarifyKind; item: string; page?: number; b
 
 export const WEB_KINDS = new Set<ClarifyKind>(['MISSING_LINK', 'OUTDATED']); // 담당자·빠진 값은 웹 금지(내부 사정 유출·오답), 표·본문 모순(INCONSISTENT)은 위키 제안만 (11/18 dev)
 
-export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc>는 개인정보를 가린 문서 정리본의 일부 쪽이다. 아래 체크리스트 항목에 해당하는 곳만 골라 submit_clarify 도구로 낸다(자유 판단 금지). 최대 5건, 없으면 빈 배열.
+export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc>는 개인정보를 가린 문서 정리본의 일부 쪽이다. 아래 체크리스트 항목에 해당하는 곳만 골라 submit_clarify 도구로 낸다(자유 판단 금지). 해당하는 곳은 빠짐없이 모두(최대 10건), 없으면 빈 배열.
 체크리스트(이것만 본다):
  1) 누가 하는지 '담당자·관련 부서·책임자'로만 적힌 절차 문장 → VAGUE_ACTOR
  2) 같은 문서 안에서 이름·번호·버전이 서로 다른 곳(표끼리, 표와 본문) → INCONSISTENT
@@ -151,12 +151,14 @@ export function ruleCandidates(pages: { page: number; text: string }[]): Clarify
   return out;
 }
 /** 할당 (Fable 진단 D): 링크 2건 + 나머지 3건, 같은 제조사 링크·같은 item 은 한 건 */
+export const CLARIFY_MAX = { links: 3, others: 12 };
 export function allocate(cands: ClarifyCandidate[], pageText?: (page: number) => string | undefined): ClarifyCandidate[] {
   const key = (c: ClarifyCandidate) => (c.kind === 'MISSING_LINK' ? `L:${makerOf(c.before) ?? c.item}` : `${c.kind}:${c.item}`);
   const seen = new Set<string>(); const uniq = cands.filter((c) => { const k = key(c); if (seen.has(k)) return false; seen.add(k); return true; });
   const rank = (c: ClarifyCandidate) => (clarifySeverity(c, c.page ? pageText?.(c.page) : undefined) === 'MEDIUM' ? 0 : 1);
   const byPage = (a: ClarifyCandidate, b: ClarifyCandidate) => rank(a) - rank(b) || (a.page ?? 0) - (b.page ?? 0);
-  return [...uniq.filter((c) => c.kind === 'MISSING_LINK').sort(byPage).slice(0, 2), ...uniq.filter((c) => c.kind !== 'MISSING_LINK').sort(byPage).slice(0, 3)];
+  // 한 번에 모두 묻는다 (사용자 지적 11/18: 5건 상한이라 답할 때마다 밀려 있던 질문이 새로 나왔다). 링크 3 + 그 밖 12. 웹 검색은 따로 3건까지
+  return [...uniq.filter((c) => c.kind === 'MISSING_LINK').sort(byPage).slice(0, CLARIFY_MAX.links), ...uniq.filter((c) => c.kind !== 'MISSING_LINK').sort(byPage).slice(0, CLARIFY_MAX.others)];
 }
 
 /** 제조사 → 공식 도메인 (Fable 진단 C). 모델 추정보다 우선. 특정 페이지 주소는 넣지 않는다(과적합 방지). 필요하면 늘린다 */

@@ -340,13 +340,13 @@ test('E7 가짜 WebSearcher: 모델 페이지 3건 뒤에 정답이 있어도 �
   assert.equal((link.details as { suggestions: { value: string }[] }).suggestions[0]!.value, 'https://www.samsungsvc.co.kr/download');
 });
 
-test('E8 할당: 빈 값 6건 + 링크 2건 → 링크 2건이 남는다', async () => {
+test('E8 할당: 빈 값 6건 + 링크 2건 → 한 번에 모두 (11/18 상한 5→15)', async () => {
   const { allocate } = await import('../src/steps/clarify.ts');
   const vals = [1, 2, 3, 4, 5, 6].map((n) => C0({ item: `빈 칸 ${n}`, before: `| ${n} | x |  |`, page: n }));
   const links = [C0({ kind: 'MISSING_LINK', item: '삼성 자료실', before: '삼성 자료실 링크 접속', page: 9 }), C0({ kind: 'MISSING_LINK', item: '신도 다운로드', before: '신도 다운로드 페이지에서', page: 10 })];
   const r = allocate([...vals, ...links]);
   assert.equal(r.filter((c) => c.kind === 'MISSING_LINK').length, 2);
-  assert.equal(r.length, 5);
+  assert.equal(r.length, 8);
 });
 
 test('E9 같은 입력 두 번이면 규칙 기반 항목이 같다', async () => {
