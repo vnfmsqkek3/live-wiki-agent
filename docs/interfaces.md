@@ -177,22 +177,33 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | 화면 | 올린 사람 검토 화면 "확인 필요 n건" 카드(고칠 것과 같은 목록): 질문·원문 강조·AI 제안(출처 배지)·[적용][직접 입력][해당 없음] → 카드 안 전/후 diff → 하단 "n건 반영하고 저장" |
 | 일정 | 11/20 까지 dev. 못 맞추면 VAGUE_ACTOR + 위키 검색 + 사용자 입력만 시연 |
 
-## 7. Backend API (Owner dhxorb96, 원본 `01` 10장)
+## 7. Backend API (Owner dhxorb96, 원본 `01` 10장, 11/17 갱신)
 
 | 메서드·경로 | 역할 | 요약 |
 |---|---|---|
-| `POST /v1/documents/upload-url` | AUTHOR | → `{ doc_id, url }` (SigV4, 리전 엔드포인트) |
-| `POST /v1/documents/{id}/analyze` | AUTHOR | 워크플로 시작 → `{ workflow_id }` |
-| `GET /v1/documents/{id}` | 권한 내 | 상태·단계 진행·분류 |
-| `GET /v1/documents/{id}/review` | AUTHOR·REVIEWER | OCR·PII·Trust Gate Findings, 마스킹 미리보기 |
-| `POST /v1/documents/{id}/submit` | AUTHOR | 게시 요청 → Approvals 생성 |
-| `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 목록 |
-| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만) |
-| `GET /v1/search?q=&tags=&as_of=` | USER+ | ACL 필터 + 재랭크 결과, `search_status` 포함 |
-| `POST /v1/guides` | USER+ | 인용 포함 가이드 생성 |
-| `POST /v1/policies/{id}/impact` | REG_APPROVER | 영향 분석 |
+| `POST /v1/documents/upload-url` | 로그인 누구나 (6.2 규칙 1) | → `{ doc_id, url }` (SigV4, 리전 엔드포인트) |
+| `POST /v1/documents/{id}/analyze` | 올린 사람 | 워크플로 시작 → `{ workflow_id }` |
+| `POST /v1/documents/{id}/edit` | 로그인 누구나 | 위키 수정 `{markdown}`. 게시 노하우·매뉴얼 → 새 버전(`source=WIKI_EDIT`, `previous_doc_id`, `{doc}/original.md`), 내 IN_REVIEW 문서 → 그 자리 재분석. 규정 409 |
+| `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | 수정에서 지운 중요 문장 '의도한 삭제' 확인 |
+| `GET /v1/documents/{id}` · `/progress` · `/issues` | 권한 내 | 상태·단계 진행(`ConvertToPdf` '문서 변환' 포함)·확인할 내용 |
+| `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18), `clarify[]`(확인 필요 6.5: `{finding_id, blocking, severity, kind, item, page, before, question, suggestions[], status, dismiss_reason}`), `text` 는 정리본 기준 |
+| `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | EDIT_REMOVED_KEY_SENTENCE '의도한 삭제' / CLARIFY_NEEDED '해당 없음' `{reason}`(필수, PII 마스킹, 감사 CLARIFY_DISMISS) |
+| `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
+| `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
+| `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
+| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지) |
+| `GET /v1/library` | USER+ | 문서 묶음 카드. `?category=`(하위 포함)·`type`·세부 필터, 카드 `category_path` |
+| `GET /v1/library/{id}` | 권한 내 | 상세: `pages[].structured`(AI 정리본)·`structured_source`(TEXT\|VISION)·`clause_groups`, `image_pages`, `claims`, `category_path`·`category_id`, `verification.basis[].statement·reason·relation` |
+| `GET /v1/library/{id}/pages` | 문서를 볼 수 있는 사람 | 원본 보기: 모든 쪽 `masked/view/{nnnn}.png`(개인정보만 가림) presigned GET 5분 `[{page,url}]` |
+| `GET /v1/library/{id}/pages/{n}/image` | 문서를 볼 수 있는 사람 | 개인정보 가린 쪽 이미지(masked/pages) |
+| `GET /v1/categories` · `PATCH /v1/categories/{id}` · `POST /v1/categories/{id}/merge` | USER+ / 결재자 | 업무 분류 트리(볼 수 있는 게시 문서 수) / 이름 수정·병합 (10.1) |
+| `GET /v1/search?q=&type=&category=&raw=1` | USER+ | 문서 단위 묶음 + `related`, `rewritten{core,alternates}`(질의 재구성, `raw=1`이면 끔), 일치 조각 `page` |
+| `POST /v1/guides` | USER+ | 인용 포함 가이드 (SSE 가능) |
+| `GET /v1/admin/runs` · `/runs/{workflow_id}` | 결재자 | Agent 실행 기록(시작·소요·멈춘 단계), 단계별 상태 |
+| `GET /v1/admin/impact/laws` · `/impact?law=` | REG_APPROVER | 규정 변경 영향(사용자 Gateway `graph___trace_impact`) |
+| `GET /v1/library/{id}` 추가 필드 | 권한 내 | `pages[].figures[{k,url}]`(잘라낸 그림 presigned), `suggestions[]`(참조 확인 참고 주소) |
+| `GET /v1/admin/knowledge-debt` | 결재자 | 지식 상태 (`knowledge_debt` 뷰, 10.2) |
 | `POST /v1/feedback` | USER+ | `{ doc_id, stars, useful }` 사용자당 문서 1건 (덮어쓰기) |
-| `GET /v1/admin/observability` | PLATFORM_OPERATOR | 마스킹된 지표 |
 
 공통 오류: `{ error: { code, message, trace_id } }`, 401/403/404/409(CONFLICT)/422.
 
@@ -319,3 +330,15 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-17 | let522mj | 3(단계 산출물) | 업로드 절차: 모든 형식 PDF 변환 후 전부 OCR (사용자 결정, 요청기록 20261117-2010). `text_layer.json`은 `work/document.pdf`가 있으면 PDF·이미지·DOCX·HWPX 모든 쪽 `needs_ocr=true`·`text:""`(없으면 기존 판정), `SCANNED_PAGE` finding 폐지. `work/document.pdf`(ConvertToPdf) 계약 추가. TXT·MD는 그대로 |
 | 2026-11-17 | let522mj | 3(SegmentBuild) | OCR 페이지 `tables:[{table_id,bbox,html}]`(PP-StructureV3, yoyo0704 ed30ac3)가 있으면 `table_id` 줄들 대신 표 세로 위치에 마크다운 표 1개를 본문에 넣음. 표 앞뒤 빈 줄. colspan은 오른쪽 빈 칸, rowspan은 첫 행에만 값·아래 행 같은 열은 빈 칸. 변환 결과가 빈 표는 줄 나열(글자 보존). `tables` 없으면 기존 줄 나열 (요청기록 20261117-2120) |
 | 2026-11-17 | let522mj | 1(KB 메타데이터)·4(search_wiki)·10.1 | v0.5: `DocumentMetadata.category_path?`(업무 분류 경로, Promote가 `documents.category_id`→`categories.path`, 병합 칸은 대상 경로, 조회 실패 시 생략). `search_wiki` 필터 `category`(하위 포함: `equals` 또는 `startsWith '경로/'`), 결과 항목 `category_path`. PostgreSQL이면 현재 분류의 게시 문서 doc_id(200건 이하)로 KB를 거르고 현재 분류로 다시 거름(재분류·병합된 문서도 새 분류에서 찾음, 200건 초과면 색인 시점 경로 필터). 분류 필터는 PostgreSQL 전용(DynamoDB 모드는 경로가 없어 0건). 경로 200자 초과·분류 테이블 없음이면 경로 생략, 그 밖의 조회 오류는 Promote 재시도. `dropped_after_revalidation`에 분류로 빠진 건수 포함. 평가 `tests/evaluations/cases/category.jsonl` 16건 (요청기록 20261117-2210) |
+| 2026-11-17 | let522mj | 3(SegmentBuild) | 그림 속 글자(화면 캡처 등): OCR 줄의 label이 image·figure·chart·seal이거나 페이지 `figures[].bbox` 안이면 본문 흐름에서 빼고 그 자리에 `[그림 n]`, 쪽 끝에 `⟦그림 p{쪽}⟧ 그림 n 속 글자: …`(그림당 1,500자) 한 줄. 이 줄은 segment `text` 안에 있어 PiiScan이 함께 가리고, kb-chunker가 인용 불가 그림 청크로만 색인(검색은 됨). 저신뢰 판정은 본문 줄만(그림 속 줄·빈 덩어리 제외) (사용자 지적 11/17, 과천 매뉴얼) |
+| 2026-11-17 | let522mj | 10.2(claims) | GraphUpsert: VERIFIED 규정 새 버전이 게시되면 직전 버전과 diff(부칙 제외)해 바뀐 조문(겹치는 경로 포함)에 근거를 둔 CURRENT 주장을 `status='REVIEW_REQUIRED'`, `status_reason='provision_revised:{새 버전 조문 ID}'`로. Records(PgRecords) `claimsCiting`·`markClaimReview`. 평가 `tests/evaluations/cases/claims.jsonl` (요청기록 20261117-2300) |
+| 2026-11-17 | let522mj | 1(청크)·4(search_wiki)·5(게시본) | 쪽 번호: Promote가 게시본 `content.txt`의 쪽 사이에 폼피드(`\f`) 한 줄을 넣고, kb-chunker가 조각 원문 첫 줄이 처음 나오는 쪽을 `source_page`(0부터)로 기록(`\f`는 본문·인용에서 제거). `search_wiki` 결과 항목 `page`(1부터). 화면 쪽 썸네일용 (사용자 요청 11/17, dhxorb96 1378e2e) |
+| 2026-11-17 | let522mj | 5(게시본)·6.3 | 그림 쪽 정리본 `page_markdown`을 게시본 끝에 `⟦그림 p{쪽}⟧ 쪽 정리(AI, 그림 기준): …` 한 줄(공백 정리, 4,000자)로 → kb-chunker가 인용 불가 그림 조각(`has_figure`, `original_text` 비움)으로 색인. 검색에는 쓰이고 근거 인용·주장 대조는 OCR text 기준 그대로 |
+| 2026-11-18 | let522mj | 부록(라이브러리)·6.4 | `@hanaeum/regulation-server` `readPage(url, {expression, done, maxWaitSec?, region?, identifier?, sessionName?})`: AgentCore Browser 세션 열기 → 이동 → `expression`(브라우저에서 평가, 문자열)을 `done`일 때까지 1초 간격으로 읽기 → 세션 닫기. 시간 초과는 `PageNotReady`. http(s)만·내부 주소 거부·`allowHosts`로 제한(위반 `BlockedUrl`, 세션 열기 전 검사), 결과는 신뢰할 수 없는 입력(모델에 넘길 때 지시문 검사). 법령 원문 조회(AgentCoreLawFetcher)와 참조 확인(dhxorb96)이 같이 씀 |
+| 2026-11-18 | let522mj | 3(SegmentBuild) | `work/segments/{nnnn}.json`에 `figure_boxes: number[][]`(그림으로 분리한 image·figure·chart 영역, 쪽 대비 0~1000 정수 [x0,y0,x1,y1]; 쪽 전체 스캔으로 본 큰 상자·직인 제외, 그림 없으면 생략). PiiScan이 masked/segments로 그대로 넘겨야 ImageDescribe가 씀(yoyo0704 b782529). OCR 줄 합치기: 같은 줄이라도 글자 높이 8배 넘게 떨어진 덩어리는 ` / `로 구분 |
+| 2026-11-18 | let522mj | 1(청크) | 노하우·매뉴얼 조각: `## 제목` → 쪽 경계 → 길이(1,800자)로 나눔. 마크다운 표는 중간에서 자르지 않고, 표 하나가 상한을 넘으면 머리행을 반복해 행 단위로. `source_page`는 조각 첫 글자 줄의 쪽 (과천 매뉴얼: 39쪽이 조각 1개 → 39개) |
+| 2026-11-18 | let522mj | 1(청크)·4(search_wiki)·6.3 | 쪽 맥락: Promote가 매뉴얼·노하우 그림 쪽마다 `⟦그림 pN⟧ 쪽 맥락(AI, 그림 기준): …`(정리본 제목 중 OCR로 확인된 것 ≤3개·각 40자, 정리본과 맞는 그림 라벨, 합 120자) → kb-chunker가 같은 쪽 본문 조각의 검색 머리 둘째 줄과 메타데이터 `page_context`로(인용 원문 아님). 쪽 정리본 조각은 매뉴얼·노하우에서 `evidence_kind:"FIGURE"`·인용 가능(original_text = 정리본), 규정·그림 속 글자는 인용 불가 유지. search_wiki 결과 `evidence_kind`·`page_context`, FIGURE snippet 머리 `[그림 기준 · AI 정리]` (yoyo0704 결정 11/18, fable 의견 반영) |
+| 2026-11-18 | let522mj | 1(청크)·4(search_wiki) | 장(章): 매뉴얼·노하우 조각 메타데이터 `section`(쪽 첫 줄이 0 채운 장 번호 "04 …"·"04.…"이고 앞 장보다 클 때만 새 장. 단계 "1."·"①"은 장 아님. 번호 없는 쪽·글자 없는 쪽은 앞 장을 이음, 60자)·`section_pages`("시작-끝", 1부터). search_wiki `expand:"section"` → 응답 `expanded:[{doc_id, section, section_pages, items}]`(걸린 조각의 장 최대 2개, 장당 8조각, 쪽 순서, 재검증 통과·인용 가능분만), 결과 항목 `section`·`section_pages`. 필터 `section`은 내부용 (사용자 지적 11/18 '여러 쪽에 걸친 걸 왜 못 찾아') |
+| 2026-11-18 | let522mj | 1(청크)·4(search_wiki) | 검색 텍스트(augmented_search_text)에서 마스킹 흔적 제거: 자리 표시 `[개인정보]`·`[주민등록번호]` 등(@hanaeum/pii PII_NAME)·Guardrail `{LICENSE_PLATE}` 형식, AI 그림 설명·쪽 맥락에서는 "가림 처리/가려져 있다" 문장(문장 단위, "마스킹된 상태로 표시" 같은 기능 설명은 남김)과 "/ 개인정보 /" 칸 이름. 다 지워지면 원래 텍스트. original_text는 그대로. related(관련 가능 문서)는 Rerank 1위가 근거 미달일 때 조각마다 점수 RELATED_MIN(0.10) 이상만 (HYBRID 대체 시 미적용) (사용자 지적 11/18: 가린 문서가 '개인정보' 검색에 걸림) |
+| 2026-11-18 | let522mj | 4(MCP Tool)·11(외부 MCP) | 새 도구 `get_wiki_document {doc_id}` → `{doc_id, title, document_type, version, category_path, authority_status, freshness, page_count, pages:[{page(1부터), markdown, source: TEXT\|VISION, ai_summary?}], truncated?}`. 인자 `from_page`·`as_of`·`include_history`. published 게시본(마스킹)에서만 읽음 → 본문 sha256 = published_content_hash 확인. 폐지·대체 문서는 기본 NOT_FOUND(include_history면 historical). 응답에 effective_from/to·conditional. 응답 4만 자 넘으면 `next_page`로 이어 받기. 본문이 10자 미만인 캡처 쪽은 AI 그림 정리본(VISION). 그림 속 글자·설명 줄은 내보내지 않음. PUBLISHED·ACL 아님·없음은 모두 NOT_FOUND. mcp-search Lambda: env `BUCKET_PUBLISHED`, IAM `s3:GetObject` on published `legal/*`·`knowledge/*` (yoyo0704 요청 11/18) |
+| 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |

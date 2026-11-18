@@ -54,6 +54,8 @@ export interface DocumentRecord {
   document_type: DocumentType;
   authority_status: AuthorityStatus;
   conditional?: boolean;
+  /** 새 버전이 게시되면 이전 버전은 SUPERSEDED (위키 수정·버전 관리, interfaces 6.2) */
+  freshness?: "CURRENT" | "REVIEW_REQUIRED" | "SUPERSEDED";
   dept: string;
   acl_groups: string[];
   law_id?: string;
@@ -87,6 +89,10 @@ export interface Records {
   saveFindings(docId: string, step: string, findings: Finding[]): Promise<void>;
   /** 업무 분류 경로 (interfaces 10.1, PostgreSQL만). 미배정·저장소 미지원이면 undefined */
   categoryPath?(docId: string): Promise<string | undefined>;
+  /** 주장(claims, interfaces 10.2, PostgreSQL만): 그 법령 버전 조문에 근거를 둔 CURRENT 주장 */
+  claimsCiting?(lawRevPrefix: string): Promise<{ claim_id: string; provision_id: string }[]>;
+  /** 주장을 REVIEW_REQUIRED로 (CURRENT일 때만, 멱등) */
+  markClaimReview?(claimId: string, reason: string): Promise<void>;
 }
 
 /** 승인 API(dhxorb96)가 쓴 Documents 항목을 Promote 입력으로: 문서 유형은 최상위 또는 classification(Classify·사람 수정),

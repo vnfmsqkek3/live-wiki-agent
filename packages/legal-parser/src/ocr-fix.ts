@@ -4,7 +4,8 @@
 // 조 제목 괄호 뒤 공백 누락(쪽 첫 줄에서 실측)도 조 번호 순서가 맞을 때만 되돌린다.
 const CIRCLED = [..."①②③④⑤⑥⑦⑧⑨⑩⑪⑫⑬⑭⑮⑯⑰⑱⑲⑳"];
 const UNIT = "년월일개회명인원억만천차세시분초주쪽장건%";
-const NUM_AHEAD = new RegExp(`^(\\d{1,2})(?:\\s+|(?=[가-힣「(]))(?![${UNIT}])(.*)$`, "u");
+// 앞자리 0("01 층별 복합기 정보" 같은 장 번호)은 항 번호가 아님
+const NUM_AHEAD = new RegExp(`^([1-9]\\d?)(?:\\s+|(?=[가-힣「(]))(?![${UNIT}])(.*)$`, "u");
 const PARTICLE = /^(에서|에게|에도|에는|에|의|을|를|와|과|및|으로|로|부터|까지|에\s)/u;
 const ARTICLE = /^(제\d+조(?:의\d+)?(?:\s*\((?:[^()]|\([^()]*\))*\))?)\s*(.*)$/u;
 
@@ -47,14 +48,32 @@ export interface OcrBox { text: string; bbox: number[] }
 export function ocrRows(blocks: OcrBox[]): string[] {
   return ocrRowsY(blocks).map((r) => r.text);
 }
+// ponytail: 좌우 분리 기준 (글자 높이 배수). 표처럼 칸이 넓은 줄은 표 변환(마크다운)이 따로 처리
+const GAP_RATIO = 8;
+/** 왼쪽 덩어리가 구조 머리(조·항·호·목·삭제)이거나 오른쪽이 꼬리표(<개정 …>, [본조신설 …], (…))면 떨어져 있어도 같은 글 (PR #39 리뷰) */
+// 덩어리 전체가 머리일 때만 (예 "제1조(목적)", "1.", "제5조 삭제"). "1. 다운로드 자료실 접속" 같은 완결 문장은 해당 없음 (PR #39 재리뷰)
+const HEAD = /^(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*\([^)]*\))?(?:\s*삭제)?|[①-⑳]|\d+\.|[가-힣]\.|삭제)$/u;
+const TAIL = /^[<[(]/u;
 /** ocrRows와 같지만 줄의 세로 위치(yc)도 돌려줌 (표를 제자리에 끼워 넣을 때) */
 export function ocrRowsY(blocks: OcrBox[]): { yc: number; text: string }[] {
   const items = blocks.filter((b) => b.bbox?.length === 4)
-    .map((b) => ({ t: b.text, x: b.bbox[0]!, yc: (b.bbox[1]! + b.bbox[3]!) / 2, h: b.bbox[3]! - b.bbox[1]! })).sort((a, b) => a.yc - b.yc);
+    .map((b) => ({ t: b.text, x: b.bbox[0]!, x1: b.bbox[2]!, yc: (b.bbox[1]! + b.bbox[3]!) / 2, h: b.bbox[3]! - b.bbox[1]! })).sort((a, b) => a.yc - b.yc);
   const out: { yc: number; h: number; parts: typeof items }[] = [];
   for (const it of items) {
     const last = out.at(-1);
     if (last && Math.abs(it.yc - last.yc) < Math.max(last.h, it.h) / 2) last.parts.push(it); else out.push({ yc: it.yc, h: it.h, parts: [it] });
   }
-  return out.map((r) => ({ yc: r.yc, text: r.parts.sort((a, b) => a.x - b.x).map((p) => p.t).join(" ") }));
+  // 같은 줄이라도 글자 높이의 8배 넘게 떨어진 덩어리는 좌우로 나란한 다른 글(그림 설명 두 개 등)이라 " / "로 구분 (과천 12쪽 실측)
+  // 간격은 앞에서 본 오른쪽 끝(최대 x1) 기준, 높이는 줄 안 최소 높이 (큰 덩어리 하나로 기준이 부풀지 않게)
+  return out.map((r) => {
+    const ps = r.parts.sort((a, b) => a.x - b.x);
+    const h = Math.min(...ps.map((p) => p.h));
+    let right = -Infinity;
+    const text = ps.map((p, i) => {
+      const sep = i > 0 && p.x - right > GAP_RATIO * h && !HEAD.test(ps[i - 1]!.t.trim()) && !TAIL.test(p.t.trim()) ? " / " : " ";
+      right = Math.max(right, p.x1);
+      return i === 0 ? p.t : `${sep}${p.t}`;
+    }).join("");
+    return { yc: r.yc, text };
+  });
 }

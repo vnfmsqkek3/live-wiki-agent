@@ -2,12 +2,31 @@
 import { db } from "@hanaeum/db";
 import type { Query } from "@hanaeum/db";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
+import { GetObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { DynamoDBDocumentClient, BatchGetCommand } from "@aws-sdk/lib-dynamodb";
 import { makeHandler } from "@hanaeum/mcp-kit";
 import { DynamoClauseStore, regulationTools } from "@hanaeum/regulation-server";
 import { BedrockRetriever, searchTools } from "./search.ts";
 import { BedrockRewriter } from "./rewrite.ts";
-import type { DocState, DocStates } from "./search.ts";
+import type { DocState, DocStates, PublishedReader } from "./search.ts";
+
+/** published 버킷의 게시본 (규정 legal/, 그 밖 knowledge/). 권한: s3:GetObject on {legal,knowledge}/* 만 */
+export class S3Published implements PublishedReader {
+  private readonly s3 = new S3Client({});
+  private readonly bucket: string;
+  constructor(bucket: string) { this.bucket = bucket; }
+  private async text(key: string) {
+    try { return await (await this.s3.send(new GetObjectCommand({ Bucket: this.bucket, Key: key }))).Body!.transformToString("utf-8"); }
+    catch (e) { if ((e as Error).name === "NoSuchKey") return undefined; throw e; } // 권한 오류는 숨기지 않음 (설정 실수가 "없음"으로 보이지 않게)
+  }
+  async get(doc_id: string, document_type?: string) {
+    // 위치 규칙은 Promote publishedPrefix와 같음 (규정 legal/, 그 밖 knowledge/)
+    const p = `${document_type === "REGULATION" ? "legal" : "knowledge"}/${doc_id}/content.txt`;
+    const content = await this.text(p);
+    const side = content === undefined ? undefined : await this.text(`${p}.metadata.json`);
+    return content === undefined || !side ? undefined : { content, meta: (JSON.parse(side) as { metadataAttributes: Record<string, unknown> }).metadataAttributes };
+  }
+}
 
 export * from "./search.ts";
 export * from "./rewrite.ts";
@@ -20,7 +39,7 @@ export class PgDocStates implements DocStates {
     const out = new Map<string, DocState>();
     if (!ids.length) return out;
     const rows = await this.q<Record<string, unknown>>(
-      `SELECT doc_id, lifecycle, authority_status, (attrs->>'conditional')::boolean AS conditional, freshness, acl_groups, published_content_hash,
+      `SELECT doc_id, lifecycle, authority_status, (attrs->>'conditional')::boolean AS conditional, freshness, acl_groups, published_content_hash, version, document_type,
               attrs->>'effective_from' AS effective_from, attrs->>'effective_to' AS effective_to
        FROM documents WHERE doc_id = ANY(ARRAY(SELECT jsonb_array_elements_text(:ids::jsonb)))`, { ids });
     for (const r of rows) {
@@ -63,7 +82,7 @@ export class DynamoDocStates implements DocStates {
       let keys: Record<string, unknown>[] | undefined = ids.slice(i, i + 100).map((doc_id) => ({ pk: `DOC#${doc_id}`, sk: "META" }));
       for (let attempt = 0; keys?.length; attempt++) {
         if (attempt > 5) throw new Error("BatchGet 미처리 키 재시도 초과");
-        const r: import("@aws-sdk/lib-dynamodb").BatchGetCommandOutput = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: keys, ProjectionExpression: "doc_id, lifecycle, authority_status, conditional, freshness, acl_groups, published_content_hash, effective_from, effective_to" } } }));
+        const r: import("@aws-sdk/lib-dynamodb").BatchGetCommandOutput = await this.db.send(new BatchGetCommand({ RequestItems: { [this.table]: { Keys: keys, ProjectionExpression: "doc_id, lifecycle, authority_status, conditional, freshness, acl_groups, published_content_hash, effective_from, effective_to, version, document_type" } } }));
         // 승인 API(dhxorb96)는 시행일을 "YYYY-MM-DD"로 저장. 비교는 YYYYMMDD 숫자로
         for (const it of r.Responses?.[this.table] ?? []) out.set(String(it["doc_id"]), { ...it, effective_from: day(it["effective_from"]), effective_to: day(it["effective_to"]) } as DocState);
         keys = r.UnprocessedKeys?.[this.table]?.Keys;
@@ -81,6 +100,7 @@ export const handler = makeHandler(e["KB_ID"] && (e["TABLE_DOCUMENTS"] || e["GOV
     states: e["GOV_STORE"] === "postgres" ? new PgDocStates(db().query) : new DynamoDocStates(e["TABLE_DOCUMENTS"]!),
     regulation: regulationTools(new DynamoClauseStore(e["TABLE_REGULATIONS"])),
     ...(e["MODEL_HAIKU"] ? { rewriter: new BedrockRewriter(e["MODEL_HAIKU"]) } : {}), // 없으면 규칙만
+    ...(e["BUCKET_PUBLISHED"] ? { published: new S3Published(e["BUCKET_PUBLISHED"]) } : {}), // 없으면 get_wiki_document는 NOT_FOUND
   })
   : {});
 export * from "./memory.ts";

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 // Search MCP: search_wiki, retrieve_evidence, search_legal_clause (docs/04 4.3, docs/01 8.6·8.7)
 // 하드 게이트(ACL·공식성·유효기간)는 Rerank 전에 서버가 필터로 강제하고, 결과는 DynamoDB 현재 상태로 다시 검증한다.
 import { BedrockAgentRuntimeClient, RetrieveCommand } from "@aws-sdk/client-bedrock-agent-runtime";
@@ -19,6 +20,10 @@ export interface FilterOpts {
   category?: string;
   /** false면 KB 경로 필터를 빼고(doc_id로 이미 좁힘) 현재 분류 재검증만 */
   kbCategory?: boolean;
+  /** 장(章) 하나로 좁힘 (청크 메타데이터 section) */
+  section?: string;
+  /** "section": 걸린 조각과 같은 장의 조각들을 쪽 순서로 함께 (사용자 지적 11/18: 여러 쪽에 걸친 절차) */
+  expand?: "section";
 }
 
 export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
@@ -43,6 +48,7 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
   // 업무 분류(1단계 일치)·태그(하나라도 일치)
   if (o.business) conds.push({ listContains: { key: "business_path", value: o.business } });
   if (o.dept) conds.push({ equals: { key: "dept", value: o.dept } });
+  if (o.section) conds.push({ equals: { key: "section", value: o.section } });
   // 하위 포함: 같은 경로 또는 "경로/"로 시작 (OpenSearch Serverless KB는 startsWith 지원). 현재 분류로 다시 거른다(revalidate)
   if (o.category && o.kbCategory !== false) conds.push({ orAll: [{ equals: { key: "category_path", value: o.category } }, { startsWith: { key: "category_path", value: `${o.category}/` } }] });
   if (o.authority) conds.push({ equals: { key: "authority_status", value: o.authority } }); // KB에서 먼저 거르고 현재 상태로 다시 확인 (상위 N건 밖 누락 방지)
@@ -56,7 +62,11 @@ export function buildFilter(actor: Actor, o: FilterOpts): RetrievalFilter {
 /** weak: 재정렬 1위가 근거 기준(RERANK_TOP1_MIN) 미만이지만 RELATED_MIN 이상 — 근거로 쓰지 않고 "관련 가능 문서"로만 보여 준다 */
 export interface Hit { text: string; score: number; metadata: Record<string, unknown>; weak?: boolean; matched_query?: string }
 /** filter 없음 = 운영자 시점 원시 조회 (측정 전용, Tool은 항상 필터를 넣는다) */
-export interface Retriever { retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]> }
+export interface Retriever {
+  retrieve(query: string, filter?: RetrievalFilter): Promise<Hit[]>;
+  /** 재정렬·관련도 게이트 없이 필터 안 조각을 가져온다 (장 펼치기: 같은 장 조각은 관련도와 상관없이 모두 필요) */
+  retrieveRaw?(query: string, filter: RetrievalFilter): Promise<Hit[]>;
+}
 
 // ponytail: 후보 50 → Rerank 15 → 최종 5 고정 기본값 (docs/01 8.5). 실험 후 조정
 export const CANDIDATES = 50;
@@ -82,6 +92,7 @@ export class BedrockRetriever implements Retriever {
     this.rerankArn = rerankModel && !rerankModel.startsWith("arn:") ? `arn:aws:bedrock:${process.env["AWS_REGION"] ?? "us-east-1"}::foundation-model/${rerankModel}` : rerankModel;
     this.c = c;
   }
+  async retrieveRaw(text: string, filter: RetrievalFilter): Promise<Hit[]> { return this.query(text, filter); }
   async retrieve(text: string, filter?: RetrievalFilter): Promise<Hit[]> {
     try {
       return await this.query(text, filter, this.rerankArn);
@@ -108,7 +119,8 @@ export class BedrockRetriever implements Retriever {
     if (!rerankArn) return hits;
     const top = Math.max(0, ...hits.map((h) => h.score));
     if (top < RELATED_MIN) return [];
-    const kept = hits.filter((h) => h.score >= top * RERANK_RATIO);
+    // 근거 미달(weak)이면 조각마다 RELATED_MIN 하한도 (1위 대비 비율로 남은 0.1 미만 잡음 숨김, 사용자 지적 11/18). Rerank 점수에만 적용
+    const kept = hits.filter((h) => h.score >= Math.max(top * RERANK_RATIO, top < RERANK_TOP1_MIN ? RELATED_MIN : 0));
     return top < RERANK_TOP1_MIN ? kept.map((h) => ({ ...h, weak: true })) : kept;
   }
 }
@@ -122,7 +134,12 @@ export interface DocState {
   doc_id: string; lifecycle: Lifecycle; authority_status: AuthorityStatus; conditional?: boolean; freshness: Freshness; acl_groups: string[];
   published_content_hash: string; // Promote가 기록한 게시본 해시 (Documents.content_hash는 원본 해시라 다름)
   effective_from?: number; effective_to?: number; // 현재 유효기간 (새 버전 시행 시 갱신). KB 메타데이터보다 우선
+  version?: number;
+  document_type?: string; // 게시본 위치(legal/·knowledge/)를 정하는 데만 씀
 }
+/** 게시본 읽기 (published 버킷 content.txt + .metadata.json). 문서 전체 조회(get_wiki_document)용 */
+export interface PublishedReader { get(doc_id: string, document_type?: string): Promise<{ content: string; meta: Record<string, unknown> } | undefined> }
+const sha256 = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 export interface DocStates {
   get(docIds: string[]): Promise<Map<string, DocState>>;
   /** 현재 분류 경로 (분류 필터를 쓸 때만, PostgreSQL). 재분류·병합 뒤 KB 메타데이터가 낡아도 현재 분류로 거르기 위해 */
@@ -151,7 +168,15 @@ export interface Result {
   business_path: string[]; tags: string[];
   /** 업무 분류 경로 (색인 시점) */
   category_path?: string;
-  quotable: boolean; // false = 그림 묘사 등 원문이 아닌 결과. 근거 인용 금지
+  /** 근거 조각이 있는 쪽 (1부터). 화면 쪽 썸네일용 */
+  page?: number;
+  /** 장(章)과 그 쪽 범위 "시작-끝" (매뉴얼·노하우) */
+  section?: string; section_pages?: string;
+  /** "FIGURE" = 그림 기준(AI 정리) 근거. 인용 가능하되 그렇게 표시해야 함 */
+  evidence_kind?: "FIGURE";
+  /** 같은 쪽 그림 제목 (OCR로 확인된 것만, AI 정리 기준). 인용 원문 아님 */
+  page_context?: string;
+  quotable: boolean; // false = 그림 설명·그림 속 글자 등 원문이 아닌 결과. 근거 인용 금지 (매뉴얼·노하우의 그림 기준 근거는 true + evidence_kind FIGURE)
   historical: boolean; // 기준일에 유효하지 않음(삭제·과거) — include_history 결과에서만 true 가능
 }
 const strs = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : []);
@@ -181,11 +206,18 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
     if (!ok) continue;
     const hist = m["provision_status"] === "DELETED" || !current(st, m, o.asOf);
     const isReg = m["document_type"] === "REGULATION";
+    // 그림 기준 근거는 매뉴얼·노하우에서만, 원문(정리본)이 있을 때만 (색인 쪽 제외가 어긋나도 규정 근거로 새지 않게, PR #42 리뷰)
+    const fig = m["evidence_kind"] === "FIGURE" && !isReg && String(m["original_text"] ?? "").trim() !== "";
     const pathLabel = String(m["provision_path"] ?? "");
     kept.push({
       doc_id: st.doc_id, title: String(m["title"] ?? ""),
-      snippet: m["has_figure"] === true ? `[그림 설명 · 원문 아님] ${h.text.replace(/^\[[^\]]*\]\n/u, "")}` : String(m["original_text"] ?? h.text), // 인용은 원문만 (보강 헤더 인용 금지)
-      quotable: m["has_figure"] !== true,
+      // 인용은 원문만 (보강 헤더 인용 금지). 그림 기준 근거(매뉴얼·노하우 쪽 정리본)는 인용 가능하되 머리표로 구분
+      snippet: fig ? `[그림 기준 · AI 정리] ${String(m["original_text"])}`
+        : m["has_figure"] === true ? `[그림 설명 · 원문 아님] ${h.text.replace(/^\[[^\]]*\]\n/u, "")}` : String(m["original_text"] ?? h.text),
+      quotable: m["has_figure"] !== true || fig,
+      ...(fig ? { evidence_kind: "FIGURE" as const } : {}),
+      ...(typeof m["page_context"] === "string" && m["page_context"] ? { page_context: m["page_context"] } : {}),
+      ...(typeof m["section"] === "string" && m["section"] ? { section: m["section"], ...(typeof m["section_pages"] === "string" ? { section_pages: m["section_pages"] } : {}) } : {}),
       ...(isReg && pathLabel ? { provision: `${String(m["law_name"] ?? m["title"] ?? "")} ${pathLabel}`.trim() } : {}),
       effective_from: isoDate(st.effective_from ?? Number(m["effective_from"])),
       authority_status: st.authority_status, freshness: st.freshness,
@@ -193,7 +225,8 @@ export function revalidate(hits: Hit[], states: Map<string, DocState>, actor: Ac
       document_type: String(m["document_type"]), provision_id: String(m["provision_id"] ?? ""), path_label: pathLabel,
       provision_status: String(m["provision_status"] ?? "ACTIVE"), conditional: !!st.conditional,
       effective_to: isoDate(st.effective_to ?? Number(m["effective_to"])), score: h.score, historical: hist,
-      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(typeof m["category_path"] === "string" ? { category_path: m["category_path"] } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
+      business_path: strs(m["business_path"]), tags: strs(m["tags"]), ...(typeof m["category_path"] === "string" ? { category_path: m["category_path"] } : {}),
+      ...(typeof m["source_page"] === "number" && Number.isInteger(m["source_page"]) && m["source_page"] >= 0 ? { page: m["source_page"] + 1 } : {}), ...(h.weak ? { weak: true } : {}), ...(h.matched_query ? { matched_query: h.matched_query } : {}),
     });
   }
   return { kept, dropped: hits.length - kept.length };
@@ -223,7 +256,8 @@ const classArgs = (args: Record<string, unknown>) => {
   if (category && category.length > 200) throw new ToolError("INVALID_ARGUMENT", "category: 200자 이하");
   if (dateFrom && dateTo && dateFrom > dateTo) throw new ToolError("INVALID_ARGUMENT", "date_from이 date_to보다 늦음");
   const authority = pick("authority_status", ["VERIFIED", "UNVERIFIED"] as const), freshness = pick("freshness", ["CURRENT", "REVIEW_REQUIRED"] as const);
-  return { ...(category ? { category } : {}), ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
+  const expand = pick("expand", ["section"] as const);
+  return { ...(expand ? { expand } : {}), ...(category ? { category } : {}), ...(business ? { business } : {}), ...(tags.length ? { tags } : {}), ...(dept ? { dept } : {}), ...(dateFrom ? { dateFrom } : {}), ...(dateTo ? { dateTo } : {}),
     ...(authority ? { authority } : {}), ...(freshness ? { freshness } : {}) };
 };
 const topK = (args: Record<string, unknown>) => Math.min(Math.max(Number(args["top_k"] ?? 5) || 5, 1), RERANKED);
@@ -259,9 +293,28 @@ export async function retrieveMany(r: Retriever, primary: string[], model: strin
   return all.filter((h) => h.weak || h.score >= top * RERANK_RATIO).sort((a, b) => Number(!!a.weak) - Number(!!b.weak) || b.score - a.score);
 }
 
-export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools>; rewriter?: Rewriter }) {
+export function searchTools(deps: { retriever: Retriever; states: DocStates; regulation: ReturnType<typeof regulationTools>; rewriter?: Rewriter; published?: PublishedReader }) {
   // ponytail: 분류 문서가 이보다 많으면 doc_id 대신 색인 시점 경로로 KB를 거른다 (재분류 문서는 다시 게시해야 잡힘)
   const CATEGORY_DOC_IDS_MAX = 200;
+  /** 걸린 조각의 장(최대 2개)마다 같은 장 조각을 현재 상태로 다시 검증해 쪽 순서로 (장당 8조각).
+   *  ponytail: 장 2개·8조각 고정. 장이 길면 앞 8조각만 → 필요하면 가이드가 page로 다시 찾음 */
+  async function expandSections(top: Result[], query: string, actor: Actor, o: FilterOpts) {
+    if (!deps.retriever.retrieveRaw) return [];
+    const keys = [...new Map(top.filter((r) => r.section).map((r) => [`${r.doc_id}\u0000${r.section}`, r] as const)).values()].slice(0, 2);
+    // 장 2개를 동시에 (PR #43 리뷰: 순차 호출 지연)
+    const out = await Promise.all(keys.map(async (r) => {
+      const [hits, states] = await Promise.all([
+        deps.retriever.retrieveRaw!(query, buildFilter(actor, { ...o, docIds: [r.doc_id], section: r.section!, expand: undefined, kbCategory: false })),
+        deps.states.get([r.doc_id])]);
+      // 인용 불가 그림 설명은 빼고(장 자리를 차지하지 않게), 쪽·조각 번호 순 (#s10이 #s2 뒤로)
+      const items = [...new Map(revalidate(hits, states, actor, o).kept.filter((x) => x.quotable).map((x) => [x.provision_id, x] as const)).values()]
+        .sort((a, b) => (a.page ?? 0) - (b.page ?? 0) || a.provision_id.localeCompare(b.provision_id, undefined, { numeric: true })).slice(0, 8)
+        .map((x) => { const y = { ...x }; delete y.weak; return y; }); // 같은 장 조각은 관련도와 무관 (weak 표시 없음)
+      return { doc_id: r.doc_id, section: r.section!, ...(r.section_pages ? { section_pages: r.section_pages } : {}), items };
+    }));
+    return out.filter((x) => x.items.length);
+  }
+
   async function run(query: string, actor: Actor, o0: FilterOpts, k: number, rewrite = false) {
     const q = maskPii(query);
     let o = o0;
@@ -289,12 +342,36 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     const top = kept.filter((r) => !r.weak).slice(0, k);
     const related = kept.filter((r) => r.weak).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
-    return { search_status, items: top, ...(related.length ? { related } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
+    const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
+    return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
   }
 
   return {
     async search_wiki(args: Record<string, unknown>, actor: Actor) {
       return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true, ...classArgs(args) }, topK(args), args["rewrite"] !== false);
+    },
+
+    /** 문서 전체를 쪽별로 (외부 MCP 클라이언트·문서 생성 앱용, interfaces 11장). 게시본(마스킹)에서만 읽어 지금 게시된 버전과 항상 같다.
+     *  없음·권한 없음·게시 아님은 모두 NOT_FOUND (존재 여부를 흘리지 않음) */
+    async get_wiki_document(args: Record<string, unknown>, actor: Actor) {
+      const doc_id = str(args, "doc_id");
+      if (!/^doc_[0-9A-HJKMNP-TV-Z]{26}$/u.test(doc_id)) throw new ToolError("INVALID_ARGUMENT", "doc_id 형식: doc_{ULID}");
+      const notFound = () => new ToolError("NOT_FOUND", "문서가 없거나 볼 권한이 없습니다");
+      const st = (await deps.states.get([doc_id])).get(doc_id);
+      const keys = aclKeys(actor);
+      if (!st || st.lifecycle !== "PUBLISHED" || st.authority_status === "REJECTED" || !st.acl_groups.some((g) => keys.includes(g))) throw notFound();
+      const pub = await deps.published?.get(doc_id, st.document_type);
+      // 본문 자체의 해시로 확인 (사이드카보다 본문이 먼저 써지는 게시 도중에도 버전이 섞이지 않게, PR #45 리뷰)
+      if (!pub || sha256(pub.content) !== st.published_content_hash) throw notFound();
+      // 폐지·시행 전·대체된 문서는 검색과 같이 기본 제외 (include_history면 historical 표시로)
+      const asOf = asOfYmd(args), now = current(st, pub.meta, asOf);
+      if (!now && args["include_history"] !== true) throw notFound();
+      const from = st.effective_from ?? Number(pub.meta["effective_from"]), to = st.effective_to ?? Number(pub.meta["effective_to"]);
+      const fromPage = Math.max(1, Math.floor(Number(args["from_page"] ?? 1)) || 1);
+      return { doc_id, title: pub.meta["title"], document_type: pub.meta["document_type"], ...(st.version ? { version: st.version } : {}),
+        ...(pub.meta["category_path"] ? { category_path: pub.meta["category_path"] } : {}), authority_status: st.authority_status, freshness: st.freshness,
+        effective_from: isoDate(from), effective_to: isoDate(to), conditional: st.conditional === true, ...(now ? {} : { historical: true }),
+        ...docPages(pub.content, fromPage) };
     },
 
     async retrieve_evidence(args: Record<string, unknown>, actor: Actor) {
@@ -320,4 +397,38 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
       return { via: "kb_hybrid", ...r };
     },
   };
+}
+
+// ponytail: 응답 상한 글자 수 (외부 챗봇 문맥 고려 ~2만 토큰). 넘으면 next_page로 이어 받기
+const DOC_CHARS_MAX = 40_000;
+const SUMMARY_LINE = /^⟦그림 p(\d+)⟧ 쪽 정리\(AI, 그림 기준\)(?: \(이어서 \d+\))?: (.*)$/u;
+/** 게시본 → 쪽별 본문. 본문(OCR, 표는 마크다운)이 있으면 TEXT, 글자가 거의 없는 화면 캡처 쪽은 AI 그림 정리본(VISION).
+ *  그림 속 글자·그림 설명·쪽 맥락 줄(⟦그림 …⟧)은 원문이 아니라 내보내지 않는다 (정리본만 ai_summary로) */
+export function docPages(content: string, fromPage = 1) {
+  const lines = content.split("\n");
+  const summary = new Map<number, string>();
+  const body: string[] = [];
+  for (const l of lines) {
+    const m = SUMMARY_LINE.exec(l);
+    if (m) summary.set(Number(m[1]), [summary.get(Number(m[1])), m[2]].filter(Boolean).join(" "));
+    else if (!l.startsWith("⟦그림 p")) body.push(l);
+  }
+  const texts = body.join("\n").split(/\n?\f\n?/u);
+  let used = 0, next: number | undefined;
+  const pages: { page: number; markdown: string; source: "TEXT" | "VISION"; ai_summary?: string; cut?: true }[] = [];
+  for (const [i, t0] of texts.entries()) {
+    if (i + 1 < fromPage) continue;
+    const t = t0.trim(), ai = summary.get(i);
+    const thin = t.replace(/\[그림 \d+\]/gu, "").replace(/\s+/gu, "").length < 10; // ponytail: 10자 미만이면 캡처 쪽으로 봄
+    const p = thin && ai ? { page: i + 1, markdown: ai, source: "VISION" as const } : { page: i + 1, markdown: t, source: "TEXT" as const, ...(ai ? { ai_summary: ai } : {}) };
+    const size = p.markdown.length + (("ai_summary" in p && p.ai_summary) ? p.ai_summary.length : 0);
+    if (used + size > DOC_CHARS_MAX) {
+      // 한 쪽만으로 상한을 넘으면 그 쪽을 잘라서라도 넣음 (빈 응답 방지)
+      if (!pages.length) pages.push({ ...p, markdown: p.markdown.slice(0, DOC_CHARS_MAX), cut: true });
+      next = (pages.at(-1)?.page ?? i) + 1;
+      break;
+    }
+    used += size; pages.push(p);
+  }
+  return { page_count: texts.length, pages, ...(next && next <= texts.length ? { next_page: next } : {}) };
 }

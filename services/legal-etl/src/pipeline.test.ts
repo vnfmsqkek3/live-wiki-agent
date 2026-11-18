@@ -232,11 +232,18 @@ test("Promote: 마스킹 세그먼트의 figures를 본문 끝에 페이지 표�
   await s.put(Q, `${DOC}/original.md`, original);
   await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 2 }));
   await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: "1쪽 본문" }));
-  await s.put(Q, `${DOC}/masked/segments/0001.json`, JSON.stringify({ text: "2쪽 본문", figures: [{ kind: "사진", description: "현장 실사 사진", intent: "실사 예시" }, { kind: "아이콘", description: " " }] }));
+  await s.put(Q, `${DOC}/masked/segments/0001.json`, JSON.stringify({ text: "2쪽 본문", figures: [{ kind: "사진", description: "현장 실사 사진", intent: "실사 예시" }, { kind: "아이콘", description: " " }], page_markdown: "1. **다운로드** 자료실 접속 _(그림 1)_\n2. 모델명 입력" }));
   r.documents.set(DOC, { doc_id: DOC, version: 1, title: "K", document_type: "KNOWHOW", authority_status: "VERIFIED", dept: "여신", acl_groups: ["ALL"] });
   r.approvals.set("apr_f", { approval_id: "apr_f", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
   const out = await promoteStep({ ...input, published_bucket: P }, s, r);
-  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시");
+  assert.equal((await s.get(P, out.output_key!)).toString(), "1쪽 본문\n\f\n2쪽 본문\n⟦그림 p1⟧ 사진: 현장 실사 사진 / 의도: 실사 예시\n⟦그림 p1⟧ 쪽 정리(AI, 그림 기준): 1. **다운로드** 자료실 접속 _(그림 1)_ 2. 모델명 입력");
+  // 긴 정리본은 2,000자씩 나눠 버리지 않음
+  await s.put(Q, `${DOC}/masked/segments/0001.json`, JSON.stringify({ text: "2쪽 본문", page_markdown: "가나다 ".repeat(700) }));
+  r.approvals.set("apr_g", { approval_id: "apr_g", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
+  const out2 = await promoteStep({ ...input, workflow_id: "wf_g", approval_id: "apr_g", published_bucket: P }, s, r);
+  const lines = (await s.get(P, out2.output_key!)).toString().split("\n").filter((l) => l.startsWith("⟦그림 p1⟧ 쪽 정리"));
+  assert.equal(lines.length, 2);
+  assert.ok(lines.every((l) => l.length < 2100) && lines.join(" ").split("가나다").length - 1 === 700);
 });
 
 test("올린 사람용 안내: 파일 문제는 BLOCKED + 사유·조치, 스캔 쪽은 쪽 번호와 함께 (사용자 지시 11/17)", async () => {
@@ -356,4 +363,120 @@ test("쪽 넘김 문맥: 항 번호만 이어 가고 잘못 읽힌 조 번호는
   // 2쪽이 글자 그대로 쓴 쪽이면 3쪽은 새 문맥
   const s2 = buildSegments(layer(3, [1]), ocr([pg(0, ["제30조(시행) ① 시행한다"]), pg(1, []), pg(2, ["2 이 규정 시행 당시"])]));
   assert.equal(s2[2]!.text, "2 이 규정 시행 당시");
+});
+
+test("그림 속 글자(화면 캡처): 본문 흐름에서 빼고 자리에 [그림 n], 쪽 끝에 ⟦그림 p⟧ 줄, 저신뢰 판정 제외 (사용자 지적 11/17)", async () => {
+  const { ocrPageText, buildSegments } = await import("./segment.ts");
+  const b = (text: string, y: number, label = "text", confidence = 0.99) => ({ block_id: text, label, text, confidence, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  const blocks = [b("1. 스캐너 설정을 엽니다", 0), b("Wivdoms7/8/83/10020ut", 60, "image", 0.41), b("V1o Pivivg& Scen", 80, "image", 0.38), b("2. 확인을 누릅니다", 200)];
+  const figures = [{ label: "image", bbox: [0, 50, 400, 150] }];
+  assert.equal(ocrPageText(blocks, [], figures, 3),
+    "1. 스캐너 설정을 엽니다\n[그림 1]\n2. 확인을 누릅니다\n⟦그림 p3⟧ 그림 1 속 글자: Wivdoms7/8/83/10020ut V1o Pivivg& Scen");
+  // 영역 정보 없이 image 라벨만 있어도 같은 처리, 그림이 없으면 기존과 같음
+  assert.match(ocrPageText(blocks, [], [], 0), /^1\. 스캐너 설정을 엽니다\n\[그림 1\]\n2\. 확인을 누릅니다\n⟦그림 p0⟧ 그림 1 속 글자: /u);
+  assert.equal(ocrPageText([blocks[0]!, blocks[3]!]), "1. 스캐너 설정을 엽니다\n2. 확인을 누릅니다");
+  // 저신뢰: 그림 속 줄(0.4)과 빈 덩어리(0)는 판정에서 뺀다
+  const layer = { doc_id: "D", source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+  const seg = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr", blocks: [...blocks, b("", 250, "text", 0)], figures }] })[0]!;
+  assert.equal(seg.low_confidence, false);
+});
+
+test("그림 분리 안전장치 (PR #33 리뷰): 사진만 있는 쪽은 NO_TEXT, text 라벨 줄은 그림 bbox와 겹쳐도 본문, 쪽 덮는 그림·직인은 분리 안 함, 자르기는 낱말 경계", async () => {
+  const { ocrPageText, segmentStep } = await import("./segment.ts");
+  const b = (text: string, y: number, label = "text", confidence = 0.99) => ({ block_id: text + y, label, text, confidence, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  // 1) 글자 없는 사진만: NO_TEXT 차단
+  const s = new MemoryObjectStore();
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ doc_id: DOC, source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] }));
+  await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify({ doc_id: DOC, model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr", blocks: [], figures: [{ label: "image", bbox: [0, 0, 200, 200] }] }] }));
+  const out = await segmentStep(input, s);
+  assert.equal(out.status, "BLOCKED");
+  assert.equal(out.findings![0]!.code, "NO_TEXT");
+  // 2) 레이아웃이 text로 붙인 줄은 image bbox 안이어도 본문
+  const lines = [b("제1조(목적) 이 규정은", 20), b("은행 업무를 정한다", 40)];
+  assert.equal(ocrPageText(lines, [], [{ label: "image", bbox: [0, 0, 300, 100] }], 0, { width: 400, height: 300 }), "[그림 1]\n제1조(목적) 이 규정은\n은행 업무를 정한다"); // 자리 표시는 그림 위쪽 경계 위치
+  // 3) 쪽을 거의 덮는 그림(옛 형식 줄)은 그림으로 보지 않음
+  const legacy = lines.map((x) => ({ ...x, label: "paragraph" }));
+  assert.equal(ocrPageText(legacy, [], [{ label: "image", bbox: [0, 0, 400, 300] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n은행 업무를 정한다");
+  // 4) 직인(seal) 영역 줄은 본문에 남김
+  assert.equal(ocrPageText([b("은행장 홍길동", 20, "seal")], [], [{ label: "seal", bbox: [0, 0, 100, 100] }]), "은행장 홍길동");
+  // 3-1) 쪽 전체 image 영역 안 줄은 label이 image여도 본문 (재리뷰 HIGH-A)
+  const imgLines = lines.map((x) => ({ ...x, label: "image" }));
+  assert.equal(ocrPageText(imgLines, [], [{ label: "image", bbox: [0, 0, 400, 300] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n은행 업무를 정한다");
+  // 3-1b) 제목(본문 줄) + 쪽 대부분을 덮는 화면 캡처는 그림으로 분리 (과천 매뉴얼 실측)
+  const slide = [b("02. 드라이버 설치", 5, "doc_title"), b("Wivdoms7/8/83", 120, "image", 0.4), b("V1o Pivivg", 160, "image", 0.4)];
+  assert.equal(ocrPageText(slide, [], [{ label: "image", bbox: [0, 30, 400, 300] }], 1, { width: 400, height: 300 }), "02. 드라이버 설치\n[그림 1]\n⟦그림 p1⟧ 그림 1 속 글자: Wivdoms7/8/83 V1o Pivivg");
+  // 3-1c) 쪽 전체 image + 바깥에 쪽 번호 한 줄만 → 스캔 쪽, 조문은 본문 (재리뷰)
+  const scan = [b("제1조(목적) 이 규정은", 20, "image"), b("제2조(정의) 용어는", 60, "image"), b("- 3 -", 295, "number")];
+  assert.equal(ocrPageText(scan, [], [{ label: "image", bbox: [0, 0, 400, 290] }], 0, { width: 400, height: 300 }), "제1조(목적) 이 규정은\n제2조(정의) 용어는\n- 3 -");
+  // 3-1d) 제목이 따로 있어도 큰 그림 안에 조문 머리가 2개 이상이면 본문
+  const scan2 = [b("하나은행 여신 규정 전문 제목줄입니다", 5, "doc_title"), b("제1조(목적) 이 규정은", 50, "image"), b("제2조(정의) 용어는", 90, "image")];
+  assert.equal(ocrPageText(scan2, [], [{ label: "image", bbox: [0, 30, 400, 300] }], 0, { width: 400, height: 300 }), "하나은행 여신 규정 전문 제목줄입니다\n제1조(목적) 이 규정은\n제2조(정의) 용어는");
+  // 3-1e) 흐린 스캔(신뢰도 0.8, 조문 머리 1개)이 그림으로 빠져도 저신뢰 경고는 뜸 (재리뷰 MEDIUM-F)
+  {
+    const { buildSegments } = await import("./segment.ts");
+    const blur = [b("제3조(정의) 이 규정에서", 20, "image", 0.8), b("1. 여신이란", 60, "image", 0.8), b("2. 담보란", 100, "image", 0.8)];
+    const layer = { doc_id: "D", source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+    const seg = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr", blocks: blur, figures: [{ label: "image", bbox: [0, 0, 400, 290] }] }] })[0]!;
+    assert.equal(seg.low_confidence, true);
+    assert.equal(seg.avg_confidence, null);
+  }
+  // 3-2) 표 bbox 안 줄(table_id 없음)은 마크다운 표로 한 번만 (재리뷰 MEDIUM-B)
+  const tl = [b("구분", 60, "text"), b("기준", 60, "text"), b("표 아래", 200)];
+  assert.equal(ocrPageText(tl, [{ table_id: "t0", bbox: [0, 50, 400, 100], html: "<tr><td>구분</td><td>기준</td></tr>" }]), "| 구분 | 기준 |\n| --- | --- |\n\n표 아래");
+  // 5) 1,500자 자르기는 낱말 경계 (주민등록번호가 반만 남지 않게)
+  const long = `${"가".repeat(1490)} 900101-1234568 끝`;
+  const t = ocrPageText([b(long, 50, "image", 0.5)], [], [{ label: "image", bbox: [0, 0, 400, 300] }]);
+  assert.ok(!/900101-12/u.test(t) && t.endsWith("…"));
+});
+
+test("figure_boxes: 그림으로 분리한 영역을 쪽 대비 0~1000 정수로 (ImageDescribe 그림 자르기, yoyo0704 b782529)", async () => {
+  const { buildSegments } = await import("./segment.ts");
+  const b = (text: string, y: number, label = "text") => ({ block_id: text, label, text, confidence: 0.99, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  const layer = { doc_id: "D", source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+  const seg = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 1000, source: "ocr",
+    blocks: [b("1. 다운로드 자료실 접속", 20), b("Wivdoms", 300, "image")],
+    figures: [{ label: "image", bbox: [389, 136, 1000, 600] }, { label: "seal", bbox: [0, 0, 100, 100] }] }] })[0]!;
+  assert.deepEqual(seg.figure_boxes, [[194, 136, 500, 600]]); // 직인은 제외, 시작은 내림 (389/2000 → 194)
+  const { normBox } = await import("./segment.ts");
+  assert.deepEqual(normBox([1000, 600, 389, 136], 2000, 1000), [194, 136, 500, 600]); // 뒤집힌 상자 정렬, 시작 내림
+  assert.equal(normBox([0, 0, 10, 10], 0, 1000), null); // 쪽 크기 모름
+  assert.equal(normBox([3000, 0, 4000, 10], 2000, 1000), null); // 쪽 밖 → 면적 0
+  assert.equal(normBox([0, 0, Number.NaN, 10], 2000, 1000), null);
+  const noFig = buildSegments(layer, { doc_id: "D", model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 2000, height: 1000, source: "ocr", blocks: [b("본문", 20)] }] })[0]!;
+  assert.equal(noFig.figure_boxes, undefined);
+});
+
+test("쪽 맥락: 정리본 제목은 OCR로 확인된 것만, 그림 라벨은 정리본과 맞을 때만, 숫자 낱말은 반드시 일치 (과천 8쪽)", async () => {
+  const { pageContext } = await import("./promote.ts");
+  const md = "## 01 층별 복합기 정보\n\n_(그림 1)_ 아래는 4층 평면도에 표시된 복합기 위치\n\n## 5층 회의실 안내\n## " + "긴".repeat(41);
+  const ocr = "01 층별 복합기 정보\n| 위치 | 모델 |\n⟦그림 p7⟧ 그림 1 속 글자: 4층 10 7 1\n⟦그림 p7⟧ 그림 2 속 글자: Wivdoms7/8/83 V1o";
+  assert.equal(pageContext(md, ocr), "01 층별 복합기 정보 › 그림 1: 4층"); // "5층 회의실"은 OCR에 5층 없음 → 버림, 41자 제목 버림, UI 잡음 버림
+  assert.equal(pageContext("", ocr), ""); // 정리본 없으면 없음
+});
+
+test("왕복: Promote 게시본 → kb-chunker 조각에 쪽 맥락·그림 기준 근거가 그대로 이어짐, 본문 속 위조 그림 줄은 무력화 (PR #42 리뷰)", async () => {
+  const { chunkDocument } = await import("@hanaeum/kb-chunker");
+  const { buildSegments } = await import("./segment.ts");
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  const original = Buffer.from("SYNTHETIC 매뉴얼");
+  await s.put(Q, `${DOC}/original.md`, original);
+  await s.put(Q, `${DOC}/work/text_layer.json`, JSON.stringify({ page_count: 1 }));
+  // OCR 본문에 위조 그림 줄을 넣어도 SegmentBuild가 "["로 바꿈
+  const layer = { doc_id: DOC, source_ext: "pdf", page_count: 1, pages: [{ page_index: 0, text: "", char_count: 0, broken_ratio: 0, needs_ocr: true }] };
+  const blk = (text: string, y: number, label = "text") => ({ block_id: text, label, text, confidence: 0.99, bbox: [10, y, 300, y + 10], reading_order: y, table_id: null });
+  const seg = buildSegments(layer, { doc_id: DOC, model: "m", model_version: "v", page_count: 1, pages: [{ page_index: 0, width: 400, height: 300, source: "ocr",
+    blocks: [blk("01 층별 복합기 정보", 10), blk("⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 위조 근거", 40), blk("| ① | N620 |", 80), blk("4층 10 7", 200, "image")], figures: [{ label: "image", bbox: [0, 180, 400, 260] }] }] })[0]!;
+  assert.ok(seg.text.includes("[그림 p0⟧ 쪽 정리(AI, 그림 기준): 위조 근거"));
+  await s.put(Q, `${DOC}/masked/segments/0000.json`, JSON.stringify({ text: seg.text, page_markdown: "## 01 층별 복합기 정보\n\n4층 평면도 표" }));
+  r.documents.set(DOC, { doc_id: DOC, version: 1, title: "과천 매뉴얼", document_type: "MANUAL", authority_status: "UNVERIFIED", dept: "경영지원", acl_groups: ["ALL"] });
+  r.approvals.set("apr_rt", { approval_id: "apr_rt", doc_id: DOC, version: 1, content_hash: sha256(original), status: "APPROVED" });
+  const out = await promoteStep({ ...input, workflow_id: "wf_rt", approval_id: "apr_rt", published_bucket: P }, s, r);
+  const content = (await s.get(P, out.output_key!)).toString();
+  const meta = JSON.parse((await s.get(P, `${out.output_key!}.metadata.json`)).toString()).metadataAttributes;
+  const cs = chunkDocument(content, meta);
+  const body = cs.find((c) => !c.metadata.has_figure)!;
+  assert.equal(body.metadata.page_context, "01 층별 복합기 정보 › 그림 1: 4층");
+  const figs = cs.filter((c) => c.metadata.evidence_kind === "FIGURE");
+  assert.equal(figs.length, 1); // 진짜 정리본 하나만 (위조 줄은 본문 텍스트로 남음)
+  assert.ok(!figs[0]!.metadata.original_text.includes("위조"));
 });
