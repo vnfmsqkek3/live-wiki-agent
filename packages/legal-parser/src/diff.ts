@@ -15,6 +15,8 @@ export interface ProvisionChange {
 export const relPath = (id: string) => id.slice(id.indexOf("/") + 1);
 const rel = relPath;
 const NUM = /\d+(?:[.,]\d+)?\s*(?:억|만|천)?\s*(?:원|%|퍼센트|일|개월|년|회|배)?/gu;
+// 띄어쓰기만 다른 조문은 개정이 아님 (prod 11/18: PDF·OCR 추출에서 "업종 집중도"↔"업종집중도"가 바뀌어 영향 문서로 잘못 잡힘)
+const same = (a = "", b = "") => a.replace(/\s+/gu, "") === b.replace(/\s+/gu, "");
 const nums = (s: string) => [...s.matchAll(NUM)].map((m) => m[0].replace(/\s+/gu, "")).filter((x) => /\D/u.test(x));
 
 export function diffLaws(oldLaw: ParsedLaw, newLaw: ParsedLaw): ProvisionChange[] {
@@ -26,7 +28,7 @@ export function diffLaws(oldLaw: ParsedLaw, newLaw: ParsedLaw): ProvisionChange[
     const base = { path, old_id: op?.provision_id ?? null, new_id: np.provision_id, old_text: op?.normalized_text ?? "", new_text: np.normalized_text };
     if (!op) out.push({ ...base, kind: "ADDED", numbers_changed: { old: [], new: nums(np.normalized_text) } });
     else if (np.status === "DELETED" && op.status !== "DELETED") out.push({ ...base, kind: "DELETED", numbers_changed: { old: nums(op.normalized_text), new: [] } });
-    else if (op.normalized_text !== np.normalized_text || op.title !== np.title) {
+    else if (!same(op.normalized_text, np.normalized_text) || !same(op.title, np.title)) {
       out.push({ ...base, kind: "MODIFIED", numbers_changed: { old: nums(op.normalized_text), new: nums(np.normalized_text) } });
     }
   }
