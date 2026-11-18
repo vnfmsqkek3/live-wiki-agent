@@ -93,6 +93,11 @@ test('TrustGate + 노하우 검증: KNOWHOW 충돌이면 REVIEW_REQUIRED·결과
   const d = (await k.store.getDoc(k.doc.doc_id))!;
   assert.equal(d.knowhow_validation?.verdict, 'CONFLICT');
   assert.equal(d.freshness, 'REVIEW_REQUIRED');
+
+  // 고친 뒤 재검사: 충돌이 없으면 첫 검사의 REVIEW_REQUIRED 를 CURRENT 로 되돌린다 (사용자 신고 11/19)
+  const fixed = { ...deps, knowhow: { ...deps.knowhow, judge: async () => ({ model: 'm', items: [{ statement: 's', provision_id: clause.provision_id, relation: 'SUPPORTS' as const, reason: 'r', quote: '현장 실사를 반드시 실시하여야 한다' }] }) } };
+  await makeTrustGate(fixed)(k.input);
+  assert.equal((await k.store.getDoc(k.doc.doc_id))!.freshness, 'CURRENT');
 });
 
 // ---- 단계 6·7·8 ----

@@ -396,7 +396,8 @@ export function makeTrustGate(deps: LambdaDeps) {
         const k = await validateKnowhow(await deps.knowhow.maskedText(d), deps.knowhow);
         findings = [...findings, ...k.findings];
         if (k.gate === 'REVIEW_REQUIRED') result = 'REVIEW_REQUIRED';
-        extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
+        // 재검사에서 충돌이 사라지면 CURRENT로 되돌린다 (사용자 신고 11/19: 첫 검사의 충돌 표시가 고친 뒤 게시까지 남아 '재검토 필요')
+        extra = { knowhow_validation: k.validation, freshness: k.freshness ?? 'CURRENT' };
       }
     }
     // 위키 수정본: 이전 버전과 비교 — 바뀐 문장에 대한 규정 판정만 남기고, 지운 중요 문장은 '고칠 것' (사용자 결정 11/17 규칙 2)
