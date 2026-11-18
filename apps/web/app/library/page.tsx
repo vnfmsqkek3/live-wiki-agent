@@ -329,7 +329,7 @@ function Versions({ id }: { id: string }) {
 
 /** 원본 파일 내려받기 (사용자 요청 11/17). 60초짜리 주소를 받아 바로 저장. 주소는 화면·저장소에 남기지 않는다 */
 // 위키에서 고친 문서: 수정본(글, .md) · 처음 올린 원본 파일 · 정리본 PDF 저장(인쇄) 세 가지 (사용자 요청 11/18: 원본 형식 그대로 고쳐 받기는 PDF 특성상 불가 → 정리본 PDF)
-function Download({ id, edited, hasOriginal }: { id: string; edited?: boolean; hasOriginal?: boolean }) {
+function Download({ id, edited, hasOriginal, onPrint }: { id: string; edited?: boolean; hasOriginal?: boolean; onPrint?: () => void }) {
   const [msg, setMsg] = useState('');
   async function go(kind?: 'original') {
     setMsg('');
@@ -344,7 +344,7 @@ function Download({ id, edited, hasOriginal }: { id: string; edited?: boolean; h
   return <>
     <button type="button" className="btn" onClick={() => go()} title="위키에서 고친 글(마크다운, 개인정보 가림)">수정본 다운로드(.md)</button>
     {hasOriginal && <button type="button" className="btn" onClick={() => go('original')} title="위키에서 고치기 전 처음 올린 파일">처음 올린 원본</button>}
-    <button type="button" className="btn" onClick={() => window.print()} title="정리본을 PDF 로 저장(인쇄 창에서 'PDF로 저장')">정리본 PDF 저장</button>
+    <button type="button" className="btn" onClick={() => (onPrint ? onPrint() : window.print())} title="정리본을 PDF 로 저장(인쇄 창에서 'PDF로 저장')">정리본 PDF 저장</button>
     {msg && <p className="note" role="status">{msg}</p>}
   </>;
 }
@@ -468,6 +468,15 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const [p, setP] = useState(() => (typeof window === 'undefined' ? 0 : Math.max(0, (Number(new URLSearchParams(window.location.search).get('page')) || 1) - 1)));
   const [active, setActive] = useState(0);
   const [zoomUrl, setZoomUrl] = useState<string | null>(null); // 정리본 인라인 그림 크게 보기
+  // 정리본 PDF 저장: 정리본 전체(모든 쪽)만 인쇄용으로 그린 뒤 인쇄 창을 연다 (사용자 지적 11/18: 판단 필요·참고 카드까지 찍혔다). 훅은 이른 return 앞에 둔다
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!printing) return;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done, { once: true });
+    const t = setTimeout(() => window.print(), 300); // 그림이 들어올 시간
+    return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
+  }, [printing]);
   const [images, setImages] = useState(false); // 필터링된 원문: 쪽 이미지(개인정보만 가림). 탭은 정리본·필터링된 원문 두 개 (사용자 결정 11/18)
   const [editing, setEditing] = useState<string | false>(false); // 위키 수정 (규칙 1). 문자열이면 그 본문으로 연다
   const [fixOpen, setFixOpen] = useState(false);
@@ -533,7 +542,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <header className="document-header">
       <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
-      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}
+      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={() => setPrinting(true)} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
       </header>
       {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}
 

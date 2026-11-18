@@ -932,7 +932,12 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 /* 수정 요청 (11/18) */
 .change-req { display: grid; gap: 6px; margin-top: 8px; max-width: 640px; }
 /* 정리본 PDF 저장: 인쇄할 때 탐색·버튼·바닥글을 숨긴다 (11/18) */
+.print-only { display: none; }
+/* 정리본 PDF 저장: 인쇄용 정리본(.print-only)만 찍는다 (11/18) */
 @media print {
-  nav, header.top, .tabs, .site-footer, .no-print, .actions, .arrow-pager, details.more, aside { display: none !important; }
+  body:has(.print-only) * { visibility: hidden; }
+  body:has(.print-only) .print-only, body:has(.print-only) .print-only * { visibility: visible; }
+  .print-only { display: block; position: absolute; inset: 0 auto auto 0; width: 100%; background: #fff; color: #000; }
+  .print-only .inline-fig img { max-width: 100%; break-inside: avoid; }
   body { background: #fff; }
 }

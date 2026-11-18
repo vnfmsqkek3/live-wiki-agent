@@ -211,6 +211,8 @@ export function createApp(deps: Deps) {
     else if (t.lifecycle === 'PUBLISHED') doc = {
       ...fresh, doc_id: newId.doc(), version: 1, owner: a.sub, dept: a.dept ?? t.dept, acl_groups: t.acl_groups, title: t.title, title_source: 'USER',
       filename: `${t.title.slice(0, 80)}.md`, authority_status: 'UNVERIFIED', freshness: 'CURRENT', previous_doc_id: t.doc_id, created_at: now,
+      // 새 버전도 이전 버전에서 답한 확인 필요·결정을 잇는다 (사용자 지적 11/18: 수정 요청 반영 뒤 이미 답한 질문이 다시 나왔다)
+      review_carry: makeCarry(await editText(t.doc_id), t.findings),
       ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
     };
     else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
