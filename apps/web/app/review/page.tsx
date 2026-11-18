@@ -122,7 +122,9 @@ function ReviewView() {
       {r.lifecycle === 'IN_REVIEW' && (
         <section aria-labelledby="fix-h" className="fix-list">
           <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : '고칠 것이 없습니다'}</h2>
-          {!open.length && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
+          {/* 확인할 내용이 남아 있으면 '검토할 게 없다'로 읽히지 않게 (11/18 사용자 보고) */}
+          {!open.length && uncertain > 0 && <p className="notice">규정과 어긋난 문장은 없습니다. 다만 개인정보 가림·글자 인식 등 <strong>확인할 내용 {uncertain}건</strong>이 있습니다. 아래 '자세히: 검사별 결과'에서 확인해 주세요.</p>}
+          {!open.length && uncertain === 0 && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
           <ol className="fixes">{(r.fixes ?? []).map((f) => (
             <li key={f.finding_id} className={`fix${f.acknowledged ? ' done' : ''}`}>
               <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && ' · 의도한 삭제로 확인함'}</p>
