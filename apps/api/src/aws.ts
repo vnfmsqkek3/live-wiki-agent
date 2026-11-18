@@ -261,3 +261,14 @@ export async function purgePrefix(prefix: string): Promise<number> {
   } while (KeyMarker);
   return n;
 }
+
+/** 위키 수정본 저장 (11/18 dev 시험 버그): 검토 중 문서를 그 자리에서 고치면 original.md 를 새로 쓰는데
+ *  원래 올린 original.docx 등이 남아 '원본 2개'로 글자 추출(legal-etl text-layer)이 실패했다. 새 원본을 쓴 뒤 다른 original.* 는 지운다.
+ *  권한: API Task Role 에 quarantine 버킷 {doc}/original* 의 ListBucket·DeleteObject 필요 (yoyo0704) */
+export async function putOriginalOnly(key: string, body: Uint8Array, contentType: string) {
+  await putBytes(key, body, contentType);
+  const prefix = key.replace(/original\.[^/]+$/, 'original');
+  const { ListObjectsV2Command, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
+  const r = await s3().send(new ListObjectsV2Command({ Bucket: env('BUCKET_QUARANTINE'), Prefix: prefix }));
+  for (const o of r.Contents ?? []) if (o.Key && o.Key !== key) await s3().send(new DeleteObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: o.Key }));
+}

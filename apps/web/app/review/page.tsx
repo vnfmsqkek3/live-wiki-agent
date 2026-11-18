@@ -47,7 +47,7 @@ function ReviewView() {
         // 검사 중이면 진행률을 보다가 끝나면 다시 읽는다 (규칙 2: AI 가 검사한다)
         // 새로고침(location.reload) 대신 검토 정보를 다시 읽는다: 진행률이 '끝남'이어도 문서가 아직 검사 중이면
         // 새로고침이 무한 반복돼 요청이 폭증했다(11/18 dev: WAF 차단·빈 화면). 바뀐 게 없으면 간격을 2.5→10초로 늘린다
-        if (x.lifecycle === 'QUARANTINED') {
+        if (x.lifecycle === 'QUARANTINED' && !x.workflow_failure) { // 멈춘 실행은 기다리지 않는다
           let wait = 2500, last = -1, n = 0;
           const tick = () => api<{ total: number; done: number; finished: boolean; halted: boolean }>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
             .then(async (p) => {
@@ -128,7 +128,8 @@ function ReviewView() {
       </section>}
       {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
-      {r.lifecycle === 'QUARANTINED' && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
+      {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); location.reload(); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
+      {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} onCancel={() => setEditInit(null)} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
