@@ -340,7 +340,10 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     }
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
     const top = kept.filter((r) => !r.weak).slice(0, k);
-    const related = kept.filter((r) => r.weak).slice(0, k);
+    // 관련 가능 문서는 질의 핵심어가 조각(제목·본문·분류)에 하나라도 있고, 인용 가능한 조각일 때만 (그림 설명만으로는 만들지 않음).
+    // 점수 하한을 올리지 않는 이유: 11/17 실측 관련 질의 1위 0.13~0.26 → 0.20이면 진짜 관련 문서도 숨음 (yoyo0704 실측 11/18, 과천 그림 설명이 "개인정보"에 걸림)
+    const terms = queryTerms(`${rw?.core ?? ""} ${cleanQuery(q.text)}`);
+    const related = kept.filter((r) => r.weak && r.quotable && hasTerm(`${r.title} ${r.snippet} ${r.category_path ?? ""} ${r.path_label}`, terms)).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
     const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
     return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
@@ -432,3 +435,9 @@ export function docPages(content: string, fromPage = 1) {
   }
   return { page_count: texts.length, pages, ...(next && next <= texts.length ? { next_page: next } : {}) };
 }
+
+/** 질의 핵심어 (요청 어미·군더더기 제외, 2자 이상). 관련 가능 문서 거르기용 */
+const STOP_TERMS = new Set(["관련", "관련된", "문서", "문서들", "문서를", "자료", "자료를", "내용을", "규정", "내용", "방법", "어떻게", "무엇", "찾아줘", "알려줘", "있는", "대한", "대해"]);
+export const queryTerms = (q: string) => [...new Set(q.split(/[^0-9A-Za-z가-힣]+/u).filter((w) => w.length >= 2 && !STOP_TERMS.has(w)))];
+/** 핵심어가 하나라도 있으면 (끝 조사 한 글자 빠진 형태도: "개인정보가" → "개인정보"). 핵심어가 없으면 거르지 않음 */
+export const hasTerm = (hay: string, terms: string[]) => !terms.length || terms.some((t) => hay.includes(t) || (t.length >= 3 && hay.includes(t.slice(0, -1))));

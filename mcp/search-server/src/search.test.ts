@@ -368,3 +368,12 @@ test("docPages: 상한을 넘으면 next_page, 한 쪽이 상한보다 길면 �
   assert.equal(r.pages.length, 1); assert.equal(r.pages[0]!.cut, true); assert.equal(r.next_page, 2);
   assert.equal(docPages([big, "\f", "둘째 쪽 본문입니다"].join("\n"), 2).pages[0]!.markdown, "둘째 쪽 본문입니다");
 });
+
+test("related: 질의 핵심어가 없는 조각·그림 설명 조각은 '관련 가능 문서'로 내지 않음 (yoyo0704 실측 11/18)", async () => {
+  const { queryTerms, hasTerm } = await import("./search.ts");
+  const terms = queryTerms("개인정보 관련된 문서를 찾아줘 개인정보");
+  assert.deepEqual(terms, ["개인정보"]);
+  assert.equal(hasTerm("브라더 MFC-L5700DN 다운로드 페이지 전체 드라이버", ["개인정보"]), false);
+  assert.equal(hasTerm("개인정보 수집·이용 업무 가이드", ["개인정보가"]), true);
+  assert.equal(hasTerm("아무 글", []), true);
+});
