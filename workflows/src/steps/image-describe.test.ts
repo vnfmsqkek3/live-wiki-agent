@@ -1,5 +1,17 @@
 import { describe, expect, it } from "vitest";
-import { makeHandler, normBox, sanitize, snapBox, type Mask } from "./image-describe.js";
+import { makeHandler, normBox, pickBoxes, sanitize, snapBox, type Mask } from "./image-describe.js";
+
+describe("pickBoxes", () => {
+  it("pairs by vertical order when counts match but boxes do not overlap (portrait page)", () => {
+    expect(pickBoxes([[66, 300, 934, 357]], [[98, 461, 907, 525]])).toEqual([{ box: [98, 461, 907, 525], snapped: true }]);
+  });
+  it("skips a crop when OCR boxes exist but nothing pairs", () => {
+    expect(pickBoxes([[66, 300, 934, 357], [10, 10, 50, 50]], [[98, 461, 907, 525]])).toEqual([undefined, undefined]);
+  });
+  it("uses the model box only when OCR found no figures", () => {
+    expect(pickBoxes([[10, 10, 60, 60]], [])).toEqual([{ box: [10, 10, 60, 60], snapped: false }]);
+  });
+});
 
 describe("snapBox", () => {
   it("uses the overlapping OCR figure box, keeps the model box otherwise", () => {

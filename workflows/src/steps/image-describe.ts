@@ -97,6 +97,21 @@ export function snapBox(box: number[], ocr: number[][] = []): { box: number[]; s
   return best ? { box: best, snapped: true } : { box, snapped: false };
 }
 
+/** 그림마다 잘라낼 상자 정하기 (11/18 실측: 세로 A4 쪽에서 모델 상자가 세로로 크게 빗나가 엉뚱한 표를 잘라냄).
+ *  ① OCR 그림 상자와 IoU ≥ 0.3 → 그 상자 ② 안 겹쳐도 그림 수 = OCR 상자 수면 위→아래 순서로 짝지음
+ *  ③ OCR 상자가 있는데 짝이 없으면 자르지 않음(엉뚱한 그림보다 없는 게 낫다) ④ OCR 상자가 아예 없으면 모델 상자(여백 넓게) */
+export function pickBoxes(model: (number[] | undefined)[], ocr: number[][] = []): ({ box: number[]; snapped: boolean } | undefined)[] {
+  const out = model.map((b) => (b ? snapBox(b, ocr) : undefined)).map((x) => (x?.snapped ? x : undefined));
+  if (!ocr.length) return model.map((b) => (b ? { box: b, snapped: false } : undefined));
+  if (model.length === ocr.length && out.some((x) => !x)) {
+    const byY = (a: number[], b: number[]) => a[1]! - b[1]!;
+    const ocrSorted = [...ocr].sort(byY);
+    const order = model.map((b, i) => ({ i, y: b?.[1] ?? i })).sort((a, b) => a.y - b.y);
+    order.forEach(({ i }, rank) => { if (!out[i]) out[i] = { box: ocrSorted[rank]!, snapped: true }; });
+  }
+  return out;
+}
+
 /** 그림 잘라내기 (정리본에 그림을 바로 보이게, 사용자 요청 11/18). 입력은 PII 를 가린 쪽 PNG. 상자(0~1000)를 pad 만큼 넓힌다 */
 export async function cropFigure(png: Uint8Array, box: number[], pad = 30): Promise<Uint8Array> {
   const { createCanvas, loadImage } = await import("@napi-rs/canvas");
@@ -151,10 +166,12 @@ export function makeHandler(d: Deps) {
         fix_hint: "그림 속 주민등록번호·카드번호 등 개인 식별 정보를 지우거나 가린 뒤 다시 올리는 것을 권장합니다.",
       }));
       // 그림별 잘라낸 PNG: masked/figures/{nnnn}_{k}.png (k 는 figures 순서 1부터 = 정리본 "(그림 k)")
+      const boxes = pickBoxes(figures.map((f) => f.bbox), seg.figure_boxes);
       for (const [i, f] of figures.entries()) {
-        if (!f.bbox) continue;
+        const picked = boxes[i];
+        if (!picked) continue;
         const key = `${e.doc_id}/masked/figures/${nnnn(page_index)}_${i + 1}.png`;
-        const { box, snapped } = snapBox(f.bbox, seg.figure_boxes);
+        const { box, snapped } = picked;
         try { await d.putPng(key, await d.crop(png, box, snapped ? 8 : 30)); f.bbox = box; f.image_key = key; } catch (err) { console.log(JSON.stringify({ msg: "figure crop failed", page_index, i, err: (err as Error).name })); }
       }
       const pm = page_markdown ? { page_markdown } : {};
