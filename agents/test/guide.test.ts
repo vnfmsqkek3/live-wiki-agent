@@ -176,3 +176,11 @@ test('섹션 형식: 종류×갈래 조합마다 2차 검색, 섹션 단계 출�
   assert.equal(r.steps.length, 2);
   assert.equal(r.dropped_steps, 1);
 });
+
+test('불확실 안내의 근거 ID 는 문서 이름으로 바꾼다 (11/18 dev 시험)', async () => {
+  const { guide } = await import('../src/guide.ts');
+  const E = { doc_id: 'doc_K', provision_id: 'doc_K#s2', title: '서류 체크리스트', snippet: 's', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const };
+  const r = await guide('q', { model: 'm', search: async () => [E], draft: async () => ({ steps: [{ text: 'a', sources: ['doc_K#s2'] }], uncertainty: '노하우(doc_K#s2) "…"는 규정과 상충 — 규정을 따름.' }) });
+  assert.match(r.uncertainty, /^「서류 체크리스트」 "…"는 규정과 상충/);
+  assert.doesNotMatch(r.uncertainty, /doc_K/);
+});

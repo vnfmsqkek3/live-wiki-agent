@@ -236,6 +236,9 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   }).filter((sec) => sec.steps.length || sec.note);
   if (sections.length) steps.push(...sections.flatMap((sec) => sec.steps));
   const usedFigure = steps.some((st) => st.sources.some((e) => e.figure));
+  // 불확실 안내의 근거 ID(doc_…#s2·조문 ID)는 문서 이름으로 (11/18 dev 시험: 내부 ID 가 그대로 보임)
+  const named = (t: string) => pool.reduce((x, e) => [evidenceKey(e), e.doc_id].reduce((y, k) => (k ? y.split(k).join(`「${e.title}」`) : y), x), t).replace(/「([^」]+)」\s*\(\s*「\1」\s*\)/g, '「$1」').replace(/(?:노하우|매뉴얼|규정)\s*\(\s*(「[^」]+」)\s*\)/g, '$1');
+  draft.uncertainty = named(draft.uncertainty ?? '');
   const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
   return { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)), tool_calls: draft.tool_calls ?? [] };
