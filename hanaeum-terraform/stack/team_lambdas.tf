@@ -71,12 +71,31 @@ locals {
     # 모델 호출 Role (masked/ 만 읽음, 원본 등급 키는 버킷 정책이 거부)
     classify = {
       zip = local.dz, handler = "handlers.classify", memory = 512, timeout = 120, model_caller = true
-      env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"] })
+      # MODEL_EMBED: 업무 분류 자동화(11/17) 칸 후보 찾기 임베딩
+      env = merge(local.d_env, { MODEL_HAIKU = var.models["MODEL_HAIKU"], MODEL_SONNET = var.models["MODEL_SONNET"], MODEL_EMBED = var.models["MODEL_EMBED"] })
       statements = concat(local.d_statements, [
         { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn },
         # 쪽 본문 AI 재구성 저장 (dhxorb96 3b5539c)
         { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${local.b["quarantine"].arn}/*/masked/structured/*" },
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ])
+    }
+    # 참조 확인 (사용자 결정 11/18, 계약 6.4): 주소 없는 링크·모순 → AgentCore Browser 공개 웹 검색, 게시 비차단. 검색어 1개 ~15초 × 최대 5
+    reference-check = {
+      zip = local.dz, handler = "handlers.referenceCheck", memory = 512, timeout = 400, model_caller = true
+      # MCP_SEARCH_FN: 확인 필요(6.5) 사내 위키 검색 = mcp-search Lambda 직접 Invoke (let522mj 11/18, 검색 권한은 mcp-search 쪽에)
+      env = merge(local.d_env, { REFERENCE_CHECK = "on", MODEL_HAIKU = var.models["MODEL_HAIKU"], MCP_SEARCH_FN = "${local.n.prefix}-lambda-mcp-search${local.n.suffix}" })
+      statements = concat(local.d_statements, [
+        { Effect = "Allow", Action = ["s3:ListBucket"], Resource = local.b["quarantine"].arn, Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*"] } } },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${local.b["quarantine"].arn}/*/masked/segments/*", "${local.b["quarantine"].arn}/*/masked/structured/*"] },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+        {
+          Effect   = "Allow"
+          Action   = ["bedrock-agentcore:StartBrowserSession", "bedrock-agentcore:StopBrowserSession", "bedrock-agentcore:GetBrowserSession", "bedrock-agentcore:ConnectBrowserAutomationStream"]
+          Resource = "arn:aws:bedrock-agentcore:${var.region}:aws:browser/aws.browser.v1"
+        },
+        # 사내 위키 검색 = mcp-search Invoke
+        { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:${var.region}:${local.acct}:function:${local.n.prefix}-lambda-mcp-search${local.n.suffix}" },
       ])
     }
     # 노하우 검증(Sonnet 판정) → 모델 호출 Role (dhxorb96 11/16). quarantine 은 masked/ 만 읽음 (원본 등급은 버킷 정책이 거부)
@@ -98,9 +117,21 @@ locals {
     }
     wait-for-approval = { zip = local.dz, handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
     # 규정 개정판 게시 시 그 규정을 근거로 쓴 게시 노하우를 REVIEW_REQUIRED 로 (Documents Scan, dhxorb96 6a3f40a)
+    # + 규정 게시 시 근거 없음(KNOWHOW_NO_BASIS) 노하우를 새 규정과 다시 비교 (dhxorb96 139ff2a, trust-gate 와 같은 env·권한, 노하우 1건 수십 초)
     finalize = {
-      zip        = local.dz, handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 60, model_caller = false
-      statements = concat(local.d_statements, local.purge, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
+      zip = local.dz, handler = "handlers.finalize", memory = 512, timeout = 300, model_caller = false
+      env = merge(local.d_env, {
+        TABLE_REGULATIONS = local.t["regulations"].name, KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"]
+        MODEL_SONNET      = var.models["MODEL_SONNET"], MODEL_HAIKU = var.models["MODEL_HAIKU"]
+      })
+      statements = concat(local.d_statements, local.purge, [
+        { Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:Query"], Resource = local.t["regulations"].arn },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
+        { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
+        { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ])
     }
     # 일 1회: 시행일이 된 개정판의 근거 노하우를 재검토 대상으로 (EventBridge Scheduler, freshness.tf)
     freshness-sweep = {
@@ -138,7 +169,7 @@ locals {
     # interceptor: JWT 재검증 후 tools/call 인자에 __actor 주입. JWKS 공개 URL 조회(VPC 밖)
     interceptor = {
       zip = "${local.dp}/interceptor.zip", handler = "index.handler", memory = 256, timeout = 10, model_caller = false
-      env = { COGNITO_USER_POOL_ID = module.cognito.user_pool_id, COGNITO_CLIENT_ID = module.cognito.client_id }, statements = []
+      env = { COGNITO_USER_POOL_ID = module.cognito.user_pool_id, COGNITO_CLIENT_ID = "${module.cognito.client_id},${module.cognito.mcp_external_client_id}" }, statements = [] # 외부 MCP client_credentials (11/18)
     }
     mcp-privacy = { zip = "${local.dp}/mcp_privacy.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = false, env = {}, statements = [] }
     mcp-approval = {
@@ -151,7 +182,7 @@ locals {
     # ---- yoyo0704 (workflows.zip) ----
     # 문서 속 사진·캡처·도표 묘사·의도 (13항 13). model-caller: PiiScan 이 칠한 masked/pages 만 읽는다
     image-describe = {
-      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/image-describe.handler", memory = 512, timeout = 300, model_caller = true
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "steps/image-describe.handler", memory = 512, timeout = 900, model_caller = true
       env = {
         BUCKET_QUARANTINE = local.b["quarantine"].name, TABLE_DOCUMENTS = local.t["documents"].name, MODEL_SONNET = var.models["MODEL_SONNET"]
         GUARDRAIL_ID      = aws_bedrock_guardrail.pii.guardrail_id, GUARDRAIL_VERSION = aws_bedrock_guardrail_version.pii.version
@@ -173,6 +204,14 @@ locals {
         { Effect = "Allow", Action = ["dynamodb:GetItem"], Resource = local.t["documents"].arn },
         { Effect = "Allow", Action = ["s3:ListBucketVersions", "s3:ListBucket"], Resource = local.b["published"].arn },
         { Effect = "Allow", Action = ["s3:DeleteObject", "s3:DeleteObjectVersion"], Resource = ["${local.b["published"].arn}/legal/*", "${local.b["published"].arn}/knowledge/*"] },
+      ])
+    }
+    # 업무 분류 주기 정리 (사용자 결정 11/17 A: 완전 자동). 임베딩 채우기·유사 칸 병합·빈 AI 칸 정리, 매일 03:00 KST
+    category-sweep = {
+      zip = "${local.yoyo_s3.prefix}/workflows.zip", handler = "jobs/category-sweep.handler", memory = 256, timeout = 300, model_caller = true
+      env = { MODEL_EMBED = var.models["MODEL_EMBED"] }
+      statements = concat(module.aurora.app_statements, [
+        { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:${var.region}::foundation-model/${var.models["MODEL_EMBED"]}" },
       ])
     }
     # 쪽별 요약·핵심어·조문 표기 (사용자 결정 11/17). model-caller: masked/segments 만 읽고 masked/summaries 작성
@@ -239,7 +278,7 @@ locals {
     mcp-search = {
       zip = "${local.lz}/mcp_search.zip", handler = "index.handler", memory = 512, timeout = 30, model_caller = true
       # MODEL_HAIKU: 검색 질의 재구성 (사용자 결정 11/17: 문장형 질의 → 핵심어·대체 질의, PII 마스킹 후)
-      env = { KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], MODEL_HAIKU = var.models["MODEL_HAIKU"], TABLE_DOCUMENTS = local.t["documents"].name, TABLE_REGULATIONS = local.t["regulations"].name }
+      env = { KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"], MODEL_HAIKU = var.models["MODEL_HAIKU"], TABLE_DOCUMENTS = local.t["documents"].name, TABLE_REGULATIONS = local.t["regulations"].name, BUCKET_PUBLISHED = local.b["published"].name }
       statements = [
         { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
         { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:Converse"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
@@ -247,6 +286,8 @@ locals {
         { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = "arn:aws:bedrock:${var.region}::foundation-model/${var.models["MODEL_RERANK"]}" },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:BatchGetItem"], Resource = local.t["documents"].arn },
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = local.t["regulations"].arn },
+        # get_wiki_document (외부 MCP, let522mj PR #45): 게시본 content.txt·sidecar 읽기
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${local.b["published"].arn}/legal/*", "${local.b["published"].arn}/knowledge/*"] },
       ]
     }
   }
@@ -301,7 +342,7 @@ locals {
   # 파이프라인 단계 키 → 팀 Lambda 키 (Gateway Tool 로 등록)
   step_fn = {
     file_structure_check = "file-structure-check", pii_scan = "pii-scan", injection_scan = "injection-scan", classify = "classify", trust_gate = "trust-gate", wait_for_approval = "wait-for-approval", finalize = "finalize"
-    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings", page_summarize = "page-summarize", purge_document = "purge-document"
+    text_layer_extract   = "text-layer-extract", segment_build = "segment-build", promote = "promote", kb_ingest = "kb-ingest", graph_upsert = "graph-upsert", image_describe = "image-describe", explain_findings = "explain-findings", page_summarize = "page-summarize", purge_document = "purge-document", reference_check = "reference-check"
   }
   team_steps = { for step, fn in local.step_fn : step => module.team[fn].arn if contains(var.team_lambdas, fn) }
 

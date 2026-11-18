@@ -25,13 +25,14 @@ function pdfBytes(withImage = false): Uint8Array {
 
 const input = { workflow_id: "wf_1", doc_id: "doc_1", version: 1, bucket: "q", prefix: "doc_1/", actor: { sub: "a", groups: ["AUTHOR"] } };
 
-function store(original: string, data: Uint8Array) {
+function store(original: string, data: Uint8Array, converted?: Uint8Array) {
   const puts = new Map<string, Uint8Array | string>();
   return {
     puts,
     deps: {
       findOriginal: async () => original,
       get: async () => data,
+      tryGet: async (_b: string, k: string) => (k.endsWith("/work/document.pdf") ? converted : undefined),
       put: async (_b: string, k: string, body: Uint8Array | string) => { puts.set(k, body); },
       openPdf,
     },
@@ -45,24 +46,31 @@ describe("needsOcr", () => {
 });
 
 describe("PageRender", () => {
-  it("renders only the page without text layer at 2000px", async () => {
+  it("renders ALL pages at 2000px, including the page with a text layer (사용자 결정 11/17: 전부 OCR)", async () => {
     const { puts, deps } = store("doc_1/original.pdf", pdfBytes());
     const out = await makeHandler(deps)(input);
     expect(out).toEqual({ status: "OK", output_key: "doc_1/work/pages/ocr_targets.json" });
     const t = JSON.parse(puts.get(out.output_key!) as string) as OcrTargets;
     expect(t.page_count).toBe(2);
-    expect(t.pages.map((p) => [p.page_index, p.reason, p.has_images])).toEqual([[1, "chars<50", false]]);
+    expect(t.pages.map((p) => [p.page_index, p.reason, p.has_images])).toEqual([[0, "all", false], [1, "all", false]]);
     expect(t.pages[0]!.width).toBe(2000);
     const png = puts.get("doc_1/work/pages/0001.png") as Uint8Array;
     expect([...png.slice(1, 4)]).toEqual([0x50, 0x4e, 0x47]); // "PNG"
-    expect(puts.has("doc_1/work/pages/0000.png")).toBe(false);
+    expect(puts.has("doc_1/work/pages/0000.png")).toBe(true);
   });
 
   it("also renders a text page that contains an image (photo/capture → OCR + ImageDescribe)", async () => {
     const { puts, deps } = store("doc_1/original.pdf", pdfBytes(true));
     const t = JSON.parse(puts.get((await makeHandler(deps)(input)).output_key!) as string) as OcrTargets;
-    expect(t.pages.map((p) => [p.page_index, p.reason, p.has_images])).toEqual([[0, "images", true], [1, "chars<50", false]]);
+    expect(t.pages.map((p) => [p.page_index, p.reason, p.has_images])).toEqual([[0, "all", true], [1, "all", false]]);
     expect(puts.has("doc_1/work/pages/0000.png")).toBe(true);
+  });
+
+  it("uses converted work/document.pdf when present (DOCX → PDF by ConvertToPdf)", async () => {
+    const { puts, deps } = store("doc_1/original.docx", new Uint8Array([0x50, 0x4b]), pdfBytes(true));
+    const t = JSON.parse(puts.get((await makeHandler(deps)(input)).output_key!) as string) as OcrTargets;
+    expect(t.page_count).toBe(2);
+    expect(t.pages.map((p) => [p.page_index, p.reason, p.has_images])).toEqual([[0, "all", true], [1, "all", false]]);
   });
 
   it("copies image original into work/pages (OCR role never reads original)", async () => {

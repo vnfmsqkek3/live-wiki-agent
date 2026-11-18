@@ -22,12 +22,12 @@ test('PII: 주민번호 체크섬 일치는 확실, 불일치는 불확실, 날�
   assert.deepEqual(s.map((x) => [x.type, x.certain]), [['RRN', true], ['RRN', false]]);
 });
 
-test('PII: 전화·이메일·카드(Luhn)·계좌 문맥 마스킹, 원문 미노출', async () => {
+test('PII: 카드(Luhn)·계좌 문맥 마스킹, 전화·이메일은 그대로 (사용자 결정 11/17 22시)', async () => {
   const text = '연락처 010-1234-5678, hong@hanbit.example, 카드 4111 1111 1111 1111, 계좌번호: 110-123-456789';
   const spans = detectPii(text);
-  assert.deepEqual(spans.map((x) => x.type), ['PHONE', 'EMAIL', 'CARD', 'ACCOUNT']);
+  assert.deepEqual(spans.map((x) => x.type), ['CARD', 'ACCOUNT']);
   const m = mask(text, spans);
-  assert.ok(!/\d{4}/.test(m), m);
+  assert.equal(m, '연락처 010-1234-5678, hong@hanbit.example, 카드 [카드번호], 계좌번호: [계좌번호]');
   const r = await piiScan([{ page: 1, text }]);
   assert.ok(r.findings!.every((f) => !f.message.includes('1234')));
   assert.equal(r.masked[0]!.text, m);
@@ -37,14 +37,17 @@ test('PII: 불확실 구간이 있으면 REVIEW_REQUIRED, Guardrail 추가 탐�
   assert.equal((await piiScan([{ page: 1, text: '참조 123-45-678901' }])).status, 'REVIEW_REQUIRED');
   const clean = await piiScan([{ page: 1, text: '제12조 담보평가는 감정평가서를 따른다.' }], async (t) => ({ text: t, detected: 0 }));
   assert.equal(clean.status, 'OK');
-  const g = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
+  const g = await piiScan([{ page: 1, text: '담당 김하나' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'NAME', match: '김하나' }] }));
   assert.equal(g.status, 'REVIEW_REQUIRED');
-  assert.equal(g.masked[0]!.text, '연락 1588-1111'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
+  assert.equal(g.masked[0]!.text, '담당 김하나'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
+  const ph = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
+  assert.equal(ph.status, 'OK'); // 전화·이메일·IP·사용자명은 확인 항목에서 제외
 });
 
 test('PII: 날짜(시행일)는 계좌로 오탐하지 않음', () => {
   assert.deepEqual(detectPii('시행일 2026-11-01, 개정 2025-01-01'), []);
-  assert.equal(detectPii('참조번호 2026-13-01')[0]?.type, 'ACCOUNT'); // 날짜가 아니면 불확실 계좌
+  assert.deepEqual(detectPii('참조번호 2026-13-01'), []); // N-2-2 모양은 날짜·버전으로 보고 계좌로 잡지 않음 (OCR 깨진 날짜, 11/17)
+  assert.equal(detectPii('참조번호 2026-130-01')[0]?.type, 'ACCOUNT'); // 그 밖의 형태는 불확실 계좌
 });
 
 test('Injection: A-001 유형 차단, 정상 규정 통과', () => {
@@ -213,4 +216,16 @@ test('AI 재구성 대상: 이미 마크다운인 쪽·짧은 쪽은 건너뜀',
   assert.equal(needsStructure('SYNTHETIC — x\n# 제목\n## 절차\n- 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘'), false);
   assert.equal(needsStructure('짧은 쪽'), false);
   assert.equal(needsStructure('1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다. 「개인정보 보호법」 제15조제1항: 개인정보처리자는'), true);
+});
+
+test('쪽 전체 맥락 재구성: 그림 줄(⟦그림 pN⟧)은 본문 대조에서 빼고, 그림 설명에서 온 문장·숫자는 허용, 지어낸 숫자는 거부', async () => {
+  const { faithful, splitPage, needsStructure } = await import('../src/steps/structure.ts');
+  const text = '드라이버 설치 방법\n다운로드 자료실에서 모델명을 입력하고 검색한다. [그림 1]\n⟦그림 p3⟧ 그림 1 속 글자: Myo1z1s Wiotaes11Prrt 2024-06-21';
+  assert.equal(splitPage(text).body.includes('Myo1z1s'), false);
+  const figures = [{ kind: 'screenshot', description: '모델명 검색창과 검색 버튼이 보이는 화면', overlay_text: 'SL-K3250NR' }];
+  assert.equal(needsStructure('짧은 쪽', figures), true); // 그림이 있으면 짧아도 맥락 정리
+  const good = '## 드라이버 설치 방법\n\n1. **다운로드 자료실**에서 모델명을 입력하고 검색한다.\n   - 모델명 검색창과 검색 버튼이 보이는 화면 (그림 1)';
+  assert.equal(faithful(text, good, figures).ok, true);
+  assert.equal(faithful(text, good + '\n- 버전 9.99 설치 (그림 1)', figures).ok, false); // 그림에도 없는 숫자
+  assert.equal(faithful(text, '## 드라이버 설치 방법', figures).ok, false); // 본문 문장 빠짐
 });

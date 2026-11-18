@@ -39,7 +39,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | 버킷 | 키 | 읽기 권한 |
 |---|---|---|
 | `hanaeum-mvp-s3-quarantine[-닉네임]` | `{doc_id}/original.{ext}` | 단계 Lambda (모델 호출 Role 제외) |
-| | `{doc_id}/work/{text_layer.json, pages/, ocr/, segments/}` | 동일 (원본 등급) |
+| | `{doc_id}/work/{document.pdf, text_layer.json, pages/, ocr/, segments/}` | 동일 (원본 등급). `document.pdf` = ConvertToPdf 결과 |
 | | `{doc_id}/masked/segments/{n}.json` | 모델 호출 Role 허용 |
 | | `{doc_id}/masked/summaries/{n}.json`, `{doc_id}/masked/summary.json` (PageSummarize, 쪽별 요약·메타데이터) | 모델 호출 Role·API |
 | `hanaeum-mvp-s3-published[-닉네임]` | `{legal\|knowledge}/{doc_id}/{file}` + `{file}.metadata.json` | KB 데이터 소스, search Tool |
@@ -97,10 +97,11 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | 단계 | 산출물 | 비고 |
 |---|---|---|
 | MalwareCheck | — | GuardDuty 태그 `GuardDutyMalwareScanStatus`. THREATS_FOUND→BLOCKED, UNSUPPORTED·FAILED→REVIEW_REQUIRED, 15분 무응답→예외 |
-| PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason,has_images}]}` | PDF 페이지 글자 수 < 50·깨진 문자 > 20%·그림 있음만 렌더링(가로 2000px). 이미지는 원본이 대상. DOCX·HWPX는 안에 든 그림을 쪽별로 이어 붙인 PNG(`reason:"embedded_images"`, 쪽 번호는 TextLayerExtract와 동일). 읽을 수 없는 그림 형식(EMF·WMF 등)은 Finding `FIGURE_FORMAT_UNSUPPORTED`(MEDIUM, 쪽 위치) |
+| ConvertToPdf | `{doc}/work/document.pdf` | 사용자 결정 11/17 "모든 형식을 PDF 로 변환한 뒤 전부 OCR". 컨테이너 Lambda(LibreOffice, `services/convert-pdf`). PDF 복사·PNG/JPG 1장=1쪽·DOCX LibreOffice·HWPX LibreOffice+H2Orestart(실패 시 산출물 없이 OK → 기존 XML 방식)·TXT/MD 변환 없음. DOCX 실패·0쪽 = BLOCKED(`CONVERT_FAILED`·`CONVERT_EMPTY`), 300쪽 초과 = REVIEW_REQUIRED. 매크로 실행·외부 링크 갱신 끔. 오케스트레이터 순서 file_structure_check → **convert_to_pdf** → text_layer_extract·page_render |
+| PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason,has_images}]}` | **`work/document.pdf`(없으면 원본 PDF)의 모든 쪽** 렌더링(가로 2000px, `reason:"all"`, 11/17 전부 OCR 결정). 이전 기준(글자 수 < 50·깨진 문자 > 20%·그림)은 쓰지 않음. 이미지는 원본이 대상. DOCX·HWPX는 안에 든 그림을 쪽별로 이어 붙인 PNG(`reason:"embedded_images"`, 쪽 번호는 TextLayerExtract와 동일). 읽을 수 없는 그림 형식(EMF·WMF 등)은 Finding `FIGURE_FORMAT_UNSUPPORTED`(MEDIUM, 쪽 위치) |
 | PageSummarize | `{doc}/masked/summaries/{nnnn}.json` `{doc_id, page_index, page, summary, keywords[≤8], clause_refs[], page_type, char_count, figure_count, segment_key, model, generated_at}`, `{doc}/masked/summary.json` `{doc_id, version, page_count, pages[]}` | 입력은 masked/segments(text + figures)만, MODEL_HAIKU. clause_refs는 본문에 실제로 있는 조문 표기만. 판정은 바꾸지 않음(OK). 오케스트레이터 순서 InjectionScan → PageSummarize → Classify (env `PAGE_SUMMARIZE=on`) |
 | PurgeDocument | — | 문서 삭제 흐름 전용(사용자 결정 11/17 B). Documents `lifecycle=DELETED` 일 때만, `published/{legal,knowledge}/{doc_id}/`·`quarantine/{doc_id}/` 모든 버전·삭제 마커 삭제. 아니면 예외 `NotDeleted` |
-| OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
+| OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존). **11/17 PP-StructureV3(표·레이아웃, 모든 업로드)**: 줄마다 레이아웃 `label`(doc_title·paragraph_title·text·table·figure 등)·표 안이면 `table_id`(`p{쪽}-t{n}`), `reading_order` 는 레이아웃 순서, 페이지 `tables:[{table_id,bbox,html}]`, `figures:[{label,bbox}]`(image·figure·chart·seal 영역 = Sonnet 비전 대상, 표·글자는 제외) 추가(없으면 이전과 같음) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
 
 ### 6.0 문서 삭제 흐름 (사용자 결정 11/17 B)
 
@@ -127,6 +128,54 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 - ConvertToPdf(yoyo0704, 11/17 신규): `{doc}/work/document.pdf`. TextLayerExtract는 이 파일이 있으면 그 쪽 수를 쓴다. 없으면(배포 전 호환) PDF는 쪽별 글자 수 판정, DOCX·HWPX는 XML 글자.
 - 단계 Lambda는 Terraform 변수 `step_functions = { malware_check = "<arn>", … }`로 연결한다. 비어 있으면 dev stub(`{status:"OK"}`). 단계 키: `workflows/src/asl.ts`.
 - `Finding = { finding_id, step, severity: LOW|MEDIUM|HIGH, code, message, evidence_ref }` (원문 PII를 message에 넣지 않음)
+
+### 6.2 위키 수정과 단순 승인 (사용자 결정 11/17 "규칙 3개")
+
+| 규칙 | 계약 |
+|---|---|
+| 1. 누구나 올리고 고친다 | 로그인 사용자 누구나 업로드·위키 수정. 수정 대상: 게시된 노하우·매뉴얼의 정리본 마크다운(규정은 공식 원본 대조라 수정 불가, 개정 원본 업로드만). 저장하면 새 버전(새 doc_id, `previous_doc_id`=원래 문서, `source=WIKI_EDIT`, 편집자 `owner`), 원문은 `{doc_id}/original.md`(Promote·승인 해시가 이 바이트로 대조). 원본 파일은 이전 버전 근거로 남음 |
+| 2. AI 가 검사하고, 문제는 올린 사람이 고친다 | 수정본은 ConvertToPdf·PageRender·OCR 만 건너뛰고 TextLayerExtract·SegmentBuild 는 그대로(MD 는 글자 그대로, Promote 가 text_layer·segments 일치를 확인), 이어서 PII → Injection → 분류 → TrustGate(노하우 검증·주장 저장). 추가로 **수정분 검수**: 이전 버전과 문장 비교 → 바뀐 문장만 조문 대조·게시 주장(`claims`)과 충돌·중요 문장(한도·승인권자·금지) 삭제 감지. 문제는 올린 사람 화면에 "고칠 것 n건"(AI 수정 제안 '적용' 버튼). 남아 있으면 게시 요청 버튼 잠김 |
+| 3. 승인자는 버튼 하나 | AI 검사를 통과한 것만 승인 대기. 승인 화면 = AI 요약 한 줄 + 바뀐 부분(수정본) + 승인·반려. 상세 검사 결과는 '자세히' 안. 승인 목록은 대기 순. 자기 승인 금지·승인은 버전·해시에 묶음(7.1) 유지. 승인 시 이전 버전 `SUPERSEDED` |
+| 관리자 자기 승인 (11/18) | 관리자(PLATFORM_OPERATOR)가 올린 문서는 관리자 본인이 승인 가능(MVP 한정). approvals.self_approved=true, 감사 SELF_APPROVAL. 그 밖의 결재자는 자기 승인 금지 유지. DB 제약 008 |
+
+없애는 것: 역할별 수정 권한 구분, 작성자 검토·승인 검토 이중 화면, 검토 화면의 검사별 섹션 나열(→ '자세히').
+
+### 6.3 그림 쪽 정리본 page_markdown (사용자 결정 11/17 "A: megazone-idp 방식")
+
+| 항목 | 계약 |
+|---|---|
+| 생성 (ImageDescribe, yoyo0704) | 그림 있는 쪽(masked/pages 있는 쪽)마다 마스킹 쪽 이미지 + OCR 글자(참고)를 Sonnet 에 넣어 쪽 전체 마크다운. 이미지가 정답, OCR 은 참고. 절차는 번호 단계, UI 이름 굵게, 그림 근거 문장 끝 `_(그림 n)_`(n = figures 순서). PII 재마스킹, 최대 6000자 |
+| 저장 | `masked/figures/{nnnn}.json`·`masked/segments/{nnnn}.json` 의 `page_markdown` (그림 없는 쪽은 없음) |
+| 사용 (Classify, dhxorb96) | 있으면 그 쪽 정리본으로 그대로(모델 재호출·원문 대조 없음). 화면 표시 "AI 정리(그림 기준)" |
+| 인용 (11/18 결정) | **매뉴얼·노하우**는 VISION 정리본을 "그림 기준 근거"로 인용 허용(색인 quotable=true, evidence_kind FIGURE, 출처 "(그림 기준 · N쪽)", 인용 검증은 정리본 원문과 대조). **규정(REGULATION)**·조문 인용·주장 대조는 OCR 본문만. 그림 속 OCR 글자 줄은 계속 인용 불가 |
+| 검사 | InjectionScan 이 page_markdown 도 검사 |
+| 바뀌지 않는 것 | 조문 인용·PII 검사·주장 대조는 OCR `text` 기준 |
+
+### 6.4 참조 확인 (ReferenceCheck, 사용자 결정 11/18)
+
+| 항목 | 계약 |
+|---|---|
+| 목적 | 문서가 가리키는 대상(링크·사이트·다운로드·프로그램·버전·모델명)이 문서 안에 없거나 서로 맞지 않는 것을 찾아, 공개 웹에서 확인한 주소·정보를 "확인할 것" 으로 제안. 문서 유형 무관 |
+| 위치 | Classify → ReferenceCheck → TrustGate (runtime env REFERENCE_CHECK=on). Lambda `reference-check`(handlers.referenceCheck, 300초), Gateway Tool `reference-check___reference_check`. 게시를 막지 않음. 실패해도 파이프라인 계속 |
+| 1. 찾기 | Haiku 가 정리본(마스킹)에서 `{item, reason: MISSING_LINK·INCONSISTENT·MAY_BE_OUTDATED, query, page, official_site}` 목록 (최대 3건, 직렬 지연 제한) |
+| 2. 검색어 검사 | 규칙: IPv4·이메일·사내 도메인·`[개인정보]` 등 마스킹 자리·사람 이름 추정이 있으면 검색 안 함. 검색어는 120자 이하 |
+| 3. 브라우저 | AgentCore Browser(`aws.browser.v1`)로 Google 검색(결과 없으면 Bing; DuckDuckGo 는 사람 확인으로 제외) → 상위 결과 열어 제목·본문 일부로 일치 확인. 도메인 제한 없음(03 보완 통제). 단 블로그·카페·커뮤니티·Q&A·영상·위키 등 게시글은 제외(사용자 결정 11/18), 남은 결과가 없으면 "공식"·Bing 재검색, 그래도 없으면 제안 없음. 웹 글은 자료로만 |
+| 4. 결과 | finding `REFERENCE_SUGGESTION`(LOW — Severity·DB CHECK 에 INFO 없음, 게시 비차단): `{item, query, url, title, checked_at}`, 화면 "정리본에 넣기" → 위키 수정(6.2) 흐름. 근거 인용 불가 |
+| 감사 | `audit_events` action `WEB_SEARCH`(검색어·URL·결과 수, 원문 없음) |
+
+### 6.5 확인 필요(Clarify) — 6.4 참조 확인 확장 (사용자 요구 11/18 1~8, Fable 권고안 채택)
+
+| 항목 | 계약 |
+|---|---|
+| 단계 | 새 단계 없음. ReferenceCheck(Lambda·Tool 이름 유지)의 찾기 범위를 넓힘. 화면 이름 "확인 필요" |
+| 종류(MVP) | `VAGUE_ACTOR`(담당자·부서 불명), `MISSING_VALUE`(기한·금액·기준·연락처 등 빠짐), `MISSING_LINK`, `INCONSISTENT`. 제외: VAGUE_EXPRESSION(오탐), OUTDATED 는 권고만. 최대 5건(웹 검색은 그중 3건) |
+| 해결 순서 | ① 사내 위키 검색(PUBLISHED 문서만, 같은 category_path 우선, 출처 doc_id·쪽) ② 웹 검색은 MISSING_LINK·OUTDATED 만(VAGUE_ACTOR·MISSING_VALUE·INCONSISTENT 는 코드에서 금지 — 내부 사정 유출·오답, 표·본문 모순은 위키 제안만). MISSING_LINK 는 채택 결과가 없으면 1회 재시도 ③ 둘 다 없으면 질문만. 조직도 없음(사람이 입력한 답이 게시되면 다음 문서의 제안 출처) |
+| finding | 코드 `CLARIFY_NEEDED`(기존 REFERENCE_SUGGESTION 은 kind=MISSING_LINK 로 통합). data `{kind, item, page, before, question, suggestions[{value, after, source:{type: WIKI·WEB·USER, doc_id?, page?, url?}}], status: OPEN·APPLIED·DISMISSED, dismiss_reason?}` |
+| 차단 | `VAGUE_ACTOR`·`MISSING_VALUE` 가 절차·승인·한도 문장에 있으면 MEDIUM(게시 요청 잠금), 나머지 LOW. 풀기: 적용 / 직접 입력 / 해당 없음(사유 한 줄, 감사 기록, 승인 화면 '자세히') |
+| 적용 | 화면에서 항목별 before→after 를 모아 `POST /v1/documents/:id/edit {markdown}` 한 번(6.2 새 버전 → 재검사 → diff → 사람 승인). 제자리 수정 금지(승인 해시). IN_REVIEW 문서 edit 허용(6.2 에 이미 있음) |
+| PII | 담당자는 **역할+부서**("여신심사부 심사역")로만 제안. 입력란 안내 "이름 대신 부서·직책". 새 버전은 PiiScan 재검사 |
+| 화면 | 올린 사람 검토 화면 "확인 필요 n건" 카드(고칠 것과 같은 목록): 질문·원문 강조·AI 제안(출처 배지)·[적용][직접 입력][해당 없음] → 카드 안 전/후 diff → 하단 "n건 반영하고 저장" |
+| 일정 | 11/20 까지 dev. 못 맞추면 VAGUE_ACTOR + 위키 검색 + 사용자 입력만 시연 |
 
 ## 7. Backend API (Owner dhxorb96, 원본 `01` 10장, 11/17 갱신)
 
@@ -224,6 +273,41 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 
 - 조회: 보관함·결재함·노하우 점검의 전체 Scan → `WHERE owner=…` / `WHERE lifecycle IN (…)` 인덱스 조회.
 - 오류: `pgCode(e)` 로 SQLState 판별 (23505 중복, 23503 FK, 23514 CHECK → API 409/400).
+
+
+### 10.1 업무 분류 자동화 (사용자 결정 11/17 "A: 완전 자동", 스키마 `db/migrations/006_categories.sql`)
+
+| 항목 | 계약 |
+|---|---|
+| 테이블 | `categories(category_id, parent_id, name, path, level 1~3, description, embedding vector(1024), origin SEED·AI·ADMIN, merged_into, doc_count)`, `category_events`(추가만: CREATE·MERGE·RENAME·ASSIGN·REASSIGN), `documents.category_id` |
+| 문서 배정 (Classify, dhxorb96) | ① 문서 요약+제목 임베딩(Titan v2) ② `SELECT … ORDER BY embedding <=> :v LIMIT 5` 후보(merged_into IS NULL, 임베딩 NULL 칸은 이름+설명으로 먼저 채움) ③ Haiku 가 후보 중 고르거나 "새 칸"(부모 + 이름 + 설명) ④ 새 칸이면 기존 칸과 코사인 유사도 ≥ 0.85 면 기존 칸 사용, 아니면 `origin=AI` 로 생성 ⑤ `documents.category_id`·`doc_count`·`category_events(ASSIGN/CREATE)` 를 한 트랜잭션 |
+| 주기 정리 (yoyo0704, 매일) | 유사도 ≥ 0.9 칸 병합(작은 칸 → 큰 칸, `merged_into`, 문서 이동), 문서 0건 AI 칸 정리, '기타' 문서 묶음 → 새 칸 제안·생성. 모든 변경 `category_events` |
+| 조회 (API·검색) | 보관함 트리 = `merged_into IS NULL` 칸 계층 + `doc_count`. 검색 필터 `category`(하위 포함). 색인 메타데이터 `category_path` (let522mj) |
+| 관리자 | 선택: 이름 수정·병합(`origin=ADMIN`, 기록 남음). 승인 절차 없음 |
+
+
+### 10.2 주장(Claim) 단위 지식 (사용자 결정 11/17 "얇은 버전", 스키마 `db/migrations/007_claims.sql`)
+
+| 항목 | 계약 |
+|---|---|
+| 원본 | 노하우 검증 `knowhow_validation.items` 그대로. 새 추출 없음 |
+| 저장 (dhxorb96, 검증 단계) | 검증이 끝나면 그 문서의 주장을 한 트랜잭션으로 교체: `DELETE` 대신 같은 `(doc_id, seq)` UPSERT, 사라진 seq 는 `status='SUPERSEDED'`. `claim_id={doc_id}#{seq}`, `verified = !!verified_quote`, `page` 는 찾으면 |
+| 답변·집계 대상 | `documents.lifecycle='PUBLISHED'` 문서의 주장만 (JOIN). 삭제·이전 버전은 자동 제외 |
+| 개정 시 재검증 (let522mj 개정 처리 → SQL) | 조문이 새 개정으로 바뀌면 `UPDATE claims SET status='REVIEW_REQUIRED', status_reason='provision_revised:'||:new, updated_at=now() WHERE provision_id=:old AND status='CURRENT'`. 노하우 재검증이 다시 돌면 저장 규칙대로 CURRENT 로 돌아옴 |
+| 조회 (API, dhxorb96) | 상세: 주장 목록(문장·관계·근거 조문·인용·상태). 조문 기준: "지지 N / 충돌 N" (`GROUP BY provision_id, relation`). 관리자: `SELECT * FROM knowledge_debt` (conflicts·review_required·unverified·healthy·docs_needing_attention) |
+| 나중 (칸만 있음) | `condition`(적용 조건), `group_id`·`embedding`(중복 묶기), Neptune CLAIM 노드 |
+
+## 11. 외부 MCP 연결 — `hanaeum-wiki-mcp` (Owner yoyo0704, 사용자 요구 11/18 "다른 챗봇·문서 생성 앱을 붙일 수 있게", 이름 결정 11/18)
+
+| 항목 | 계약 |
+|---|---|
+| 엔드포인트 | 사용자 Gateway(AgentCore, MCP) 그대로: SSM `/hanaeum-mvp/{env}/USER_GATEWAY_URL` |
+| 인증 | Cognito client_credentials. 시크릿 `hanaeum-mvp/mcp-external-client{-env}` = {client_id, client_secret, token_endpoint, scope `hanaeum-wiki-mcp/read`}. 토큰 60분. Gateway allowed_clients 에 등록됨 |
+| 신원 (dhxorb96 interceptor) | 사람 sub 없는 토큰(client_id = 외부 클라이언트) → `__actor {sub:"client:{client_id}", groups:[]}`: acl ALL(공개) 게시 문서만 |
+| 도구 허용 (dhxorb96 interceptor) | 읽기만: search_wiki·retrieve_evidence·search_legal_clause·get_clause·get_official_policy·verify_version·resolve_reference·compare_versions·trace_impact·get_dependencies·get_wiki_document(신규). 거부: create_review_request·draft_change·detect_sensitive_data·masking_preview·get_status |
+| 신규 도구 get_wiki_document (let522mj search-server) | 입력 {doc_id}. 출력 {doc_id, title, document_type, category_path, version, freshness, pages:[{page, markdown(정리본, 마스킹), source}], doc_pages(묶음)}. PUBLISHED·현재 버전·acl 확인. 문서 생성형 앱이 원문 대신 정리본을 받아 씀 |
+| 감사 | Gateway 호출마다 audit `MCP_EXTERNAL` {client_id, tool, doc_ids} (질의 원문 없음) |
+| 연결 안내 | `docs/외부-MCP-연결.md`(토큰 받기 curl, MCP 클라이언트 설정 예시) |
 
 ## 변경 이력
 

@@ -6,10 +6,11 @@ FROM 763104351884.dkr.ecr.us-east-1.amazonaws.com/pytorch-inference:2.2.0-gpu-py
 RUN apt-get update && apt-get install -y --no-install-recommends libgl1-mesa-glx libglib2.0-0 libsm6 libxext6 libxrender-dev \
     && rm -rf /var/lib/apt/lists/*
 
+# PP-StructureV3(표·레이아웃, 11/17) 는 doc-parser 추가 의존성 필요. 모델(레이아웃·표·OCR)은 첫 기동 때 /opt/models 로 내려받음(기동 상한 1800초)
 # cu118 계열 최신 paddle (3.4.0 은 cu129·cu130 만 제공). paddle CDN 은 해외에서 느려 timeout·재시도를 늘린다
 RUN pip install --no-cache-dir --timeout 300 --retries 10 paddlepaddle-gpu==3.3.1 \
       --extra-index-url https://www.paddlepaddle.org.cn/packages/stable/cu118/ \
-    && pip install --no-cache-dir --timeout 300 --retries 10 paddleocr==3.7.0 paddlex==3.7.2
+    && pip install --no-cache-dir --timeout 300 --retries 10 "paddleocr[doc-parser]==3.7.0" "paddlex[ocr]==3.7.2"
 
 ENV PADDLE_PDX_CACHE_HOME=/opt/models PYTHONUNBUFFERED=1
 WORKDIR /opt/app

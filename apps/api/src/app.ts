@@ -8,7 +8,7 @@ import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representat
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
 import {
-  ALLOWED_EXT, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
+  ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
@@ -40,6 +40,13 @@ export interface Deps {
   guideStream?(question: string, accessToken: string): Promise<ReadableStream<Uint8Array>>;
   /** 워크플로 실패 기록 (yoyo0704 WORKFLOWS `WF#{id}`: EXECUTION·STEP#*). 실패 시 문서가 QUARANTINED로 멈춘 것처럼 보이지 않게 노출 */
   workflowFailure?(workflow_id: string): Promise<{ step: string; error: string; message?: string } | undefined>;
+  /** 업무 분류 (interfaces.md 10.1, PostgreSQL). 없으면 분류 기능 생략 */
+  categories?: {
+    list(): Promise<import('./categories.ts').Category[]>;
+    docMap(): Promise<Map<string, string>>;
+    rename(id: string, name: string, actor: string): Promise<unknown>;
+    merge(from: string, into: string, actor: string): Promise<{ moved: number }>;
+  };
   /** 관리 > Agent 실행 기록: 실행 단위로 묶은 WORKFLOWS (EXECUTION·STEP#·LOCK#) */
   workflowRuns?(): Promise<{ workflow_id: string; doc_id?: string; status?: string; ended_at?: string; kind?: string; steps: { step: string; status: string; ended_at: string; error?: string }[] }[]>;
   /** 관리 > 규정 변경 영향: 사용자 Gateway graph___trace_impact (관리자 토큰) */
@@ -317,6 +324,49 @@ export function createApp(deps: Deps) {
     return c.json({ document_type: b.document_type });
   });
 
+  // ---- 업무 분류 (사용자 결정 11/17 A: AI 가 배정·생성·병합, 관리자는 선택적 이름 수정·병합) ----
+  async function categoryView() {
+    const [list, docs] = deps.categories ? await Promise.all([deps.categories.list(), deps.categories.docMap()]).catch(() => [[], new Map<string, string>()] as const) : [[], new Map<string, string>()] as const;
+    const byId = new Map(list.map((x) => [x.category_id, x]));
+    return {
+      list, docs, byId,
+      pathOf: (doc_id: string) => byId.get(docs.get(doc_id) ?? '')?.path ?? null,
+      /** 칸 id 가 want 칸이거나 그 하위 칸인가 */
+      inside: (id: string | undefined, want: string) => { const p = byId.get(id ?? '')?.path, w = byId.get(want)?.path; return !!p && !!w && (p === w || p.startsWith(`${w}/`)); },
+    };
+  }
+  // 보관함 트리: 칸 계층 + 이 사용자가 볼 수 있는 게시 문서 수(하위 포함). 문서가 없는 칸도 보인다
+  app.get('/v1/categories', async (c) => {
+    const vis = await visibleDocs(c.get('actor'));
+    const cat = await categoryView();
+    const reps = [...groupSeries(vis.filter((d) => d.lifecycle === 'PUBLISHED')).values()].map((g) => representative(g));
+    const items = cat.list.map((x) => ({ category_id: x.category_id, parent_id: x.parent_id, name: x.name, path: x.path, level: x.level, description: x.description,
+      doc_count: reps.filter((d) => cat.inside(cat.docs.get(d.doc_id), x.category_id)).length }));
+    return c.json({ items });
+  });
+  app.patch('/v1/categories/:id', async (c) => {
+    const a = need(c, APPROVERS);
+    if (!deps.categories) throw new ApiError('NOT_FOUND', '업무 분류가 설정되지 않았습니다');
+    const b = await body(c, CategoryRenameBody);
+    try { const r = await deps.categories.rename(c.req.param('id'), b.name, a.sub); await audit(c, 'CATEGORY_RENAME', c.req.param('id')); return c.json(r); }
+    catch (e) { throw catErr(e); }
+  });
+  app.post('/v1/categories/:id/merge', async (c) => {
+    const a = need(c, APPROVERS);
+    if (!deps.categories) throw new ApiError('NOT_FOUND', '업무 분류가 설정되지 않았습니다');
+    const b = await body(c, CategoryMergeBody);
+    try { const r = await deps.categories.merge(c.req.param('id'), b.into, a.sub); await audit(c, 'CATEGORY_MERGE', c.req.param('id')); return c.json(r); }
+    catch (e) { throw catErr(e); }
+  });
+  const catErr = (e: unknown) => {
+    const m = (e as Error).message;
+    if (m === 'NotFound') return new ApiError('NOT_FOUND', '칸을 찾을 수 없습니다');
+    if (m === 'HasChildren') return new ApiError('CONFLICT', '하위 칸이 있는 칸은 병합할 수 없습니다. 하위 칸을 먼저 병합하세요');
+    if (m === 'SameCategory') return new ApiError('VALIDATION', '같은 칸으로는 병합할 수 없습니다');
+    if (/duplicate key|23505/.test(m)) return new ApiError('CONFLICT', '같은 이름의 칸이 이미 있습니다');
+    return e as Error;
+  };
+
   // ---- 관리 > 운영 도구 (요청기록/20261117-1910 2장) ----
   // Agent 실행 기록: 최근 실행 50건 (상태·소요 시간·문서 제목). 시작 시각은 workflow_id(ULID)에 들어 있다
   app.get('/v1/admin/runs', async (c) => {
@@ -463,10 +513,13 @@ export function createApp(deps: Deps) {
   app.get('/v1/library', async (c) => {
     const vis = await visibleDocs(c.get('actor'));
     const f = { type: c.req.query('type'), tag: c.req.query('tag'), q: c.req.query('q')?.slice(0, 200), ...detailFilter((k) => c.req.query(k)) };
+    const cat = await categoryView();
+    const want = c.req.query('category'); // 업무 분류 칸 (하위 칸 포함)
+    const inCat = (doc_id: string) => !want || cat.inside(cat.docs.get(doc_id), want);
     // 같은 문서의 여러 버전(규정 개정본, 작성자가 연결한 새 버전)은 카드 1장: 오늘 시행 중인 버전이 대표
     const groups = [...groupSeries(vis.filter((d) => d.lifecycle !== 'BLOCKED')).values()];
-    const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f))
-      .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n }));
+    const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f) && inCat(rep.doc_id))
+      .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
     return c.json({ items });
   });
   // 외부 법령 최신본 참고 (미검증). 첫 조회는 Browser라 수십 초 → 상세 본문과 따로 부른다
@@ -540,6 +593,7 @@ export function createApp(deps: Deps) {
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
     return c.json({
       ...base,
+      ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {

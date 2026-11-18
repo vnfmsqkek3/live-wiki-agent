@@ -1,5 +1,6 @@
 // 사용자 확인 13항: 문서 속 그림을 모델이 묘사하기 전, 페이지 이미지의 개인정보 구간을 검게 칠한다.
 // 입력: 렌더 PNG(work/pages, 원본 등급) + OCR 블록 bbox. 출력 PNG(masked/pages)만 모델 호출 Role이 읽는다.
+import { GUARD_SKIP } from './pii.ts';
 import { PNG } from 'pngjs';
 import { detectPii } from './pii-detect.ts';
 
@@ -13,8 +14,8 @@ export async function piiBoxes(page: OcrPage, guardrail?: (text: string) => Prom
   if (guardrail && page.blocks.length) {
     // 이미지는 검게 칠해도 원문이 훼손되지 않으므로 Guardrail이 찾은 값이 든 블록은 모두 가린다
     const g = await guardrail(page.blocks.map((b) => b.text).join('\n'));
-    // IP는 규칙(detectPii)이 이미 칠한다. Guardrail의 IP·사용자명 판정으로는 칠하지 않는다 (제조사 이름 오탐, 사용자 결정 11/17)
-    const ms = (g?.entities ?? []).filter((e) => e.type !== 'IP_ADDRESS' && e.type !== 'USERNAME').map((e) => e.match);
+    // Guardrail의 IP·사용자명·전화·이메일 판정으로는 칠하지 않는다 (사용자 결정 11/17)
+    const ms = (g?.entities ?? []).filter((e) => !GUARD_SKIP.has(e.type)).map((e) => e.match);
     page.blocks.forEach((b, i) => { if (ms.some((m) => b.text.includes(m))) hit[i] = true; });
   }
   return page.blocks.filter((_, i) => hit[i]).map((b) => b.bbox);

@@ -11,7 +11,7 @@ const white = (w: number, h: number) => { const p = new PNG({ width: w, height: 
 const px = (png: Uint8Array, x: number, y: number) => { const i = PNG.sync.read(Buffer.from(png)); const k = (y * i.width + x) * 4; return [...i.data.subarray(k, k + 3)]; };
 
 test('개인정보 블록만 검게, OCR 좌표 비율 보정', async () => {
-  const page = { page_index: 0, width: 100, height: 100, blocks: [{ text: '연락처 010-1234-5678', bbox: [10, 10, 40, 20] as [number, number, number, number] }, { text: '감정평가서 확인', bbox: [10, 60, 40, 70] as [number, number, number, number] }] };
+  const page = { page_index: 0, width: 100, height: 100, blocks: [{ text: '주민 900101-1234568', bbox: [10, 10, 40, 20] as [number, number, number, number] }, { text: '감정평가서 확인', bbox: [10, 60, 40, 70] as [number, number, number, number] }] };
   const boxes = await piiBoxes(page);
   assert.equal(boxes.length, 1);
   const out = blackout(white(200, 200), boxes, page); // 렌더가 OCR 좌표의 2배
@@ -26,7 +26,7 @@ test('PiiScan: 그림 페이지는 masked/pages 생성 + PII_IMAGE_REVIEW, OCR �
     [`${doc_id}/work/segments/0000.json`, { page_index: 0, text: '본문' }],
     [`${doc_id}/work/segments/0001.json`, { page_index: 1, text: '본문2' }],
     [`${doc_id}/work/pages/ocr_targets.json`, { pages: [{ page_index: 0, reason: 'image' }, { page_index: 1, reason: 'low_text', has_images: true }] }],
-    [`${doc_id}/work/ocr/result.json`, { pages: [{ page_index: 0, width: 50, height: 50, blocks: [{ text: '010-1234-5678', bbox: [0, 0, 10, 10] }] }] }],
+    [`${doc_id}/work/ocr/result.json`, { pages: [{ page_index: 0, width: 50, height: 50, blocks: [{ text: '900101-1234568', bbox: [0, 0, 10, 10] }] }] }],
   ]);
   const bytes = new Map<string, Uint8Array>([[`${doc_id}/work/pages/0000.png`, white(50, 50)]]);
   const deps: SegmentDeps = {
@@ -78,11 +78,11 @@ test('PiiScan 그림 쪽 기준: OCR figures가 있으면 그 개수로, 없으�
   assert.equal(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').length, 1);
 });
 
-test('piiBoxes: Guardrail IP·사용자명 판정으로는 칠하지 않고, IP는 규칙으로 칠한다', async () => {
+test('piiBoxes: IP·사용자명은 칠하지 않는다 (사용자 결정 11/17 22시)', async () => {
   const page = { page_index: 0, width: 100, height: 100, blocks: [
     { text: 'SINDORICOH', bbox: [0, 0, 10, 10] as [number, number, number, number] },
     { text: '10.20.30.41', bbox: [0, 20, 10, 30] as [number, number, number, number] },
   ] };
   const g = async () => ({ text: '', entities: [{ type: 'USERNAME', match: 'SINDORICOH' }, { type: 'IP_ADDRESS', match: '10.20.30.41' }] });
-  assert.deepEqual(await piiBoxes(page as never, g), [[0, 20, 10, 30]]);
+  assert.deepEqual(await piiBoxes(page as never, g), []);
 });

@@ -15,7 +15,7 @@ export const CHUNK = 10;
 export const LOW_BLOCK = 0.85;
 export const LOW_PAGE = 0.9;
 
-type Block = { confidence: number; bbox: number[] }; // bbox: 렌더 PNG 픽셀 [x0,y0,x1,y1] (services/ocr convert.py)
+type Block = { confidence: number; bbox: number[]; label?: string; text?: string }; // bbox: 렌더 PNG 픽셀 [x0,y0,x1,y1] (services/ocr convert.py)
 type Page = { page_index: number; blocks: Block[] };
 type ChunkResult = { model: string; model_version: string; pages: Page[] };
 
@@ -28,14 +28,27 @@ export type Deps = {
   saveFindings: FindingsStore;
 };
 
+// let522mj SegmentBuild 기준과 같게: 그림은 image·figure·chart (seal 직인은 본문), 글자 없는 덩어리는 제외
+export const PASS_PAGE = 0.95;
+export const FIGURE_LABELS = new Set(["image", "figure", "chart"]);
+
 // 저신뢰 판정: 블록 < 0.85 또는 페이지 평균 < 0.9 → OCR·PII 검토 화면 표시 (기준치는 실측 후 조정)
+/** 쪽 본문 평균 신뢰도 (그림 안 글자·빈 덩어리 제외). 본문이 없으면 undefined */
+export function pageAvg(p: Page): number | undefined {
+  const body = p.blocks.filter((b) => !FIGURE_LABELS.has(b.label ?? "") && (b.text === undefined || b.text.trim() !== ""));
+  return body.length ? body.reduce((s, b) => s + b.confidence, 0) / body.length : undefined;
+}
+
 export function lowConfidence(doc_id: string, pages: Page[]): Finding[] {
   const out: Finding[] = [];
   for (const p of pages) {
-    if (p.blocks.length === 0) continue;
-    const avg = p.blocks.reduce((s, b) => s + b.confidence, 0) / p.blocks.length;
-    const lowBlocks = p.blocks.filter((b) => b.confidence < LOW_BLOCK);
+    // 그림(캡처·사진) 안 글자는 본문이 아니라 그림의 일부 → 본문 신뢰도 판정에서 뺀다 (11/17 과천사옥 매뉴얼: 캡처 속 작은 UI 글자 1,823줄 평균 0.74가 쪽마다 경고)
+    const body = p.blocks.filter((b) => !FIGURE_LABELS.has(b.label ?? "") && (b.text === undefined || b.text.trim() !== ""));
+    if (body.length === 0) continue;
+    const avg = body.reduce((s, b) => s + b.confidence, 0) / body.length;
+    const lowBlocks = body.filter((b) => b.confidence < LOW_BLOCK);
     const low = lowBlocks.length;
+    if (avg >= PASS_PAGE) continue; // 사용자 결정 11/18: 쪽 평균 95% 이상이면 경고 없이 통과
     if (avg < LOW_PAGE || low > 0) {
       out.push(finding(STEP, avg < LOW_PAGE ? "MEDIUM" : "LOW", "OCR_LOW_CONFIDENCE",
         `저신뢰 페이지 ${p.page_index + 1}: 평균 ${avg.toFixed(2)}, 저신뢰 블록 ${low}개`, `${doc_id}/work/ocr/result.json#page=${p.page_index}`, {
@@ -56,7 +69,8 @@ export function makeHandler(d: Deps) {
     const targetsRaw = await d.get(`${e.doc_id}/work/pages/ocr_targets.json`);
     if (!targetsRaw) throw new Error(`OcrTargetsNotFound: ${e.doc_id}`); // PageRender 선행 필수
     const targets = JSON.parse(targetsRaw) as OcrTargets;
-    if (targets.pages.length === 0) return { status: "OK" };
+    // OCR 대상이 없어도(글자 층 PDF·md) 빈 목록을 남긴다 — ImageDescribe 가 읽는 키 (11/18 없는 키 → 403 으로 실패)
+    if (targets.pages.length === 0) { await d.put(`${e.doc_id}/masked/ocr_low_pages.json`, JSON.stringify({ doc_id: e.doc_id, low_pages: [] })); return { status: "OK" }; }
     if (await d.get(resultKey)) return { status: "OK", output_key: resultKey }; // 이미 완료 (재호출)
 
     const chunks: ChunkResult[] = [];
@@ -87,9 +101,12 @@ export function makeHandler(d: Deps) {
 
     const pages = chunks.flatMap((c) => c.pages).sort((a, b) => a.page_index - b.page_index);
     await d.put(resultKey, JSON.stringify({ doc_id: e.doc_id, model: chunks[0]!.model, model_version: chunks[0]!.model_version, page_count: targets.page_count, pages }));
-    const findings = lowConfidence(e.doc_id, pages);
-    await d.saveFindings(e.doc_id, STEP, findings);
-    return { status: findings.some((f) => f.severity === "MEDIUM") ? "REVIEW_REQUIRED" : "OK", output_key: resultKey, findings };
+    // 인식률 95% 미만 쪽은 ImageDescribe 가 Sonnet Vision 으로 다시 읽는다(사용자 결정 11/18). 쪽 번호·평균만, 글자 없음 → masked/ 에 둠
+    const low_pages = pages.filter((p) => (pageAvg(p) ?? 1) < PASS_PAGE).map((p) => p.page_index);
+    await d.put(`${e.doc_id}/masked/ocr_low_pages.json`, JSON.stringify({ doc_id: e.doc_id, low_pages }));
+    // 사용자 결정 11/18 "경고는 없애줘": 95% 미만 쪽은 Vision 이 다시 읽으므로 OCR 저신뢰 경고를 내지 않는다 (lowConfidence 는 기준 기록용으로 남김)
+    await d.saveFindings(e.doc_id, STEP, []);
+    return { status: "OK", output_key: resultKey };
   };
 }
 

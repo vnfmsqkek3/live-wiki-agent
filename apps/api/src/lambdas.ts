@@ -42,13 +42,15 @@ export interface SegmentDeps {
   guardrail?: GuardrailCheck;
   classify?(tier: 'HAIKU' | 'SONNET', prompt: string): Promise<{ value: ClassifyOut; model: string }>;
   summarize?(prompt: string): Promise<{ value: SummaryOut; model: string }>;
+  /** 업무 분류 칸 배정 (interfaces.md 10.1). 마스킹된 제목·요약만. 없으면 생략 (GOV_STORE=postgres + MODEL_EMBED 일 때만) */
+  category?(doc: { doc_id: string; title: string; summary?: string }): Promise<unknown>;
   /** 쪽 본문 AI 재구성 (마스킹본만 입력, 마크다운). 없으면 생략 */
   structure?(prompt: string): Promise<{ value: { markdown: string }; model: string }>;
   /** 페이지 이미지 마스킹(13항). 없으면 이미지 단계 생략 */
   getBytes?(key: string): Promise<Uint8Array>;
   putBytes?(key: string, body: Uint8Array, contentType: string): Promise<void>;
 }
-type Seg = { page_index: number; text: string };
+type Seg = { page_index: number; text: string; figures?: import('./steps/structure.ts').PageFigure[] };
 const pageOf = (k: string) => Number(/(\d{4})\.json$/.exec(k)?.[1] ?? NaN);
 
 async function maskedSegments(deps: SegmentDeps, doc_id: string) {
@@ -145,20 +147,23 @@ export function makeClassify(deps: SegmentDeps) {
       classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
       ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),
     });
+    // 업무 분류 칸 배정: 실패해도 게시는 막지 않는다 (주기 정리·보충 스크립트가 다시 배정)
+    if (deps.category) await deps.category({ doc_id: d.doc_id, title: autoTitle ?? d.title, summary: sum?.value.summary ?? d.summary })
+      .catch((e: Error) => console.warn(JSON.stringify({ msg: 'category failed', doc_id: d.doc_id, err: e.name })));
     return { status: findings.length ? 'REVIEW_REQUIRED' : 'OK', findings };
   };
 }
 
 /** 쪽마다 Haiku 1회(동시 4), 짧은 쪽(80자 미만)·이미 마크다운인 쪽은 건너뜀. 원문 대조를 통과한 정리본만 저장 */
 export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJson'>, doc_id: string, segs: Seg[]) {
-  const todo = segs.filter((s) => needsStructure(s.text)).slice(0, 40);
+  const todo = segs.filter((s) => needsStructure(s.text, s.figures)).slice(0, 40);
   let saved = 0, rejected = 0, failed = 0;
   for (let k = 0; k < todo.length; k += 4) {
     await Promise.all(todo.slice(k, k + 4).map(async (s) => {
       try {
-        const r = await deps.structure!(structurePrompt(s.page_index, s.text));
+        const r = await deps.structure!(structurePrompt(s.page_index, s.text, s.figures));
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
-        const f = faithful(s.text, md);
+        const f = faithful(s.text, md, s.figures);
         if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
         await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, model: r.model, at: now() });
         saved++;
