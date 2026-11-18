@@ -58,6 +58,9 @@ export function parseDocText(text: string): DocBlock[] {
     }
     blocks.push(block); offset += raw.length + 1;
   }
+  // 표 행 사이의 빈 줄은 버린다: 정리본이 행마다 빈 줄을 넣으면 행이 낱개 문단으로 깨졌다 (사용자 지적 11/18). 글자 위치는 그대로
+  const tbl = (i: number, step: number) => { while (blocks[i]?.kind === 'blank') i += step; return blocks[i]?.kind === 'table'; };
+  for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i]!.kind === 'blank' && tbl(i - 1, -1) && tbl(i + 1, 1)) blocks.splice(i, 1);
   // Only consecutive pipe rows are a table; isolated pipes stay plain text.
   const typed = blocks.map((b, i) => b.kind === 'table' && blocks[i - 1]?.kind !== 'table' && blocks[i + 1]?.kind !== 'table' ? { ...b, kind: 'paragraph' as const, cells: undefined } : b);
   return reflow(text, typed);

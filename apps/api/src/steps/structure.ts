@@ -23,6 +23,8 @@ export const STRUCTURE_SCHEMA = {
 
 export interface PageFigure { kind?: string; description?: string; overlay_text?: string; intent?: string }
 /** 쪽 글자를 본문과 그림 줄(⟦그림 pN⟧ …, let522mj PR #33·ImageDescribe 형식)로 나눈다 */
+/** 표 행 사이 빈 줄을 없앤다: 모델이 행마다 빈 줄을 넣으면 마크다운 표가 깨진다 (사용자 지적 11/18 [시험] 체크리스트 3. 서류 목록) */
+export const tightTables = (md: string) => md.replace(/(^[ \t]*\|.*\|[ \t]*)\n(?:[ \t]*\n)+(?=[ \t]*\|.*\|[ \t]*$)/gm, '$1\n');
 export function splitPage(text: string) {
   const lines = text.split('\n');
   const fig = lines.filter((l) => l.startsWith('⟦그림'));

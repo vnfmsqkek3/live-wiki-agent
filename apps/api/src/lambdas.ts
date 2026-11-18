@@ -16,7 +16,7 @@ import { sitesOf, unsafeQuery } from './steps/reference-check.ts';
 import type { WebHit } from './web-search.ts';
 import { allocate, asRef, findInSameDoc, linkAcceptable, ruleCandidates, sitesFor, webQuery, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
-import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
+import { faithful, needsStructure, structurePrompt, textFallback, tightTables } from './steps/structure.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { classifyPrompt, summaryPrompt, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 
@@ -292,7 +292,7 @@ export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJ
   // 그림 쪽 Vision 정리본은 모델을 다시 부르지 않고 그대로 쓴다 (다시 가린 뒤). 원문 대조 대상 아님 → 화면에 '그림 기준' 표시
   for (const s of segs) if (s.page_markdown?.trim()) {
     const md = mask(s.page_markdown, detectPii(s.page_markdown)).replace(/_\((그림\s*\d+)\)_/gu, '($1)').slice(0, 6000); // '_(그림 n)_' → 화면 단추가 되는 '(그림 n)'
-    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, source: 'VISION', at: now() }).catch(() => {});
+    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: tightTables(md), source: 'VISION', at: now() }).catch(() => {});
   }
   const todo = segs.filter((s) => !s.page_markdown?.trim() && needsStructure(s.text, s.figures)).slice(0, 40);
   let saved = 0, rejected = 0, failed = 0;
@@ -306,7 +306,7 @@ export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJ
         const md = mask(r.value.markdown ?? '', detectPii(r.value.markdown ?? '')); // 모델 출력도 다시 가린다
         const f = faithful(s.text, md, s.figures);
         if (!f.ok) { rejected++; console.warn(JSON.stringify({ msg: 'structure rejected', doc_id, page: s.page_index, missing: f.missing.toFixed(3), extra: f.extra.toFixed(3), newNumbers: f.newNumbers.length })); return; }
-        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: md, source: 'AI', model: r.model, at: now() });
+        await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: tightTables(md), source: 'AI', model: r.model, at: now() });
         saved++; done.add(s.page_index);
       } catch (e) { failed++; console.warn(JSON.stringify({ msg: 'structure failed', doc_id, page: s.page_index, err: (e as Error).name })); }
     }));
@@ -316,7 +316,7 @@ export async function structurePages(deps: Pick<SegmentDeps, 'structure' | 'putJ
   const fb = textFallback(segs);
   let fallback = 0;
   for (const s of segs) if (!has.has(s.page_index)) {
-    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: fb.get(s.page_index) ?? '(빈 쪽)', source: 'TEXT', at: now() }).catch(() => {});
+    await deps.putJson(`${doc_id}/masked/structured/${String(s.page_index).padStart(4, '0')}.json`, { page_index: s.page_index, markdown: tightTables(fb.get(s.page_index) ?? '(빈 쪽)'), source: 'TEXT', at: now() }).catch(() => {});
     fallback++;
   }
   return { pages: todo.length, saved, rejected, failed, fallback };

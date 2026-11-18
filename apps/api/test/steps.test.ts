@@ -352,3 +352,8 @@ test('외부 법령 합치기(11/18): 괄호 결과 + 모델 결과, 공백 정�
   assert.deepEqual(mergeLaws([{ law_name: '개인정보 보호법' }], [{ law_name: '개인정보  보호법', clause: '제15조 제1항' }, { law_name: '전자금융거래법' }]),
     [{ law_name: '개인정보 보호법', clause: '제15조제1항' }, { law_name: '전자금융거래법' }]);
 });
+
+test('tightTables: 표 행 사이 빈 줄만 없애고, 표 밖 문단·고립된 줄은 그대로 (사용자 지적 11/18)', async () => {
+  const { tightTables } = await import('../src/steps/structure.ts');
+  assert.equal(tightTables('### 3\n\n| a | b |\n\n|---|---|\n\n| 1 |  |\n\n\n| 2 | x |\n\n다음\n\n| 고립 |'), '### 3\n\n| a | b |\n|---|---|\n| 1 |  |\n| 2 | x |\n\n다음\n\n| 고립 |');
+});

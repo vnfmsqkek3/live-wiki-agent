@@ -63,3 +63,11 @@ test('마크다운 표 구분선(|---|)은 행으로 그리지 않는다', () =>
   assert.equal((html.match(/<tr/g) || []).length, 2);
   assert.ok(!html.includes('---'));
 });
+
+test('blank lines between table rows keep one table (사용자 지적 11/18)', () => {
+  const html = render('| 번호 | 서류 |\n\n|------|------|\n\n| ① | 사업자등록증 |\n\n| ② |  |\n\n다음 문단');
+  assert.equal((html.match(/<table/g) || []).length, 1);
+  assert.match(html, /<td[^>]*>[^<]*사업자등록증/);
+  assert.doesNotMatch(html, /\|/);
+  assert.match(visible(html), /다음 문단$/);
+});
