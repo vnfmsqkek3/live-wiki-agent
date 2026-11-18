@@ -1,6 +1,6 @@
 // 실환경(KB·DynamoDB) 정량 측정 — docs/02 4장 중 let522mj 담당분. 오프라인 measure.ts와 같은 케이스를 실 KB로 다시 잰다.
-// 실행 (공유 dev, E2E 색인 후): node tests/evaluations/cases/src/measure-kb.ts
-//   환경: AWS_PROFILE·AWS_REGION (.env.local). KB_ID 등은 SSM /hanaeum-mvp/dev/* 에서 읽는다.
+// 실행 (E2E 색인 후): HANAEUM_ENV=prod node tests/evaluations/cases/src/measure-kb.ts
+//   환경: AWS_PROFILE·AWS_REGION (.env.local). KB_ID 등은 SSM /hanaeum-mvp/{HANAEUM_ENV}/* 에서 읽는다 (publish-regs-dev.sh와 같은 규칙: prod 외에는 dev)
 // 측정 함수는 의존성을 주입받으므로 오프라인 테스트(메모리 KB)로 검출 로직을 먼저 검증한다.
 import { readFileSync } from "node:fs";
 import type { Retriever } from "@hanaeum/search-server";
@@ -90,7 +90,8 @@ export async function measureUnverified(search: LiveDeps["search"], live: boolea
 
 if (import.meta.main) {
   const { execFileSync } = await import("node:child_process");
-  const ssm = (n: string) => execFileSync("aws", ["ssm", "get-parameter", "--name", `/hanaeum-mvp/dev/${n}`, "--query", "Parameter.Value", "--output", "text"]).toString().trim();
+  const env = process.env["HANAEUM_ENV"] === "prod" ? "prod" : "dev";
+  const ssm = (n: string) => execFileSync("aws", ["ssm", "get-parameter", "--name", `/hanaeum-mvp/${env}/${n}`, "--query", "Parameter.Value", "--output", "text"]).toString().trim();
   const { BedrockRetriever, DynamoDocStates, searchTools: tools } = await import("@hanaeum/search-server");
   const { DynamoClauseStore, regulationTools } = await import("@hanaeum/regulation-server");
   const kb = ssm("KB_ID");
