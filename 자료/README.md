@@ -5,7 +5,7 @@
 | 용도 | 카테고리 | 넣는 것 | 주 사용자 |
 |---|---|---|---|
 | 데이터원천 | 법령 | 파이프라인 입력용 공개 법령 원문 (XML/HWPX/PDF) | let522mj |
-| 데이터원천 | 업로드시험 | 업로드 파이프라인(전부 OCR·표·레이아웃·그림) 시험용 실문서. 사용자가 공개 문서로 확인·Git 업로드 허용(11/17) | yoyo0704 |
+| 데이터원천 | 업로드시험 | 업로드 파이프라인(전부 OCR·표·레이아웃·그림) 시험용 문서. 가상 데이터판만 둠(11/18 사용자 결정) | yoyo0704 |
 | 데이터원천 | 규정서식 | 합성 규정·노하우 작성 시 참고할 공개 서식·구조 예시 | let522mj |
 | 규제참고 | 금융규제 | 전자금융감독규정, 신용정보법, 망분리 로드맵 등 | 전원 |
 | 규제참고 | AI가이드라인 | 금융분야 AI 가이드라인, 개인정보 가명처리 가이드 등 | 전원 |
@@ -32,4 +32,4 @@
 | `데이터원천/법령/20261116_legalize-kr_예금자보호법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/예금자보호법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
 | `데이터원천/법령/20261116_legalize-kr_금융회사지배구조법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/금융회사의지배구조에관한법률/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
 | `데이터원천/법령/20261116_legalize-kr_민법.md` | https://github.com/legalize-kr/legalize-kr/blob/main/kr/민법/법률.md (원 출처 law.go.kr) | 2026-11-16 | 파서 일반화 검증 (`tests/evaluations/cases/src/public-laws.ts`) | 법령은 저작권 보호 대상 아님(저작권법 제7조). 변환 저장소는 라이선스 미표기 | let522mj |
-| `데이터원천/업로드시험/20261117_메가존_과천사옥-복합기-스캐너-설치-매뉴얼.pdf` | 사내 공지 "프린터 및 설치 가이드" (사용자 제공) | 2026-11-17 | 39쪽 중 38쪽 화면 캡처 — 전부 OCR·PP-StructureV3·그림 쪽 비전 실측 | 사용자 확인: 공개된 문서, GitHub 업로드 허용 | yoyo0704 |
+| `데이터원천/업로드시험/20261118_하나은행가상_과천사옥-복합기-스캐너-설치-매뉴얼_SYNTHETIC.pdf` | 과천 매뉴얼 가상 데이터판 (직원 이름·이메일 → 가상직원·staff@hanabank.example, 로고 → 하나은행(가상), MZ_OFFICE → HANA_OFFICE, 쪽마다 SYNTHETIC 표시) | 2026-11-18 | 39쪽 이미지 PDF(전부 OCR). 표·IP·모델·장 구성은 원본과 같음 | 사용자 결정 11/18: 실제 회사 문서(직원 이름·이메일 노출) → 가상판으로 교체, 원본 파일 삭제 | yoyo0704·dhxorb96 |
