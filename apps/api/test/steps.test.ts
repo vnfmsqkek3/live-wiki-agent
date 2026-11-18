@@ -357,3 +357,22 @@ test('tightTables: 표 행 사이 빈 줄만 없애고, 표 밖 문단·고립�
   const { tightTables } = await import('../src/steps/structure.ts');
   assert.equal(tightTables('### 3\n\n| a | b |\n\n|---|---|\n\n| 1 |  |\n\n\n| 2 | x |\n\n다음\n\n| 고립 |'), '### 3\n\n| a | b |\n|---|---|\n| 1 |  |\n| 2 | x |\n\n다음\n\n| 고립 |');
 });
+
+test('carry: 위키 수정 후 재분석 — 해당 없음·그대로 사용은 잇고, 고치지 않은 문장의 새 확인 필요는 빼고, 고친 문장만 새로 묻는다 (사용자 지적 11/18)', async () => {
+  const { makeCarry, applyCarry } = await import('../src/steps/carry.ts');
+  const cl = (id: string, before: string, status = 'OPEN', extra = {}) => ({ finding_id: id, step: 'REFERENCE_CHECK', severity: 'MEDIUM', code: 'CLARIFY_NEEDED', message: 'x', details: { before, status, ...extra } }) as never;
+  const old = '1. 신청서는 관련 부서 승인 후 접수한다.\n2. 담보 서류는 기한 내 제출받는다.\n| 적용 대상 | 실무 담당자 |';
+  const pii = { finding_id: 'p', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: 'm', location: { excerpt: '그림 1' }, acknowledged: { by: 'u', at: 't', reason: '가상 데이터' } } as never;
+  const carry = makeCarry(old, [cl('a', '2. 담보 서류는 기한 내 제출받는다.', 'DISMISSED', { dismiss_reason: '사규로 정함' }), cl('b', '| 적용 대상 | 실무 담당자 |'), pii]);
+  const next = applyCarry(carry, [
+    cl('n1', '2. 담보 서류는 기한 내 제출받는다.'), // 전에 해당 없음 → 그대로 해당 없음
+    cl('n2', '| 적용 대상 | 실무 담당자 |'), // 전에 열려 있던 것 → 남김
+    cl('n3', '1. 신청서는 관련 부서 승인 후 접수한다.'), // 고치지 않은 문장의 새 질문 → 뺌
+    cl('n4', '3. 새로 쓴 문장은 담당자가 확인한다.'), // 고친(새) 문장 → 물음
+    { ...(pii as object), finding_id: 'p2', acknowledged: undefined } as never, // 개인정보 그대로 사용 → 잇기
+  ]) as { finding_id: string; details?: { status?: string; dismiss_reason?: string }; acknowledged?: { reason?: string } }[];
+  assert.deepEqual(next.map((f) => f.finding_id), ['n1', 'n2', 'n4', 'p2']);
+  assert.equal(next[0]!.details?.status, 'DISMISSED'); assert.equal(next[0]!.details?.dismiss_reason, '사규로 정함');
+  assert.equal(next[3]!.acknowledged?.reason, '가상 데이터');
+  assert.deepEqual(applyCarry(undefined, [cl('z', 'x')]).length, 1);
+});

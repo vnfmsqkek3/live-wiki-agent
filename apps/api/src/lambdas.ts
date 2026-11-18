@@ -1,5 +1,6 @@
 // 단계 Lambda (Owner dhxorb96, docs/05 3장). 입출력 계약: interfaces.md 6장.
 // 진입점은 handlers.ts. 여기 함수들은 의존성을 주입받아 테스트한다.
+import { applyCarry } from './steps/carry.ts';
 import { createHash } from 'node:crypto';
 import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
@@ -435,7 +436,7 @@ export function makeWaitForApproval(deps: LambdaDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     // 게시·승인 대기·차단된 문서를 다시 검토 대기로 되돌리지 않는다 (재실행 안전장치)
     if (d.lifecycle !== 'QUARANTINED' && d.lifecycle !== 'IN_REVIEW') throw new Error(`invalid lifecycle for review: ${d.lifecycle}`);
-    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', updated_at: now() });
+    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', findings: applyCarry(d.review_carry, d.findings), updated_at: now() }); // 위키 수정 전 결정 잇기 (steps/carry.ts)
     return { status: 'OK' };
   };
 }

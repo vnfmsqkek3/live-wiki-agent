@@ -1,3 +1,4 @@
+import { makeCarry } from './steps/carry.ts';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
@@ -196,7 +197,7 @@ export function createApp(deps: Deps) {
     const fresh = { lifecycle: 'QUARANTINED' as const, trust_gate_result: undefined, findings: [], workflow_id: newId.wf(), s3_version_id: undefined, content_hash: undefined,
       knowhow_validation: undefined, ext: 'md', source: 'WIKI_EDIT' as const, updated_at: now };
     let doc: DocumentRecord;
-    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석
+    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh, review_carry: makeCarry(await editText(t.doc_id), t.findings) }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석. 결정은 잇는다(원본을 쓰면 옛 결과가 지워지므로 그 전에 읽음)
     else if (t.lifecycle === 'PUBLISHED') doc = {
       ...fresh, doc_id: newId.doc(), version: 1, owner: a.sub, dept: a.dept ?? t.dept, acl_groups: t.acl_groups, title: t.title, title_source: 'USER',
       filename: `${t.title.slice(0, 80)}.md`, authority_status: 'UNVERIFIED', freshness: 'CURRENT', previous_doc_id: t.doc_id, created_at: now,
