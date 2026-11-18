@@ -7,15 +7,13 @@ import { api, ApiError } from './lib/api';
 
 export interface ClarifyItem {
   finding_id: string; kind: 'VAGUE_ACTOR' | 'MISSING_VALUE' | 'MISSING_LINK' | 'INCONSISTENT' | 'OUTDATED';
-  item: string; page?: number; before: string; question: string; blocking?: boolean; severity?: string;
+  item: string; page?: number; before: string; span?: string; question: string; blocking?: boolean; severity?: string;
   suggestions: { value: string; after: string; source: { type: 'WIKI' | 'WEB' | 'USER'; doc_id?: string; page?: number; url?: string; title?: string } }[];
   status: 'OPEN' | 'APPLIED' | 'DISMISSED'; dismiss_reason?: string;
 }
 const KIND: Record<ClarifyItem['kind'], string> = { VAGUE_ACTOR: '누가 하는지', MISSING_VALUE: '빠진 값', MISSING_LINK: '빠진 주소', INCONSISTENT: '서로 맞지 않음', OUTDATED: '바뀌었을 수 있음' };
 const SRC = { WIKI: '사내 위키', WEB: '공개 웹', USER: '직접 입력' } as const;
 
-/** 직접 입력 값으로 고친 문장: 문장에 대상 낱말이 있으면 그 자리를, 없으면 끝에 괄호로 */
-const withValue = (c: ClarifyItem, v: string) => (c.before.includes(c.item) ? c.before.replace(c.item, v) : `${c.before.replace(/[.。]?\s*$/, '')} (${v}).`);
 
 export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items: ClarifyItem[]; docId: string; text?: string; canFix: boolean; onDismissed: (id: string, reason: string) => void }) {
   const [pick, setPick] = useState<Record<string, string>>({}); // finding_id → after
@@ -36,6 +34,16 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
       location.href = `/review?id=${encodeURIComponent(r.doc_id)}`;
     } catch (e) { setMsg((e as ApiError).message); setBusy(false); }
   }
+  // 입력값은 AI 가 그 문장에 자연스럽게 넣는다(조사 맞춤). 끝에 괄호로 붙이지 않는다 (사용자 지적 11/18, let522mj 전달)
+  async function compose(c: ClarifyItem) {
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ edits: { after: string; ok: boolean; reason?: string }[] }>('POST', `/v1/documents/${encodeURIComponent(docId)}/clarify/compose`, { answers: [{ finding_id: c.finding_id, answer: typing[c.finding_id]!.trim() }] });
+      const e = r.edits[0];
+      if (e?.ok) setPick((p) => ({ ...p, [c.finding_id]: e.after })); else setMsg(e?.reason ?? '이 답은 넣을 수 없습니다.');
+    } catch (e) { setMsg((e as ApiError).message); }
+    setBusy(false);
+  }
   async function dismiss(c: ClarifyItem) {
     const reason = (dismissing[c.finding_id] ?? '').trim();
     if (!reason) { setMsg('해당 없음 사유를 한 줄 적어 주세요.'); return; }
@@ -54,7 +62,7 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
           <li key={c.finding_id} className={`fix${done ? ' done' : ''}`}>
             <p className="fix-head">{KIND[c.kind]}{c.page ? ` · ${c.page}쪽` : ''}{c.blocking && !done ? ' · 게시 요청 전에 처리' : ''}{c.status === 'DISMISSED' ? ` · 해당 없음(${c.dismiss_reason ?? ''})` : ''}</p>
             <p><strong>{c.question}</strong></p>
-            <blockquote className="basis"><p>{c.before.split(c.item).flatMap((part, n, a) => (n < a.length - 1 ? [part, <mark key={n}>{c.item}</mark>] : [part]))}</p></blockquote>
+            <blockquote className="basis"><p>{c.before.split(c.span || c.item).flatMap((part, n, a) => (n < a.length - 1 ? [part, <mark key={n}>{c.span || c.item}</mark>] : [part]))}</p></blockquote>
             {!done && c.suggestions.map((s, n) => (
               <div key={n} className="clarify-sugg">
                 <span className={`src-badge ${s.source.type.toLowerCase()}`}>{SRC[s.source.type]}</span>
@@ -68,7 +76,7 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
               <label className="lbl" htmlFor={`cv-${c.finding_id}`}>직접 입력{c.kind === 'VAGUE_ACTOR' ? ' (예: 여신심사부 심사역)' : ''}</label>
               <div className="actions" style={{ marginTop: 4 }}>
                 <input id={`cv-${c.finding_id}`} className="field" maxLength={80} value={typing[c.finding_id] ?? ''} onChange={(e) => setTyping((t) => ({ ...t, [c.finding_id]: e.target.value }))} />
-                <button type="button" className="btn" disabled={!(typing[c.finding_id] ?? '').trim()} onClick={() => setPick((p) => ({ ...p, [c.finding_id]: withValue(c, typing[c.finding_id]!.trim()) }))}>입력값 적용</button>
+                <button type="button" className="btn" disabled={!(typing[c.finding_id] ?? '').trim() || busy} onClick={() => compose(c)}>입력값 적용</button>
               </div>
             </div>}
             {!done && after && <ol className="diff-lines" aria-label="고치기 전·후"><li className="del"><span className="num">전</span><del>{c.before}</del></li><li className="add"><span className="num">후</span><ins>{after}</ins></li></ol>}

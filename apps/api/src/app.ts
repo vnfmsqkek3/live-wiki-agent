@@ -16,7 +16,7 @@ import type { Store } from './store.ts';
 import { FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { buildDocPages } from './steps/structure.ts';
-import { composePrompt, safeSuggestion, type ClarifyKind } from './steps/clarify.ts';
+import { composePrompt, fallbackAfter, keepsRest, safeSuggestion, type ClarifyKind } from './steps/clarify.ts';
 
 export interface Deps {
   /** 브라우저 허용 출처 (CORS). 와일드카드 금지 (운영 교훈 #3) */
@@ -253,16 +253,17 @@ export function createApp(deps: Deps) {
     const b = (await c.req.json().catch(() => ({}))) as { answers?: { finding_id?: string; answer?: string }[] };
     const items = (b.answers ?? []).slice(0, 10).map((x, n) => {
       const f = d.findings.find((y) => y.finding_id === x.finding_id && y.code === 'CLARIFY_NEEDED');
-      const det = (f?.details ?? {}) as { kind?: string; item?: string; before?: string; question?: string };
+      const det = (f?.details ?? {}) as { kind?: string; item?: string; before?: string; question?: string; span?: string };
       const answer = mask(String(x.answer ?? '').trim(), detectPii(String(x.answer ?? '')));
-      return f && det.before && answer ? { n, finding_id: f.finding_id, before: det.before, question: det.question ?? '', answer, cand: { kind: (det.kind ?? 'MISSING_VALUE') as ClarifyKind, item: det.item ?? '', before: det.before, question: det.question ?? '', in_procedure: false, query: '' } } : undefined;
+      return f && det.before && answer ? { n, finding_id: f.finding_id, before: det.before, question: det.question ?? '', answer, ...(det.span ? { span: det.span } : {}), cand: { kind: (det.kind ?? 'MISSING_VALUE') as ClarifyKind, item: det.item ?? '', before: det.before, question: det.question ?? '', in_procedure: false, query: '' } } : undefined;
     }).filter((x): x is NonNullable<typeof x> => !!x);
     if (!items.length) throw new ApiError('VALIDATION', '답을 적은 항목이 없습니다');
     const out = deps.composeClarify ? (await deps.composeClarify(composePrompt(items)).catch(() => ({ edits: [] }))).edits : [];
     const edits = items.map((q) => {
       const e = out.find((x) => x.n === q.n);
       // 모델이 없거나 실패하면 대상 낱말 자리에 답을 넣는다
-      const after = (e?.ok !== false && e?.after?.trim()) || (q.before.includes(q.cand.item) && q.cand.item ? q.before.replace(q.cand.item, q.answer) : `${q.before.replace(/[.。]?\s*$/, '')} (${q.answer}).`);
+      const ai = e?.ok !== false && e?.after?.trim() && keepsRest(q.before, q.span, e.after.trim()) ? e.after.trim() : '';
+      const after = ai || fallbackAfter(q.before, q.cand.item, q.span, q.answer);
       const ok = e?.ok !== false && safeSuggestion(q.cand, { value: q.answer, after });
       return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok ? {} : { reason: e?.reason ?? '개인정보·사람 이름이 들어갔거나 문장이 바뀌지 않았습니다' }) };
     });

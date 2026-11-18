@@ -545,3 +545,11 @@ test('항목별 확인(Fable 권고 11/18): 하나만 확인하면 그 하나만
   assert.equal((await ack('author', ['p2', 'p3'])).status, 200);
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`)).status, 201); // OCR·LOW 는 잠그지 않음
 });
+
+test('확인 필요 답 넣기 회귀(let522mj 전달 11/18): span 이 있으면 문장 끝 괄호가 아니라 그 구절 자리에, 모델이 나머지를 바꾸면 버림', async () => {
+  const { fallbackAfter, keepsRest } = await import('../src/steps/clarify.ts');
+  const before = '문서 관리:내용 변경 시 관련 부서 협의 후 개정 이력을 관리하며, 시행 시점과 내부 승인 절차를 확인한다.';
+  assert.equal(fallbackAfter(before, '담당 부서', '관련 부서', 'IT인프라팀'), '문서 관리:내용 변경 시 IT인프라팀 협의 후 개정 이력을 관리하며, 시행 시점과 내부 승인 절차를 확인한다.');
+  assert.equal(keepsRest(before, '관련 부서', '문서 관리:내용 변경 시 IT인프라팀과 협의 후 개정 이력을 관리하며, 시행 시점과 내부 승인 절차를 확인한다.'), true);
+  assert.equal(keepsRest(before, '관련 부서', '내용이 바뀌면 IT인프라팀과 협의한다.'), false);
+});
