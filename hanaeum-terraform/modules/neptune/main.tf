@@ -55,7 +55,7 @@ resource "aws_neptune_cluster" "this" {
   neptune_subnet_group_name           = aws_neptune_subnet_group.this.name
   vpc_security_group_ids              = [aws_security_group.neptune.id]
   backup_retention_period             = var.n.suffix == "" ? 7 : 1
-  skip_final_snapshot                 = var.n.suffix != ""
+  skip_final_snapshot                 = !var.protect
   deletion_protection                 = var.protect
   apply_immediately                   = true
   serverless_v2_scaling_configuration {

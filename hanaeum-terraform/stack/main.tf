@@ -16,6 +16,7 @@ module "kms" {
 
 module "s3" {
   source      = "../modules/s3"
+  protect     = local.protect
   n           = local.n
   kms_key_arn = module.kms.key_arn
   # CloudFront 도메인(웹 배포 시) 자동 추가: 브라우저 presigned PUT
