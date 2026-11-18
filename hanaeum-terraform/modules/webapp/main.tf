@@ -212,7 +212,7 @@ resource "aws_iam_role_policy" "api" {
       },
       { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       # 검토 중 문서 위키 수정: 새 original.md 를 쓴 뒤 같은 문서의 다른 original.* 삭제 (dhxorb96 11/18, TextLayerExtract "original 객체 2개" 실패)
-      { Effect = "Allow", Action = ["s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
+      { Effect = "Allow", Action = ["s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/doc_*" }, # 11/18 재분석에 옛 work/·masked/ 결과가 섞임 → 문서 폴더 전체 정리. 버킷 버전 관리로 복구 가능
       # 원본 다운로드(사용자 요청 11/17, dhxorb96 efe5463): 승인된 s3_version_id 로 60초 presigned GET → 버전 지정 읽기
       { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
@@ -221,7 +221,7 @@ resource "aws_iam_role_policy" "api" {
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${var.quarantine_bucket.arn}/*/masked/pages/*", "${var.quarantine_bucket.arn}/*/masked/explanation.json", "${var.quarantine_bucket.arn}/*/masked/summary.json", "${var.quarantine_bucket.arn}/*/masked/summaries/*", "${var.quarantine_bucket.arn}/*/masked/structured/*", "${var.quarantine_bucket.arn}/*/masked/view/*", "${var.quarantine_bucket.arn}/*/masked/figures/*"] }, # view: 원본 보기 쪽 이미지 presign (11/17)
       {
         Effect    = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn
-        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*", "*/masked/view/*", "*/masked/pages/*", "*/masked/figures/*", "*/original*"] } }
+        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*", "*/masked/view/*", "*/masked/pages/*", "*/masked/figures/*", "doc_*"] } }
       },
       # 근거 조문 밑줄(buildMarks)
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = var.tables["regulations"].arn },
