@@ -267,13 +267,26 @@ export async function purgePrefix(prefix: string): Promise<number> {
   return n;
 }
 
-/** 위키 수정본 저장 (11/18 dev 시험 버그): 검토 중 문서를 그 자리에서 고치면 original.md 를 새로 쓰는데
- *  원래 올린 original.docx 등이 남아 '원본 2개'로 글자 추출(legal-etl text-layer)이 실패했다. 새 원본을 쓴 뒤 다른 original.* 는 지운다.
- *  권한: API Task Role 에 quarantine 버킷 {doc}/original* 의 ListBucket·DeleteObject 필요 (yoyo0704) */
+/** 위키 수정본 저장 (11/18 dev 시험 버그 2건)
+ *  1) 원래 올린 original.docx 등이 남아 '원본 2개'로 글자 추출이 실패했다 → 새 원본을 쓴 뒤 다른 original.* 는 지운다.
+ *  2) 이전 분석의 쪽별 결과(work/·masked/ 의 segments·structured·view 0001… )가 남아, 2쪽 PDF 를 고친 md(1쪽)를 다시 분석할 때
+ *     옛 2쪽 본문이 섞였다 → '확인 필요'가 고친 문장을 다시 물었다 (사용자 지적 11/18). 새 원본을 쓰기 전에 {doc}/ 아래 결과물을 지운다
+ *     (쓰기가 분석을 시작시키므로 먼저 지운다).
+ *  권한: API Task Role 에 quarantine 버킷 {doc}/* 의 ListBucket·DeleteObject 필요 (yoyo0704) */
 export async function putOriginalOnly(key: string, body: Uint8Array, contentType: string) {
+  const { ListObjectsV2Command, DeleteObjectsCommand } = await import('@aws-sdk/client-s3');
+  const Bucket = env('BUCKET_QUARANTINE');
+  const list = async (Prefix: string) => {
+    const out: string[] = []; let ContinuationToken: string | undefined;
+    do { const r = await s3().send(new ListObjectsV2Command({ Bucket, Prefix, ContinuationToken })); out.push(...(r.Contents ?? []).map((o) => o.Key!).filter((k) => k !== key)); ContinuationToken = r.NextContinuationToken; } while (ContinuationToken);
+    return out;
+  };
+  const del = async (keys: string[]) => { for (let i = 0; i < keys.length; i += 1000) {
+    const r = await s3().send(new DeleteObjectsCommand({ Bucket, Delete: { Objects: keys.slice(i, i + 1000).map((Key) => ({ Key })), Quiet: true } }));
+    if (r.Errors?.length) throw new Error(`이전 분석 결과를 지우지 못했습니다: ${r.Errors[0]!.Code}`);
+  } };
+  const doc = key.slice(0, key.lastIndexOf('/') + 1);
+  await del((await list(doc)).filter((k) => !/\/original\.[^/]+$/.test(k)));
   await putBytes(key, body, contentType);
-  const prefix = key.replace(/original\.[^/]+$/, 'original');
-  const { ListObjectsV2Command, DeleteObjectCommand } = await import('@aws-sdk/client-s3');
-  const r = await s3().send(new ListObjectsV2Command({ Bucket: env('BUCKET_QUARANTINE'), Prefix: prefix }));
-  for (const o of r.Contents ?? []) if (o.Key && o.Key !== key) await s3().send(new DeleteObjectCommand({ Bucket: env('BUCKET_QUARANTINE'), Key: o.Key }));
+  await del(await list(key.replace(/original\.[^/]+$/, 'original')));
 }

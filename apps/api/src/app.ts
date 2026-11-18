@@ -265,7 +265,7 @@ export function createApp(deps: Deps) {
       const ai = e?.ok !== false && e?.after?.trim() && keepsRest(q.before, q.span, e.after.trim()) ? e.after.trim() : '';
       const after = ai || fallbackAfter(q.before, q.cand.item, q.span, q.answer);
       const ok = e?.ok !== false && safeSuggestion(q.cand, { value: q.answer, after });
-      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok ? {} : { reason: e?.reason ?? '개인정보·사람 이름이 들어갔거나 문장이 바뀌지 않았습니다' }) };
+      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : q.cand.kind === 'VAGUE_ACTOR' ? "사람 이름은 빼고 부서·직책만 적어 주세요 (예: 'IT인프라팀 매니저'). 사람이 바뀌어도 문서가 맞게 남도록 이름은 쓰지 않습니다." : '개인정보가 들어갔거나 문장이 바뀌지 않았습니다' }) };
     });
     await audit(c, 'CLARIFY_COMPOSE', d.doc_id);
     return c.json({ edits });
