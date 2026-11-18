@@ -17,6 +17,8 @@ locals {
   demo = {
     "user"  = ["USER", "AUTHOR"]
     "admin" = local.roles
+    # 두 번째 결재자 (11/18): admin 이 올린 문서는 자기 승인 금지라 결재할 사람이 없었음
+    "approver" = ["USER", "AUTHOR", "REG_APPROVER", "SECURITY_REVIEWER"]
   }
   demo_groups = merge([for u, gs in local.demo : { for g in gs : "${u}/${g}" => { user = u, group = g } }]...)
 }
