@@ -503,3 +503,22 @@ test('원본 보기: 모든 쪽 가린 이미지 presigned 목록(볼 수 있는
   assert.equal((await t.call('user', 'GET', '/v1/library/doc_H/pages')).status, 404);
   assert.ok(t.store.audits.every((a) => !JSON.stringify(a).includes('s3.example'))); // URL 은 감사에 남기지 않음
 });
+
+test('확인 필요 답 넣기(11/18): 답을 문장에 넣어 before→after, 사람 이름 답은 ok=false, 항목 하나만 바뀜', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  const F = (id: string, item: string, before: string) => ({ finding_id: id, step: 'REFERENCE_CHECK', severity: 'MEDIUM', code: 'CLARIFY_NEEDED', message: 'x', evidence_ref: 'm',
+    details: { kind: 'VAGUE_ACTOR', item, before, question: '어느 부서인가요?', suggestions: [], status: 'OPEN' } });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', findings: [F('f1', '담당자', '서류는 담당자가 승인한다.'), F('f2', '관련 부서', '문의는 관련 부서로 한다.')] as never });
+  const res = await t.call('author', 'POST', `/v1/documents/${doc_id}/clarify/compose`, { answers: [{ finding_id: 'f1', answer: '여신심사부 심사역' }, { finding_id: 'f2', answer: '홍길동 대리' }] });
+  assert.equal(res.status, 200);
+  const { edits } = (await res.json()) as { edits: { finding_id: string; after: string; ok: boolean }[] };
+  assert.deepEqual(edits.map((e) => [e.finding_id, e.ok]), [['f1', true], ['f2', false]]);
+  assert.equal(edits[0]!.after, '서류는 여신심사부 심사역가 승인한다.');
+  // 문서 상태·다른 항목은 바뀌지 않는다 (저장은 위키 편집기에서 사람이)
+  const after = (await t.store.getDoc(doc_id))!;
+  assert.equal(after.lifecycle, 'IN_REVIEW');
+  assert.equal(after.findings.filter((f) => (f.details as { status?: string })?.status === 'OPEN').length, 2);
+});

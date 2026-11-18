@@ -2,6 +2,8 @@
 import { db } from '@hanaeum/db';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
+import { structured } from './model.ts';
+import { COMPOSE_SCHEMA, COMPOSE_SYSTEM } from './steps/clarify.ts';
 import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
@@ -77,6 +79,7 @@ const app = createApp({
   pageSummary,
   structuredPages,
   externalLaws,
+  composeClarify: async (prompt: string) => (await structured<{ edits: { n: number; ok: boolean; after: string; reason?: string }[] }>('HAIKU', COMPOSE_SYSTEM, prompt, 'submit_edits', COMPOSE_SCHEMA as unknown as Record<string, unknown>)).value,
   ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),
 });
