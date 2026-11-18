@@ -57,3 +57,12 @@ test("데모 업로드 PDF: Registry pdf_content_hash와 일치, F-003(위조) P
     if (d.upload_file) assert.match(d.upload_file, /\.(pdf|png)$/u, d.document_id);
   }
 });
+
+test("diffLaws: 띄어쓰기만 다른 조문은 개정 아님 (prod 11/18 '업종 집중도'↔'업종집중도')", () => {
+  const meta = { law_id: "X", law_name: "x" };
+  const a = parseLaw("제6조(확인) ① 다음을 확인한다.\n1. 동일인 합산 익스포저\n2. 업종 집중도", { ...meta, revision_id: "2026-11-01" });
+  const b = parseLaw("제6조(확인) ① 다음을 확인한다.\n1. 동일인 합산 익스포저\n2. 업종집중도", { ...meta, revision_id: "2026-12-01" });
+  assert.deepEqual(diffLaws(a, b), []);
+  const c = parseLaw("제6조(확인) ① 다음을 확인한다.\n1. 동일인 합산 익스포저\n2. 업종 편중도", { ...meta, revision_id: "2026-12-01" });
+  assert.deepEqual(diffLaws(a, c).map((x) => [x.path, x.kind]), [["ARTICLE:6/PARAGRAPH:1/ITEM:2", "MODIFIED"]]);
+});
