@@ -430,3 +430,14 @@ test('E8b 할당: 서로 맞지 않음은 3건까지, 다른 종류는 그대로
   assert.equal(r.filter((c) => c.kind === 'INCONSISTENT').length, 3);
   assert.equal(r.length, 5);
 });
+
+test('새 규정 게시 → 근거 없이 게시된 노하우는 재검토 필요 (사용자 지적 11/18: 규정보다 먼저 게시된 체크리스트가 정상으로 남음)', async () => {
+  const t = setup(new TextEncoder().encode('%PDF-1.7 x'));
+  await t.store.putDoc({ ...t.doc, lifecycle: 'IN_REVIEW', document_type: 'REGULATION', classification: { ...(t.doc.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: 'REGULATION' } } as never);
+  await t.store.putDoc({ ...t.doc, doc_id: 'doc_01KNOWHOW0000000000000000A', lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'CURRENT',
+    findings: [{ finding_id: 'f', step: 'TRUST_GATE', severity: 'MEDIUM', code: 'KNOWHOW_NO_BASIS', message: 'm', evidence_ref: 'citations:0' }] } as never);
+  await makeFinalize({ ...t.deps, knowhow: undefined })({ ...t.input, outcome: 'PUBLISHED' });
+  const k = (await t.store.getDoc('doc_01KNOWHOW0000000000000000A'))!;
+  assert.equal(k.freshness, 'REVIEW_REQUIRED');
+  assert.ok(t.store.audits.some((a) => a.action === 'FRESHNESS_REVIEW_REQUIRED' && a.resource === k.doc_id));
+});

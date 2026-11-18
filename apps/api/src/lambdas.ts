@@ -457,6 +457,8 @@ export function makeFinalize(deps: LambdaDeps) {
     await deps.store.audit({ at: now(), actor: 'system:finalize', action: `FINALIZE_${i.outcome}`, resource: d.doc_id, result: 'OK', trace_id: i.workflow_id });
     // 규정 개정판 게시 → 그 규정을 근거로 쓴 게시 노하우를 재검토 대상으로 (시행 전 개정판이면 시행일 점검(freshnessSweep)에서)
     if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION' && next.law_id) await markStale(deps.store, [next.law_id], i.workflow_id);
+    // 새 규정 게시 → 근거 규정을 못 찾은 채 게시된 노하우를 다시 검증 (사용자 지적 11/18: 규정보다 먼저 게시된 체크리스트가 '정상'으로 남음)
+    if (i.outcome === 'PUBLISHED' && (next.document_type ?? next.classification?.document_type) === 'REGULATION') await revalidateNoBasis(deps, next, i.workflow_id);
     // 새 버전 게시 → 이전 버전은 대체됨(검색은 SUPERSEDED를 내보내지 않음). 보관함에는 버전 목록으로 남는다
     if (i.outcome === 'PUBLISHED' && next.previous_doc_id) {
       const prev = await deps.store.getDoc(next.previous_doc_id);
@@ -505,6 +507,23 @@ async function finalizeDeleted(store: Store, d: DocumentRecord, affected: string
   await store.putDoc({ ...cur, purge: { ...cur.purge, objects: cur.purge?.objects ?? 0, deleted_at: at, review_required: marked } });
   await store.audit({ at, actor: 'system:finalize', action: 'FINALIZE_DELETED', resource: d.doc_id, result: 'OK', trace_id });
   return { status: 'OK' };
+}
+
+/** 근거 없이 게시된 노하우(KNOWHOW_NO_BASIS)를 새 규정과 다시 비교. 비교할 수 없으면(마스킹 본문 만료·도구 없음) 재검토 필요로만 표시. 어긋나면 재검토 필요 + 고칠 것 */
+async function revalidateNoBasis(deps: LambdaDeps, reg: DocumentRecord, trace_id: string) {
+  const targets = (await deps.store.listDocs()).filter((d) => d.lifecycle === 'PUBLISHED' && (d.document_type ?? d.classification?.document_type) === 'KNOWHOW'
+    && d.freshness !== 'SUPERSEDED' && d.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS'));
+  for (const d of targets) {
+    const k = deps.knowhow ? await deps.knowhow.maskedText(d).then((t) => validateKnowhow(t, deps.knowhow!)).catch(() => undefined) : undefined;
+    const conflicts = k?.findings.filter((f) => f.code === 'KNOWHOW_CONFLICT').length ?? 0;
+    const stillNone = !k || k.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS');
+    const cur = (await deps.store.getDoc(d.doc_id)) ?? d;
+    const why = !k || conflicts > 0; // 비교 못 함 또는 어긋남 → 재검토 필요 (사유는 새 규정)
+    await deps.store.putDoc({ ...cur,
+      ...(k && !stillNone ? { knowhow_validation: k.validation, findings: [...cur.findings.filter((f) => f.code !== 'KNOWHOW_NO_BASIS' && f.code !== 'KNOWHOW_CONFLICT'), ...k.findings] } : {}),
+      ...(why ? { freshness: 'REVIEW_REQUIRED' as const, freshness_reason: { law_id: reg.law_id ?? reg.doc_id, law_name: reg.law_name ?? reg.title, cited_revision: '', current_revision: reg.revision_id ?? '', effective_from: reg.effective_from ?? '', provisions: [], at: now() } } : {}), updated_at: now() });
+    await deps.store.audit({ at: now(), actor: 'system:revalidate', action: why ? 'FRESHNESS_REVIEW_REQUIRED' : 'KNOWHOW_REVALIDATED', resource: d.doc_id, result: 'OK', trace_id, detail: { regulation: reg.doc_id, conflicts } });
+  }
 }
 
 async function markStale(store: Store, lawIds: string[] | undefined, trace_id: string) {
