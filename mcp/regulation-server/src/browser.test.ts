@@ -40,6 +40,16 @@ test("externalLaws: 내부 저장소에 없는 「법령」 인용만 → 비면
   assert.deepEqual(await externalLaws("하나은행 기업여신 심사규정 제12조에 따른 승인 기준", s), [], "외부 법령 인용 없으면 빈 목록");
 });
 
+test("externalLawRefs: [ ]·『』 괄호도 법령명으로, 바로 뒤 조문 표기 (사용자 지적 11/18 '[개인정보 보호법]제15조제1항')", async () => {
+  const { externalLawRefs } = await import("./browser.ts");
+  const s = fixtureClauseStore();
+  const t = "수집 시 [개인정보 보호법]제15조제1항에 따라 동의를 받는다. 『신용정보의 이용 및 보호에 관한 법률』 제 32 조 참고. [첨부 1] 서식, [개인정보 보호법]";
+  assert.deepEqual(await externalLawRefs(t, s), [
+    { law_name: "개인정보 보호법", clause: "제15조제1항" },
+    { law_name: "신용정보의 이용 및 보호에 관한 법률", clause: "제32조" },
+  ]);
+});
+
 test("cachedFetcher: 1일 안에 같은 법령은 Browser 재실행 없이 캐시, 지나면 다시 조회", async () => {
   const { cachedFetcher, fetchOfficialLaw } = await import("./browser.ts");
   const store = new Map<string, { url: string; header: string; body: string; fetched_at: string }>();

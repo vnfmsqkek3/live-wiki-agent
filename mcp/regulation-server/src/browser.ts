@@ -33,12 +33,24 @@ export interface LawPageFetcher { fetch(lawName: string): Promise<LawPage> }
 
 /** 분석 단계 판단: 본문이 인용한 「법령명」 중 내부 규정 저장소에 없는 외부 법령. 비어 있으면 Browser를 돌리지 않는다.
  *  ponytail: 「」로 감싼 이름만 인식 (법제처 표기 규칙). 괄호 없는 "개인정보 보호법 제15조"는 이름 범위를 추정하다 헛조회(약 30초)가 나므로 의도적으로 제외 */
-export async function externalLaws(text: string, store: ClauseStore, max = 5): Promise<string[]> {
-  const names = [...new Set([...text.matchAll(/「([^」\n]{2,40}?)」/gu)].map((m) => m[1]!.replace(/\s+/gu, " ").trim()))]
-    .filter((n) => /(법|법률|령|규칙)$/u.test(n)); // 법령명만 (서식·문서명 제외)
-  const out: string[] = [];
-  for (const n of names) if (!(await store.lawIdByName(n)) && out.length < max) out.push(n);
+// 법령명 괄호: 「」 외에 OCR·작성자가 쓰는 『』 [ ] 《》 〈〉 도 (사용자 지적 11/18: "[개인정보 보호법]제15조제1항"이 외부 법령에 안 나옴)
+// ponytail: 괄호 없는 "개인정보 보호법 제15조"는 앞 낱말과 경계가 모호해 제외 (예 "근거하여 은행법")
+const LAW_REF = /[「『[《〈]\s*([^」』\]》〉\n]{2,40}?)\s*[」』\]》〉]\s*(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?)?/gu;
+/** 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것)과 바로 뒤 조문 표기 (최대 max개) */
+export async function externalLawRefs(text: string, store: ClauseStore, max = 5): Promise<{ law_name: string; clause?: string }[]> {
+  const seen = new Map<string, string | undefined>();
+  for (const m of text.matchAll(LAW_REF)) {
+    const n = m[1]!.replace(/\s+/gu, " ").trim();
+    if (!/(법|법률|령|규칙)$/u.test(n)) continue; // 법령명만 (서식·문서명 제외)
+    const c = m[2]?.replace(/\s+/gu, "");
+    if (!seen.has(n) || (!seen.get(n) && c)) seen.set(n, c);
+  }
+  const out: { law_name: string; clause?: string }[] = [];
+  for (const [n, c] of seen) if (out.length < max && !(await store.lawIdByName(n))) out.push({ law_name: n, ...(c ? { clause: c } : {}) });
   return out;
+}
+export async function externalLaws(text: string, store: ClauseStore, max = 5): Promise<string[]> {
+  return (await externalLawRefs(text, store, max)).map((r) => r.law_name);
 }
 
 /** 같은 법령을 다시 열 때 Browser 재실행을 막는 캐시 (기본 1일) */
