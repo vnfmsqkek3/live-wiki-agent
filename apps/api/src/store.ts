@@ -16,6 +16,8 @@ export interface AuditEvent {
 export interface Store {
   getDoc(id: string): Promise<DocumentRecord | undefined>;
   putDoc(d: DocumentRecord): Promise<void>;
+  /** 이 문서의 검사 결과를 모두 지운다 (다시 검사 시작 전). findings 를 별도 테이블에 두는 저장소만 필요 — 나머지는 putDoc(findings: []) 로 충분 */
+  clearFindings?(doc_id: string): Promise<void>;
   listDocs(): Promise<DocumentRecord[]>;
   createApproval(a: ApprovalRecord): Promise<void>;
   getApproval(id: string): Promise<ApprovalRecord | undefined>;

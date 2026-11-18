@@ -590,3 +590,19 @@ test('위키 수정 요청(사용자 결정 11/18): 읽는 사람 요청 → AI 
   assert.equal(nv.previous_doc_id, doc_id); assert.equal(nv.lifecycle, 'QUARANTINED'); assert.ok(nv.review_carry, '새 버전도 이전 결정을 잇는다');
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
 });
+
+test('위키 수정·검토 중 다시 분석은 이전 검사 결과를 저장소에서도 지운다 (11/18 dev 시험 D2: 고친 뒤에도 옛 고칠 것이 남음)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', document_type: 'KNOWHOW', findings: [{ finding_id: 'k1', step: 'KNOWHOW_VALIDATION', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'p' }] } as never);
+  const cleared: string[] = [];
+  t.store.clearFindings = async (id: string) => { cleared.push(id); };
+  t.deps.putOriginal = async () => {};
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: '고친 글' })).status, 201);
+  assert.deepEqual(cleared, [doc_id]);
+  t.objects.set(`${doc_id}/original.md`, { s3_version_id: 'v2', content_hash: 'h2' });
+  await t.store.putDoc({ ...(await t.store.getDoc(doc_id))!, lifecycle: 'IN_REVIEW' });
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
+  assert.deepEqual(cleared, [doc_id, doc_id]);
+});

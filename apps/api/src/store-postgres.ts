@@ -38,6 +38,7 @@ export function postgresStore(d: Db = connect()): PostgresStore {
     async getDoc(id) {
       return (await withFindings(await q('SELECT * FROM documents WHERE doc_id = :id', { id })))[0];
     },
+    async clearFindings(doc_id) { await q('DELETE FROM findings WHERE doc_id = :doc_id', { doc_id }); },
     async putDoc(doc) {
       // 문서 전체 교체 + findings 동기화. 병렬 단계가 그 사이 넣은 다른 단계의 findings는 지우지 않는다
       // (이 문서가 가진 단계의 findings만 교체: lambdas.ts addFindings와 같은 단계 단위 의미)

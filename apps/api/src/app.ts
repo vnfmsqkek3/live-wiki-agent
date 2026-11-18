@@ -229,6 +229,8 @@ export function createApp(deps: Deps) {
     if (t.source !== 'WIKI_EDIT' && t.s3_version_id) doc.original_upload = { key: quarantineKey(t), version_id: t.s3_version_id, filename: t.filename ?? `${t.title.slice(0, 80)}.${t.ext}` };
     else if (t.original_upload) doc.original_upload = t.original_upload;
     await store.putDoc(doc);
+    // 이전 검사 결과를 DB 에서도 지운다: putDoc 은 '새 결과에 있는 단계'만 바꿔서, 비운 결과로는 옛 고칠 것이 남았다 (11/18 dev 시험 D2, 사용자 '고칠 것이 계속 남음')
+    await store.clearFindings?.(doc.doc_id);
     await deps.putOriginal(quarantineKey(doc), md);
     return { doc_id: doc.doc_id, previous_doc_id: doc.previous_doc_id ?? null, new_version: doc.doc_id !== t.doc_id };
   };
@@ -366,8 +368,9 @@ export function createApp(deps: Deps) {
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
     // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
     const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString(),
-      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings) } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D)
+      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings), findings: [] } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D). 검토 중 재분석은 결과를 새로
     await store.putDoc(doc);
+    if (d.lifecycle === 'IN_REVIEW') await store.clearFindings?.(doc.doc_id); // 처음 분석·실패 재시도는 앞 단계(형식 검사) 결과를 지우지 않는다
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
     return c.json({ workflow_id: d.workflow_id }, 202);
