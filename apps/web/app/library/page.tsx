@@ -10,6 +10,7 @@ import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
+import { CardBoundary } from '../card-boundary';
 import { RefSuggestions, withReference, type RefSuggestion } from '../ref-suggestions';
 import { Changes, PageFacts } from '../issues';
 import { decideApproval, rejectSource } from '../lib/decide';
@@ -390,6 +391,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
     api<LibraryDoc>('GET', `/v1/library/${encodeURIComponent(id)}`)
       .then((x) => {
         setD(x);
+        markViewed(x.doc_id); // 상세를 열면 결재함 승인 잠금이 풀린다 (사용자 결정 11/18). 훅은 조기 반환 앞에만 둔다(11/18 dev 상세 화면 전체 오류)
         // 다른 유형의 비슷한 문서는 검색이 필요해 따로 불러와 붙인다
         api<{ items: LibraryDoc['related'] }>('GET', `/v1/library/${encodeURIComponent(id)}/similar`)
           .then((r) => setD((cur) => (cur ? { ...cur, related: [...cur.related, ...r.items.filter((s) => !cur.related.some((c) => c.doc_id === s.doc_id))] } : cur)))
@@ -404,7 +406,6 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
   const figMap = Object.fromEntries((page?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
-  useEffect(() => { markViewed(d.doc_id); }, [d.doc_id]); // 상세를 열면 결재함 승인 잠금이 풀린다 (사용자 결정 11/18)
   const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
@@ -484,6 +485,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       )}
 
       </div><div className="document-more">
+      <CardBoundary label="상세 항목">
       <div className="detail-cards" aria-label="문서 상세 항목">
       <p className="cards-head judge">판단할 것</p>
       {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled warn count={d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length} /></button>}
@@ -580,7 +582,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         </section></DetailCard>
       )}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
-      </div>{d.review && <Decide r={d.review} docId={d.doc_id} />}
+      </div></CardBoundary>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
 <DeleteDoc d={d} /></div></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
