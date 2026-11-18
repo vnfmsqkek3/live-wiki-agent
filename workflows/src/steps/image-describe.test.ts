@@ -43,7 +43,7 @@ function world(files: Record<string, unknown>, modelOut: unknown) {
   const saved: unknown[] = [];
   const deps = {
     listMaskedPages: async () => Object.keys(files).flatMap((k) => /masked\/pages\/(\d{4})\.png$/.exec(k) ? [Number(k.slice(-8, -4))] : []),
-    getJson: async <T,>(k: string) => (puts.get(k) ?? files[k]) as T | undefined,
+    getJson: async <T,>(k: string) => { if (k.endsWith("ocr_low_pages.json") && !(k in files)) throw new Error("AccessDenied"); return (puts.get(k) ?? files[k]) as T | undefined; }, // 실제: 없는 키 → 403
     getBytes: async (k: string) => files[k] as Uint8Array | undefined,
     putJson: async (k: string, b: unknown) => { puts.set(k, b); },
     putPng: async (k: string, b: Uint8Array) => { puts.set(k, b); },

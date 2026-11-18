@@ -69,7 +69,8 @@ export function makeHandler(d: Deps) {
     const targetsRaw = await d.get(`${e.doc_id}/work/pages/ocr_targets.json`);
     if (!targetsRaw) throw new Error(`OcrTargetsNotFound: ${e.doc_id}`); // PageRender 선행 필수
     const targets = JSON.parse(targetsRaw) as OcrTargets;
-    if (targets.pages.length === 0) return { status: "OK" };
+    // OCR 대상이 없어도(글자 층 PDF·md) 빈 목록을 남긴다 — ImageDescribe 가 읽는 키 (11/18 없는 키 → 403 으로 실패)
+    if (targets.pages.length === 0) { await d.put(`${e.doc_id}/masked/ocr_low_pages.json`, JSON.stringify({ doc_id: e.doc_id, low_pages: [] })); return { status: "OK" }; }
     if (await d.get(resultKey)) return { status: "OK", output_key: resultKey }; // 이미 완료 (재호출)
 
     const chunks: ChunkResult[] = [];

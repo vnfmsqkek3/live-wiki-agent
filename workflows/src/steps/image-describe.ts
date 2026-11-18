@@ -156,7 +156,8 @@ export function makeHandler(d: Deps) {
     let described = 0;
     // 쪽 CONCURRENCY 개씩 동시에 (11/17 dev 실측: 28쪽 순서 처리 > Lambda 300초 → 시간 초과). 쪽 순서는 결과에 영향 없음
     // OCR 인식률 95% 미만 쪽: 그림이 없어도 Vision 으로 쪽 전체를 읽어 정리본을 만든다 (사용자 결정 11/18 "sonnet 비전 폴백")
-    const low = new Set((await d.getJson<{ low_pages?: number[] }>(`${e.doc_id}/masked/ocr_low_pages.json`))?.low_pages ?? []);
+    // 없거나 못 읽으면 폴백 없이 진행 (ListBucket 없는 role 은 없는 키에 403. 폴백은 보조 기능이라 단계를 실패시키지 않음)
+    const low = new Set((await d.getJson<{ low_pages?: number[] }>(`${e.doc_id}/masked/ocr_low_pages.json`).catch(() => undefined))?.low_pages ?? []);
     const one = async (page_index: number) => {
       const ref = `${e.doc_id}/masked/pages/${nnnn(page_index)}.png`;
       const png = await d.getBytes(ref);
