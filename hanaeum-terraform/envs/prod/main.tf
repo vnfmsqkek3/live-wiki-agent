@@ -24,6 +24,7 @@ module "stack" {
   governance_store  = "postgres"
   ocr_min_instances = 1 # 사용자 결정 11/18 21시: prod 단일 환경, OCR 최소 1·최대 1 (max 는 모듈 기본 1)
   name_suffix       = ""
+  protect_data      = false # 사용자 결정 11/18: 시험 단계라 데이터 날아가도 됨, destroy→재배포 시험
   owner             = "team"
   # 사용자 결정 11/18 21시: dev 폐기, prod 단일 환경. 팀원 배포 요청은 여기 커밋을 올려 바로 apply (11/18 dev 끝까지 시험 36/36 통과 커밋)
   lambda_refs               = { yoyo0704 = "e22b3f6", dhxorb96 = "791740d", let522mj = "dfec47d" }

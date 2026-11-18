@@ -7,7 +7,7 @@ locals {
 resource "aws_ecr_repository" "convert" {
   name                 = "${local.n.prefix}-ecr-convert${local.n.suffix}"
   image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.env != "prod"
+  force_delete         = !local.protect
   image_scanning_configuration { scan_on_push = true }
   # ponytail: 기본 AES256. KMS 로 바꾸면 Lambda 이미지 풀에 키 정책이 추가로 필요
 }

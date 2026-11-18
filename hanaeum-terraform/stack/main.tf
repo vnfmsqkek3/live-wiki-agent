@@ -1,5 +1,7 @@
 locals {
   n = { prefix = "hanaeum-mvp", suffix = var.name_suffix }
+  # 데이터 삭제 보호 (DynamoDB·Aurora·Neptune·Cognito) + ECR 강제 삭제 금지. 기본: prod 만 보호
+  protect = coalesce(var.protect_data, var.env == "prod")
 }
 
 module "network" {
@@ -24,7 +26,7 @@ module "ddb" {
   source              = "../modules/ddb"
   n                   = local.n
   kms_key_arn         = module.kms.key_arn
-  deletion_protection = var.env == "prod"
+  deletion_protection = local.protect
 }
 
 # Lambda 패키지는 CodeBuild 가 구성 요소별 커밋으로 빌드해 S3 에 올린다 (로컬 빌드 금지, 11/16)
@@ -43,6 +45,7 @@ locals {
 
 module "cognito" {
   source        = "../modules/cognito"
+  protect       = local.protect
   n             = local.n
   kms_key_arn   = module.kms.key_arn
   lambda_s3     = { bucket = local.yoyo_s3.bucket, key = "${local.yoyo_s3.prefix}/auth-triggers.zip" }
@@ -79,6 +82,7 @@ module "kb" {
 
 module "ocr" {
   source            = "../modules/ocr"
+  protect           = local.protect
   source_ref        = coalesce(var.ocr_source_ref, var.lambda_refs["yoyo0704"]) # services/ocr 커밋 (바뀌면 이미지 재빌드·엔드포인트 교체)
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
@@ -89,6 +93,7 @@ module "ocr" {
 # 문서 처리 오케스트레이션: AgentCore Gateway(단계 Tool) + Runtime(오케스트레이터). 전환 완료 후 sfn 모듈 폐기
 module "pipeline" {
   source                    = "../modules/agentcore_pipeline"
+  protect                   = local.protect
   n                         = local.n
   kms_key_arn               = module.kms.key_arn
   step_arns                 = module.sfn.step_arns
@@ -103,6 +108,7 @@ module "pipeline" {
 # 웹·API (ECS Fargate + ALB + CloudFront/WAF). webapp_source_ref 가 있으면 배포
 module "webapp" {
   source               = "../modules/webapp"
+  protect              = local.protect
   count                = var.webapp_source_ref == null ? 0 : 1
   n                    = local.n
   kms_key_arn          = module.kms.key_arn
@@ -151,6 +157,7 @@ resource "terraform_data" "agent_image" {
 # 사용자 Gateway + 가이드 Runtime (docs/01 11장)
 module "user" {
   source                = "../modules/agentcore_user"
+  protect               = local.protect
   n                     = local.n
   kms_key_arn           = module.kms.key_arn
   cognito_user_pool_id  = module.cognito.user_pool_id
@@ -174,6 +181,7 @@ module "user" {
 # 조문·노하우 관계 그래프 (Change Impact)
 module "neptune" {
   source          = "../modules/neptune"
+  protect         = local.protect
   n               = local.n
   kms_key_arn     = module.kms.key_arn
   vpc_id          = module.network.vpc_id
@@ -189,7 +197,7 @@ module "aurora" {
   data_subnet_ids = module.network.subnet_ids["data"]
   # dev 도 0.5: 0 ACU 자동 일시정지에서 깨는 데 수십 초(11/17 실측 DatabaseResumingException) → 화면 QA 중 첫 요청이 느려짐
   min_acu             = 0.5
-  deletion_protection = var.env == "prod"
+  deletion_protection = local.protect
 }
 
 # 거버넌스 저장소 선택·접속 정보 (모든 Lambda·API·오케스트레이터 공통 환경변수)
