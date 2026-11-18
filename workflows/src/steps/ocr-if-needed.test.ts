@@ -7,6 +7,12 @@ describe("lowConfidence ignores text inside figures (captures)", () => {
     expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.99, "text"), blk(0.4, "image"), blk(0.5, "image")] }] as never)).toEqual([]);
     expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.5, "text"), blk(0.99, "image")] }] as never)).toHaveLength(1);
   });
+  it("page average >= 95% passes without warning even with one low block", () => {
+    const blk = (c: number) => ({ confidence: c, bbox: [0, 0, 1, 1], label: "text", text: "x", reading_order: 0, block_id: "b" });
+    const hi = Array.from({ length: 19 }, () => blk(0.99));
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [...hi, blk(0.8)] }] as never)).toEqual([]); // 평균 0.9805
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.99), blk(0.8)] }] as never)).toHaveLength(1); // 평균 0.895
+  });
 });
 import type { Finding } from "./common.js";
 

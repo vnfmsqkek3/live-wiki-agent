@@ -29,6 +29,7 @@ export type Deps = {
 };
 
 // let522mj SegmentBuild 기준과 같게: 그림은 image·figure·chart (seal 직인은 본문), 글자 없는 덩어리는 제외
+export const PASS_PAGE = 0.95;
 export const FIGURE_LABELS = new Set(["image", "figure", "chart"]);
 
 // 저신뢰 판정: 블록 < 0.85 또는 페이지 평균 < 0.9 → OCR·PII 검토 화면 표시 (기준치는 실측 후 조정)
@@ -41,6 +42,7 @@ export function lowConfidence(doc_id: string, pages: Page[]): Finding[] {
     const avg = body.reduce((s, b) => s + b.confidence, 0) / body.length;
     const lowBlocks = body.filter((b) => b.confidence < LOW_BLOCK);
     const low = lowBlocks.length;
+    if (avg >= PASS_PAGE) continue; // 사용자 결정 11/18: 쪽 평균 95% 이상이면 경고 없이 통과
     if (avg < LOW_PAGE || low > 0) {
       out.push(finding(STEP, avg < LOW_PAGE ? "MEDIUM" : "LOW", "OCR_LOW_CONFIDENCE",
         `저신뢰 페이지 ${p.page_index + 1}: 평균 ${avg.toFixed(2)}, 저신뢰 블록 ${low}개`, `${doc_id}/work/ocr/result.json#page=${p.page_index}`, {
