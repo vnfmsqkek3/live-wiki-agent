@@ -6,7 +6,7 @@ import { makeHandler, ACTOR_KEY } from '../src/index.ts';
 type Out = { mcp: { transformedGatewayRequest?: { body: { params: { arguments: unknown } } }; transformedGatewayResponse?: { body: { error: { message: string } } } } };
 
 const h = makeHandler(async (t) => {
-  if (t === 'ext') return { sub: 'cli-9', client_id: 'cli-9', token_use: 'access', scope: 'hanaeum-mcp/read' }; // client_credentials (사람 없음)
+  if (t === 'ext') return { sub: 'cli-9', client_id: 'cli-9', token_use: 'access', scope: 'hanaeum-wiki-mcp/read' }; // client_credentials (사람 없음)
   if (t === 'ext-noscope') return { sub: 'cli-9', client_id: 'cli-9', token_use: 'access', scope: 'other/read' };
   if (t !== 'good') throw new Error('bad');
   return { sub: 'u-1', username: 'u1', 'cognito:groups': ['AUTHOR', 'ADMIN_FAKE'], dept: '여신' };
