@@ -11,7 +11,9 @@ resource "aws_bedrock_guardrail" "pii" {
   sensitive_information_policy_config {
     dynamic "pii_entities_config" {
       # 개인을 식별하는 값·비밀값만 (사용자 결정 11/17 "이름·나이는 PII 아님", 요청기록 20261117-0047). NAME·AGE·ADDRESS 제외
-      for_each = toset(["EMAIL", "PHONE", "USERNAME", "PASSWORD", "CREDIT_DEBIT_CARD_NUMBER", "CREDIT_DEBIT_CARD_CVV", "CREDIT_DEBIT_CARD_EXPIRY", "PIN", "IP_ADDRESS", "LICENSE_PLATE", "AWS_ACCESS_KEY", "AWS_SECRET_KEY"])
+      # IP_ADDRESS·USERNAME 제외 (사용자 결정 11/17 21시): 장비 IP·제품명(SINDORICOH 등)을 가려 가이드 문서가 쓸모없어짐 (과천사옥 매뉴얼 실측)
+      # EMAIL·PHONE 제외 (사용자 결정 11/17 22시: 가이드의 담당자 연락처·이메일을 안내할 수 있게)
+      for_each = toset(["PASSWORD", "CREDIT_DEBIT_CARD_NUMBER", "CREDIT_DEBIT_CARD_CVV", "CREDIT_DEBIT_CARD_EXPIRY", "PIN", "AWS_ACCESS_KEY", "AWS_SECRET_KEY"])
       content {
         type   = pii_entities_config.value
         action = "ANONYMIZE"

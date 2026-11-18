@@ -29,15 +29,15 @@ module "stack" {
   # 팀원 Lambda 도 prod 처럼 CodeBuild 가 lambda_refs 커밋으로 빌드한 공유 이름 hanaeum-mvp-lambda-*-dev
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
-    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "interceptor", "mcp-privacy", "mcp-approval",
+    "text-layer-extract", "segment-build", "promote", "kb-ingest", "kb-chunker", "mcp-regulation", "mcp-search", "graph-upsert", "mcp-graph", "freshness-sweep", "image-describe", "explain-findings", "page-summarize", "purge-document", "category-sweep", "reference-check", "interceptor", "mcp-privacy", "mcp-approval",
   ]
   lambda_refs = {
-    yoyo0704 = "2d53d78" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "448cc7d" # apps/api 단계 Lambda (CI·smoke 확인, dhxorb96)
-    let522mj = "48e2f4f" # PR #24 질의 재구성 (+#22·#21·#20·#19)
+    yoyo0704 = "e22b3f6" # workflows·auth-triggers·services/ocr
+    dhxorb96 = "72ab6b7" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
+    let522mj = "29dfb9a" # main e082bad(#50) 포함 (dhxorb96 29dfb9a 병합본)
   }
 
-  ocr_source_ref = "3310656" # services/ocr 변경 없음. 엔드포인트 유지
+  ocr_source_ref = "620108a" # 레이아웃 그림(image·chart) 안쪽 상자 유지 (과천 12쪽)
 
   # AgentCore 오케스트레이터 (dhxorb96 agents/src/pipeline, 긴급 전환 11/16). 태그가 있으면 Runtime 생성 → type-detection 이 AgentCore 로 시작
   # null: webapp_source_ref 커밋으로 오케스트레이터 이미지를 CodeBuild 빌드. 지정하면 그 태그 고정(빌드 안 함)
@@ -45,10 +45,11 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "d32fe89" # 실패 사유 설명(explanation)·쪽 위치·차단 사유
-  agents_source_ref = "3b5539c" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
+  webapp_source_ref = "2840ef4" # 이유 카드에 참고 주소, (그림 n) 숨김
+  agents_source_ref = "0212233" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
 output "ssm_prefix" { value = module.stack.ssm_prefix }
 output "demo_users_secret" { value = module.stack.demo_users_secret }
+output "mcp_external_secret" { value = module.stack.mcp_external_secret }
 output "web_url" { value = module.stack.web_url }

@@ -58,7 +58,7 @@ module "sfn" {
   table_documents   = module.ddb.tables["documents"]
   ocr_endpoint_name = module.ocr.endpoint_name
   quarantine_bucket = module.s3.buckets["quarantine"]
-  step_functions    = merge(local.team_steps, local.lambda_arn)
+  step_functions    = merge(local.team_steps, local.lambda_arn, { convert_to_pdf = aws_lambda_function.convert.arn })
   gov_env           = local.gov_env
   gov_statements    = module.aurora.app_statements
 }
@@ -83,6 +83,7 @@ module "ocr" {
   n                 = local.n
   kms_key_arn       = module.kms.key_arn
   quarantine_bucket = module.s3.buckets["quarantine"]
+  min_instances     = var.ocr_min_instances
 }
 
 # 문서 처리 오케스트레이션: AgentCore Gateway(단계 Tool) + Runtime(오케스트레이터). 전환 완료 후 sfn 모듈 폐기
@@ -95,7 +96,7 @@ module "pipeline" {
   create_runtime            = local.agents_ref != null || var.pipeline_runtime_image_tag != null
   runtime_image_tag         = var.pipeline_runtime_image_tag != null ? var.pipeline_runtime_image_tag : terraform_data.agent_image["pipeline"].output
   extra_runtime_statements  = module.aurora.app_statements
-  runtime_env               = merge(local.gov_env, { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off", PAGE_SUMMARIZE = contains(var.team_lambdas, "page-summarize") ? "on" : "off" })
+  runtime_env               = merge(local.gov_env, { BUCKET_QUARANTINE = module.s3.buckets["quarantine"].name, AWS_REGION = var.region, IMAGE_DESCRIBE = contains(var.team_lambdas, "image-describe") ? "on" : "off", PAGE_SUMMARIZE = contains(var.team_lambdas, "page-summarize") ? "on" : "off", REFERENCE_CHECK = contains(var.team_lambdas, "reference-check") ? "on" : "off" })
   enable_transaction_search = var.enable_transaction_search
 }
 
@@ -114,7 +115,7 @@ module "webapp" {
   tables               = module.ddb.tables
   quarantine_bucket    = module.s3.buckets["quarantine"]
   runtime_arn_patterns = [module.pipeline.runtime_arn_pattern, module.user.runtime_arn_pattern]
-  extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn]
+  extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn, aws_ecr_repository.convert.arn]
   kb_arn               = local.kb_arn
   extra_api_statements = module.aurora.app_statements
   api_env = merge(local.gov_env, {
@@ -124,6 +125,7 @@ module "webapp" {
     KB_ID                = module.kb.kb_id         # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
     MODEL_RERANK         = var.models["MODEL_RERANK"]
     MODEL_HAIKU          = var.models["MODEL_HAIKU"] # 검색·가이드 질의 재구성 (API 가 search-server 를 함께 묶음)
+    MODEL_EMBED          = var.models["MODEL_EMBED"] # 업무 분류 관리(이름 수정 시 임베딩 갱신)
   })
 }
 
@@ -148,16 +150,18 @@ resource "terraform_data" "agent_image" {
 
 # 사용자 Gateway + 가이드 Runtime (docs/01 11장)
 module "user" {
-  source               = "../modules/agentcore_user"
-  n                    = local.n
-  kms_key_arn          = module.kms.key_arn
-  cognito_user_pool_id = module.cognito.user_pool_id
-  cognito_client_id    = module.cognito.client_id
-  interceptor_arn      = module.team["interceptor"].arn
-  schema_bucket        = { name = module.s3.buckets["artifact"].name, arn = module.s3.buckets["artifact"].arn }
-  model_sonnet         = var.models["MODEL_SONNET"]
-  create_runtime       = local.agents_ref != null
-  image_tag            = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
+  source                = "../modules/agentcore_user"
+  n                     = local.n
+  kms_key_arn           = module.kms.key_arn
+  cognito_user_pool_id  = module.cognito.user_pool_id
+  cognito_client_id     = module.cognito.client_id
+  interceptor_arn       = module.team["interceptor"].arn
+  schema_bucket         = { name = module.s3.buckets["artifact"].name, arn = module.s3.buckets["artifact"].arn }
+  model_sonnet          = var.models["MODEL_SONNET"]
+  model_haiku           = var.models["MODEL_HAIKU"]
+  extra_allowed_clients = [module.cognito.mcp_external_client_id]
+  create_runtime        = local.agents_ref != null
+  image_tag             = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
   targets = {
     search     = { lambda_arn = module.team["mcp-search"].arn, tools_json = file("${path.module}/../../mcp/search-server/tools.json") }
     regulation = { lambda_arn = module.team["mcp-regulation"].arn, tools_json = file("${path.module}/../../mcp/regulation-server/tools.json") }
@@ -243,4 +247,5 @@ resource "aws_ssm_parameter" "p" {
 output "ssm_prefix" { value = "/hanaeum-mvp/${var.env}/" }
 output "web_url" { value = try(module.webapp[0].url, null) }
 output "demo_users_secret" { value = module.cognito.demo_users_secret }
+output "mcp_external_secret" { value = module.cognito.mcp_external_secret }
 output "network" { value = module.network }

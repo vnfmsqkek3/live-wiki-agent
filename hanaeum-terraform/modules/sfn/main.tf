@@ -15,7 +15,7 @@ variable "lambda_s3" { type = object({ bucket = string, key = string }) }
 
 locals {
   steps = [
-    "malware_check", "file_structure_check", "text_layer_extract", "page_render", "ocr_if_needed",
+    "malware_check", "file_structure_check", "convert_to_pdf", "text_layer_extract", "page_render", "ocr_if_needed",
     "segment_build", "pii_scan", "image_describe", "injection_scan", "page_summarize", "classify", "trust_gate", "wait_for_approval",
     "promote", "kb_ingest", "graph_upsert", "finalize", "explain_findings", "purge_document",
   ]

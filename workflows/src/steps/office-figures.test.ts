@@ -48,7 +48,7 @@ describe("PageRender DOCX", () => {
     const puts = new Map<string, Uint8Array | string>();
     const saved: unknown[] = [];
     const out = await makeHandler({
-      findOriginal: async () => "doc_1/original.docx", get: async () => docx(),
+      findOriginal: async () => "doc_1/original.docx", get: async () => docx(), tryGet: async () => undefined,
       put: async (_b, k, body) => { puts.set(k, body); }, openPdf,
       saveFindings: async (_d, _s, f) => { saved.push(...f); },
     })({ workflow_id: "wf", doc_id: "doc_1", version: 1, bucket: "q", prefix: "doc_1/", actor: { sub: "a", groups: [] } });

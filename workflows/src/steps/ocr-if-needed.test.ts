@@ -1,5 +1,19 @@
 import { describe, expect, it } from "vitest";
 import { lowConfidence, makeHandler, type Deps } from "./ocr-if-needed.js";
+
+describe("lowConfidence ignores text inside figures (captures)", () => {
+  it("blurry UI text in a screenshot does not flag the page", () => {
+    const blk = (c: number, label: string) => ({ confidence: c, bbox: [0, 0, 1, 1], label, text: "x", reading_order: 0, block_id: "b" });
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.99, "text"), blk(0.4, "image"), blk(0.5, "image")] }] as never)).toEqual([]);
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.5, "text"), blk(0.99, "image")] }] as never)).toHaveLength(1);
+  });
+  it("page average >= 95% passes without warning even with one low block", () => {
+    const blk = (c: number) => ({ confidence: c, bbox: [0, 0, 1, 1], label: "text", text: "x", reading_order: 0, block_id: "b" });
+    const hi = Array.from({ length: 19 }, () => blk(0.99));
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [...hi, blk(0.8)] }] as never)).toEqual([]); // 평균 0.9805
+    expect(lowConfidence("d", [{ page_index: 0, blocks: [blk(0.99), blk(0.8)] }] as never)).toHaveLength(1); // 평균 0.895
+  });
+});
 import type { Finding } from "./common.js";
 
 const input = { workflow_id: "wf_1", doc_id: "doc_1", version: 1, bucket: "q", prefix: "doc_1/", actor: { sub: "a", groups: ["AUTHOR"] } };
@@ -60,14 +74,16 @@ describe("OcrIfNeeded", () => {
     expect(f.saved).toEqual([[]]);
   });
 
-  it("REVIEW_REQUIRED on low-confidence pages", async () => {
+  it("low-confidence pages: no warning, marked for vision fallback", async () => {
     const f = fake(2, 0.7);
     const h = makeHandler(f.d);
     await h(input);
     f.complete();
     const out = await h(input);
-    expect(out.status).toBe("REVIEW_REQUIRED");
-    expect(out.findings!.map((x) => x.code)).toEqual(["OCR_LOW_CONFIDENCE", "OCR_LOW_CONFIDENCE"]);
+    expect(out.status).toBe("OK");
+    expect(out.findings).toBeUndefined();
+    const low = [...f.s3.entries()].find(([k]) => k.endsWith("masked/ocr_low_pages.json"))?.[1];
+    expect(JSON.parse(low as string).low_pages).toEqual([0, 1]);
   });
 
   it("throws when SageMaker reports failure", async () => {

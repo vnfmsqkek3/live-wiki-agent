@@ -18,6 +18,10 @@ variable "quarantine_bucket" { type = object({ name = string, arn = string }) }
 variable "runtime_arn_patterns" { type = list(string) } # API 가 호출하는 AgentCore Runtime (파이프라인·가이드)
 # API 검색(/v1/search: KB Retrieve·Rerank)용 KB ARN
 variable "kb_arn" { type = string }
+variable "waf_enabled" {
+  type    = bool
+  default = false # 사용자 결정 11/18 "일단 WAF 는 제외" (시험 중 요청 제한 403). 다시 켜려면 true
+}
 variable "extra_api_statements" {
   type    = list(any)
   default = []
@@ -207,15 +211,17 @@ resource "aws_iam_role_policy" "api" {
         Resource = flatten([for k in ["documents", "approvals", "feedback", "audit_events", "workflows"] : [var.tables[k].arn, "${var.tables[k].arn}/index/*"]])
       },
       { Effect = "Allow", Action = ["s3:PutObject"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
+      # 검토 중 문서 위키 수정: 새 original.md 를 쓴 뒤 같은 문서의 다른 original.* 삭제 (dhxorb96 11/18, TextLayerExtract "original 객체 2개" 실패)
+      { Effect = "Allow", Action = ["s3:DeleteObject"], Resource = "${var.quarantine_bucket.arn}/doc_*" }, # 11/18 재분석에 옛 work/·masked/ 결과가 섞임 → 문서 폴더 전체 정리. 버킷 버전 관리로 복구 가능
       # 원본 다운로드(사용자 요청 11/17, dhxorb96 efe5463): 승인된 s3_version_id 로 60초 presigned GET → 버전 지정 읽기
       { Effect = "Allow", Action = ["s3:GetObject", "s3:GetObjectVersion"], Resource = "${var.quarantine_bucket.arn}/*/original.*" },
       # 문서보관함 상세: 페이지별 마스킹본 표시 (dhxorb96 요청 2220). 원본·work/ 는 열지 않는다
       { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${var.quarantine_bucket.arn}/*/masked/segments/*" },
       # 실패·검토 사유 위치 표시: PII 를 칠한 페이지 이미지 위에 bbox 강조 (요청기록 20261117-0106)
-      { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${var.quarantine_bucket.arn}/*/masked/pages/*", "${var.quarantine_bucket.arn}/*/masked/explanation.json", "${var.quarantine_bucket.arn}/*/masked/summary.json", "${var.quarantine_bucket.arn}/*/masked/summaries/*", "${var.quarantine_bucket.arn}/*/masked/structured/*"] },
+      { Effect = "Allow", Action = ["s3:GetObject"], Resource = ["${var.quarantine_bucket.arn}/*/masked/pages/*", "${var.quarantine_bucket.arn}/*/masked/explanation.json", "${var.quarantine_bucket.arn}/*/masked/summary.json", "${var.quarantine_bucket.arn}/*/masked/summaries/*", "${var.quarantine_bucket.arn}/*/masked/structured/*", "${var.quarantine_bucket.arn}/*/masked/view/*", "${var.quarantine_bucket.arn}/*/masked/figures/*"] }, # view: 원본 보기 쪽 이미지 presign (11/17)
       {
         Effect    = "Allow", Action = ["s3:ListBucket"], Resource = var.quarantine_bucket.arn
-        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*"] } }
+        Condition = { StringLike = { "s3:prefix" = ["*/masked/segments/*", "*/masked/structured/*", "*/masked/view/*", "*/masked/pages/*", "*/masked/figures/*", "doc_*"] } }
       },
       # 근거 조문 밑줄(buildMarks)
       { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:Query"], Resource = var.tables["regulations"].arn },
@@ -379,6 +385,7 @@ resource "aws_ecs_service" "app" {
 
 # ---------- CloudFront + WAF ----------
 resource "aws_wafv2_web_acl" "this" {
+  count = var.waf_enabled ? 1 : 0
   name  = "${var.n.prefix}-waf-web${var.n.suffix}"
   scope = "CLOUDFRONT"
   default_action {
@@ -435,7 +442,7 @@ resource "aws_wafv2_web_acl" "this" {
     }
     statement {
       rate_based_statement {
-        limit              = 2000
+        limit              = 10000 # 5분당 IP 1개 (11/18: Next.js 미리 불러오기 + 진행률 3초 조회 + 시험으로 2000 초과 → 403. 사무실 공용 IP 고려)
         aggregate_key_type = "IP"
       }
     }
@@ -459,7 +466,7 @@ data "aws_cloudfront_origin_request_policy" "all_viewer" { name = "Managed-AllVi
 resource "aws_cloudfront_distribution" "this" {
   enabled         = true
   comment         = "${var.n.prefix} web+api${var.n.suffix}"
-  web_acl_id      = aws_wafv2_web_acl.this.arn
+  web_acl_id      = var.waf_enabled ? aws_wafv2_web_acl.this[0].arn : null
   price_class     = "PriceClass_200"
   is_ipv6_enabled = true
   origin {
