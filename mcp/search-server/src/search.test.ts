@@ -5,6 +5,7 @@ import { chunkDocument } from "@hanaeum/kb-chunker";
 import { regulationTools } from "@hanaeum/regulation-server";
 import { fixtureClauseStore } from "../../regulation-server/src/fixtures.ts";
 import type { DocumentMetadata } from "@hanaeum/schemas";
+import type { DocState, DocStates } from "./search.ts";
 import { buildFilter, inCategory, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
@@ -325,4 +326,26 @@ test("related 하한 (PR #44 리뷰): Rerank 1위가 근거 미달이면 0.10 �
   assert.deepEqual(weak.map((h) => [h.metadata["provision_id"], h.weak]), [["p0", true], ["p1", true]]);
   const fallback = await mk(Object.assign(new Error("no model access"), { name: "AccessDeniedException" })).retrieve("q");
   assert.equal(fallback.length, 2); // 대체 경로는 점수 체계가 달라 하한 없음
+});
+
+test("get_wiki_document: 게시본을 쪽별로 (본문 TEXT, 글자 없는 캡처 쪽은 AI 정리본 VISION), 권한·게시 상태·게시 해시 확인", async () => {
+  const { retriever } = setup();
+  const DOC = "doc_01KAAAAAAAAAAAAAAAAAAAAAAA";
+  const content = ["1쪽 본문\n| 층 | 모델 |\n|---|---|\n| 4층 | N620 |", "\f", "[그림 1]", "⟦그림 p0⟧ 그림 1 속 글자: 4층", "⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 4층 평면도", "⟦그림 p1⟧ 쪽 정리(AI, 그림 기준): 설치 완료 화면"].join("\n");
+  const st = { doc_id: DOC, lifecycle: "PUBLISHED", authority_status: "UNVERIFIED", freshness: "CURRENT", acl_groups: ["ALL"], published_content_hash: "h1", version: 2 } as DocState;
+  const s2 = { get: async (ids: string[]) => new Map(ids.includes(DOC) ? [[DOC, st]] : []) } as unknown as DocStates;
+  let meta: Record<string, unknown> = { title: "과천 매뉴얼", document_type: "MANUAL", content_hash: "h1", category_path: "총무/사무기기" };
+  const t = searchTools({ retriever, states: s2, regulation: regulationTools(fixtureClauseStore()), published: { get: async () => ({ content, meta }) } });
+  const r = await t.get_wiki_document({ doc_id: DOC }, user) as unknown as { version: number; category_path: string; page_count: number; pages: { page: number; markdown: string; source: string; ai_summary?: string }[] };
+  assert.equal(r.version, 2); assert.equal(r.category_path, "총무/사무기기"); assert.equal(r.page_count, 2);
+  assert.deepEqual(r.pages[0], { page: 1, markdown: "1쪽 본문\n| 층 | 모델 |\n|---|---|\n| 4층 | N620 |", source: "TEXT", ai_summary: "4층 평면도" });
+  assert.deepEqual(r.pages[1], { page: 2, markdown: "설치 완료 화면", source: "VISION" }); // 그림 속 글자 줄은 안 나감
+  meta = { ...meta, content_hash: "old" }; // 게시 동기화 중
+  await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /NOT_FOUND|없거나/u);
+  meta = { ...meta, content_hash: "h1" };
+  st.acl_groups = ["DEPT#수신"];
+  await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /없거나/u); // 권한 없음도 같은 응답
+  st.acl_groups = ["ALL"]; st.lifecycle = "IN_REVIEW" as DocState["lifecycle"];
+  await assert.rejects(t.get_wiki_document({ doc_id: DOC }, user), /없거나/u);
+  await assert.rejects(t.get_wiki_document({ doc_id: "../x" }, user), /doc_id/u);
 });
