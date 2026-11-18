@@ -513,8 +513,10 @@ async function finalizeDeleted(store: Store, d: DocumentRecord, affected: string
 async function revalidateNoBasis(deps: LambdaDeps, reg: DocumentRecord, trace_id: string) {
   const targets = (await deps.store.listDocs()).filter((d) => d.lifecycle === 'PUBLISHED' && (d.document_type ?? d.classification?.document_type) === 'KNOWHOW'
     && d.freshness !== 'SUPERSEDED' && d.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS'));
+  // 시간 예산 240초: 도구 호출이 ~300초에 끊긴다(yoyo0704 권고 11/18). 넘으면 남은 건은 비교 없이 재검토 필요로만
+  const t0 = Date.now(); const budget = Number(process.env.REVALIDATE_BUDGET_MS ?? 240_000);
   for (const d of targets) {
-    const k = deps.knowhow ? await deps.knowhow.maskedText(d).then((t) => validateKnowhow(t, deps.knowhow!)).catch(() => undefined) : undefined;
+    const k = deps.knowhow && Date.now() - t0 < budget ? await deps.knowhow.maskedText(d).then((t) => validateKnowhow(t, deps.knowhow!)).catch(() => undefined) : undefined;
     const conflicts = k?.findings.filter((f) => f.code === 'KNOWHOW_CONFLICT').length ?? 0;
     const stillNone = !k || k.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS');
     const cur = (await deps.store.getDoc(d.doc_id)) ?? d;
