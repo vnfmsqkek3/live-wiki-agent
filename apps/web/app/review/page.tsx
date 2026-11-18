@@ -129,7 +129,7 @@ function ReviewView() {
       </section>}
       {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
-      {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); location.reload(); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
+      {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); setMsg('다시 분석을 시작했습니다. 잠시 뒤 화면이 바뀝니다.'); setTimeout(() => location.reload(), 4000); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
       {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} onCancel={() => setEditInit(null)} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}

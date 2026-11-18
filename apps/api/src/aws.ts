@@ -122,7 +122,12 @@ export async function workflowFailure(workflow_id: string) {
   const r = await new DynamoDBClient({ region: region() }).send(new QueryCommand({
     TableName: env('TABLE_WORKFLOWS'), KeyConditionExpression: 'pk = :p', ExpressionAttributeValues: { ':p': { S: `WF#${workflow_id}` } },
   }));
-  const failed = (r.Items ?? []).find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
+  // 다시 분석 중(LOCK RUNNING)이거나 마지막 실행이 실패가 아니면 옛 실패 단계를 보이지 않는다 (11/18 dev 시험: 다시 분석 직후 화면이 멈춘 채)
+  const items = r.Items ?? [];
+  if (items.some((i) => i.sk?.S?.startsWith('LOCK#') && i.status?.S === 'RUNNING')) return undefined;
+  const exec = items.find((i) => i.sk?.S === 'EXECUTION');
+  if (exec && exec.status?.S !== 'FAILED') return undefined;
+  const failed = items.find((i) => i.status?.S === 'FAILED' && i.sk?.S?.startsWith('STEP#'));
   // 사용자에게는 한국어 안내 문장만 (AWS·런타임 영문 오류에는 ARN·경로가 섞일 수 있어 숨김)
   const msg = failed?.message?.S;
   return failed ? { step: failed.sk!.S!.slice(5), error: failed.error?.S ?? 'Unknown', ...(msg && /[가-힣]/.test(msg) ? { message: msg } : {}) } : undefined;
