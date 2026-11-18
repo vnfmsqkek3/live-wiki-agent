@@ -29,3 +29,14 @@ test('인용 추출(K-003 본문) → 개정 전 조문 인용 후보', async ()
   const c = await deps.extractCitations('여신 금액이 7억원 이상일 때만 본부 여신심사위원회 승인을 받는다 (기업여신 심사규정 2025. 1. 1. 시행본 제12조제1항).');
   assert.ok(c.some((x) => x.provision_id === 'SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1'), JSON.stringify(c));
 });
+
+test('더 새 VERIFIED 개정본(미래 시행): 현행이 아니어도 newer로 알려 주장 재검토에 쓴다 (let522mj 요청 11/17)', async () => {
+  const { sameText } = await import('../src/claims.ts');
+  const get = clauseGetter(store, () => 20251201); // 2026-11-01 개정본은 아직 시행 전
+  const old = await get('SYN-LOAN-001@2025-01-01/ARTICLE:12/PARAGRAPH:1');
+  assert.equal(old?.status, 'ACTIVE'); // 아직 현행
+  assert.equal(old?.newer?.provision_id, 'SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1'); // 가장 새 VERIFIED 개정본과 비교
+  assert.equal(sameText(old!.text, old!.newer!.text), false);
+  assert.equal((await get('SYN-LOAN-001@2026-12-01/ARTICLE:12/PARAGRAPH:1'))?.newer, undefined);
+  assert.equal(sameText('① 시재는 마감 전 확인한다.', '①시재는 마감 전 확인한다'), true);
+});

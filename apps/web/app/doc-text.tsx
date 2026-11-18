@@ -58,13 +58,18 @@ export function parseDocText(text: string): DocBlock[] {
     }
     blocks.push(block); offset += raw.length + 1;
   }
+  // 표 행 사이의 빈 줄은 버린다: 정리본이 행마다 빈 줄을 넣으면 행이 낱개 문단으로 깨졌다 (사용자 지적 11/18). 글자 위치는 그대로
+  const tbl = (i: number, step: number) => { while (blocks[i]?.kind === 'blank') i += step; return blocks[i]?.kind === 'table'; };
+  for (let i = blocks.length - 1; i >= 0; i--) if (blocks[i]!.kind === 'blank' && tbl(i - 1, -1) && tbl(i + 1, 1)) blocks.splice(i, 1);
   // Only consecutive pipe rows are a table; isolated pipes stay plain text.
   const typed = blocks.map((b, i) => b.kind === 'table' && blocks[i - 1]?.kind !== 'table' && blocks[i + 1]?.kind !== 'table' ? { ...b, kind: 'paragraph' as const, cells: undefined } : b);
   return reflow(text, typed);
 }
 
 type Numbered = { m: Mark; n: number };
-export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { text: string; marks?: Numbered[]; active?: number; onPick?: (n: number) => void }) {
+/** figures: 그림 k(1부터) → 잘라낸 그림 URL. 있으면 '(그림 k)'가 처음 나온 문단·단계 바로 아래에 그림을 넣는다 (사용자 요청 11/18) */
+/** hideFigRefs: '(그림 n)' 글자는 화면에서 지운다(그림 위치 결정에만 쓰고, 그림은 그 단계 아래에 나옴, 사용자 요청 11/18) */
+export function DocText({ text, marks = [], active = 0, onPick = () => {}, figures, hideFigRefs = false }: { text: string; marks?: Numbered[]; active?: number; onPick?: (n: number) => void; figures?: Record<string, string>; hideFigRefs?: boolean }) {
   const spans = marks.filter(({ m }) => m.start !== null && m.end !== null).slice().sort((a, b) => a.m.start! - b.m.start!);
   function marked(start: number, end: number): ReactNode {
     const out: ReactNode[] = [];
@@ -81,18 +86,22 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
   function inline(start: number, end: number): ReactNode {
     const out: ReactNode[] = [];
     const source = text.slice(start, end);
-    const pattern = /\*\*([^\n]+?)\*\*|\[[^\]\n]+\]/g;
+    // '(그림 n)'·'[그림 n]'은 누르면 그 쪽 그림을 크게 보여 주는 단추 (data-fig, 처리는 감싼 화면이)
+    const pattern = /\*\*([^\n]+?)\*\*|[([]그림\s*(\d+(?:-\d+)?)[)\]]|\[[^\]\n]+\]/g; // '그림 6-1' = 위키 수정본의 6쪽 그림 1
     let at = start;
     for (const match of source.matchAll(pattern)) {
       const s = start + match.index!;
       out.push(<Fragment key={`plain-${at}`}>{marked(at, s)}</Fragment>);
-      out.push(match[1] !== undefined ? <strong key={s}>{inline(s + 2, s + match[0].length - 2)}</strong> : <span className="pii" key={s}>{marked(s, s + match[0].length)}</span>);
+      out.push(match[1] !== undefined ? <strong key={s}>{inline(s + 2, s + match[0].length - 2)}</strong>
+        : match[2] !== undefined ? (hideFigRefs ? null : <button type="button" className="fig-ref" data-fig={match[2]} key={s} aria-label={`그림 ${match[2]} 크게 보기`}>{marked(s, s + match[0].length)}</button>)
+        : <span className="pii" key={s}>{marked(s, s + match[0].length)}</span>);
       at = s + match[0].length;
     }
     out.push(<Fragment key={`tail-${at}`}>{marked(at, end)}</Fragment>); return out;
   }
   const blocks = parseDocText(text);
   const out: ReactNode[] = [];
+  const shownFigs = new Set<string>(); // 같은 그림은 처음 한 번만
   for (let i = 0; i < blocks.length; i++) {
     const b = blocks[i]!, key = b.start;
     const content = inline(b.start, b.end);
@@ -113,6 +122,12 @@ export function DocText({ text, marks = [], active = 0, onPick = () => {} }: { t
     } else if (b.kind === 'quote') out.push(<blockquote key={key}>{content}</blockquote>);
     else if (b.kind === 'blank') out.push(<div className="doc-break" key={key} />);
     else out.push(<p key={key} className={b.flow ? 'doc-flow' : b.short ? 'doc-line' : undefined}>{content}</p>);
+    if (figures) for (const m of text.slice(b.start, blocks[i]!.end).matchAll(/[([]그림\s*(\d+(?:-\d+)?)[)\]]/gu)) {
+      const k = m[1]!, url = figures[k];
+      if (!url || shownFigs.has(k)) continue;
+      shownFigs.add(k);
+      out.push(<figure className="inline-fig" key={`fig-${k}`}><button type="button" className="fig-thumb" data-zoom={url} aria-label={`그림 ${k} 크게 보기`}><img src={url} loading="lazy" alt={`그림 ${k} (개인정보는 가림)`} /></button><figcaption className="note">그림 {k}</figcaption></figure>);
+    }
   }
   return <div className="page-text doc-text">{out}</div>;
 }

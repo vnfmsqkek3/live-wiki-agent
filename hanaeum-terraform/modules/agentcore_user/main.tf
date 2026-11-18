@@ -22,6 +22,11 @@ variable "image_tag" {
   default = null # null 이면 Runtime 은 만들지 않는다
 }
 variable "model_sonnet" { type = string }
+variable "model_haiku" { type = string } # 가이드 여러 번 찾기 항목 뽑기 (11/18)
+variable "extra_allowed_clients" {
+  type    = list(string)
+  default = [] # 외부 MCP 연결 client_credentials 클라이언트 (11/18)
+}
 
 data "aws_region" "this" {}
 data "aws_caller_identity" "me" {}
@@ -97,7 +102,7 @@ resource "aws_bedrockagentcore_gateway" "user" {
   authorizer_configuration {
     custom_jwt_authorizer {
       discovery_url   = local.discovery
-      allowed_clients = [var.cognito_client_id]
+      allowed_clients = concat([var.cognito_client_id], var.extra_allowed_clients)
     }
   }
   interceptor_configuration {
@@ -154,6 +159,15 @@ resource "aws_bedrockagentcore_policy" "user_tools" {
     }
   }
   depends_on = [aws_bedrockagentcore_gateway_target.t]
+}
+
+# Gateway 는 도구 스키마·Cedar 행동 목록을 만들 때만 읽는다(11/18 get_wiki_document 미반영 실측). 대상을 다시 만들면 이름 충돌 →
+# 스키마가 바뀌면 같은 설정으로 update 를 다시 불러 반영한다
+resource "terraform_data" "resync" {
+  triggers_replace = [sha1(join("", values(local.schemas)))]
+  provisioner "local-exec" {
+    command = "${path.module}/../../scripts/agentcore-resync.sh ${aws_bedrockagentcore_gateway.user.gateway_id} ${aws_bedrockagentcore_policy_engine.user.policy_engine_id} ${aws_bedrockagentcore_policy.user_tools.policy_id}"
+  }
 }
 
 # ---------- 가이드 Runtime ----------
@@ -216,6 +230,7 @@ resource "aws_bedrockagentcore_agent_runtime" "guide" {
   environment_variables = {
     GATEWAY_URL  = aws_bedrockagentcore_gateway.user.gateway_url
     MODEL_SONNET = var.model_sonnet
+    MODEL_HAIKU  = var.model_haiku
     AWS_REGION   = local.region
   }
   depends_on = [aws_iam_role_policy.runtime, aws_bedrockagentcore_policy.user_tools]

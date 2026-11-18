@@ -12,6 +12,7 @@ const SCOPES = [['ALL', '전 직원'], ['DEPT#여신', '여신 부서'], ['DEPT#
 
 export default function Upload() {
   const [file, setFile] = useState<File | null>(null);
+  const [sentFile, setSentFile] = useState<File | null>(null); // 이미 올린 파일은 다시 올리지 않게 (11/18 dev 시험)
   const [title, setTitle] = useState('');
   const [acl, setAcl] = useState('ALL');
   const [state, setState] = useState<{ kind: 'idle' | 'busy' | 'done' | 'error'; msg?: string; doc_id?: string }>({ kind: 'idle' });
@@ -21,13 +22,13 @@ export default function Upload() {
   // 분석 진행: 끝나거나 멈출 때까지 2초마다 확인
   useEffect(() => {
     if (state.kind !== 'done' || !state.doc_id) return;
-    let stop = false;
+    let stop = false; let wait = 2000, last = -1;
     const tick = async () => {
       try {
         const p = await api<Progress>('GET', `/v1/documents/${state.doc_id}/progress`);
         if (stop) return;
         setProg(p);
-        if (!p.finished && !p.halted) setTimeout(tick, 2000);
+        if (!p.finished && !p.halted) { wait = p.done === last ? Math.min(10_000, wait * 1.5) : 2000; last = p.done; setTimeout(tick, wait); } // 바뀐 게 없으면 간격을 늘린다(WAF 요청 수 제한)
       } catch { if (!stop) setTimeout(tick, 4000); }
     };
     tick();
@@ -38,6 +39,7 @@ export default function Upload() {
   const fileErr = file && (!ACCEPT.includes(`.${ext}`) ? 'PDF, DOCX, HWPX, PNG, JPG 파일만 올릴 수 있습니다.' : file.size > MAX ? '50MB 이하 파일만 올릴 수 있습니다.' : '');
 
   async function submit(e: React.FormEvent) {
+    setSentFile(file);
     e.preventDefault();
     if (!file || fileErr) return;
     try {
@@ -58,7 +60,7 @@ export default function Upload() {
 
   return (
     <>
-      <PageHeader title="문서 등록" description="파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다." action={<button className="btn solid" type="submit" form="upload-form" disabled={!file || !!fileErr || state.kind === 'busy'}>분석 시작</button>} />
+      <PageHeader title="문서 등록" description="파일 등록 → 자동 검사 → 작성자 검토 → 사람의 승인 순으로 게시됩니다." />
       <p className="notice">실제 은행 문서나 고객 정보는 올리지 마세요. 하나은행 가상 데이터(SYNTHETIC 표시) 문서만 등록할 수 있습니다.</p>
       <div className="layout-a upload-layout"><div className="primary"><form id="upload-form" onSubmit={submit} className="sheet" noValidate>
         <label className="lbl" htmlFor="f" style={{ marginTop: 0 }}>파일</label>
@@ -74,6 +76,8 @@ export default function Upload() {
 
         <label className="lbl">문서 종류</label>
         <p className="note" style={{ margin: '6px 0 0' }}>분석이 끝나면 규정, 노하우, 매뉴얼 중 하나로 제안합니다. 검토할 때 바꿀 수 있습니다.</p>
+        {/* 주 행동은 입력란 바로 아래 (사용자 요청 11/18) */}
+        <div className="actions"><button className={`btn${file && file === sentFile ? '' : ' solid'}`} type="submit" disabled={!file || !!fileErr || state.kind === 'busy' || file === sentFile}>분석 시작</button>{file && file === sentFile && <span className="note">이 파일은 이미 올렸습니다. 다른 파일을 고르면 다시 시작할 수 있습니다.</span>}</div>
 
         <p aria-live="polite" className={state.kind === 'error' ? 'error' : 'note'} style={{ marginTop: 12 }}>{state.msg}</p>
         {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}
@@ -84,7 +88,7 @@ export default function Upload() {
               {prog.steps.map((s) => <li key={s.key} className={s.state}>{s.label}{s.state === 'running' && ' 중'}{s.state === 'failed' && ' 실패'}{s.state === 'blocked' && ' 차단'}</li>)}
             </ol>
             {prog.lifecycle === 'BLOCKED' && (
-              <div className="notice" role="alert">
+              <div className="error" role="alert">
                 <p style={{ margin: 0 }}>보안 검사에서 차단되어 등록할 수 없습니다.</p>
                 {(prog.blocked_reasons ?? []).length > 0 && <ul style={{ margin: '6px 0 0', paddingLeft: '1.2em' }}>{prog.blocked_reasons!.map((r) => <li key={r}>{r}</li>)}</ul>}
               </div>
@@ -96,7 +100,7 @@ export default function Upload() {
         {state.doc_id && (prog?.finished || prog?.halted) && <IssueList docId={state.doc_id} refreshKey={prog?.lifecycle} />}
         {/* 실행이 실패해 분석이 끝나지 않은 문서(QUARANTINED)는 검토할 결과가 없다 → 실패 단계와 다음 행동만 */}
         {state.doc_id && prog?.halted && prog.lifecycle === 'QUARANTINED' && (
-          <p className="notice" role="alert">{prog.steps.find((x) => x.state === 'failed')?.label ?? '처리'} 단계에서 분석이 멈춰 검토할 결과가 없습니다. 위 '확인할 내용'의 사유를 보고 파일을 고쳐 다시 올려 주세요. 반복되면 관리자에게 알려 주세요.</p>
+          <p className="error" role="alert">{prog.steps.find((x) => x.state === 'failed')?.label ?? '처리'} 단계에서 분석이 멈춰 검토할 결과가 없습니다. 위 '확인할 내용'의 사유를 보고 파일을 고쳐 다시 올려 주세요. 반복되면 관리자에게 알려 주세요.</p>
         )}
         {state.doc_id && (prog?.finished || prog?.halted) && prog?.lifecycle !== 'BLOCKED' && prog?.lifecycle !== 'QUARANTINED' && <a className="btn solid" href={`/review?id=${encodeURIComponent(state.doc_id)}`}>분석 결과 검토하기</a>}
       </div></div><aside className="support-panel"><h2 className="section">등록 절차</h2>      <div className="upload-overview"><div><Icon name="upload" /><strong>1. 문서 등록</strong><span>파일과 열람 범위를 정합니다.</span></div><div><Icon name="shield" /><strong>2. 자동 검사</strong><span>보안·개인정보·근거를 확인합니다.</span></div><div><Icon name="approval" /><strong>3. 검토와 승인</strong><span>사람이 확인해야 게시됩니다.</span></div></div>

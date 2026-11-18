@@ -21,7 +21,7 @@ createServer(async (req, res) => {
     const b = await readJson(req);
     const i = b.input as StepInput | undefined;
     if (!i || !ID.test(i.workflow_id) || !ID.test(i.doc_id)) return send(400, { error: 'input.workflow_id·doc_id 필요' });
-    const graph = b.action === 'start' ? ingestGraph(awsDeps, i)
+    const graph = b.action === 'start' ? ingestGraph(awsDeps, i, { textOnly: b.text_only === true })
       : b.action === 'delete' ? deleteGraph(awsDeps, i)
       : b.action === 'resume' && ['APPROVE', 'REJECT', 'REVALIDATE'].includes(String(b.decision)) ? publishGraph(awsDeps, i, b.decision as 'APPROVE')
       : undefined;

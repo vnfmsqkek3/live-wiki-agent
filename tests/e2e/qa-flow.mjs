@@ -32,7 +32,7 @@ const shot = async (name) => { const s = await send('Page.captureScreenshot', { 
 const text = () => ev('document.body.innerText');
 const until = async (fn, ms, step = 3000) => { const end = Date.now() + ms; for (;;) { const v = await fn(); if (v || Date.now() > end) return v; await sleep(step); } };
 const setInput = (sel, v) => ev(`(() => { const el = document.querySelector(${JSON.stringify(sel)}); const set = Object.getOwnPropertyDescriptor(el.constructor.prototype, 'value').set; set.call(el, ${JSON.stringify(v)}); el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); return true; })()`);
-const click = (label, scope = 'document') => ev(`(() => { const b = [...${scope}.querySelectorAll('button,a')].find((x) => x.textContent.replace('내용 있음', '').trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
+const click = (label, scope = 'document') => ev(`(() => { const b = [...${scope}.querySelectorAll('button,a')].find((x) => x.textContent.replace(/내용 있음|없음$|열어서 확인$|\\d+건$/g, '').trim() === ${JSON.stringify(label)} && !x.disabled); if (!b) return false; b.click(); return true; })()`);
 const api = (path) => ev(`(async () => { const s = JSON.parse(sessionStorage.getItem('hanaeum.session') || 'null'); const r = await fetch(${JSON.stringify(path)}, { headers: s ? { authorization: 'Bearer ' + s.token } : {} }); return { status: r.status, body: await r.json().catch(() => null) }; })()`);
 
 // Read the rendered modal content, then return to the detail cards.
@@ -84,7 +84,7 @@ for (const file of FILES) {
 
   // F1 첫 접속 + user 로그인
   const u = await login('user');
-  check('F1', u.first === '/login' && u.tabs.includes('등록') && !u.tabs.includes('관리'), `첫 화면 ${u.first}, user 탭 ${u.tabs.join('·')}`);
+  check('F1', u.first === '/login' && u.tabs.includes('등록') && !u.tabs.includes('결재함'), `첫 화면 ${u.first}, user 탭 ${u.tabs.join('·')}`);
 
   // F2 업로드
   await go('/upload');
@@ -122,7 +122,12 @@ for (const file of FILES) {
   // F5 admin 승인
   const a = await login('admin');
   await go('/admin', 5000);
-  const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; b.click(); return 'clicked'; })()`);
+  // L1 열어 보기 전 승인 잠금 → '문서 확인'으로 상세를 연 뒤 결재함으로 돌아와 승인 (사용자 결정 11/18)
+  const locked = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); const v = [...li.querySelectorAll('a')].find((x) => /문서 확인|다시 보기/.test(x.textContent)); if (!b || !v) return 'missing'; const was = b.disabled; v.click(); return was ? 'locked' : 'open'; })()`);
+  await sleep(4000);
+  check('L1', locked === 'locked', `열어 보기 전 승인 버튼 ${locked}`);
+  await go('/admin', 5000);
+  const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '원문과 근거 조문을 확인함')?.click(); setTimeout(() => b.click(), 300); return 'clicked'; })()`); // 결재 의견은 카드 입력란(11/18, prompt 대신)
   await sleep(4000);
   const adminMsg = await ev("document.querySelector('p[aria-live]')?.textContent ?? ''");
   check('F5', approved === 'clicked' && /승인했습니다/.test(adminMsg), `admin 탭 ${a.tabs.join('·')} · 결재함 ${approved} · ${adminMsg.slice(0, 80)}`, await shot(`${tag}-F5-admin`));
@@ -158,10 +163,11 @@ for (const file of FILES) {
   check('D2', hasBasis ? true : (det?.related?.length ? 'partial' : false), hasBasis ? '검증 근거 구역 있음' : `검증 근거 구역 없음 (연관 ${det?.related?.length ?? 0}건, 리뷰 판정 ${reviewInfo.verdict ?? '-'})`);
   const renderedPages = [];
   const renderedSummaries = [];
-  for (let pi = 0; pi < (det?.pages?.length ?? 0); pi++) {
+  const nView = det?.doc_pages?.length || det?.pages?.length || 0; // 정리본은 내용 단위 페이지(11/18)
+  for (let pi = 0; pi < nView; pi++) {
     renderedPages.push(await ev("document.querySelector('.sheet.page')?.innerText.trim() ?? ''"));
     renderedSummaries.push(await readDetail('페이지 요약'));
-    if (pi + 1 < det.pages.length) { await click('다음 쪽'); await sleep(200); }
+    if (pi + 1 < nView) { await click('다음 쪽'); await sleep(200); }
   }
   for (let pi = 1; pi < renderedPages.length; pi++) { await click('이전 쪽'); await sleep(100); }
   check('D3', renderedPages.length > 0 && renderedPages.every(Boolean) && det.pages.every((p) => p.text?.length > 0), `쪽 ${renderedPages.length}개 본문 렌더 확인`);

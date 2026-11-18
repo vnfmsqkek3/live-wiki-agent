@@ -63,3 +63,15 @@ test('마크다운 표 구분선(|---|)은 행으로 그리지 않는다', () =>
   assert.equal((html.match(/<tr/g) || []).length, 2);
   assert.ok(!html.includes('---'));
 });
+
+test('blank lines between table rows keep one table (사용자 지적 11/18)', () => {
+  const html = render('| 번호 | 서류 |\n\n|------|------|\n\n| ① | 사업자등록증 |\n\n| ② |  |\n\n다음 문단');
+  assert.equal((html.match(/<table/g) || []).length, 1);
+  assert.match(html, /<td[^>]*>[^<]*사업자등록증/);
+  assert.doesNotMatch(html, /\|/);
+  assert.match(visible(html), /다음 문단$/);
+});
+test('위키 수정본의 (그림 쪽-k)는 그 그림을 보여 준다 (11/18 사진 사라짐)', () => {
+  const html = renderToStaticMarkup(React.createElement(DocText, { text: '1. 드라이버를 설치한다 (그림 6-1)\n2. 다음 (그림 2)', figures: { '6-1': 'https://x/f61.png', 2: 'https://x/f2.png' }, hideFigRefs: true }));
+  assert.match(html, /f61\.png/); assert.match(html, /f2\.png/); assert.doesNotMatch(html, /그림 6-1\)/);
+});

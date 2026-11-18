@@ -32,16 +32,40 @@ export function sealLabel(d: Doc) {
     : d.document_type === 'MANUAL' ? '사람 승인으로 검증 완료' : '근거 규정 확인 후 사람 승인으로 검증 완료';
 }
 
-/** 결재란. size=mini는 카드용(칸 라벨 없이 도장 3개), full은 상세·결재용 */
-export function Seal({ i, size = 'mini', stampedNow = false }: { i: Doc; size?: 'mini' | 'full'; stampedNow?: boolean; stamp?: boolean }) {
+/** 목록용 한 줄 상태: 세 칸 중 가장 먼저 봐야 할 칸 하나(문제 → 대기 → 승인 순) + 글자 라벨 (Fable 검토 11/18: 작은 도장 3개는 라벨 없이 읽히지 않음) */
+export function summaryStamp(d: Doc): Stamp & { text: string } {
+  const [, check, approve] = kyulStamps(d);
+  const reg = d.document_type === 'REGULATION';
+  if (check!.tone === 'bad') return { ...check!, text: check!.mark === '차단' ? '차단됨' : d.freshness === 'REVIEW_REQUIRED' && !(d.mark_count ?? 0) ? '재검토 필요' : '고칠 곳 있음' };
+  if (approve!.tone === 'bad') return { ...approve!, text: approve!.mark === '반려' ? '반려됨' : '차단됨' };
+  if (check!.tone === 'wait') return { ...check!, text: 'AI 검사 중' };
+  if (approve!.tone === 'wait') return { ...approve!, text: approve!.mark === '대기' ? '승인 대기' : '작성자 검토 중' };
+  return { ...approve!, text: reg ? '공식 규정' : '검증 완료' };
+}
+
+/** 결재란. size=mini는 목록용(도장 1개 + 글자), full은 상세·결재용(3칸, 칸 아래 일자·승인자).
+ *  aria-label 은 QA(D8)가 읽으므로 sealLabel 문장을 앞에 둔다 */
+export function Seal({ i, size = 'mini', stampedNow = false, who }: { i: Doc; size?: 'mini' | 'full'; stampedNow?: boolean; stamp?: boolean;
+  who?: { written_at?: string; checked_at?: string | null; approver?: string | null; approved_at?: string | null } }) {
   const stamps = kyulStamps(i, stampedNow);
   const label = `${sealLabel(i)} · ${stamps.map((s) => `${s.label} ${s.hint}`).join(', ')}`;
+  if (size === 'mini') {
+    const one = summaryStamp(i);
+    return (
+      <span className={`seal kyul mini one tone-${one.tone}`} role="img" aria-label={label}>
+        <i className={`stamp ${one.tone}`} aria-hidden="true">{one.mark}</i><span className="seal-text">{one.text}</span>
+      </span>
+    );
+  }
+  const day = (x?: string | null) => (x ? new Date(x).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(5) : '');
+  const under = [day(who?.written_at), day(who?.checked_at), [who?.approver, day(who?.approved_at)].filter(Boolean).join(' ')];
   return (
     <span className={`seal kyul ${size}`} role="img" aria-label={label}>
       {stamps.map((s, n) => (
         <span key={s.label} className="kyul-cell">
-          {size === 'full' && <small>{s.label}</small>}
+          <small>{s.label}</small>
           <i className={`stamp ${s.tone}${stampedNow && n === 2 ? ' now' : ''}`} title={`${s.label}: ${s.hint}`}>{s.mark}</i>
+          {who && <span className="kyul-who">{under[n] || '\u00a0'}</span>}
         </span>
       ))}
     </span>

@@ -11,7 +11,7 @@ export interface Mark {
   kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION';
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from: string }; fix?: string;
 }
-export interface Page { page: number; text: string }
+export interface Page { page: number; text: string; figure_keys?: (string | null)[] }
 
 const lawOf = (provision_id: string) => provision_id.split('@')[0]!;
 const revOf = (provision_id: string) => provision_id.split('@')[1]?.split('/')[0];
@@ -58,7 +58,7 @@ export function card(d: DocumentRecord, visible: DocumentRecord[]) {
     doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle, dept: d.dept,
     business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
-    uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null,
+    uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null, edited: d.source === 'WIKI_EDIT', has_original_upload: !!d.original_upload,
     mark_count: markCount(d), related: related(d, visible),
     doc_dates: d.doc_dates ?? [], version_no: d.version_no ?? null, superseded_by: d.superseded_by ?? null,
   };
@@ -104,7 +104,7 @@ export function docDatesOf(d: DocumentRecord, pages: Page[]) {
 export function verification(d: DocumentRecord, approval?: { approver_sub?: string; approver_name?: string; decided_at?: string; reason?: string }) {
   const type = d.document_type ?? d.classification?.document_type;
   const kv = d.knowhow_validation;
-  const basis: { what: string; label: string; result: string; quote?: string; effective_from?: string }[] = [];
+  const basis: { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string }[] = [];
   let method: string;
   if (type === 'REGULATION') {
     method = '공식 원본(Trusted Registry)과 파일 해시 대조';
@@ -114,14 +114,14 @@ export function verification(d: DocumentRecord, approval?: { approver_sub?: stri
   } else if (type === 'KNOWHOW') {
     method = kv ? '노하우 문장을 근거 규정 조문과 비교(AI 판정 + 인용 원문 대조) 후 사람 승인' : '근거 규정 비교 없이 사람 승인';
     const REL: Record<string, string> = { SUPPORTS: '근거 확인됨(규정과 일치)', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', UNRELATED: '관련 없음', INSUFFICIENT: '관련 조문 확인 필요' };
-    for (const j of kv?.items ?? []) if (j.relation !== 'UNRELATED') basis.push({ what: '근거 조문', label: j.label, result: `${REL[j.relation] ?? j.relation}${j.verified_quote ? '' : ' (인용 원문 확인 안 됨)'}`, ...(j.quote ? { quote: j.quote } : {}) });
+    for (const j of kv?.items ?? []) if (j.relation !== 'UNRELATED') basis.push({ what: '근거 조문', label: j.label, result: `${REL[j.relation] ?? j.relation}${j.verified_quote ? '' : ' (인용 원문 확인 안 됨)'}`, statement: j.statement, ...(j.reason ? { reason: j.reason } : {}), relation: j.relation, ...(j.quote ? { quote: j.quote } : {}) });
     for (const o of kv?.outdated ?? []) basis.push({ what: '개정 전 인용', label: o.label, result: '현행 조문으로 재검토 필요' });
   } else {
     method = '규정 대조 대상이 아닌 문서(매뉴얼 등): 자동 보안·개인정보 검사 후 사람 승인';
   }
   return {
     method, basis,
-    checks: { trust_gate: d.trust_gate_result ?? null, verdict: kv?.verdict ?? null, checked_at: kv?.checked_at ?? null },
+    checks: { trust_gate: d.trust_gate_result ?? null, verdict: kv?.verdict ?? null, checked_at: d.checked_at ?? kv?.checked_at ?? null },
     approved_by: approval ? (approval.approver_name || `관리자 계정(${(approval.approver_sub ?? '').slice(0, 8)})`) : null,
     approved_at: approval?.decided_at ?? null, approval_reason: approval?.reason ?? null,
   };

@@ -63,7 +63,7 @@ await login('admin');
 await go('/admin', 5000);
 const collected = new Map();
 for (;;) {
-  const visible = await ev("[...document.querySelectorAll('.doc-title a')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
+  const visible = await ev("[...document.querySelectorAll('.approval-categories a[href*=from]')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
   for (const link of visible) collected.set(link[1], link);
   const before = await ev('location.href');
   const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
@@ -79,10 +79,10 @@ const targets = process.env.QA_ADMIN_DOCS ? process.env.QA_ADMIN_DOCS.split(',')
   : links.slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
 for (const [name, id] of targets) {
   await go('/admin', 4000);
-  const ok = await findAcrossPages(`(() => { const a = [...document.querySelectorAll('.doc-title a')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
+  const ok = await findAcrossPages(`(() => { const a = [...document.querySelectorAll('.approval-categories a[href*=from]')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
   if (!ok) await go(`/library?id=${id}&from=admin`);
   await sleep(5000);
-  await ev("[...document.querySelectorAll('button.detail-card')].find((b) => b.textContent.replace('내용 있음', '').trim() === '확인이 필요한 이유')?.click()");
+  await ev("[...document.querySelectorAll('button.detail-card')].find((b) => b.textContent.replace(/내용 있음|없음$|열어서 확인$|\\d+건$/g, '').trim() === '확인이 필요한 이유')?.click()");
   await sleep(200);
   const why = await ev("document.getElementById('why-h')?.closest('section')?.innerText ?? ''");
   const first = await ev("(() => { const b = document.querySelector('#why-h')?.closest('section')?.querySelector('button.linklike'); if (!b) return ''; b.click(); return b.textContent; })()");

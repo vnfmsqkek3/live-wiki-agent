@@ -7,10 +7,15 @@ import { PageHeader } from '../page-header';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, dateLine, type ExternalLaw, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem } from '../lib/api';
+import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
+import { WikiEditor } from '../wiki-editor';
+import { CardBoundary } from '../card-boundary';
+import { isRowText, rowAsTable } from '../clarify';
+import { Icon } from '../icons';
+import { RefSuggestions, withReference, type RefSuggestion } from '../ref-suggestions';
 import { Changes, PageFacts } from '../issues';
-import { decideApproval, rejectSource } from '../lib/decide';
+import { decideApproval, rejectSource, APPROVE_CHIPS } from '../lib/decide';
 
 const TYPES = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
 /** ISO 시각 → 'YYYY-MM-DD' (한국 시간) */
@@ -42,44 +47,109 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
   </dialog>;
 }
 /** filled: 내용이 있는 카드(사용자 요청: 초록 테두리 + '내용 있음' 글자, 색만으로 구분하지 않음) */
-function CardLabel({ title, filled }: { title: string; filled: boolean }) {
-  return <>{title}{filled && <span className="card-state">내용 있음</span>}</>;
+function CardLabel({ title, filled, count, warn, lazy }: { title: string; filled: boolean; count?: number; warn?: boolean; lazy?: boolean }) {
+  // 건수가 있으면 건수, 없으면 '내용 있음' (판단용 카드는 건수를 크게, Fable 재배치안 11/18)
+  return <>{title}{count !== undefined ? <span className={`card-count num${warn && count ? ' warn' : ''}`}>{count}건</span> : <span className={`card-state${filled ? '' : ' empty'}`}>{filled ? '내용 있음' : lazy ? '열어서 확인' : '없음'}</span>}</>;
 }
-function DetailCard({ title, children, filled = true }: { title: string; children: ReactNode; filled?: boolean }) {
+const CLAIM_REL: Record<string, string> = { SUPPORTS: '규정과 일치', SUPPLEMENTS: '규정 범위 안의 실무 보완', CONFLICTS: '규정과 어긋남', INSUFFICIENT: '관련 조문 확인 필요', UNRELATED: '관련 없음' };
+type Basis = { what: string; label: string; result: string; quote?: string; effective_from?: string; statement?: string; reason?: string; relation?: string };
+/** 비교한 대상: 같은 조문은 한 묶음으로, 그 아래에 비교한 문서 문장마다 판정 (사용자 지적 11/17: 같은 조문이 반복돼 무엇이 다른지 모름) */
+function groupBasis(basis: Basis[]) {
+  const by = new Map<string, Basis & { key: string; rows: Basis[] }>();
+  for (const b of basis) {
+    const key = `${b.what}|${b.label}`;
+    const g = by.get(key) ?? { ...b, key, rows: [] };
+    if (!g.rows.some((r) => r.statement === b.statement && r.result === b.result)) g.rows.push(b);
+    by.set(key, g);
+  }
+  return [...by.values()];
+}
+
+/** 원본: 모든 쪽을 원래 모습 그대로(개인정보만 검게) 세로로. 쪽별 파일 presigned URL(5분), 지연 로딩, 누르면 크게 */
+function OriginalPages({ docId, start, fallback }: { docId: string; start: number; fallback?: string }) {
+  const [items, setItems] = useState<{ page: number; url: string }[] | null>(null);
+  const [big, setBig] = useState<string | null>(null);
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { api<{ items: { page: number; url: string }[] }>('GET', `/v1/library/${encodeURIComponent(docId)}/pages`).then((r) => setItems(r.items)).catch(() => setItems([])); }, [docId]);
+  useEffect(() => { if (items?.length) document.getElementById(`orig-${start}`)?.scrollIntoView({ block: 'start' }); }, [items, start]);
+  useEffect(() => { const d = ref.current; if (!d) return; if (big && !d.open) d.showModal(); if (!big && d.open) d.close(); }, [big]);
+  if (items === null) return <p className="note">원본 쪽 이미지를 불러오는 중입니다.</p>;
+  // 쪽 이미지가 없는 문서(이 기능 전 업로드, 글자 문서)는 개인정보를 가린 글자로 대신 보여 준다
+  if (!items.length) return fallback ? <div className="sheet page"><p className="note">이 문서는 쪽 이미지가 없어 개인정보를 가린 글자로 보여 줍니다.</p><DocText text={fallback} /></div> : <p className="note">쪽 이미지가 없습니다.</p>;
+  return (
+    <div className="original-pages">
+      <p className="note">개인정보는 회색 '개인정보' 칸으로 필터링했습니다. 필터링하지 않은 원본은 올린 사람·결재자만 원본 파일로 볼 수 있습니다. 쪽을 누르면 크게 봅니다.</p>
+      {items.map((x) => (
+        <figure key={x.page} id={`orig-${x.page}`} className="orig-page">
+          <button type="button" className="fig-thumb" onClick={() => setBig(x.url)} aria-label={`${x.page}쪽 크게 보기`}><img src={x.url} loading="lazy" alt={`${x.page}쪽 필터링된 원문`} /></button>
+          <figcaption className="note">{x.page}쪽</figcaption>
+        </figure>
+      ))}
+      <dialog ref={ref} className="fig-zoom" onClose={() => setBig(null)} onClick={(e) => { if (e.target === ref.current) setBig(null); }}>
+        {big && <img src={big} alt="필터링된 원문 쪽 크게" />}
+        <form method="dialog"><button className="btn">닫기</button></form>
+      </dialog>
+    </div>
+  );
+}
+
+/** 큰 그림 보기 (정리본 인라인 그림) */
+function ZoomDialog({ url, onClose }: { url: string | null; onClose: () => void }) {
+  const ref = useRef<HTMLDialogElement>(null);
+  useEffect(() => { const d = ref.current; if (!d) return; if (url && !d.open) d.showModal(); if (!url && d.open) d.close(); }, [url]);
+  return (
+    <dialog ref={ref} className="fig-zoom" onClose={onClose} onClick={(e) => { if (e.target === ref.current) onClose(); }}>
+      {url && <img src={url} alt="그림 크게 (개인정보는 가림)" />}
+      <form method="dialog"><button className="btn">닫기</button></form>
+    </dialog>
+  );
+}
+
+function DetailCard({ title, children, filled = true, group = 'ref', count, lazy }: { title: string; children: ReactNode; filled?: boolean; group?: 'judge' | 'ref'; count?: number; lazy?: boolean }) {
   const [open, setOpen] = useState(false);
-  return <><button type="button" className={`detail-card${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
+  return <><button type="button" className={`detail-card ${group}${filled ? ' filled' : ''}`} aria-haspopup="dialog" onClick={() => setOpen(true)}><CardLabel title={title} filled={filled} count={count} lazy={lazy} /></button><DetailPopup title={title} open={open} onClose={() => setOpen(false)}>{children}</DetailPopup></>;
 }
 
 function List() {
   const router = useRouter();
   const sp = useSearchParams();
   const type = sp.get('type') ?? '';
-  const business = sp.get('business') ?? '';
+  const category = sp.get('category') ?? ''; // 업무 분류 칸 (AI 자동 분류, 하위 칸 포함)
   const [items, setItems] = useState<LibraryCard[] | null>(null);
-  const [businesses, setBusinesses] = useState<string[]>([]);
+  const [cats, setCats] = useState<CategoryNode[]>([]);
   const [err, setErr] = useState('');
-  const qs = (t: string, b: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(b ? [['business', b]] : [])]).toString();
+  const qs = (t: string, c: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(c ? [['category', c]] : [])]).toString();
+  useEffect(() => { api<{ items: CategoryNode[] }>('GET', '/v1/categories').then((r) => setCats(r.items)).catch(() => setCats([])); }, []);
   useEffect(() => {
     setItems(null); setErr('');
-    api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, business)}`)
-      .then((r) => { setItems(r.items); if (!business) setBusinesses([...new Set(r.items.map((i) => i.business_path[0]).filter((x): x is string => !!x))].sort()); })
+    api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, category)}`)
+      .then((r) => setItems(r.items))
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 열어 주세요.' : e.message); setItems([]); });
-  }, [type, business]);
-  const go = (t: string, b: string) => router.push(`/library${qs(t, b) ? `?${qs(t, b)}` : ''}`);
+  }, [type, category]);
+  const go = (t: string, c: string) => router.push(`/library${qs(t, c) ? `?${qs(t, c)}` : ''}`);
+  // 1단계 칸 → 고르면 그 아래 칸. 문서가 있는 칸만 (고른 칸은 늘 보임)
+  const sel = cats.find((x) => x.category_id === category);
+  const root = sel ? cats.find((x) => x.path === sel.path.split('/')[0]) : undefined;
+  const shown = (x: CategoryNode) => x.doc_count > 0 || x.category_id === category;
+  const level1 = cats.filter((x) => x.level === 1 && shown(x));
+  const children = root ? cats.filter((x) => x.parent_id === root.category_id && shown(x)) : [];
   return (
     <>
       <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
-        {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, business)}>{l}</button>)}
+        {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, category)}>{l}</button>)}
       </div>
-      {businesses.length > 1 && (
-        <label className="lbl">업무
-          <select className="field" value={business} onChange={(e) => go(type, e.target.value)}>
-            <option value="">전체 업무</option>
-            {businesses.map((b) => <option key={b} value={b}>{b}</option>)}
-          </select>
-        </label>
-      )}
-      </div>{err && <p className="error" role="alert">{err}</p>}
+      </div>
+      {level1.length > 0 && (
+        <nav className="cat-nav" aria-label="업무 분류">
+          <div className="chips">
+            <button type="button" className="chip" aria-pressed={!category} onClick={() => go(type, '')}>전체 업무</button>
+            {level1.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={root?.category_id === x.category_id} title={x.description} onClick={() => go(type, x.category_id)}>{x.name} <span className="num">{x.doc_count}</span></button>)}
+          </div>
+          {children.length > 0 && <div className="chips sub">
+            {children.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={category === x.category_id} title={x.description} onClick={() => go(type, category === x.category_id ? root!.category_id : x.category_id)}>{x.name} <span className="num">{x.doc_count}</span></button>)}
+          </div>}
+        </nav>
+      )}{err && <p className="error" role="alert">{err}</p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
@@ -90,7 +160,7 @@ function List() {
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link></h3>
               <FreshnessFlag freshness={d.freshness} />
               <dl>
-                {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
+                {d.category_path ? <><dt>분류</dt><dd>{d.category_path.split('/').join(' › ')}</dd></> : d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
                 {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
                 {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
@@ -100,7 +170,6 @@ function List() {
                 {d.lifecycle !== 'PUBLISHED' && <><dt>상태</dt><dd>게시 전 (내 문서)</dd></>}
               </dl>
               <p className="card-summary">{d.summary ?? '요약이 아직 없습니다.'}</p>
-              <Link href={`/library?id=${encodeURIComponent(d.doc_id)}`}>문서 보기 →</Link>
             </li>
           ))}
         </PaginatedList>
@@ -173,15 +242,16 @@ const REVIEW_STATE: Record<string, string> = {
 };
 
 /** 결재 대상: 맨 위에 '확인이 필요한 이유'. 누르면 그 쪽·밑줄로 이동 */
-function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) => void }) {
-  const r = d.review!;
-  const located = d.pages.flatMap((pg, pi) => pg.marks.filter((m) => m.severity !== 'LOW').map((m, k) => ({ pi, n: k + 1, m })));
-  const total = located.length + d.doc_marks.length + (d.pages.length ? 0 : r.findings.length);
+function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n: number) => void; onInsert?: (s: RefSuggestion) => void }) {
+  const r = d.review;
+  const located = r ? d.pages.flatMap((pg, pi) => pg.marks.filter((m) => m.severity !== 'LOW').map((m, k) => ({ pi, n: k + 1, m }))) : [];
+  const total = located.length + (r ? d.doc_marks.length : 0) + (r && !d.pages.length ? r.findings.length : 0);
+  const refs = d.suggestions ?? []; // 참조 확인(웹 참고 주소): 게시는 막지 않는 참고 묶음 (사용자 요청 11/18)
   return (
     <section aria-labelledby="why-h" className="notice" style={{ display: 'block' }}>
-      <h3 className="section" id="why-h" style={{ marginTop: 0 }}>확인이 필요한 이유 <span className="danger-text">{total}건</span></h3>
-      <p className="note">{r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>
-      {total === 0 && <p className="note">자동 검사에서 찾은 문제가 없습니다. 본문을 읽고 판단하세요.</p>}
+      <h3 className="section" id="why-h" style={{ marginTop: 0 }}>확인이 필요한 이유 <span className="danger-text">{total}건</span>{refs.length > 0 && <span className="note"> · 참고 {refs.length}건</span>}</h3>
+      {r && <p className="note">{r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>}
+      {total === 0 && <p className="note">{refs.length ? '게시를 막는 문제는 없습니다. 아래 참고를 확인하세요.' : '자동 검사에서 찾은 문제가 없습니다. 본문을 읽고 판단하세요.'}</p>}
       <ul className="fixes">
         {located.map(({ pi, n, m }) => (
           <li key={`${pi}-${n}`} className={`fix${m.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
@@ -192,7 +262,7 @@ function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) =
         {d.doc_marks.map((m, i) => (
           <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p>{m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}</li>
         ))}
-        {!d.pages.length && r.findings.map((f, i) => (
+        {r && !d.pages.length && r.findings.map((f, i) => (
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
             <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : '확인 필요'}</p>
             <p style={{ margin: 0 }}>{f.message}</p>
@@ -200,6 +270,7 @@ function Reasons({ d, jump }: { d: LibraryDoc; jump: (page: number, n: number) =
           </li>
         ))}
       </ul>
+      <RefSuggestions items={refs} onInsert={onInsert} heading={`참고 (게시는 막지 않음): 웹에서 찾은 참고 주소 ${refs.length}건`} />
     </section>
   );
 }
@@ -209,20 +280,24 @@ function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: str
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState(false);
   const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) setDone(true); };
+  const [opinion, setOpinion] = useState('');
   if (!r.source_mismatch && !r.approval_id) return null;
   return (
     <section aria-labelledby="decide-h">
       <h3 className="section" id="decide-h">결재</h3>
-      {!done && (
+      {!done && <>
+        <label className="lbl" htmlFor="decide-op">{r.source_mismatch ? '반려 사유' : '결재 의견'}</label>
+        {!r.source_mismatch && <div className="actions" style={{ marginTop: 4 }}>{APPROVE_CHIPS.map((c) => <button key={c} type="button" className={`btn chip-btn${opinion === c ? ' solid' : ''}`} onClick={() => setOpinion(c)}>{c}</button>)}</div>}
+        <input id="decide-op" className="field" maxLength={300} value={opinion} placeholder={r.source_mismatch ? '예: 공식 원본과 승인 기준 금액이 다름' : '의견 직접 입력 (반려는 사유 필수)'} onChange={(e) => setOpinion(e.target.value)} />
         <div className="actions">
           {r.source_mismatch
-            ? <button className="btn" onClick={() => run(() => rejectSource(docId))}>반려</button>
+            ? <button className="btn" onClick={() => run(() => rejectSource(docId, opinion))}>반려</button>
             : <>
-                <button className="btn solid" onClick={() => run(() => decideApproval(r.approval_id!, 'APPROVE'))}>승인</button>
-                <button className="btn" onClick={() => run(() => decideApproval(r.approval_id!, 'REJECT'))}>반려</button>
+                <button className="btn" onClick={() => run(() => decideApproval(r.approval_id!, 'REJECT', opinion))}>반려</button>
+                <button className="btn solid" onClick={() => run(() => decideApproval(r.approval_id!, 'APPROVE', opinion))}>승인</button>
               </>}
         </div>
-      )}
+      </>}
       <p aria-live="polite" className="note">{msg}</p>
     </section>
   );
@@ -253,18 +328,53 @@ function Versions({ id }: { id: string }) {
 }
 
 /** 원본 파일 내려받기 (사용자 요청 11/17). 60초짜리 주소를 받아 바로 저장. 주소는 화면·저장소에 남기지 않는다 */
-function Download({ id }: { id: string }) {
+// 위키에서 고친 문서: 수정본(글, .md) · 처음 올린 원본 파일 · 정리본 PDF 저장(인쇄) 세 가지 (사용자 요청 11/18: 원본 형식 그대로 고쳐 받기는 PDF 특성상 불가 → 정리본 PDF)
+function Download({ id, edited, hasOriginal, onPrint }: { id: string; edited?: boolean; hasOriginal?: boolean; onPrint?: () => void }) {
   const [msg, setMsg] = useState('');
-  async function go() {
+  async function go(kind?: 'original') {
     setMsg('');
     try {
-      const r = await api<{ url: string; filename: string }>('GET', `/v1/library/${encodeURIComponent(id)}/download`);
+      const r = await api<{ url: string; filename: string }>('GET', `/v1/library/${encodeURIComponent(id)}/download${kind ? '?kind=original' : ''}`);
       const a = document.createElement('a');
       a.href = r.url; a.rel = 'noopener'; a.download = r.filename;
       document.body.appendChild(a); a.click(); a.remove();
     } catch (e) { setMsg((e as ApiError).status === 404 ? '원본 파일이 없습니다. 검증 실패나 삭제로 지워진 문서입니다.' : (e as ApiError).message); }
   }
-  return <><button type="button" className="btn" onClick={go}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+  if (!edited) return <><button type="button" className="btn" onClick={() => go()}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+  return <>
+    <button type="button" className="btn" onClick={() => go()} title="위키에서 고친 글(마크다운, 개인정보 가림)">수정본 다운로드(.md)</button>
+    {hasOriginal && <button type="button" className="btn" onClick={() => go('original')} title="위키에서 고치기 전 처음 올린 파일">처음 올린 원본</button>}
+    <button type="button" className="btn" onClick={() => (onPrint ? onPrint() : window.print())} title="정리본을 PDF 로 저장(인쇄 창에서 'PDF로 저장')">정리본 PDF 저장</button>
+    {msg && <p className="note" role="status">{msg}</p>}
+  </>;
+}
+
+/** 위키 수정 요청 (사용자 결정 11/18): 고칠 부분(본문에서 골라 붙여넣기) + 고칠 내용 → AI 판단과 초안을 붙여 관리자에게 */
+function ChangeRequest({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const [before, setBefore] = useState(''); const [req, setReq] = useState('');
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('');
+  const pick = () => { const t = window.getSelection()?.toString().trim(); if (t) setBefore(t.slice(0, 500)); setOpen(true); };
+  async function send() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ verdict: string; after: string | null; ai_reason: string }>('POST', `/v1/documents/${encodeURIComponent(id)}/change-requests`, { before, request: req });
+      setMsg(r.verdict === 'APPROPRIATE' ? `요청을 보냈습니다. AI가 적절하다고 보고 고친 문장을 만들었습니다: "${r.after}". 관리자가 확인하면 새 버전으로 반영됩니다.` : `요청을 보냈습니다. AI 의견: ${r.ai_reason} 관리자가 직접 판단합니다.`);
+      setBefore(''); setReq('');
+    } catch (e) { setMsg((e as ApiError).message); }
+    setBusy(false);
+  }
+  if (!open) return <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={pick} title="본문에서 고칠 부분을 드래그해 고른 뒤 누르면 자동으로 채워집니다">수정 요청</button>;
+  return (
+    <div className="change-req" role="group" aria-label="수정 요청">
+      <label className="lbl" htmlFor="cr-before">고칠 부분 (본문에서 드래그해 고른 뒤 [수정 요청]을 누르면 채워집니다)</label>
+      <textarea id="cr-before" className="field" rows={2} maxLength={500} value={before} onChange={(e) => setBefore(e.target.value)} />
+      <label className="lbl" htmlFor="cr-req">어떻게 고쳐야 하나요</label>
+      <textarea id="cr-req" className="field" rows={2} maxLength={500} value={req} onChange={(e) => setReq(e.target.value)} placeholder="예: 담당 부서가 IT인프라팀에서 디지털운영팀으로 바뀌었습니다" />
+      <div className="actions"><button type="button" className="btn solid" disabled={busy || !before.trim() || !req.trim()} onClick={send}>{busy ? 'AI가 확인하는 중' : '요청하기'}</button><button type="button" className="btn" onClick={() => { setOpen(false); setMsg(''); }}>닫기</button></div>
+      {msg && <p className="notice" role="status">{msg}</p>}
+    </div>
+  );
 }
 
 function DeleteDoc({ d }: { d: LibraryDoc }) {
@@ -295,7 +405,7 @@ function DeleteDoc({ d }: { d: LibraryDoc }) {
   return (
     <section aria-labelledby="del-h" style={{ marginTop: 28 }}>
       <h3 className="section" id="del-h">문서 삭제</h3>
-      {state === 'idle' && <><p className="note">검색·보관함·관계 그래프에서 빼고 파일을 모두 지웁니다. 결재·감사 기록은 남습니다.</p><div className="actions"><button className="btn" onClick={del}>문서 삭제</button></div></>}
+      {state === 'idle' && <><p className="note">검색·보관함·관계 그래프에서 빼고 파일을 모두 지웁니다. 결재·감사 기록은 남습니다.</p><div className="actions"><button className="btn danger" onClick={del}>문서 삭제</button></div></>}
       <p aria-live="polite" className={state === 'error' ? 'error' : 'note'}>
         {state === 'running' && '삭제했습니다. 저장소·검색 색인·관계 그래프를 정리하는 중입니다(보통 1~3분).'}
         {state === 'done' && `삭제와 정리가 끝났습니다. ${info}`}
@@ -307,18 +417,85 @@ function DeleteDoc({ d }: { d: LibraryDoc }) {
   );
 }
 
+/** 확인 필요 팝업 (사용자 요청 11/18): 질문마다 답 입력 → [적용] → AI 가 문장에 넣고 걸러서 → 위키 편집기에 넣어 연다(저장·검사는 사람이) */
+function ClarifyApply({ d, canEdit, onApply }: { d: LibraryDoc; canEdit: boolean; onApply: (text: string, focus?: string) => void }) {
+  const [ans, setAns] = useState<Record<string, string>>({});
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState('');
+  const items = d.clarify ?? [];
+  const filled = items.filter((c) => c.status === 'OPEN' && (ans[c.finding_id] ?? '').trim());
+  async function apply() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ edits: { finding_id: string; before: string; after: string; ok: boolean; reason?: string }[] }>('POST', `/v1/documents/${encodeURIComponent(d.doc_id)}/clarify/compose`, { answers: filled.map((c) => ({ finding_id: c.finding_id, answer: ans[c.finding_id] })) });
+      let text = d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'); const bad: string[] = []; let focus: string | undefined;
+      for (const e of r.edits) {
+        const at = text.indexOf(e.before);
+        if (!e.ok || at < 0) { bad.push(`${items.find((c) => c.finding_id === e.finding_id)?.item ?? ''}: ${e.reason ?? '본문에서 문장을 찾지 못함'}`); continue; }
+        text = text.slice(0, at) + e.after + text.slice(at + e.before.length); focus ??= e.after;
+      }
+      if (!focus) { setMsg(`넣을 수 있는 답이 없습니다. ${bad.join(' / ')}`); setBusy(false); return; }
+      if (bad.length) window.setTimeout(() => window.alert(`넣지 못한 답: ${bad.join(' / ')}`), 0);
+      onApply(text, focus);
+    } catch (e) { setMsg((e as ApiError).message); }
+    setBusy(false);
+  }
+  return <section className="clarify">
+    <h3 className="section">확인 필요 (애매한 곳)</h3>
+    <p className="note">질문마다 답을 적고 맨 아래 [적용]을 누르면, AI가 답을 문장에 맞게 넣어 위키 편집기를 엽니다. 편집기에서 바뀐 부분을 보고 '저장하고 검사 받기'를 누르면 반영됩니다. 담당자는 이름 대신 부서·직책으로 적습니다.</p>
+    <ul className="fixes">{items.map((c) => (
+      <li key={c.finding_id} className={`fix${c.status !== 'OPEN' ? ' done' : ''}`}>
+        <p className="fix-head">{c.item}{c.page ? ` · ${c.page}쪽` : ''} · {c.status === 'OPEN' ? '처리 전' : c.status === 'DISMISSED' ? '해당 없음' : '반영함'}</p>
+        <p><strong>{c.question}</strong></p>
+        <div className="basis md"><DocText text={isRowText(c.before) ? rowAsTable(c.before, c.table_header) : c.before} /></div>
+        {c.status === 'DISMISSED' && <p className="note">해당 없음 사유: {c.dismiss_reason}</p>}
+        {c.status === 'OPEN' && canEdit && <>
+          <label className="lbl" htmlFor={`ca-${c.finding_id}`}>답{c.suggestions[0] ? ` (제안: ${c.suggestions[0].value})` : ''}</label>
+          <input id={`ca-${c.finding_id}`} className="field" maxLength={200} value={ans[c.finding_id] ?? ''} placeholder={c.kind === 'VAGUE_ACTOR' ? '예: 여신심사부 심사역' : '이 질문의 답'} onChange={(e) => setAns((x) => ({ ...x, [c.finding_id]: e.target.value }))} />
+          {c.suggestions[0] && !ans[c.finding_id] && <button type="button" className="btn chip-btn" onClick={() => setAns((x) => ({ ...x, [c.finding_id]: c.suggestions[0]!.value }))}>제안 쓰기</button>}
+        </>}
+      </li>
+    ))}</ul>
+    {canEdit && <div className="actions"><button type="button" className="btn solid" disabled={busy || !filled.length} onClick={apply}>{busy ? 'AI가 넣는 중' : `적용 (${filled.length}건)`}</button></div>}
+    {msg && <p className="error" role="alert">{msg}</p>}
+  </section>;
+}
+
 function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
   const [err, setErr] = useState('');
-  const [p, setP] = useState(0);
+  // ?page=N(1부터): 검색·가이드 썸네일에서 온 경우 그 쪽부터
+  const [p, setP] = useState(() => (typeof window === 'undefined' ? 0 : Math.max(0, (Number(new URLSearchParams(window.location.search).get('page')) || 1) - 1)));
   const [active, setActive] = useState(0);
-  const [raw, setRaw] = useState(false); // false: AI 정리본(있으면), true: 원문(고칠 곳 밑줄)
+  const [zoomUrl, setZoomUrl] = useState<string | null>(null); // 정리본 인라인 그림 크게 보기
+  // 정리본 PDF 저장: 정리본 전체(모든 쪽)만 인쇄용으로 그린 뒤 인쇄 창을 연다 (사용자 지적 11/18: 판단 필요·참고 카드까지 찍혔다). 훅은 이른 return 앞에 둔다
+  const [printing, setPrinting] = useState(false);
+  useEffect(() => {
+    if (!printing) return;
+    const done = () => setPrinting(false);
+    window.addEventListener('afterprint', done, { once: true });
+    const t = setTimeout(() => window.print(), 300); // 그림이 들어올 시간
+    return () => { clearTimeout(t); window.removeEventListener('afterprint', done); };
+  }, [printing]);
+  const [images, setImages] = useState(false); // 필터링된 원문: 쪽 이미지(개인정보만 가림). 탭은 정리본·필터링된 원문 두 개 (사용자 결정 11/18)
+  const [editing, setEditing] = useState<string | false>(false); // 위키 수정 (규칙 1). 문자열이면 그 본문으로 연다
   const [fixOpen, setFixOpen] = useState(false);
   const [reasonsOpen, setReasonsOpen] = useState(false);
+  const [clarifyOpen, setClarifyOpen] = useState(false);
+  const [editFocus, setEditFocus] = useState<string | undefined>(undefined); // 확인 필요 적용 뒤 편집기에서 처음 바뀐 줄
+  // 정리본 비율: 원본 첫 쪽 이미지 비율로 16:9 · 4:3 · A4 (사용자 요청 11/18)
+  const [ratio, setRatio] = useState<'r169' | 'r43' | 'a4'>('a4');
+  useEffect(() => {
+    api<{ items: { page: number; url: string }[] }>('GET', `/v1/library/${encodeURIComponent(id)}/pages`).then((r) => {
+      const u = r.items[0]?.url; if (!u) return;
+      const img = new Image(); img.onload = () => { const k = img.naturalWidth / Math.max(1, img.naturalHeight); setRatio(k >= 1.6 ? 'r169' : k >= 1.2 ? 'r43' : 'a4'); }; img.src = u;
+    }).catch(() => {});
+  }, [id]);
   useEffect(() => {
     api<LibraryDoc>('GET', `/v1/library/${encodeURIComponent(id)}`)
       .then((x) => {
         setD(x);
+        markViewed(x.doc_id); // 상세를 열면 결재함 승인 잠금이 풀린다 (사용자 결정 11/18). 훅은 조기 반환 앞에만 둔다(11/18 dev 상세 화면 전체 오류)
         // 다른 유형의 비슷한 문서는 검색이 필요해 따로 불러와 붙인다
         api<{ items: LibraryDoc['related'] }>('GET', `/v1/library/${encodeURIComponent(id)}/similar`)
           .then((r) => setD((cur) => (cur ? { ...cur, related: [...cur.related, ...r.items.filter((s) => !cur.related.some((c) => c.doc_id === s.doc_id))] } : cur)))
@@ -330,25 +507,44 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   if (!d) return <p className="note">불러오는 중입니다.</p>;
   const page = d.pages[p];
   // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
+  // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
+  const figMap = Object.fromEntries((page?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
+  // 정리본은 내용 단위 페이지(doc_pages)로 넘긴다 (사용자 요청 11/18). 원문 탭은 원본 쪽 단위
+  const dps = d.doc_pages ?? [];
+  const k = page ? dps.findIndex((g) => g.pages.includes(page.page)) : -1;
+  const figOf = (n: number) => Object.fromEntries((d.pages.find((pg) => pg.page === n)?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
+  const goDoc = (j: number) => { const n = dps[j]?.pages[0]; const i = d.pages.findIndex((pg) => pg.page === n); if (i >= 0) go(i); };
+  // 쪽 번호는 원본 쪽 순서(1부터)로 보여 준다 (11/18 dev 시험: '원본 0쪽')
+  const nth = (n: number) => d.pages.findIndex((pg) => pg.page === n) + 1;
+  const range = (g: { pages: number[] }) => { const a = g.pages.map(nth).filter((x) => x > 0); return a.length > 1 ? `${Math.min(...a)}~${Math.max(...a)}` : `${a[0] ?? 1}`; };
+  const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
+  const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
+  const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
-  const jump = (i: number, n: number) => { setRaw(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
-  const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
-  return (
-    <>
-      <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
-      <header className="document-header">
-      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
-      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} /></div><dl className="meta-grid">
-        {d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
+  const jump = (i: number, n: number) => { setImages(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
+  // 문서 정보는 머리에서 빼 '한눈에 보기' 패널로 (Fable 재배치안 11/18: 머리는 제목·상태 문장·결재란만)
+  const docMeta = (<dl className="meta-grid">
+        {d.category_path && d.category_id && <><dt>분류</dt><dd><Link href={`/library?category=${encodeURIComponent(d.category_id)}`}>{d.category_path.split('/').join(' › ')}</Link></dd></>}
+        {!d.category_path && d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
         {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
         {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
         <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd><span className="num">{day(d.updated_at)}</span></dd></>}
         {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
 
-      </dl></header>
+      </dl>);
+  const back = from === 'admin' ? <Link className="btn" href="/admin">결재함으로 돌아가기</Link> : <Link className="btn" href="/library">보관함</Link>;
+  return (
+    <>
+      <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
+      <header className="document-header">
+      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
+        who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
+      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={() => setPrinting(true)} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
+      </header>
+      {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}
 
       <div className="detail-layout"><div className="detail-body">
 
@@ -368,32 +564,84 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 
       {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
         <section aria-label={`${p + 1}쪽`}>
-          <div className="pager">
-            <button className="btn" disabled={p === 0} onClick={() => go(p - 1)}>이전 쪽</button>
-            <span aria-live="polite"><span className="num">{p + 1} / {d.pages.length}</span>쪽</span>
-            <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
-          </div>
+
           {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
-          {page.structured && <div className="view-toggle" role="group" aria-label="본문 보기 방식">
-            <button type="button" className="btn" aria-pressed={!raw} onClick={() => setRaw(false)}>정리본</button>
-            <button type="button" className="btn" aria-pressed={raw} onClick={() => setRaw(true)}>원문{numbered.length > 0 ? ` · 고칠 곳 ${numbered.length}` : ''}</button>
-          </div>}
-          <div className="document-columns"><div className="sheet page">
-            {page.structured && !raw ? <><p className="note">AI가 원문 글자를 바꾸지 않고 읽기 좋게 다시 배치한 본문입니다. 고칠 곳 밑줄은 원문에서 보입니다.</p><DocText text={page.structured} /></> : <DocText text={page.text} marks={numbered} active={active} onPick={(n) => { setActive(n); setFixOpen(true); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'nearest' }), 0); }} />}
+          <div className="view-toggle seg-tabs" role="group" aria-label="본문 보기 방식">
+            <button type="button" className="btn" aria-pressed={showImages} onClick={() => setImages(true)}>필터링된 원문</button>
+            <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>
           </div>
-          <aside className="page-checks" aria-label="이 쪽 한눈에 보기"><h3 className="section">이 쪽 한눈에 보기</h3>
+          {showImages ? <div className="document-columns"><div><OriginalPages docId={d.doc_id} start={p + 1} fallback={page.text} /></div><aside className="page-checks" aria-label="한눈에 보기"><h3 className="section">한눈에 보기</h3>{docMeta}</aside></div> : (
+          <div className="document-columns"><div><div className={`sheet page ${ratio}`} onClick={(e) => {
+            const t = e.target as HTMLElement;
+            const z = t.closest<HTMLElement>('[data-zoom]')?.dataset.zoom;
+            if (z) { setZoomUrl(z); return; }
+          }}>
+            <div className="page-body">
+            <p className="note">{page.structured_source === 'VISION'
+              ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원래 모습은 \'필터링된 원문\'에서 확인하세요.'
+              : page.structured_source === 'AI' ? 'AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. 그림을 보고 쓴 설명은 근거로 인용하지 않습니다. 그림을 누르면 크게 봅니다.'
+              : '이 쪽은 원문 글자를 그대로 보여 줍니다(쪽마다 반복되는 머리글은 뺐습니다).'}</p>
+            {k >= 0 ? dps[k]!.parts.map((pt) => <DocText key={pt.page} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />) : <DocText text={page.structured ?? page.text} figures={figMap} hideFigRefs />}
+            <ZoomDialog url={zoomUrl} onClose={() => setZoomUrl(null)} />
+            </div>
+          </div>
+          {/* 정리본 아래 가운데 화살표로 넘기기 (사용자 요청 11/18). 글자는 화면 읽기·QA 용 */}
+          {(() => { const n = k >= 0 ? dps.length : d.pages.length; const cur = k >= 0 ? k : p; const to = (j: number) => (k >= 0 ? goDoc(j) : go(j)); return (
+            <nav className="arrow-pager" aria-label="정리본 쪽 넘기기">
+              <button type="button" className="arrow-btn prev" disabled={cur === 0} onClick={() => to(cur - 1)}><Icon name="arrow" /><span className="sr-only">이전 쪽</span></button>
+              <span aria-live="polite"><span className="num">{cur + 1} / {n}</span>{k >= 0 && <span className="note"> · 원본 {range(dps[k]!)}쪽</span>}</span>
+              <button type="button" className="arrow-btn" disabled={cur === n - 1} onClick={() => to(cur + 1)}><Icon name="arrow" /><span className="sr-only">다음 쪽</span></button>
+            </nav>); })()}
+          </div>
+          <aside className="page-checks" aria-label="한눈에 보기"><h3 className="section">한눈에 보기</h3>{docMeta}<h4 className="aside-sub">이 쪽</h4>
             <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>
           </aside>          </div>
+          )}
         </section>
       )}
 
       </div><div className="document-more">
+      <CardBoundary label="상세 항목">
       <div className="detail-cards" aria-label="문서 상세 항목">
-      {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
-      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled /></button>}
+      <p className="cards-head judge">판단 필요</p>
+      {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled warn count={d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length} /></button>}
       <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} />)}</ul></>}</DetailPopup>
-      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완"><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
-      {d.review && <><button type="button" className="detail-card filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump} /></DetailPopup></>}
+      {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled warn count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
+        onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); } : undefined} /></DetailPopup></>}
+      {d.verification && d.verification.basis.length > 0 && (
+        <DetailCard title="비교한 대상" group="judge" count={groupBasis(d.verification.basis).length}>
+          {d.verification.basis.length > 0 && (
+            <>
+              <p className="note" style={{ margin: '10px 0 4px' }}>이 문서의 문장을 어느 조문과 비교했고 결과가 어땠는지입니다. 같은 조문은 한 번만 보여 줍니다.</p>
+              <ul className="fixes">
+                {groupBasis(d.verification.basis).map((g) => (
+                  <li key={g.key} className="fix">
+                    <p className="fix-head">{g.what} · {g.label}{g.effective_from && ` · ${g.effective_from} 시행`}</p>
+                    {g.quote && <blockquote className="basis"><p>{g.quote}</p></blockquote>}
+                    {g.rows.some((r) => r.statement) ? (
+                      <ol className="compare-rows">{g.rows.map((r, i) => (
+                        <li key={i}>
+                          <p className="stmt">“{r.statement}”</p>
+                          <p><span className={`verdict ${r.relation === 'CONFLICTS' ? 'bad' : r.relation === 'INSUFFICIENT' ? 'wait' : 'ok'}`}>{r.result}</span>{r.reason && <span className="note"> — {r.reason}</span>}</p>
+                        </li>
+                      ))}</ol>
+                    ) : <p>{g.rows.map((r) => r.result).join(' · ')}</p>}
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </DetailCard>
+      )}
+      {(d.clarify?.length ?? 0) > 0 && <>
+        <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setClarifyOpen(true)}><CardLabel title="확인 필요" filled warn count={d.clarify!.filter((c) => c.status === 'OPEN').length} /></button>
+        <DetailPopup title="확인 필요" open={clarifyOpen} onClose={() => setClarifyOpen(false)}>
+          <ClarifyApply d={d} canEdit={canWikiEdit} onApply={(text, focus) => { setClarifyOpen(false); setEditing(text); setEditFocus(focus); }} />
+        </DetailPopup>
+      </>}
+      <p className="cards-head ref">참고</p>
+      {page && <DetailCard title="페이지 요약" filled={!!page.summary}><h3 className="section">페이지 요약</h3><p>{page.summary ?? '요약이 아직 없습니다.'}</p><PageFacts m={page} /></DetailCard>}
+      {notes.length > 0 && <DetailCard title="확인된 근거·실무 보완" count={notes.length}><h3 className="section">참고: 확인된 근거·실무 보완</h3><ul className="fixes">{notes.map((m, i) => <Fix key={i} m={m} />)}</ul></DetailCard>}
       <Versions id={d.doc_id} />      {d.verification && (
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
@@ -405,22 +653,19 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           </dl>
         </section></DetailCard>
       )}
-      {d.verification && d.verification.basis.length > 0 && (
-        <DetailCard title="비교한 대상">
-          {d.verification.basis.length > 0 && (
-            <>
-              <p className="note" style={{ margin: '10px 0 4px' }}>비교한 대상</p>
-              <ul className="fixes">
-                {d.verification.basis.map((b, i) => (
-                  <li key={i} className="fix">
-                    <p className="fix-head">{b.what} · {b.label}{b.effective_from && ` · ${b.effective_from} 시행`}</p>
-                    <p>{b.result}</p>
-                    {b.quote && <blockquote className="basis"><p>{b.quote}</p></blockquote>}
-                  </li>
-                ))}
-              </ul>
-            </>
-          )}
+      {(d.claims?.length ?? 0) > 0 && (
+        <DetailCard title="이 문서의 주장" count={d.claims!.length}>
+          <p className="note">이 문서의 문장마다 근거 조문과 판정, 그리고 같은 조문을 근거로 쓴 다른 게시 문서들이 어떻게 판정됐는지입니다.</p>
+          <ol className="claims">{d.claims!.map((c) => (
+            <li key={c.claim_id}>
+              <p className="stmt">“{c.statement}”{c.page && <span className="note"> · {c.page}쪽</span>}</p>
+              <p><span className={`verdict ${c.relation === 'CONFLICTS' ? 'bad' : c.relation === 'INSUFFICIENT' ? 'wait' : 'ok'}`}>{CLAIM_REL[c.relation] ?? c.relation}</span>
+                {c.label && <span className="note"> · {c.label}</span>}{!c.verified && <span className="note"> · 인용 원문 확인 안 됨</span>}{c.status === 'REVIEW_REQUIRED' && <span className="danger-text"> · 근거 조문 개정으로 재검토</span>}</p>
+              {c.on_provision && (c.on_provision.supports + c.on_provision.conflicts + c.on_provision.unclear) > 0 && (
+                <p className="note">이 조문을 근거로 쓴 게시 문서 주장: 지지 {c.on_provision.supports} · 충돌 {c.on_provision.conflicts}{c.on_provision.unclear ? ` · 확인 필요 ${c.on_provision.unclear}` : ''}</p>
+              )}
+            </li>
+          ))}</ol>
         </DetailCard>
       )}
 
@@ -444,8 +689,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
-      <DetailCard title="외부 법령 참고" filled={false}><ExternalLaws id={d.doc_id} /></DetailCard>
-      </div>{d.review && <Decide r={d.review} docId={d.doc_id} />}
+      <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
+      </div></CardBoundary>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
 <DeleteDoc d={d} /></div></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}

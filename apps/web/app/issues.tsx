@@ -32,7 +32,7 @@ function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Iss
   );
 }
 
-function PageView({ docId, page, items, onClose }: { docId: string; page: number; items: Issue[]; onClose: () => void }) {
+export function PageView({ docId, page, items, onClose }: { docId: string; page: number; items: Issue[]; onClose: () => void }) {
   const [url, setUrl] = useState('');
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [err, setErr] = useState('');
@@ -60,9 +60,12 @@ function PageView({ docId, page, items, onClose }: { docId: string; page: number
 export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: unknown }) {
   const [d, setD] = useState<Issues | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+  const [openAt, setOpenAt] = useState<number | null>(null); // 위치 보기를 누른 항목
   useEffect(() => { api<Issues>('GET', `/v1/documents/${encodeURIComponent(docId)}/issues`).then(setD).catch(() => setD(null)); }, [docId, refreshKey]);
   if (!d) return null;
-  const shown = d.items.filter((i) => i.severity !== 'LOW');
+  // 항목별 확인 대상(개인정보·비밀값 MEDIUM)은 검토 화면 위쪽 '개인정보 확인'에서 처리하므로 여기서 뺀다 (Fable 권고 11/18)
+  const REVIEW = new Set(['PII_IMAGE_REVIEW', 'PII_IN_FIGURE', 'PII_GUARDRAIL', 'SECRET_MASKED']);
+  const shown = d.items.filter((i) => i.severity !== 'LOW' && !(i.severity === 'MEDIUM' && REVIEW.has(i.code)));
   const info = d.items.filter((i) => i.severity === 'LOW');
   return (
     <section aria-labelledby="issues-h" className="issues">
@@ -78,12 +81,14 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
             {i.location?.excerpt && <blockquote className="basis"><p>{i.location.excerpt}</p></blockquote>}
             {i.fix_hint && <p><strong>고치는 방법</strong> {i.fix_hint}</p>}
             {i.location?.page && d.page_images.includes(i.location.page) && (
-              <button className="btn" type="button" onClick={() => setOpen(i.location!.page!)}>{i.location.page}쪽에서 위치 보기</button>
+              <button className="btn" type="button" aria-expanded={openAt === n} onClick={() => { setOpen(i.location!.page!); setOpenAt(n); }}>{i.location.page}쪽에서 위치 보기</button>
             )}
+            {/* 누른 항목 바로 아래에 연다 (11/18 사용자 보고: 목록 맨 아래에 열려 화면 밖이라 아무것도 안 뜨는 것처럼 보임) */}
+            {open !== null && openAt === n && <PageView docId={docId} page={open} items={d.items.filter((x) => x.location?.page === open)} onClose={() => { setOpen(null); setOpenAt(null); }} />}
           </li>
         ))}
       </ul>
-      {open !== null && <PageView docId={docId} page={open} items={d.items.filter((i) => i.location?.page === open)} onClose={() => setOpen(null)} />}
+      {open !== null && openAt === null && <PageView docId={docId} page={open} items={d.items.filter((i) => i.location?.page === open)} onClose={() => setOpen(null)} />}
       {info.length > 0 && (
         <details style={{ marginTop: 12 }}>
           <summary className="note">자동으로 처리한 내용 {info.length}건</summary>

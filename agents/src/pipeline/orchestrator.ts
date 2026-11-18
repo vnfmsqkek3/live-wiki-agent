@@ -23,12 +23,16 @@ export interface PipelineDeps {
   imageDescribe?: boolean;
   /** 쪽별 요약·메타데이터 단계(yoyo0704 Lambda, masked/summary.json). env PAGE_SUMMARIZE=on */
   pageSummarize?: boolean;
+  /** 참조 확인 (interfaces 6.4, env REFERENCE_CHECK=on) */
+  referenceCheck?: boolean;
 }
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
+/** 실패해도 게시 흐름을 멈추지 않는 단계 */
+export const NON_BLOCKING = new Set(['reference_check']);
 export const STEP_NAMES: Record<string, string> = {
   malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', convert_to_pdf: 'ConvertToPdf', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
-  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify',
+  ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify', reference_check: 'ReferenceCheck',
   trust_gate: 'TrustGate', explain_findings: 'ExplainFindings', await_review: 'WaitForApproval', promote: 'Promote', kb_ingest: 'KbIngest', graph_upsert: 'GraphUpsert', finalize: 'Finalize', purge_document: 'PurgeDocument',
 };
 
@@ -60,6 +64,11 @@ class StepNode extends Node {
       }
     } catch (e) {
       const err = e as Error;
+      // 게시 비차단 단계(참조 확인 6.4 '실패해도 계속')는 실패해도 SKIPPED 로 남기고 다음 단계로 (11/18 dev: Gateway 300초 끊김으로 업로드 전체 실패)
+      if (NON_BLOCKING.has(this.step)) {
+        await this.deps.record(this.input.workflow_id, this.input.doc_id, name, 'SKIPPED', err.name === 'Error' ? 'StepFailed' : err.name, err.message?.slice(0, 300)).catch(() => {});
+        return done(`${name}: skipped (non-blocking failure)`);
+      }
       await this.deps.record(this.input.workflow_id, this.input.doc_id, name, 'FAILED', err.name === 'Error' ? 'StepFailed' : err.name, err.message?.slice(0, 300));
       throw e; // Graph 실패 → 실행 FAILED 기록은 호출자
     }
@@ -75,12 +84,20 @@ const done = (text: string): NodeResultUpdate => ({ status: 'COMPLETED', content
 const chain = (ids: string[]) => ids.slice(1).map((t, i) => [ids[i]!, t] as [string, string]);
 
 /** 1차 실행: 업로드 → 자동 검사 → 작성자 검토 대기 (BLOCKED면 finalize BLOCKED) */
-export function ingestGraph(deps: PipelineDeps, input: StepInput) {
+export function ingestGraph(deps: PipelineDeps, input: StepInput, opts: { textOnly?: boolean } = {}) {
   const n = (s: string, extra?: (st: MultiAgentState) => Record<string, unknown>) => new StepNode(s, deps, input, extra);
   // 차단이 아니면 검토 대기(await_review), 차단이면 finalize(BLOCKED). 둘 다 마지막에 두고 노드 안에서 분기
   const tail = new ReviewOrBlock(deps, input);
   // 선택 단계: ImageDescribe(그림 묘사도 지시문 검사를 받도록 InjectionScan 앞), PageSummarize(지시문 검사 뒤, 요약을 Classify가 쓸 수 있게)
-  const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify'];
+  // ReferenceCheck(6.4): Classify(정리본) 뒤, 게시 비차단. REFERENCE_CHECK=on 일 때만
+  const mid = ['pii_scan', ...(deps.imageDescribe ? ['image_describe'] : []), 'injection_scan', ...(deps.pageSummarize ? ['page_summarize'] : []), 'classify', ...(deps.referenceCheck ? ['reference_check'] : [])];
+  // 위키 수정본(글자 문서): ConvertToPdf·PageRender·OCR 없이 text_layer_extract → segment_build (interfaces 6.2)
+  if (opts.textOnly) return new Graph({
+    nodes: [n('malware_check'), n('file_structure_check'), n('text_layer_extract'), n('segment_build'), ...mid.map((k) => n(k)), n('trust_gate'), tail],
+    edges: chain(['malware_check', 'file_structure_check', 'text_layer_extract', 'segment_build', ...mid, 'trust_gate', 'review_or_block']),
+    sources: ['malware_check'],
+    maxSteps: 30,
+  });
   return new Graph({
     nodes: [
       n('malware_check'), n('file_structure_check'), n('convert_to_pdf'), n('text_layer_extract'), n('page_render'), n('ocr_if_needed'), n('segment_build'),

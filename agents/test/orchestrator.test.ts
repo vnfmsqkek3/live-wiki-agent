@@ -111,3 +111,31 @@ test('문서 변환 실패(BLOCKED)면 뒤 단계는 건너뛰고 차단으로 �
   assert.ok(!order.includes('text_layer_extract') && !order.includes('ocr_if_needed'), order.join(','));
   assert.ok(t.records.includes('ConvertToPdf=BLOCKED'));
 });
+
+test('위키 수정본(text_only): 변환·쪽 이미지·OCR 없이 글자 추출 → 본문 정리 → 검사', async () => {
+  const t = deps();
+  await run(ingestGraph(t.d, input, { textOnly: true }), t.d, input);
+  const order = t.calls.map((c) => c.step);
+  assert.deepEqual(order.slice(0, 4), ['malware_check', 'file_structure_check', 'text_layer_extract', 'segment_build']);
+  assert.ok(!order.includes('convert_to_pdf') && !order.includes('page_render') && !order.includes('ocr_if_needed'));
+  assert.equal(order.at(-1), 'await_review');
+});
+
+test('참조 확인(REFERENCE_CHECK=on): classify 뒤 reference_check, 그 뒤 trust_gate', async () => {
+  const t = deps();
+  const d = { ...t.d, referenceCheck: true };
+  await run(ingestGraph(d, input), d, input);
+  const order = t.calls.map((c) => c.step);
+  assert.equal(order[order.indexOf('classify') + 1], 'reference_check');
+  assert.equal(order[order.indexOf('reference_check') + 1], 'trust_gate');
+});
+
+test('참조 확인이 실패해도(Gateway 시간 초과 등) SKIPPED 로 남기고 trust_gate 로 계속 (11/18 dev)', async () => {
+  const t = deps({ reference_check: () => new TypeError('fetch failed') });
+  const d = { ...t.d, referenceCheck: true };
+  const r = await run(ingestGraph(d, input), d, input);
+  assert.notEqual(r.status, 'FAILED');
+  const order = t.calls.map((c) => c.step);
+  assert.ok(order.includes('trust_gate'));
+  assert.ok(t.records.some((x) => /=SKIPPED$/.test(x) && /참조|Reference/i.test(x)));
+});

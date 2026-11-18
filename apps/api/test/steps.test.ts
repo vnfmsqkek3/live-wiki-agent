@@ -22,12 +22,12 @@ test('PII: 주민번호 체크섬 일치는 확실, 불일치는 불확실, 날�
   assert.deepEqual(s.map((x) => [x.type, x.certain]), [['RRN', true], ['RRN', false]]);
 });
 
-test('PII: 전화·이메일·카드(Luhn)·계좌 문맥 마스킹, 원문 미노출', async () => {
+test('PII: 카드(Luhn)·계좌 문맥 마스킹, 전화·이메일은 그대로 (사용자 결정 11/17 22시)', async () => {
   const text = '연락처 010-1234-5678, hong@hanbit.example, 카드 4111 1111 1111 1111, 계좌번호: 110-123-456789';
   const spans = detectPii(text);
-  assert.deepEqual(spans.map((x) => x.type), ['PHONE', 'EMAIL', 'CARD', 'ACCOUNT']);
+  assert.deepEqual(spans.map((x) => x.type), ['CARD', 'ACCOUNT']);
   const m = mask(text, spans);
-  assert.ok(!/\d{4}/.test(m), m);
+  assert.equal(m, '연락처 010-1234-5678, hong@hanbit.example, 카드 [카드번호], 계좌번호: [계좌번호]');
   const r = await piiScan([{ page: 1, text }]);
   assert.ok(r.findings!.every((f) => !f.message.includes('1234')));
   assert.equal(r.masked[0]!.text, m);
@@ -37,14 +37,17 @@ test('PII: 불확실 구간이 있으면 REVIEW_REQUIRED, Guardrail 추가 탐�
   assert.equal((await piiScan([{ page: 1, text: '참조 123-45-678901' }])).status, 'REVIEW_REQUIRED');
   const clean = await piiScan([{ page: 1, text: '제12조 담보평가는 감정평가서를 따른다.' }], async (t) => ({ text: t, detected: 0 }));
   assert.equal(clean.status, 'OK');
-  const g = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
+  const g = await piiScan([{ page: 1, text: '담당 김하나' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'NAME', match: '김하나' }] }));
   assert.equal(g.status, 'REVIEW_REQUIRED');
-  assert.equal(g.masked[0]!.text, '연락 1588-1111'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
+  assert.equal(g.masked[0]!.text, '담당 김하나'); // Guardrail 탐지는 원문을 덮어쓰지 않는다 (사람 확인)
+  const ph = await piiScan([{ page: 1, text: '연락 1588-1111' }], async (t) => ({ text: t, detected: 1, entities: [{ type: 'PHONE', match: '1588-1111' }] }));
+  assert.equal(ph.status, 'OK'); // 전화·이메일·IP·사용자명은 확인 항목에서 제외
 });
 
 test('PII: 날짜(시행일)는 계좌로 오탐하지 않음', () => {
   assert.deepEqual(detectPii('시행일 2026-11-01, 개정 2025-01-01'), []);
-  assert.equal(detectPii('참조번호 2026-13-01')[0]?.type, 'ACCOUNT'); // 날짜가 아니면 불확실 계좌
+  assert.deepEqual(detectPii('참조번호 2026-13-01'), []); // N-2-2 모양은 날짜·버전으로 보고 계좌로 잡지 않음 (OCR 깨진 날짜, 11/17)
+  assert.equal(detectPii('참조번호 2026-130-01')[0]?.type, 'ACCOUNT'); // 그 밖의 형태는 불확실 계좌
 });
 
 test('Injection: A-001 유형 차단, 정상 규정 통과', () => {
@@ -213,4 +216,174 @@ test('AI 재구성 대상: 이미 마크다운인 쪽·짧은 쪽은 건너뜀',
   assert.equal(needsStructure('SYNTHETIC — x\n# 제목\n## 절차\n- 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 하나 둘 셋 넷 다섯 여섯 일곱 여덟 아홉 열 열하나 열둘'), false);
   assert.equal(needsStructure('짧은 쪽'), false);
   assert.equal(needsStructure('1.개인정보 처리 근거\n고객정보 수집 전에는 처리 목적과 적용 가능한 법적 근거를 확인한다. 「개인정보 보호법」 제15조제1항: 개인정보처리자는'), true);
+});
+
+test('쪽 전체 맥락 재구성: 그림 줄(⟦그림 pN⟧)은 본문 대조에서 빼고, 그림 설명에서 온 문장·숫자는 허용, 지어낸 숫자는 거부', async () => {
+  const { faithful, splitPage, needsStructure } = await import('../src/steps/structure.ts');
+  const text = '드라이버 설치 방법\n다운로드 자료실에서 모델명을 입력하고 검색한다. [그림 1]\n⟦그림 p3⟧ 그림 1 속 글자: Myo1z1s Wiotaes11Prrt 2024-06-21';
+  assert.equal(splitPage(text).body.includes('Myo1z1s'), false);
+  const figures = [{ kind: 'screenshot', description: '모델명 검색창과 검색 버튼이 보이는 화면', overlay_text: 'SL-K3250NR' }];
+  assert.equal(needsStructure('짧은 쪽', figures), true); // 그림이 있으면 짧아도 맥락 정리
+  const good = '## 드라이버 설치 방법\n\n1. **다운로드 자료실**에서 모델명을 입력하고 검색한다.\n   - 모델명 검색창과 검색 버튼이 보이는 화면 (그림 1)';
+  assert.equal(faithful(text, good, figures).ok, true);
+  assert.equal(faithful(text, good + '\n- 버전 9.99 설치 (그림 1)', figures).ok, false); // 그림에도 없는 숫자
+  assert.equal(faithful(text, '## 드라이버 설치 방법', figures).ok, false); // 본문 문장 빠짐
+});
+
+test('위키 수정분 검수: 바뀐 문장·지운 문장 구분, 지운 중요 문장(한도·승인)만 고칠 것, 바뀐 문장 판정만 남김', async () => {
+  const { editReview } = await import('../src/steps/edit-review.ts');
+  const before = '## 시재 마감\n1. 마감 30분 전에 시재표를 출력한다.\n2. 차이가 1만원 이상이면 책임자에게 보고한다.\n3. 지폐는 띠지를 확인한다.';
+  const after = '## 시재 마감\n1. 마감 1시간 전에 시재표를 출력한다.\n3. 지폐는 띠지를 확인한다.';
+  const r = editReview(before, after);
+  assert.deepEqual(r.changed, ['마감 1시간 전에 시재표를 출력한다.']);
+  assert.equal(r.removed.length, 2);
+  assert.equal(r.findings.length, 2); // '30분'·'1만원 이상' 둘 다 중요 문장
+  assert.equal(r.onChanged({ location: { excerpt: '마감 1시간 전에 시재표를 출력한다' } } as never), true);
+  assert.equal(r.onChanged({ location: { excerpt: '지폐는 띠지를 확인한다' } } as never), false);
+});
+
+test('참조 확인: 검색어 검사(IP·이메일·가림 자리·개인정보·사내 도메인·사람 이름은 검색 안 함), 페이지 일치, 검색 결과 주소', async () => {
+  const { unsafeQuery, pageMatches, resultUrl, bestHit, isOfficial } = await import('../src/steps/reference-check.ts');
+  assert.equal(unsafeQuery('삼성 SL-K3250NR 드라이버 다운로드'), undefined);
+  assert.equal(unsafeQuery('복합기 10.20.30.41 설정'), 'ipv4');
+  assert.equal(unsafeQuery('문의 hong@corp.example'), 'email');
+  assert.equal(unsafeQuery('[주민등록번호] 확인 방법'), 'masked_placeholder');
+  assert.equal(unsafeQuery('하나은행 인트라넷 다운로드'), 'internal_domain');
+  assert.equal(unsafeQuery('김하나 대리 연락처'), 'person_name');
+  assert.equal(unsafeQuery('x'.repeat(121)), 'length');
+  const c = { item: '삼성전자 다운로드 자료실 링크', reason: 'MISSING_LINK' as const, query: '삼성전자 프린터 드라이버 다운로드 자료실' };
+  assert.equal(pageMatches(c, { title: '다운로드 자료실 | 삼성전자 서비스', text: '프린터 드라이버 다운로드' }), true);
+  assert.equal(pageMatches(c, { title: '날씨', text: '오늘 맑음' }), false);
+  const cs = { ...c, official_sites: ['samsungsvc.co.kr', 'samsung.com'] };
+  assert.equal(bestHit(cs, [{ url: 'https://blog.naver.com/x/1', title: '삼성전자 프린터 드라이버 다운로드 자료실', text: '' }, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자서비스', text: '프린터 드라이버' }])?.url, 'https://www.samsungsvc.co.kr/download');
+  assert.equal(bestHit(c, [{ url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자서비스', text: '프린터 드라이버' }]), undefined); // 공식 추정이 없으면 제안 없음
+  assert.equal(bestHit(cs, [{ url: 'https://www.youtube.com/watch?v=1', title: '삼성전자 프린터 드라이버 다운로드 자료실', text: '' }]), undefined); // 사용자 게시글만 있으면 제안 없음 (사용자 결정 11/18)
+  const { isCommunity } = await import('../src/steps/reference-check.ts');
+  assert.equal(isCommunity('https://example.co.kr/board/123'), true);
+  assert.equal(isCommunity('https://kin.naver.com/qna/detail'), true);
+  assert.equal(isCommunity('https://www.dealbada.com/bbs/board.php?bo_table=x'), true);
+  assert.equal(bestHit(cs, [{ url: 'https://www.solvusoft.com/ko/update', title: '삼성전자 프린터 드라이버 다운로드 자료실', text: '' }]), undefined); // 제3자 드라이버 사이트 제외 (dev 실측)
+  assert.equal(bestHit({ item: '브라더 드라이버', reason: 'MISSING_LINK', query: '브라더 MFC-L5700DN 드라이버 다운로드', official_sites: ['brother.co.kr', 'support.brother.com'] }, [{ url: 'https://support.brother.com/g/b/downloadtop.aspx?c=kr', title: '다운로드 | Brother MFC-L5700DN 드라이버', text: '' }])?.url, 'https://support.brother.com/g/b/downloadtop.aspx?c=kr');
+  assert.equal(isOfficial('https://www.samsungsvc.co.kr/download', 'samsungsvc.co.kr'), true);
+  assert.equal(isOfficial('https://www.solvusoft.com/ko/update', ['samsungsvc.co.kr', 'samsung.com']), false); // 제3자 드라이버 사이트
+  assert.equal(isOfficial('https://www.sindoh.com/support/download', ['sindoh.com']), true);
+  assert.equal(isOfficial('https://www.law.go.kr/x'), true);
+  // dev 실측: 본문을 못 읽어도 주소·제목으로 (대상의 '링크' 같은 일반 낱말은 안 봄)
+  assert.equal(pageMatches({ item: '다운로드 링크 버튼', reason: 'MISSING_LINK', query: '삼성전자 다운로드 자료실 복합기 드라이버' }, { url: 'https://www.samsungsvc.co.kr/download', title: '다운로드 자료실 | 삼성전자서비스', text: '' }), true);
+  const b64 = Buffer.from('https://www.samsungsvc.co.kr/download').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  assert.equal(resultUrl(`https://www.bing.com/ck/a?!&&p=x&u=a1${b64}&ntb=1`), 'https://www.samsungsvc.co.kr/download');
+  assert.equal(resultUrl('https://www.samsung.com/sec/support/'), 'https://www.samsung.com/sec/support/');
+  assert.equal(resultUrl('https://www.bing.com/aclick?ld=x'), undefined);
+});
+
+test('정리본 대체(TEXT): 반복 머리글 줄 제외, 장 제목은 ##, 빈 쪽은 (빈 쪽), 그림 줄 제외', async () => {
+  const { textFallback } = await import('../src/steps/structure.ts');
+  const segs = [
+    { page_index: 0, text: 'MEGAZONE / ALLIANCE\n과천사옥 복합기 매뉴얼' },
+    { page_index: 1, text: 'MEGAZONE / ALLIANCE\n01. 층별 복합기 정보\n4층 복합기는 SL-K3250NR 이다.' },
+    { page_index: 2, text: 'MEGAZONE / ALLIANCE\n⟦그림 p2⟧ 그림 1 속 글자: 로고' },
+    { page_index: 3, text: 'MEGAZONE / ALLIANCE\n02. 드라이버 설치' },
+  ];
+  const fb = textFallback(segs);
+  assert.equal(fb.get(0), '과천사옥 복합기 매뉴얼');
+  assert.equal(fb.get(1), '## 01. 층별 복합기 정보\n\n4층 복합기는 SL-K3250NR 이다.');
+  assert.equal(fb.get(2), '(빈 쪽)');
+  assert.equal(fb.get(3), '## 02. 드라이버 설치');
+  // 쪽 수 비율과 무관(39쪽 중 3쪽만 있어도), 본문 가운데 반복 문구는 남김
+  const many = [...Array(39).keys()].map((i) => ({ page_index: i, text: i < 3 ? `본문 첫 줄 ${i}\n가운데 줄\n가운데 줄 둘\n공통 안내 문구\n가운데 셋\n가운데 넷\n끝 줄 ${i}\nMEGAZONE / ALLIANCE` : `다른 쪽 ${i}` }));
+  const fb2 = textFallback(many);
+  assert.ok(!fb2.get(0)!.includes('MEGAZONE'));
+  assert.ok(fb2.get(0)!.includes('공통 안내 문구')); // 가장자리 3줄 밖은 반복돼도 유지
+  // 장 구분 쪽: 장 제목 아래 범위 줄은 여러 쪽에 같아도 남긴다 (11/18 실측)
+  const ch = [2, 3, 4].map((n) => ({ page_index: n, text: `0${n}. 드라이버 설치 ${n}장\n(Windows ver. macOS ver.)\nMEGAZONE / ALLIANCE` }));
+  const fb3 = textFallback(ch);
+  assert.equal(fb3.get(2), '## 02. 드라이버 설치 2장\n\n(Windows ver. macOS ver.)');
+});
+
+test('위키 수정본(md) 형식 검사: 앞부분이 한글 중간에서 잘려도 통과, 깨진 바이트·NUL 은 차단 (11/18 dev)', () => {
+  const md = new TextEncoder().encode('# 과천사옥 복합기 스캐너 설치 매뉴얼\n\n'.repeat(400));
+  for (const n of [4096, 8192, 16384]) assert.equal(typeDetection('md', md.subarray(0, n)).status, 'OK', `앞 ${n}바이트`);
+  const bad = new Uint8Array([...md.subarray(0, 100), 0xff, 0xfe, ...md.subarray(100, 200)]);
+  assert.equal(typeDetection('md', bad).status, 'BLOCKED');
+  assert.equal(typeDetection('md', new Uint8Array([0x23, 0x00, 0x41])).status, 'BLOCKED');
+});
+
+test('buildDocPages: 짧은 쪽은 다음과 합치고 장 제목에서 나누고, 잘린 표는 이어 붙이고(머리행 제거), 반복 꼬리말·SYNTHETIC 은 뺀다 (11/18)', async () => {
+  const { buildDocPages } = await import('../src/steps/structure.ts');
+  const foot = 'MEGAZONE 꼬리말';
+  const r = buildDocPages([
+    { page: 1, markdown: 'SYNTHETIC — 하나은행 가상 데이터\n## 개인정보 수집 가이드\n' + foot },
+    { page: 2, markdown: '## 1. 수집 항목\n| 항목 | 목적 |\n|---|---|\n| 이름 | 본인 확인 |\n' + foot },
+    { page: 3, markdown: '| 항목 | 목적 |\n|---|---|\n| 주소 | 우편 발송 |\n표 아래 설명\n' + foot },
+    { page: 4, markdown: '## 2. 이용 기간\n5년 보관\n' + foot },
+  ]);
+  assert.deepEqual(r.map((g) => g.pages), [[1, 2, 3], [4]]);
+  assert.equal(r[0]!.title, '개인정보 수집 가이드');
+  const all = r[0]!.parts.map((x) => x.markdown).join('\n');
+  assert.match(all, /\| 이름 \| 본인 확인 \|\n\| 주소 \| 우편 발송 \|/);
+  assert.equal((all.match(/\| 항목 \| 목적 \|/g) ?? []).length, 1);
+  assert.ok(!/MEGAZONE|SYNTHETIC/.test(all));
+});
+
+test('buildDocPages 보정(11/18 dev 개인정보 가이드 2쪽): 라벨 제목·영문 머리말은 경계·제목 아님, 2쪽 문서 꼬리말·구분자+쪽번호 줄 제거', async () => {
+  const { buildDocPages } = await import('../src/steps/structure.ts');
+  const r = buildDocPages([
+    { page: 1, markdown: '## HANBIT BANK / OPERATIONS GUIDE\n## 개인정보 수집·이용 업무 가이드\n1. 업무 처리 개요\n### 안내 / 수집 목적·항목·보유 기간\n한빛은행 | 업무운영본부 | 내부 교육용 합성 자료 / 1' },
+    { page: 2, markdown: '## 확인 / 처리 근거 및 동의 필요 여부\n## 등록 / 최소 정보 입력\n## 2. 보관과 파기\n5년 보관\n한빛은행 | 업무운영본부 | 내부 교육용 합성 자료 / 2' },
+  ]);
+  assert.equal(r.length, 1);
+  assert.equal(r[0]!.title, '개인정보 수집·이용 업무 가이드');
+  assert.ok(!r[0]!.parts.some((x) => /내부 교육용/.test(x.markdown)));
+});
+
+test('buildDocPages 안전장치: 앞 쪽이 2열 표로 끝나면 다음 쪽 첫 "A / B" 줄들을 표 행으로 이어 붙인다 (11/18 dev)', async () => {
+  const { buildDocPages, structurePrompt } = await import('../src/steps/structure.ts');
+  const r = buildDocPages([
+    { page: 1, markdown: '## 1. 업무 처리 개요\n| 단계 | 내용 |\n|---|---|\n| 안내 | 수집 목적·항목·보유 기간 |' },
+    { page: 2, markdown: '## 확인 / 처리 근거 및 동의 필요 여부\n등록 / 최소 정보 입력 및 권한 통제\n사후 관리 / 목적 변경 및 보유 기간 점검\n## 2. 보관\n5년' },
+  ]);
+  assert.equal(r.length, 1);
+  assert.match(r[0]!.parts[0]!.markdown, /\| 안내 \|.*\n\| 확인 \| 처리 근거 및 동의 필요 여부 \|\n\| 등록 \|.*\n\| 사후 관리 \| 목적 변경 및 보유 기간 점검 \|/);
+  assert.match(structurePrompt(1, '본문', [], '| 안내 | 수집 목적 |'), /<prev_page_tail[^>]*>\n\| 안내 \| 수집 목적 \|/);
+});
+
+test('외부 법령 합치기(11/18): 괄호 결과 + 모델 결과, 공백 정리·중복 제거, 조문 있는 항목이 있으면 조문 없는 같은 법령은 뺌', async () => {
+  const { mergeLaws } = await import('../src/steps/external-laws.ts');
+  assert.deepEqual(mergeLaws([{ law_name: '개인정보 보호법' }], [{ law_name: '개인정보  보호법', clause: '제15조 제1항' }, { law_name: '전자금융거래법' }]),
+    [{ law_name: '개인정보 보호법', clause: '제15조제1항' }, { law_name: '전자금융거래법' }]);
+});
+
+test('tightTables: 표 행 사이 빈 줄만 없애고, 표 밖 문단·고립된 줄은 그대로 (사용자 지적 11/18)', async () => {
+  const { tightTables } = await import('../src/steps/structure.ts');
+  assert.equal(tightTables('### 3\n\n| a | b |\n\n|---|---|\n\n| 1 |  |\n\n\n| 2 | x |\n\n다음\n\n| 고립 |'), '### 3\n\n| a | b |\n|---|---|\n| 1 |  |\n| 2 | x |\n\n다음\n\n| 고립 |');
+});
+
+test('carry: 위키 수정 후 재분석 — 해당 없음·그대로 사용은 잇고, 고치지 않은 문장의 새 확인 필요는 빼고, 고친 문장만 새로 묻는다 (사용자 지적 11/18)', async () => {
+  const { makeCarry, applyCarry } = await import('../src/steps/carry.ts');
+  const cl = (id: string, before: string, status = 'OPEN', extra = {}) => ({ finding_id: id, step: 'REFERENCE_CHECK', severity: 'MEDIUM', code: 'CLARIFY_NEEDED', message: 'x', details: { before, status, ...extra } }) as never;
+  const old = '1. 신청서는 관련 부서 승인 후 접수한다.\n2. 담보 서류는 기한 내 제출받는다.\n| 적용 대상 | 실무 담당자 |';
+  const pii = { finding_id: 'p', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: 'm', location: { excerpt: '그림 1' }, acknowledged: { by: 'u', at: 't', reason: '가상 데이터' } } as never;
+  const carry = makeCarry(old, [cl('a', '2. 담보 서류는 기한 내 제출받는다.', 'DISMISSED', { dismiss_reason: '사규로 정함' }), cl('b', '| 적용 대상 | 실무 담당자 |'), pii]);
+  const next = applyCarry(carry, [
+    cl('n1', '2. 담보 서류는 기한 내 제출받는다.'), // 전에 해당 없음 → 그대로 해당 없음
+    cl('n2', '| 적용 대상 | 실무 담당자 |'), // 전에 열려 있던 것 → 남김
+    cl('n3', '1. 신청서는 관련 부서 승인 후 접수한다.'), // 고치지 않은 문장의 새 질문 → 뺌
+    cl('n4', '3. 새로 쓴 문장은 담당자가 확인한다.'), // 고친(새) 문장 → 물음
+    { ...(pii as object), finding_id: 'p2', acknowledged: undefined } as never, // 개인정보 그대로 사용 → 잇기
+  ]) as { finding_id: string; details?: { status?: string; dismiss_reason?: string }; acknowledged?: { reason?: string } }[];
+  assert.deepEqual(next.map((f) => f.finding_id), ['n1', 'n2', 'n4', 'p2']);
+  assert.equal(next[0]!.details?.status, 'DISMISSED'); assert.equal(next[0]!.details?.dismiss_reason, '사규로 정함');
+  assert.equal(next[3]!.acknowledged?.reason, '가상 데이터');
+  assert.deepEqual(applyCarry(undefined, [cl('z', 'x')]).length, 1);
+});
+
+test('carry: 규정 충돌 — 고치지 않은 문장에서 새로 나온 것은 승인자 판단(올린 사람 안 막음), 고친 문장·전에 열려 있던 것은 막음 (사용자 결정 11/18)', async () => {
+  const { makeCarry, applyCarry } = await import('../src/steps/carry.ts');
+  const { isOpenFix } = await import('../src/submit.ts');
+  const kc = (id: string, ex: string) => ({ finding_id: id, step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: ex } }) as never;
+  const old = '1. 1억원 이하 부동산 담보대출은 현장 실사를 생략한다.\n2. 담보가액이 3억원 이상이면 본부 승인을 받는다.';
+  const carry = makeCarry(old, [kc('a', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.')]);
+  const next = applyCarry(carry, [kc('n1', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.'), kc('n2', '담보가액이 3억원 이상이면 본부 승인을 받는다.'), kc('n3', '여신 금액이 5억원 이상이면 위원회 승인을 받는다.')]) as unknown as { finding_id: string; code: string; severity: string; acknowledged?: { by: string } }[];
+  assert.deepEqual(next.map((f) => [f.finding_id, isOpenFix(f)]), [['n1', true], ['n2', false], ['n3', true]]);
+  assert.equal(next[1]!.acknowledged?.by, 'system:recheck');
 });

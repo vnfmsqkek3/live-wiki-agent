@@ -22,6 +22,7 @@ export const newId = {
   apr: () => `apr_${ulid()}`,
   fnd: () => `fnd_${ulid()}`,
   draft: () => `drf_${ulid()}`,
+  cat: () => `cat_${ulid().toLowerCase()}`, // 업무 분류 칸 (초기 칸은 cat_loan 처럼 소문자)
 };
 
 /** message에 원문 PII를 넣지 않는다. */
@@ -29,6 +30,8 @@ export const newId = {
 export interface FindingLocation { page?: number; bbox?: number[][]; excerpt?: string }
 
 export interface Finding {
+  /** 올린 사람이 '의도한 삭제'로 확인 (EDIT_REMOVED_KEY_SENTENCE). 확인된 것은 게시 요청을 막지 않고 승인자 '자세히'에 남는다 */
+  acknowledged?: { by: string; at: string; reason?: string };
   finding_id: string;
   step: string;
   severity: Severity;
@@ -82,6 +85,20 @@ export interface DocumentRecord {
   series_id?: string;
   version_no?: number;
   previous_doc_id?: string;
+  /** 위키 그 자리 수정 전의 결정·본문 (steps/carry.ts). 재분석 뒤 검토 대기로 갈 때 '해당 없음'·'그대로 사용'을 잇고 고치지 않은 문장의 새 질문은 뺀다 */
+  review_carry?: import('./steps/carry.ts').ReviewCarry;
+  /** AI 검사(전 단계)가 끝나 검토 대기로 간 시각. 도장 'AI 검사' 칸 날짜 */
+  checked_at?: string;
+  /** 위키 수정 요청 (steps/change-request.ts, 사용자 결정 11/18) */
+  change_requests?: import('./steps/change-request.ts').ChangeRequest[];
+  /** 위키 수정 전 처음 올린 원본 파일 (버킷 버전). '원본 파일' 다운로드 */
+  original_upload?: { key: string; version_id: string; filename: string };
+  /** 위키 수정본의 '(그림 쪽-k)'가 가리키는 그림: 원래 문서와 그림을 보여도 되는 쪽(개인정보 확인을 마친 쪽) */
+  figure_source?: { doc_id: string; pages: number[] };
+  /** WIKI_EDIT: 위키 수정본(정리본 마크다운, 사용자 결정 11/17 규칙 1). 없으면 파일 업로드 */
+  source?: 'UPLOAD' | 'WIKI_EDIT';
+  /** 위키 수정본의 이전 버전 대비 문장 수 (TrustGate 수정분 검수) */
+  edit_diff?: { changed: number; removed: number };
   superseded_by?: string;
   dept: string;
   acl_groups: string[];
@@ -142,6 +159,8 @@ export interface ApprovalRecord {
   reason?: string;
   decided_at?: string;
   created_at: string;
+  /** 관리자 본인 문서 결재 (사용자 결정 11/18) */
+  self_approved?: boolean;
 }
 
 /** 수정 초안. Agent가 만들지만 게시되지 않는다 (사람 재승인 필요, docs/01 6장) */
@@ -195,6 +214,9 @@ export const ClassificationBody = z.object({
 /** 출처 불일치 문서 처리 (규정 승인자·보안 검토자). 위조로 확정하지 않고 '반려'만 한다 */
 export const TitleBody = z.object({ title: z.string().trim().min(1).max(200) });
 export const PreviousBody = z.object({ previous_doc_id: z.string().min(1).max(40).nullable() });
+export const CategoryRenameBody = z.object({ name: z.string().trim().min(2).max(20).regex(/^[^/|]+$/, '/ | 는 쓸 수 없습니다') });
+export const CategoryMergeBody = z.object({ into: z.string().min(1).max(40) });
+export const EditBody = z.object({ markdown: z.string().trim().min(1).max(200_000) });
 export const DeleteBody = z.object({ reason: z.string().trim().min(1).max(500) });
 export const SourceReviewBody = z.object({ decision: z.literal('REJECT'), reason: z.string().min(1).max(1000) });
 

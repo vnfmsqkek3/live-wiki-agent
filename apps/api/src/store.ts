@@ -8,18 +8,22 @@ export interface AuditEvent {
   resource: string;
   result: 'OK' | 'DENIED';
   trace_id: string;
+  /** 원문·개인정보 없는 부가 정보 (예: WEB_SEARCH 검색어·URL·결과 수) */
+  detail?: Record<string, unknown>;
 }
 
 /** DynamoDB 조건부 쓰기와 같은 의미를 지켜야 한다 (조건 불일치 → CONFLICT). */
 export interface Store {
   getDoc(id: string): Promise<DocumentRecord | undefined>;
   putDoc(d: DocumentRecord): Promise<void>;
+  /** 이 문서의 검사 결과를 모두 지운다 (다시 검사 시작 전). findings 를 별도 테이블에 두는 저장소만 필요 — 나머지는 putDoc(findings: []) 로 충분 */
+  clearFindings?(doc_id: string): Promise<void>;
   listDocs(): Promise<DocumentRecord[]>;
   createApproval(a: ApprovalRecord): Promise<void>;
   getApproval(id: string): Promise<ApprovalRecord | undefined>;
   listApprovals(status: ApprovalRecord['status']): Promise<ApprovalRecord[]>;
   /** status=PENDING AND author≠approver AND 해시·버전 일치일 때만 전환 */
-  decideApproval(id: string, next: { status: 'APPROVED' | 'REJECTED'; approver_sub: string; approver_name?: string; reason: string; s3_version_id: string; content_hash: string }): Promise<ApprovalRecord>;
+  decideApproval(id: string, next: { status: 'APPROVED' | 'REJECTED'; approver_sub: string; approver_name?: string; reason: string; s3_version_id: string; content_hash: string; /** 관리자 본인 문서 결재 (사용자 결정 11/18, 마이그레이션 008) */ self_approved?: boolean }): Promise<ApprovalRecord>;
   /** APPROVED → USED. Promote 직전 1회만 성공 */
   consumeApproval(id: string): Promise<ApprovalRecord>;
   putFeedback(f: FeedbackRecord): Promise<void>;
@@ -52,10 +56,10 @@ export function memoryStore() {
       const a = approvals.get(id);
       if (!a) throw new ApiError('NOT_FOUND', 'approval not found');
       if (a.status !== 'PENDING') throw new ApiError('CONFLICT', 'approval is not pending');
-      if (a.author_sub === n.approver_sub) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
+      if ((a.author_sub === n.approver_sub) !== !!n.self_approved) throw new ApiError('FORBIDDEN', 'self approval is not allowed');
       if (a.s3_version_id !== n.s3_version_id || a.content_hash !== n.content_hash)
         throw new ApiError('CONFLICT', 'document changed after review');
-      Object.assign(a, { status: n.status, approver_sub: n.approver_sub, ...(n.approver_name ? { approver_name: n.approver_name } : {}), reason: n.reason, decided_at: new Date().toISOString() });
+      Object.assign(a, { status: n.status, approver_sub: n.approver_sub, ...(n.approver_name ? { approver_name: n.approver_name } : {}), reason: n.reason, decided_at: new Date().toISOString(), ...(n.self_approved ? { self_approved: true } : {}) });
       return clone(a);
     },
     async consumeApproval(id) {
