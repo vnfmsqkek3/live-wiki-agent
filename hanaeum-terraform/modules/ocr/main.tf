@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호·저장소 강제 삭제 금지 (stack local.protect)
+}
 # PaddleOCR SageMaker Async 엔드포인트 (docs/04 2장, Owner yoyo0704).
 # 이미지: services/ocr → CodeBuild(amd64) → ECR. 소스 해시가 바뀌면 다시 빌드하고 새 모델로 교체.
 # 비용: min 0 / max 1. 요청 대기(HasBacklogWithoutCapacity)면 1대로, 대기열이 비면 0대로.
@@ -41,7 +45,7 @@ locals {
 resource "aws_ecr_repository" "ocr" {
   name                 = "${var.n.prefix}-ecr-ocr${var.n.suffix}"
   image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.n.suffix != ""
+  force_delete         = !var.protect
   image_scanning_configuration { scan_on_push = true }
   encryption_configuration {
     encryption_type = "KMS"

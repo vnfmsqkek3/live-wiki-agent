@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호·저장소 강제 삭제 금지 (stack local.protect)
+}
 # 웹·API 배포 (dhxorb96 요청 11/16 웹API배포, 사용자 결정: 웹·API 모두 ECS Fargate)
 #   CloudFront(+WAF) → ALB(public, CloudFront origin 대역만 허용) → /v1/*·/healthz: API(8080) / 나머지: 웹(3000)
 #   이미지: public 저장소를 지정 커밋으로 clone → CodeBuild(arm64) → ECR. 코드 Owner dhxorb96 (apps/web, apps/api)
@@ -55,7 +59,7 @@ resource "aws_ecr_repository" "app" {
   for_each             = local.apps
   name                 = "${var.n.prefix}-ecr-${each.key}${var.n.suffix}"
   image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.n.suffix != ""
+  force_delete         = !var.protect
   image_scanning_configuration { scan_on_push = true }
   encryption_configuration {
     encryption_type = "KMS"

@@ -96,3 +96,8 @@ variable "demo_password" {
   default   = null
   sensitive = true
 }
+
+variable "protect_data" {
+  type    = bool
+  default = null # null: prod 만 보호. 사용자 결정 11/18 시험 단계 prod destroy·재배포 → prod 에서 false
+}
