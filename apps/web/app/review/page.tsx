@@ -41,7 +41,9 @@ function ReviewView() {
   const [pct, setPct] = useState<number | null>(null);
   const [fixState, setFixState] = useState<Record<string, string>>({}); // 제안대로 고치기 결과 (사용자 지적 11/18: 눌렀는지 알 수 없었다)
   const [keep, setKeep] = useState<Record<string, string>>({});
-  const [cur, setCur] = useState<string | null>(null); // 편집기의 지금 글 // 규정 충돌 '그대로 사용' 사유
+  const [cur, setCur] = useState<string | null>(null); // 편집기의 지금 글
+  const [editFocus, setEditFocus] = useState<string | undefined>(); // 편집기에서 바로 보여 줄 문장
+  const isAdmin = can(getSession()?.groups, '/admin'); // 관리자는 고칠 것에서 편집기로 바로 (사용자 요청 11/18) // 규정 충돌 '그대로 사용' 사유
 
   useEffect(() => {
     if (!id) { setErr('검토할 문서를 찾을 수 없습니다. 문서 등록 화면에서 다시 시작하세요.'); return; }
@@ -160,7 +162,7 @@ function ReviewView() {
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); setMsg('다시 분석을 시작했습니다. 잠시 뒤 화면이 바뀝니다.'); setTimeout(() => location.reload(), 4000); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
       {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
-      {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} base={r.text} onText={setCur} onCancel={() => { setEditInit(null); setCur(null); setFixState({}); }} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
+      {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} base={r.text} focus={editFocus} onText={setCur} onCancel={() => { setEditInit(null); setCur(null); setFixState({}); }} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
       {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={r.text} canFix={canFix}
@@ -182,6 +184,7 @@ function ReviewView() {
               {f.suggestion && <p><strong>AI 수정 제안:</strong> {f.suggestion}</p>}
               {!f.acknowledged && canFix && <div className="actions">
                 {f.code === 'KNOWHOW_CONFLICT' && <button type="button" className="btn solid" onClick={() => applyFix(f)}>{f.suggestion ? '제안대로 고치기' : '직접 고치기'}</button>}
+                {f.code === 'KNOWHOW_CONFLICT' && isAdmin && <button type="button" className="btn" onClick={() => { setEditFocus(f.excerpt); setEditInit((editInit !== null ? cur ?? editInit : null) ?? r.text!); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>편집기로 바로가기</button>}
                 {f.code === 'KNOWHOW_CONFLICT' && <details className="clarify-dismiss"><summary>그대로 사용</summary>
                   <div className="actions" style={{ marginTop: 4 }}>
                     <input className="field" aria-label="그대로 사용 사유" placeholder="사유 한 줄 (승인자에게 보입니다)" maxLength={200} value={keep[f.finding_id] ?? ''} onChange={(e) => setKeep((t) => ({ ...t, [f.finding_id]: e.target.value }))} />
