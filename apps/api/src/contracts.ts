@@ -87,6 +87,12 @@ export interface DocumentRecord {
   previous_doc_id?: string;
   /** 위키 그 자리 수정 전의 결정·본문 (steps/carry.ts). 재분석 뒤 검토 대기로 갈 때 '해당 없음'·'그대로 사용'을 잇고 고치지 않은 문장의 새 질문은 뺀다 */
   review_carry?: import('./steps/carry.ts').ReviewCarry;
+  /** AI 검사(전 단계)가 끝나 검토 대기로 간 시각. 도장 'AI 검사' 칸 날짜 */
+  checked_at?: string;
+  /** 위키 수정 요청 (steps/change-request.ts, 사용자 결정 11/18) */
+  change_requests?: import('./steps/change-request.ts').ChangeRequest[];
+  /** 위키 수정 전 처음 올린 원본 파일 (버킷 버전). '원본 파일' 다운로드 */
+  original_upload?: { key: string; version_id: string; filename: string };
   /** WIKI_EDIT: 위키 수정본(정리본 마크다운, 사용자 결정 11/17 규칙 1). 없으면 파일 업로드 */
   source?: 'UPLOAD' | 'WIKI_EDIT';
   /** 위키 수정본의 이전 버전 대비 문장 수 (TrustGate 수정분 검수) */

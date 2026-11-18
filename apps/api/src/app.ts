@@ -1,3 +1,4 @@
+import { changePrompt, type ChangeRequest } from './steps/change-request.ts';
 import { makeCarry } from './steps/carry.ts';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -87,6 +88,8 @@ export interface Deps {
   /** AI로 다시 배치한 쪽 본문 (page_index → markdown). 원문 대조를 통과한 쪽만 있다 */
   /** 확인 필요 답을 문장에 넣기 (Haiku) */
   composeClarify?(prompt: string): Promise<{ edits: { n: number; ok: boolean; after: string; reason?: string }[] }>;
+  /** 위키 수정 요청 판단 (Haiku) */
+  judgeChange?(prompt: string): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
 
@@ -185,10 +188,16 @@ export function createApp(deps: Deps) {
   // 위키 수정 (사용자 결정 11/17 규칙 1·2, interfaces 6.2). 게시된 노하우·매뉴얼 → 새 버전, 내 검토 중 문서 → 그 자리에서 다시 분석.
   // 규정은 공식 원본 대조 대상이라 수정 불가(개정 원본 업로드만). 원본 파일은 이전 버전 근거로 남는다
   app.post('/v1/documents/:id/edit', async (c) => {
-    const a = c.get('actor');
-    if (!deps.putOriginal) throw new ApiError('NOT_FOUND', '위키 수정이 설정되지 않았습니다');
     const b = await body(c, EditBody);
-    const t = await store.getDoc(c.req.param('id'));
+    const r = await editDoc(c.get('actor'), c.req.param('id'), b.markdown);
+    await audit(c, 'WIKI_EDIT', r.doc_id);
+    return c.json(r, 201);
+  });
+  /** 위키 수정 본체: 수정 요청 반영(관리자)도 같은 길로 새 버전을 만든다 */
+  const editDoc = async (a: Actor, id: string, markdown: string) => {
+    if (!deps.putOriginal) throw new ApiError('NOT_FOUND', '위키 수정이 설정되지 않았습니다');
+    const b = { markdown };
+    const t = await store.getDoc(id);
     if (!t || t.lifecycle === 'DELETED' || (t.owner !== a.sub && !(t.lifecycle === 'PUBLISHED' && canRead(a, t.acl_groups)))) throw new ApiError('NOT_FOUND', 'document not found');
     const type = t.document_type ?? t.classification?.document_type;
     if (type === 'REGULATION') throw new ApiError('CONFLICT', '규정은 위키에서 고칠 수 없습니다. 개정된 원본 파일을 올려 주세요');
@@ -204,11 +213,13 @@ export function createApp(deps: Deps) {
       ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
     };
     else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
+    // 처음 올린 원본 파일을 기억한다(버킷 버전 관리로 남아 있음): 수정 뒤에도 '원본 파일' 다운로드 (사용자 요청 11/18)
+    if (t.source !== 'WIKI_EDIT' && t.s3_version_id) doc.original_upload = { key: quarantineKey(t), version_id: t.s3_version_id, filename: t.filename ?? `${t.title.slice(0, 80)}.${t.ext}` };
+    else if (t.original_upload) doc.original_upload = t.original_upload;
     await store.putDoc(doc);
     await deps.putOriginal(quarantineKey(doc), md);
-    await audit(c, 'WIKI_EDIT', doc.doc_id);
-    return c.json({ doc_id: doc.doc_id, previous_doc_id: doc.previous_doc_id ?? null, new_version: doc.doc_id !== t.doc_id }, 201);
-  });
+    return { doc_id: doc.doc_id, previous_doc_id: doc.previous_doc_id ?? null, new_version: doc.doc_id !== t.doc_id };
+  };
 
   // 항목별 확인 '그대로 사용' (Fable 권고 11/18): 명시한 finding_ids 만, 사유 필수, 요청 1번·저장 1번(병렬 덮어쓰기 방지), 문서 단위 플래그 없음
   app.post('/v1/documents/:id/findings/ack', async (c) => {
@@ -278,6 +289,61 @@ export function createApp(deps: Deps) {
     });
     await audit(c, 'CLARIFY_COMPOSE', d.doc_id);
     return c.json({ edits });
+  });
+
+  // 위키 수정 요청 (사용자 결정 11/18): 게시 문서를 읽을 수 있는 사람 누구나. AI 가 적절성·초안을 붙여 관리자에게. 게시는 관리자 반영(새 버전) → AI 검사 → 사람 승인
+  app.post('/v1/documents/:id/change-requests', async (c) => {
+    const a = c.get('actor');
+    const d = await store.getDoc(c.req.param('id'));
+    if (!d || d.lifecycle !== 'PUBLISHED' || !canRead(a, d.acl_groups)) throw new ApiError('NOT_FOUND', 'document not found');
+    const b = (await c.req.json().catch(() => ({}))) as { before?: unknown; request?: unknown };
+    const before = String(b.before ?? '').trim().slice(0, 500), raw = String(b.request ?? '').trim().slice(0, 500);
+    if (!before || !raw) throw new ApiError('VALIDATION', '고칠 부분과 고칠 내용을 모두 적어 주세요');
+    const text = await editText(d.doc_id);
+    const at = text.indexOf(before);
+    if (at < 0) throw new ApiError('VALIDATION', '선택한 부분을 문서에서 찾지 못했습니다. 문서 글을 그대로 골라 주세요');
+    const request = mask(raw, detectPii(raw));
+    const j = deps.judgeChange ? await deps.judgeChange(changePrompt(before, request, text.slice(Math.max(0, at - 1500), at + before.length + 1500))).catch(() => undefined) : undefined;
+    const after = j?.after?.trim();
+    const okAfter = j?.verdict === 'APPROPRIATE' && after && after !== before && !detectPii(after).length ? after : undefined;
+    const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: a.sub, at: new Date().toISOString(), before, request,
+      verdict: j ? (j.verdict === 'APPROPRIATE' && !okAfter ? 'UNKNOWN' : j.verdict) : 'UNKNOWN', ...(okAfter ? { after: okAfter } : {}), ai_reason: j?.reason?.slice(0, 300) ?? 'AI 판단을 받지 못했습니다', status: 'OPEN' };
+    const cur = (await store.getDoc(d.doc_id))!;
+    await store.putDoc({ ...cur, change_requests: [...(cur.change_requests ?? []), cr].slice(-50) });
+    await audit(c, 'CHANGE_REQUEST', d.doc_id);
+    return c.json({ id: cr.id, verdict: cr.verdict, after: cr.after ?? null, ai_reason: cr.ai_reason }, 201);
+  });
+  app.get('/v1/admin/change-requests', async (c) => {
+    need(c, APPROVERS);
+    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED' })))
+      .sort((x, y) => y.at.localeCompare(x.at));
+    return c.json({ items });
+  });
+  app.post('/v1/admin/change-requests/:doc/:id', async (c) => {
+    need(c, APPROVERS);
+    const a = c.get('actor');
+    const b = (await c.req.json().catch(() => ({}))) as { decision?: unknown; reason?: unknown; after?: unknown };
+    const d = await store.getDoc(c.req.param('doc'));
+    const cr = d?.change_requests?.find((r) => r.id === c.req.param('id'));
+    if (!d || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
+    const at = new Date().toISOString(); const reason = String(b.reason ?? '').trim().slice(0, 200);
+    let next: Partial<ChangeRequest>;
+    if (b.decision === 'REJECT') {
+      if (!reason) throw new ApiError('VALIDATION', '반려 사유를 적어 주세요');
+      next = { status: 'REJECTED', decision_reason: mask(reason, detectPii(reason)) };
+    } else if (b.decision === 'APPLY') {
+      const after = String(b.after ?? cr.after ?? '').trim();
+      if (!after || after === cr.before) throw new ApiError('VALIDATION', '바꿀 문장을 적어 주세요');
+      if (detectPii(after).length) throw new ApiError('VALIDATION', '개인정보가 들어간 문장은 넣을 수 없습니다');
+      const text = await editText(d.doc_id);
+      if (!text.includes(cr.before)) throw new ApiError('CONFLICT', '문서가 바뀌어 요청한 부분을 찾지 못했습니다');
+      const r = await editDoc(a, d.doc_id, text.replace(cr.before, after));
+      next = { status: 'APPLIED', new_doc_id: r.doc_id, ...(reason ? { decision_reason: mask(reason, detectPii(reason)) } : {}) };
+    } else throw new ApiError('VALIDATION', 'decision 은 APPLY 또는 REJECT');
+    const cur = (await store.getDoc(d.doc_id))!;
+    await store.putDoc({ ...cur, change_requests: (cur.change_requests ?? []).map((r) => (r.id === cr.id ? { ...r, ...next, decided_by: a.sub, decided_at: at } : r)) });
+    await audit(c, b.decision === 'REJECT' ? 'CHANGE_REQUEST_REJECT' : 'CHANGE_REQUEST_APPLY', d.doc_id);
+    return c.json({ ok: true, new_doc_id: next.new_doc_id ?? null });
   });
 
   app.post('/v1/documents/:id/analyze', async (c) => {
@@ -749,7 +815,16 @@ export function createApp(deps: Deps) {
   app.get('/v1/library/:id/download', async (c) => {
     const d = await libraryDoc(c, await visibleDocs(c.get('actor')));
     if (!deps.presignGet || d.purge?.original_at || d.purge?.deleted_at) throw new ApiError('NOT_FOUND', '원본 파일이 없습니다 (검증 실패·삭제로 지워짐)');
-    const filename = d.filename ?? `${d.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)}.${d.ext}`;
+    // 위키에서 고친 문서는 원본이 md 로 바뀐다: 파일 이름 확장자를 실제 내용에 맞춘다 (전에는 '….pdf' 이름으로 md 가 내려와 열리지 않았다, 11/18)
+    // ?kind=original: 위키 수정 전 처음 올린 파일 (올린 파일 형식 그대로, 사용자 요청 11/18)
+    if (c.req.query('kind') === 'original' && d.original_upload) {
+      const o = d.original_upload;
+      const url = await deps.presignGet(o.key, o.version_id, o.filename);
+      await audit(c, 'DOCUMENT_DOWNLOAD', d.doc_id);
+      return c.json({ url, filename: o.filename });
+    }
+    const base = (d.filename ?? d.title.replace(/[\\/:*?"<>|]/g, '_').slice(0, 80)).replace(/\.[^.]+$/, '');
+    const filename = `${base}${d.source === 'WIKI_EDIT' ? '_수정본' : ''}.${d.ext}`;
     const url = await deps.presignGet(quarantineKey(d), d.s3_version_id, filename);
     await audit(c, 'DOCUMENT_DOWNLOAD', d.doc_id);
     return c.json({ url, filename });

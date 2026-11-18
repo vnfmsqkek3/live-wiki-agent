@@ -328,18 +328,53 @@ function Versions({ id }: { id: string }) {
 }
 
 /** 원본 파일 내려받기 (사용자 요청 11/17). 60초짜리 주소를 받아 바로 저장. 주소는 화면·저장소에 남기지 않는다 */
-function Download({ id }: { id: string }) {
+// 위키에서 고친 문서: 수정본(글, .md) · 처음 올린 원본 파일 · 정리본 PDF 저장(인쇄) 세 가지 (사용자 요청 11/18: 원본 형식 그대로 고쳐 받기는 PDF 특성상 불가 → 정리본 PDF)
+function Download({ id, edited, hasOriginal }: { id: string; edited?: boolean; hasOriginal?: boolean }) {
   const [msg, setMsg] = useState('');
-  async function go() {
+  async function go(kind?: 'original') {
     setMsg('');
     try {
-      const r = await api<{ url: string; filename: string }>('GET', `/v1/library/${encodeURIComponent(id)}/download`);
+      const r = await api<{ url: string; filename: string }>('GET', `/v1/library/${encodeURIComponent(id)}/download${kind ? '?kind=original' : ''}`);
       const a = document.createElement('a');
       a.href = r.url; a.rel = 'noopener'; a.download = r.filename;
       document.body.appendChild(a); a.click(); a.remove();
     } catch (e) { setMsg((e as ApiError).status === 404 ? '원본 파일이 없습니다. 검증 실패나 삭제로 지워진 문서입니다.' : (e as ApiError).message); }
   }
-  return <><button type="button" className="btn" onClick={go}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+  if (!edited) return <><button type="button" className="btn" onClick={() => go()}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+  return <>
+    <button type="button" className="btn" onClick={() => go()} title="위키에서 고친 글(마크다운, 개인정보 가림)">수정본 다운로드(.md)</button>
+    {hasOriginal && <button type="button" className="btn" onClick={() => go('original')} title="위키에서 고치기 전 처음 올린 파일">처음 올린 원본</button>}
+    <button type="button" className="btn" onClick={() => window.print()} title="정리본을 PDF 로 저장(인쇄 창에서 'PDF로 저장')">정리본 PDF 저장</button>
+    {msg && <p className="note" role="status">{msg}</p>}
+  </>;
+}
+
+/** 위키 수정 요청 (사용자 결정 11/18): 고칠 부분(본문에서 골라 붙여넣기) + 고칠 내용 → AI 판단과 초안을 붙여 관리자에게 */
+function ChangeRequest({ id }: { id: string }) {
+  const [open, setOpen] = useState(false);
+  const [before, setBefore] = useState(''); const [req, setReq] = useState('');
+  const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('');
+  const pick = () => { const t = window.getSelection()?.toString().trim(); if (t) setBefore(t.slice(0, 500)); setOpen(true); };
+  async function send() {
+    setBusy(true); setMsg('');
+    try {
+      const r = await api<{ verdict: string; after: string | null; ai_reason: string }>('POST', `/v1/documents/${encodeURIComponent(id)}/change-requests`, { before, request: req });
+      setMsg(r.verdict === 'APPROPRIATE' ? `요청을 보냈습니다. AI가 적절하다고 보고 고친 문장을 만들었습니다: "${r.after}". 관리자가 확인하면 새 버전으로 반영됩니다.` : `요청을 보냈습니다. AI 의견: ${r.ai_reason} 관리자가 직접 판단합니다.`);
+      setBefore(''); setReq('');
+    } catch (e) { setMsg((e as ApiError).message); }
+    setBusy(false);
+  }
+  if (!open) return <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={pick} title="본문에서 고칠 부분을 드래그해 고른 뒤 누르면 자동으로 채워집니다">수정 요청</button>;
+  return (
+    <div className="change-req" role="group" aria-label="수정 요청">
+      <label className="lbl" htmlFor="cr-before">고칠 부분 (본문에서 드래그해 고른 뒤 [수정 요청]을 누르면 채워집니다)</label>
+      <textarea id="cr-before" className="field" rows={2} maxLength={500} value={before} onChange={(e) => setBefore(e.target.value)} />
+      <label className="lbl" htmlFor="cr-req">어떻게 고쳐야 하나요</label>
+      <textarea id="cr-req" className="field" rows={2} maxLength={500} value={req} onChange={(e) => setReq(e.target.value)} placeholder="예: 담당 부서가 IT인프라팀에서 디지털운영팀으로 바뀌었습니다" />
+      <div className="actions"><button type="button" className="btn solid" disabled={busy || !before.trim() || !req.trim()} onClick={send}>{busy ? 'AI가 확인하는 중' : '요청하기'}</button><button type="button" className="btn" onClick={() => { setOpen(false); setMsg(''); }}>닫기</button></div>
+      {msg && <p className="notice" role="status">{msg}</p>}
+    </div>
+  );
 }
 
 function DeleteDoc({ d }: { d: LibraryDoc }) {
@@ -498,7 +533,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <header className="document-header">
       <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
-      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions"><Download id={d.doc_id} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>
+      <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}
       </header>
       {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}
 

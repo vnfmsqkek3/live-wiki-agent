@@ -437,7 +437,7 @@ export function makeWaitForApproval(deps: LambdaDeps) {
     const d = await mustDoc(deps.store, i.doc_id);
     // 게시·승인 대기·차단된 문서를 다시 검토 대기로 되돌리지 않는다 (재실행 안전장치)
     if (d.lifecycle !== 'QUARANTINED' && d.lifecycle !== 'IN_REVIEW') throw new Error(`invalid lifecycle for review: ${d.lifecycle}`);
-    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', findings: applyCarry(d.review_carry, d.findings), updated_at: now() }); // 위키 수정 전 결정 잇기 (steps/carry.ts)
+    await deps.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', findings: applyCarry(d.review_carry, d.findings), checked_at: now(), updated_at: now() }); // checked_at: AI 검사 끝난 시각(도장 'AI 검사' 칸, 사용자 지적 11/18) // 위키 수정 전 결정 잇기 (steps/carry.ts)
     return { status: 'OK' };
   };
 }

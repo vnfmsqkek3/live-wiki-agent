@@ -928,3 +928,11 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .todo-list li:last-child { border-bottom:0; }
 
 .detail-card.judge .card-count:not(.warn) { color:var(--navy-900); } /* 0건은 경고색 아님 (11/18 dev 시험) */
+
+/* 수정 요청 (11/18) */
+.change-req { display: grid; gap: 6px; margin-top: 8px; max-width: 640px; }
+/* 정리본 PDF 저장: 인쇄할 때 탐색·버튼·바닥글을 숨긴다 (11/18) */
+@media print {
+  nav, header.top, .tabs, .site-footer, .no-print, .actions, .arrow-pager, details.more, aside { display: none !important; }
+  body { background: #fff; }
+}

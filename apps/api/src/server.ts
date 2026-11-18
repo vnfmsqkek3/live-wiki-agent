@@ -1,4 +1,5 @@
 // API 실행 진입점 (ECS Fargate / 로컬). 값은 환경변수(SSM)로만 받는다.
+import { CHANGE_SCHEMA, CHANGE_SYSTEM } from './steps/change-request.ts';
 import { db } from '@hanaeum/db';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
@@ -85,6 +86,7 @@ const app = createApp({
   pageSummary,
   structuredPages,
   externalLaws,
+  judgeChange: async (prompt: string) => (await structured<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>('HAIKU', CHANGE_SYSTEM, prompt, 'submit_judgement', CHANGE_SCHEMA as unknown as Record<string, unknown>)).value,
   composeClarify: async (prompt: string) => (await structured<{ edits: { n: number; ok: boolean; after: string; reason?: string }[] }>('HAIKU', COMPOSE_SYSTEM, prompt, 'submit_edits', COMPOSE_SCHEMA as unknown as Record<string, unknown>)).value,
   ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),

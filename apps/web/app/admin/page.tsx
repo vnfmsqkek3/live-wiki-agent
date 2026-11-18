@@ -35,6 +35,44 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
 }
 
 /** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
+/** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; ai_reason?: string; at: string };
+function ChangeRequests() {
+  const [items, setItems] = useState<CR[] | null>(null);
+  const [edit, setEdit] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api<{ items: CR[] }>('GET', '/v1/admin/change-requests').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
+  async function decide(i: CR, decision: 'APPLY' | 'REJECT') {
+    setMsg('');
+    try {
+      const r = await api<{ new_doc_id: string | null }>('POST', `/v1/admin/change-requests/${encodeURIComponent(i.doc_id)}/${encodeURIComponent(i.id)}`, { decision, reason: why[i.id] ?? '', after: edit[i.id] ?? i.after ?? '' });
+      if (r.new_doc_id) { location.href = `/review?id=${encodeURIComponent(r.new_doc_id)}`; return; }
+      setItems((x) => x && x.filter((y) => y.id !== i.id));
+    } catch (e) { setMsg((e as ApiError).message); }
+  }
+  if (!items?.length) return null;
+  const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
+  return (
+    <section aria-labelledby="cr-h" className="fix-list">
+      <h2 className="section" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h2>
+      <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
+      <ol className="fixes">{items.map((i) => (
+        <li key={i.id} className="fix">
+          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span></p>
+          <blockquote className="basis"><p>{i.before}</p></blockquote>
+          <p><strong>요청:</strong> {i.request}</p>
+          {i.ai_reason && <p className="note">AI 의견: {i.ai_reason}</p>}
+          <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
+          <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
+          <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
+          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim()} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
+        </li>
+      ))}</ol>
+      {msg && <p className="error" role="alert">{msg}</p>}
+    </section>
+  );
+}
+
 function InReview() {
   const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number }[] | null>(null);
   useEffect(() => { api<{ items: NonNullable<typeof items> }>('GET', '/v1/admin/in-review').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
@@ -167,6 +205,7 @@ export default function Admin() {
           <p aria-live="polite" className="note" style={{ marginTop: 12 }}>{msg}</p>
         </div>
         <div className="approval-category-group" aria-label="진행·참고">
+          <ChangeRequests />
           <InReview />
           <details className="admin-more" open={after.some((x) => !!x.workflow_failure)}>
             <summary>진행·참고: 승인 뒤 게시 진행 <b className="num">{after.length}</b>건{blocked.length ? <> · 자동 차단 <b className="num">{blocked.length}</b>건(최근 7일)</> : null}</summary>

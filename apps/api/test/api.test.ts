@@ -570,3 +570,23 @@ test('규정 충돌 그대로 사용(사용자 결정 11/18): 사유 없으면 4
   const rv = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/review`)).json()) as { fixes: { acknowledged: boolean; ack_reason: string }[] };
   assert.deepEqual([rv.fixes[0]!.acknowledged, rv.fixes[0]!.ack_reason], [true, '내부 예외 승인 건']);
 });
+
+test('위키 수정 요청(사용자 결정 11/18): 읽는 사람 요청 → AI 판단·초안 → 관리자 반영(새 버전) 또는 반려(사유 필수), 문서에 없는 구간은 422', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', acl_groups: ['ALL'] } as never);
+  t.deps.pages = async () => [{ page: 0, text: '1. 서류는 IT인프라팀이 관리한다.\n2. 기한은 30일이다.' }] as never;
+  t.deps.putOriginal = async () => {};
+  t.deps.judgeChange = async () => ({ verdict: 'APPROPRIATE', after: '1. 서류는 디지털운영팀이 관리한다.', reason: '부서명 변경' });
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/change-requests`, { before: '없는 문장', request: 'x' })).status, 422);
+  const r = (await (await t.call('author', 'POST', `/v1/documents/${doc_id}/change-requests`, { before: '1. 서류는 IT인프라팀이 관리한다.', request: '부서가 디지털운영팀으로 바뀜' })).json()) as { id: string; verdict: string };
+  assert.equal(r.verdict, 'APPROPRIATE');
+  const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; after: string }[] };
+  assert.equal(list.items[0]!.after, '1. 서류는 디지털운영팀이 관리한다.');
+  assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT' })).status, 422);
+  const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
+  const nv = (await t.store.getDoc(ap.new_doc_id))!;
+  assert.equal(nv.previous_doc_id, doc_id); assert.equal(nv.lifecycle, 'QUARANTINED');
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
+});
