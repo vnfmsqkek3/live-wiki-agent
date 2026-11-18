@@ -138,8 +138,6 @@ resource "aws_bedrockagentcore_gateway_target" "t" {
     }
   }
   depends_on = [aws_iam_role_policy.gateway]
-  # Gateway 는 도구 스키마를 대상 생성 때만 읽는다(11/18 get_wiki_document 추가가 반영 안 됨) → 스키마가 바뀌면 대상을 다시 만든다
-  lifecycle { replace_triggered_by = [aws_s3_object.schema[each.key]] }
 }
 
 resource "aws_bedrockagentcore_policy" "user_tools" {
@@ -161,6 +159,15 @@ resource "aws_bedrockagentcore_policy" "user_tools" {
     }
   }
   depends_on = [aws_bedrockagentcore_gateway_target.t]
+}
+
+# Gateway 는 도구 스키마·Cedar 행동 목록을 만들 때만 읽는다(11/18 get_wiki_document 미반영 실측). 대상을 다시 만들면 이름 충돌 →
+# 스키마가 바뀌면 같은 설정으로 update 를 다시 불러 반영한다
+resource "terraform_data" "resync" {
+  triggers_replace = [sha1(join("", values(local.schemas)))]
+  provisioner "local-exec" {
+    command = "${path.module}/../../scripts/agentcore-resync.sh ${aws_bedrockagentcore_gateway.user.gateway_id} ${aws_bedrockagentcore_policy_engine.user.policy_engine_id} ${aws_bedrockagentcore_policy.user_tools.policy_id}"
+  }
 }
 
 # ---------- 가이드 Runtime ----------
