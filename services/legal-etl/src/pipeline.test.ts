@@ -53,7 +53,7 @@ test("3a: 변환 PDF(document.pdf)가 있으면 디지털 글자를 추출하지
   await assert.rejects(extractTextLayer(Buffer.from("x"), "xlsx", DOC), /지원하지 않는 형식/u);
 });
 
-test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED", async () => {
+test("5: OCR 필요한데 결과 없으면 실패, 저신뢰여도 경고 없음 (사용자 결정 11/18 17시: Vision 재판독)", async () => {
   const s = new MemoryObjectStore();
   await s.put(Q, `${DOC}/original.png`, readFileSync(new URL("documents/A-002.png", FIX)));
   await textLayerStep(input, s);
@@ -64,8 +64,8 @@ test("5: OCR 필요한데 결과 없으면 실패, 저신뢰면 REVIEW_REQUIRED"
   ] }] };
   await s.put(Q, `${DOC}/work/ocr/result.json`, JSON.stringify(ocr));
   const out = await segmentStep(input, s);
-  assert.equal(out.status, "REVIEW_REQUIRED");
-  assert.equal(out.findings![0]!.code, "LOW_OCR_CONFIDENCE");
+  assert.equal(out.status, "OK");
+  assert.ok(!out.findings!.some((f) => f.code === "LOW_OCR_CONFIDENCE"));
   const seg = JSON.parse((await s.get(Q, `${DOC}/work/segments/0000.json`)).toString());
   assert.equal(seg.text, "SYNTHETIC\n제12조(승인 기준)"); // 위→아래 줄 순서
 });
