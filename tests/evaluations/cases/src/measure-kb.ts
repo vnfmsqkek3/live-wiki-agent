@@ -107,6 +107,8 @@ if (import.meta.main) {
     execFileSync("aws", ["lambda", "invoke", "--function-name", "hanaeum-mvp-lambda-mcp-search", "--cli-binary-format", "raw-in-base64-out",
       "--client-context", ctx, "--payload", JSON.stringify({ ...args, __actor: actor }), f], { stdio: ["ignore", "ignore", "inherit"] });
     const r = JSON.parse(readFileSync(f, "utf8")) as Record<string, unknown>;
+    // Lambda 실패·도구 오류를 UNVERIFIED(빈 결과)로 세지 않게 (PR #53 리뷰)
+    if (r["errorMessage"] || r["error"]) throw new Error(`search Lambda 오류: ${JSON.stringify(r["error"] ?? r["errorMessage"])}`);
     return (typeof r["body"] === "string" ? JSON.parse(r["body"]) : r) as Awaited<ReturnType<typeof local.search_wiki>>;
   };
   const search = env === "prod" ? { ...local, search_wiki: viaLambda } : local;
