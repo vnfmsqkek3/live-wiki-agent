@@ -70,7 +70,7 @@ BLUE, GREEN, PURPLE, RED, GRAY = "#147EBA", "#2E7D32", "#7B1FA2", "#C62828", "#5
 
 # ---------- 제목 ----------
 text(20, 10, 1500, 30, "Hanaeum Wiki — prod AWS 아키텍처 (Terraform hanaeum-terraform/envs/prod 단일 환경, us-east-1 · 11/19 기준)", fs=18, bold=1)
-text(20, 40, 1700, 22, "모든 리소스는 terraform apply 한 번으로 생성 · 빌드는 AWS CodeBuild 안에서만 · 데이터는 SYNTHETIC(하나은행 가상 데이터) · 리소스 이름 hanaeum-mvp-{약어}-{용도}", fs=11, color=GRAY)
+text(20, 40, 1700, 22, "모든 리소스는 terraform apply 한 번으로 생성 · 빌드는 AWS CodeBuild 안에서만 · 데이터는 SYNTHETIC(하나은행 가상 데이터, 예외: 사용자 허용 과천 매뉴얼 원본) · 리소스 이름 hanaeum-mvp-{약어}-{용도}", fs=11, color=GRAY)
 
 # ---------- 사용자 ----------
 u = icon(30, 150, "users", "mgmt", "직원\n(user · approver · admin)", 56)
@@ -154,7 +154,7 @@ brw = icon(1810, 640, "bedrock", "ai", "AgentCore Browser\n법령 원문 ·\n참
 # ---------- 사용자 가이드 ----------
 box(1270, 880, 810, 390, "사용자 가이드 — AgentCore (Cognito JWT)", stroke=PURPLE, fill="#F7F0FB")
 rtg = icon(1300, 920, "bedrock", "ai", "AgentCore Runtime\n가이드 Agent\nSSE 진행 문구")
-gwu = icon(1480, 920, "bedrock", "ai", "AgentCore Gateway\nuser (MCP, JWT)\n직원 + 외부 클라이언트")
+gwu = icon(1480, 920, "bedrock", "ai", "AgentCore Gateway\nuser (MCP, JWT)\n직원 + 외부 클라이언트\n도구 스키마 변경 시 재동기화")
 icp = icon(1660, 920, "lambda", "compute", "interceptor\n__actor 주입 ·\n외부는 읽기 도구만")
 tools = [("mcp-search", "search\nget_wiki_document"), ("mcp-regulation", "regulation"), ("mcp-graph", "graph"), ("mcp-privacy", "privacy"), ("mcp-approval", "approval\n검토 요청만")]
 tool_ids = []
