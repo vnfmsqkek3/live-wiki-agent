@@ -1,0 +1,33 @@
+%% 승인 뒤 게시(publishGraph)와 삭제(deleteGraph) (orchestrator.ts 151-176)
+flowchart LR
+  subgraph PUB["게시: resume APPROVE"]
+    direction TB
+    P1["promote<br/>원본 다시 해시·버전 확인<br/>승인 1회 소비 APPROVED→USED<br/>published/{legal|knowledge}/{doc}/content.txt + metadata"]
+    P2["kb_ingest<br/>StartIngestionJob, 끝날 때까지 PENDING"]
+    P3["graph_upsert (동시 실행 1)"]
+    P3a{"REGULATION?"}
+    P3b["조문 파싱 → putLaw<br/>이전 개정 effective_to 닫기<br/>Neptune SUPERSEDES<br/>markRevisedClaims"]
+    P3c["인용 CITES 만 적재<br/>대상 없으면 REVIEW_REQUIRED"]
+    P4["finalize(PUBLISHED)<br/>lifecycle=PUBLISHED<br/>사유 없으면 freshness=CURRENT"]
+    P5{"REGULATION?"}
+    P6["markStale: 인용 노하우 → REVIEW_REQUIRED<br/>revalidateNoBasis: 근거 없던 노하우 재검증 (240초)"]
+    P7{"previous_doc_id?"}
+    P8["이전 판 freshness=SUPERSEDED<br/>superseded_by 기록"]
+    P1 --> P2 --> P3 --> P3a
+    P3a -->|"예"| P3b --> P4
+    P3a -->|"아니오"| P3c --> P4
+    P4 --> P5
+    P5 -->|"예"| P6 --> P7
+    P5 -->|"아니오"| P7
+    P7 -->|"예"| P8
+  end
+  subgraph DEL["삭제: DELETE /v1/documents/:id (작성자·승인자, 사유 필수)"]
+    direction TB
+    D0["lifecycle=DELETED, 감사 기록<br/>action=delete 시작 (202)"]
+    D1["purge_document<br/>published·quarantine 모든 버전 삭제"]
+    D2["kb_ingest(delete)<br/>KB 재동기화로 검색에서 제외"]
+    D3["graph_upsert(delete)<br/>노드·간선 삭제, 인용하던 문서 목록 반환"]
+    D4["finalize(DELETED)<br/>인용하던 게시 문서 → REVIEW_REQUIRED"]
+    D0 --> D1 --> D2 --> D3 --> D4
+  end
+  R["finalize(REJECTED)<br/>원본·work/ 삭제"]

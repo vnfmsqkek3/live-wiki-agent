@@ -1,0 +1,23 @@
+%% 문서 lifecycle 상태 전이 (contracts.ts, app.ts, lambdas.ts)
+stateDiagram-v2
+  [*] --> QUARANTINED: upload-url
+  QUARANTINED --> BLOCKED: 형식 불일치 · 악성코드 · 인젝션 등 HIGH
+  QUARANTINED --> IN_REVIEW: 자동 분석 끝 (await_review)
+  IN_REVIEW --> QUARANTINED: 수정(/edit) · 재분석 · 분류 변경
+  IN_REVIEW --> PENDING_APPROVAL: 게시 요청(submit)
+  IN_REVIEW --> BLOCKED: 원본 불일치 반려
+  PENDING_APPROVAL --> PUBLISHED: 승인 → 게시
+  PENDING_APPROVAL --> BLOCKED: 반려
+  PENDING_APPROVAL --> IN_REVIEW: 재검토(REVALIDATE)
+  PUBLISHED --> PUBLISHED: 수정은 새 doc_id 로 (이전 판 SUPERSEDED)
+  QUARANTINED --> DELETED: 삭제
+  IN_REVIEW --> DELETED: 삭제
+  PUBLISHED --> DELETED: 삭제
+  BLOCKED --> DELETED: 삭제
+  state PUBLISHED {
+    [*] --> CURRENT
+    CURRENT --> REVIEW_REQUIRED: 인용 규정 개정·삭제 · 근거 재검증 충돌
+    REVIEW_REQUIRED --> CURRENT: 고친 판 게시
+    CURRENT --> SUPERSEDED: 새 판 게시
+    REVIEW_REQUIRED --> SUPERSEDED: 새 판 게시
+  }

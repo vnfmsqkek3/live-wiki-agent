@@ -1,0 +1,52 @@
+%% 전체 구성: 사용자 요청·문서 처리·질의가 지나는 길 (코드 기준 11/19)
+flowchart LR
+  subgraph U["사용자"]
+    B["브라우저 / 휴대폰"]
+    X["외부 MCP 클라이언트<br/>client_credentials"]
+  end
+  subgraph EDGE["접속"]
+    CF["CloudFront<br/>/v1/* 캐시 끔·SSE"]
+    ALB["ALB<br/>idle 300s"]
+    COG["Cognito<br/>사용자 풀·역할 그룹"]
+  end
+  subgraph ECS["ECS Fargate"]
+    WEB["web<br/>Next.js"]
+    API["api<br/>Hono"]
+  end
+  subgraph ING["문서 처리"]
+    S3Q[("S3 quarantine<br/>{doc}/original.*")]
+    EB["EventBridge<br/>Object Created"]
+    SQS["SQS ingest-trigger<br/>3회 후 DLQ"]
+    TD["Lambda type-detection"]
+    RTP["AgentCore Runtime<br/>파이프라인 오케스트레이터"]
+    GWP["AgentCore Gateway<br/>gw-pipeline · IAM"]
+    STEPS["단계 Lambda 20여 개"]
+  end
+  subgraph QA["질의"]
+    RTG["AgentCore Runtime<br/>가이드 Agent"]
+    GWU["AgentCore Gateway<br/>gw-user · JWT · Interceptor"]
+    MCP["MCP Lambda<br/>search·regulation·graph·privacy·approval"]
+  end
+  subgraph DATA["저장소"]
+    PG[("Aurora PostgreSQL<br/>문서·결재·감사·claims")]
+    DDB[("DynamoDB<br/>워크플로·규정·락")]
+    S3P[("S3 published<br/>legal/ knowledge/")]
+    KB[("Bedrock KB<br/>OpenSearch Serverless")]
+    NEP[("Neptune<br/>규정·인용 그래프")]
+    SM["SageMaker<br/>PaddleOCR 1/1"]
+    BR["Bedrock 모델<br/>Sonnet·Haiku·Titan·Rerank"]
+  end
+  B --> CF --> ALB
+  ALB -->|"/v1/*"| API
+  ALB -->|"그 외"| WEB
+  B -. 로그인 .-> COG
+  API -->|"presigned PUT"| S3Q
+  S3Q --> EB --> SQS --> TD -->|"action=start"| RTP
+  API -->|"resume · delete · 재분석"| RTP
+  RTP -->|"SigV4 tools/call"| GWP --> STEPS
+  STEPS --> SM & BR & S3P & KB & NEP & PG & DDB
+  API -->|"가이드 질문"| RTG -->|"사용자 JWT"| GWU --> MCP
+  X -->|"read 범위 토큰"| GWU
+  API -->|"/v1/search 직접"| KB
+  MCP --> KB & PG & NEP & DDB
+  API --> PG

@@ -1,0 +1,25 @@
+%% Bedrock AgentCore 파이프라인 오케스트레이터가 단계 하나를 부르는 규칙 (orchestrator.ts, pipeline/aws.ts)
+flowchart TD
+  IN["InvokeAgentRuntime<br/>action = start · resume(decision) · delete"] --> ACK["즉시 202 응답<br/>백그라운드 실행, /ping=HealthyBusy"]
+  ACK --> LOCK{"LOCK#{phase} 조건부 put<br/>FAILED 이거나 30분 넘은 RUNNING 만 재획득"}
+  LOCK -->|"실패"| SKIP["중복 실행 종료"]
+  LOCK -->|"성공"| G{"그래프 선택"}
+  G -->|"start"| GI["ingestGraph"]
+  G -->|"resume APPROVE"| GP["publishGraph"]
+  G -->|"resume REJECT·REVALIDATE"| GR["finalize(REJECTED) 만"]
+  G -->|"delete"| GD["deleteGraph"]
+  GI & GP & GD --> STEP["단계 호출<br/>gw-pipeline tools/call (SigV4)<br/>도구명 {step}___{step}, 제한 900초"]
+  STEP --> BF{"앞 단계 BLOCKED?"}
+  BF -->|"예, finalize 아님"| SK["건너뜀"]
+  BF -->|"아니오"| RES{"응답"}
+  RES -->|"429·throttl"| RT["2·4·8·16초 대기 후 재시도<br/>5번째 실패면 예외"] --> STEP
+  RES -->|"PENDING"| PO["15초 후 같은 입력으로 재호출<br/>최대 80회(약 20분)"] --> STEP
+  RES -->|"OK"| REC["WF#id / STEP#name 기록"]
+  RES -->|"REVIEW_REQUIRED"| RV["검토 표시 + 기록"]
+  RES -->|"BLOCKED"| BK["차단 표시 + 기록"]
+  RES -->|"예외"| ER{"reference_check 또는<br/>explain_findings?"}
+  ER -->|"예"| SKP["SKIPPED 기록 후 계속"]
+  ER -->|"아니오"| FL["FAILED 기록<br/>실행 실패"]
+  REC & RV & BK & SKP --> NX["다음 단계"]
+  NX --> END["EXECUTION = SUCCEEDED / FAILED<br/>최대 30단계"]
+  FL --> END

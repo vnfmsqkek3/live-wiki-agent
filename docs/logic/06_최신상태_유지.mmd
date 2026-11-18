@@ -1,0 +1,26 @@
+%% 문서가 최신 상태로 유지되는 길 (freshness.ts, upsert-step.ts, lambdas.ts, search.ts)
+flowchart TD
+  subgraph T["언제 돌아가나"]
+    T1["규정 게시 (finalize PUBLISHED)"]
+    T2["매일 00:00 KST freshness-sweep"]
+    T3["규정 삭제 (finalize DELETED)"]
+    T4["노하우 수정·재검사"]
+    T5["검색할 때마다"]
+    T6["매일 03:00 KST category-sweep"]
+  end
+  T1 --> A1["graph_upsert: 조문 단위<br/>markRevisedClaims<br/>인용 조문 글자가 바뀐 claim → REVIEW_REQUIRED<br/>(공백·문장부호 무시, 50% 넘게 바뀌면 보류)"]
+  T1 --> A2["markStale: 문서 단위<br/>인용한 개정 ID ≠ 오늘 시행 개정 ID<br/>→ 게시 노하우·매뉴얼 REVIEW_REQUIRED + freshness_reason"]
+  T1 --> A3["revalidateNoBasis<br/>근거 없던 노하우를 새 규정으로 다시 판정 (Sonnet)<br/>충돌·시간 초과 → REVIEW_REQUIRED, 근거 찾으면 갱신"]
+  T2 --> A4["markStale(전체 법령)<br/>시행일이 된 개정을 반영"]
+  T2 --> A5["BLOCKED·DELETED 문서 masked/ 7일 뒤 삭제"]
+  T3 --> A6["삭제된 규정을 인용하던 문서<br/>→ REVIEW_REQUIRED (deleted_doc)"]
+  T4 --> A7["trust_gate 재판정<br/>충돌 없어지면 CURRENT 로 복귀<br/>게시되면 이전 판 SUPERSEDED"]
+  T5 --> A8["revalidate: DB 현재 상태로 결과 재확인<br/>PUBLISHED · REJECTED 아님 · ACL ·<br/>published_content_hash = 청크 해시 · 시행 중"]
+  T6 --> A9["카테고리 임베딩·유사 카테고리 병합<br/>(freshness 와 무관)"]
+  A1 & A2 & A3 & A4 & A6 --> RR["사용자에게 보임<br/>보관함 배너·상태 배지·검색 '재검토 중'·고칠 곳"]
+  RR --> FIX["작성자가 고침 → 사람 검토·승인 그림"]
+  FIX --> A7
+  subgraph IMP["영향 분석 (관리자 화면, 읽기 전용)"]
+    I1["두 개정 diffLaws"] --> I2["직접: CITES 로 바뀐 조문을 인용한 WIKI_VERSION"]
+    I1 --> I3["간접 1단계: REFERENCES 로 이어진 조문의 인용 문서"]
+  end

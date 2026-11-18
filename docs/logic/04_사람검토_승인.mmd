@@ -1,0 +1,26 @@
+%% AI 검사 뒤 사람 차례: 질문 페이지 → 수정·그대로 사용 → 게시 요청 → 결재 (app.ts, submit.ts)
+flowchart TD
+  IR["IN_REVIEW<br/>GET /review: 고칠 곳·되물을 것·개인정보"] --> Q{"항목별 선택"}
+  Q -->|"AI 제안대로 / 직접 고치기"| ED["POST /edit<br/>original.md 저장"]
+  Q -->|"그대로 사용 + 사유"| ACK["POST /findings/:fid/ack<br/>사유는 승인자에게 표시"]
+  Q -->|"되물을 것: 적용·입력값"| CL["POST /clarify/compose · Haiku<br/>문장에 반영 → /edit"]
+  Q -->|"해당 없음 + 사유"| DIS["ack → DISMISSED"]
+  ED --> NEWRUN{"대상 문서"}
+  NEWRUN -->|"내 IN_REVIEW"| SAME["같은 doc_id, 새 workflow_id<br/>이전 결정 review_carry 유지"]
+  NEWRUN -->|"PUBLISHED"| NEWDOC["새 doc_id + previous_doc_id"]
+  NEWRUN -->|"REGULATION · SUPERSEDED"| NO["409 수정 불가<br/>규정은 공식 원본 다시 올리기"]
+  SAME & NEWDOC --> RE["S3 이벤트 → 자동 분석 다시 (text_only)<br/>문서 접수 그림 참고"] --> IR
+  ACK & DIS --> IR
+  IR --> SUB["POST /submit (작성자)"]
+  SUB --> CK{"열린 고칠 곳 0 · 분류됨 ·<br/>REGISTRY_MISMATCH 없음 ·<br/>version·hash 있음?"}
+  CK -->|"아니오"| IR
+  CK -->|"예"| PA["Approval PENDING<br/>{version, s3_version_id, content_hash}<br/>lifecycle=PENDING_APPROVAL"]
+  PA --> DEC{"REG_APPROVER 결정<br/>본인 승인은 PLATFORM_OPERATOR 만"}
+  DEC -->|"APPROVE"| BIND{"원본 HEAD 재확인<br/>s3_version_id·content_hash 일치?"}
+  BIND -->|"불일치"| FAIL["조건부 쓰기 실패"]
+  BIND -->|"일치"| RS1["resume APPROVE → 게시 그림"]
+  DEC -->|"REJECT"| RJ["lifecycle=BLOCKED<br/>authority=REJECTED"]
+  DEC -->|"REVALIDATE"| RVL["lifecycle=IN_REVIEW<br/>freshness=REVIEW_REQUIRED"]
+  RJ & RVL --> RS2["resume → finalize(REJECTED)"]
+  classDef human fill:#e3f2fd,stroke:#1565c0;
+  class IR,DEC human
