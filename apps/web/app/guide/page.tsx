@@ -53,7 +53,7 @@ function GuideView() {
           </p>
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}
           {g.status === 'NO_EVIDENCE' ? <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
-            <>{(g.sections?.length ? g.sections : [{ title: '', note: '', steps: g.steps }]).map((sec, k) => { const list = sec.steps; return (
+            <>{(g.sections?.length ? g.sections : [{ title: '', note: '', steps: g.steps, fallback: '', source_note: '' }]).map((sec, k) => { const list = sec.steps; const brief = !!g.sections?.length; return (
               <section key={k} className="guide-section" aria-label={sec.title || '가이드'}>
                 {sec.title && <h2 className="section">{sec.title}</h2>}
                 {sec.note && <p className="note">{sec.note}</p>}
@@ -61,7 +61,7 @@ function GuideView() {
               {list.map((s, i) => (
                 <li key={i}>
                   <p style={{ margin: 0 }}>{s.text}</p>
-                  {s.sources.map((e) => (
+                  {!brief && s.sources.map((e) => (
                     <p key={e.doc_id} className="meta" style={{ margin: '4px 0 0' }}>
                       <PageThumb docId={e.doc_id} page={e.page} />
                       근거{(e as { figure?: boolean }).figure ? '(그림 기준)' : ''}: {e.provision ?? e.title}{e.effective_from ? `, ${e.effective_from} 시행` : ''}{e.freshness === 'REVIEW_REQUIRED' ? ' (재검토 중)' : ''}
@@ -70,6 +70,8 @@ function GuideView() {
                 </li>
               ))}
                 </ol>}
+                {sec.fallback && <p className="note">{sec.fallback}</p>}
+                {sec.source_note && <p className="meta guide-source">{sec.source_note}{list[0]?.sources[0] && <> · <a href={`/library?id=${encodeURIComponent(list[0].sources[0].doc_id)}${list[0].sources[0].page ? `&page=${list[0].sources[0].page}` : ''}`}>원문 보기</a></>}</p>}
               </section>); })}</>
           )}
           {g.uncertainty && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}>{g.uncertainty}</p></>}

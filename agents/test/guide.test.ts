@@ -164,14 +164,15 @@ test('섹션 형식: 종류×갈래 조합마다 2차 검색, 섹션 단계 출�
     search: async (q, o) => { calls.push(q); if (q !== '4층 프린터 연결') assert.equal(o?.expand, 'section'); return q.startsWith('macOS 삼성') ? [E('doc_M#p20', '삼성 macOS 설치')] : q.startsWith('4층') ? [E('doc_M#p8', '4층 목록')] : []; },
     expand: async () => ({ items: ['삼성', '브라더'], variants: ['macOS', 'Windows'] }),
     draft: async () => ({ steps: [], uncertainty: '', sections: [
-      { title: '4층 프린터 목록', note: '', steps: [{ text: '⑧ 삼성', sources: ['doc_M#p8'] }] },
-      { title: 'macOS에서 삼성 프린터 연결', note: '', steps: [{ text: '설치 파일 실행', sources: ['doc_M#p20'] }, { text: '지어낸 단계', sources: ['none'] }] },
-      { title: 'macOS에서 브라더 프린터 연결', note: '매뉴얼에 해당 절차 없음', steps: [] },
+      { title: '4층 프린터 목록', note: '', fallback: '', steps: [{ text: '⑧ 삼성', sources: ['doc_M#p8'] }] },
+      { title: 'macOS에서 삼성 프린터 연결', note: '', fallback: '안 될 때: 드라이버를 직접 선택', steps: [{ text: '설치 파일 실행', sources: ['doc_M#p20'] }, { text: '지어낸 단계', sources: ['none'] }] },
+      { title: 'macOS에서 브라더 프린터 연결', note: '매뉴얼에 해당 절차 없음', fallback: '', steps: [] },
     ] }) });
   assert.deepEqual(calls.slice(1).map((c) => c.split(' ').slice(0, 2).join(' ')), ['macOS 삼성', 'Windows 삼성', 'macOS 브라더', 'Windows 브라더']);
   assert.equal(r.sections?.length, 3);
   assert.equal(r.sections![1]!.steps.length, 1);
   assert.equal(r.sections![2]!.note, '매뉴얼에 해당 절차 없음');
+  assert.equal(r.sections![1]!.fallback, '안 될 때: 드라이버를 직접 선택');
   assert.equal(r.steps.length, 2);
   assert.equal(r.dropped_steps, 1);
 });

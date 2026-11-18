@@ -203,7 +203,7 @@ const MOCK_REVIEW: Review = {
 };
 
 export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
-export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; sections?: { title: string; note: string; steps: { text: string; sources: Evidence[] }[] }[]; dropped_steps: number; uncertainty: string }
+export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; sections?: { title: string; note: string; steps: { text: string; sources: Evidence[] }[]; fallback?: string; source_note?: string }[]; dropped_steps: number; uncertainty: string }
 const MOCK_GUIDE: Guide = {
   status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,
   evidence: [],
