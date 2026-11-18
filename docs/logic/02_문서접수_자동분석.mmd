@@ -1,0 +1,41 @@
+%% 문서가 들어왔을 때: 업로드 → 자동 분석(ingestGraph) → 검토 대기 또는 차단 (agents/src/pipeline/orchestrator.ts)
+flowchart TD
+  A["POST /v1/documents/upload-url<br/>lifecycle=QUARANTINED, freshness=CURRENT"] --> B["브라우저가 S3 quarantine 에<br/>{doc}/original.ext 업로드"]
+  B --> C["EventBridge → SQS → type-detection"]
+  C --> C1{"매직바이트·확장자 일치?"}
+  C1 -->|"아니오"| X1["BLOCKED<br/>워크플로 시작 안 함"]
+  C1 -->|"예"| C2["s3_version_id 고정<br/>AgentCore 파이프라인 start"]
+  C2 --> L{"DynamoDB 락<br/>WF#id / LOCK#ingest"}
+  L -->|"이미 실행 중"| Z["중복 실행 무시"]
+  L -->|"획득"| S1["1 malware_check<br/>GuardDuty 태그, 없으면 15초마다 재확인"]
+  S1 --> S2["2 file_structure_check<br/>PDF JS·매크로·zip bomb<br/>content_hash=sha256 계산"]
+  S2 --> TT{"md 업로드·위키 수정<br/>text_only?"}
+  TT -->|"아니오"| S3["3 convert_to_pdf<br/>DOCX·HWPX → PDF"]
+  S3 --> P1["4a text_layer_extract"]
+  S3 --> P2["4b page_render<br/>모든 쪽 PNG"]
+  P1 --> S5["5 ocr_if_needed<br/>SageMaker 비동기 OCR 10쪽씩<br/>평균 인식률 95% 미만 쪽 → ocr_low_pages.json"]
+  P2 --> S5
+  S5 --> S6["6 segment_build"]
+  TT -->|"예"| P1b["text_layer_extract"] --> S6
+  S6 --> S7["7 pii_scan<br/>규칙 마스킹 + Guardrail<br/>쪽 이미지 개인정보 검게 → masked/view·pages"]
+  S7 --> S8["8 image_describe · Sonnet Vision<br/>그림 쪽 + 95% 미만 쪽 전체 정리본"]
+  S8 --> S9["9 injection_scan"]
+  S9 --> S10["10 page_summarize · Haiku"]
+  S10 --> S11["11 classify<br/>Haiku, 신뢰도 0.7 미만이면 Sonnet"]
+  S11 --> S12["12 reference_check · Haiku<br/>되물을 것·제안 (실패해도 진행)"]
+  S12 --> S13["13 trust_gate"]
+  S13 --> TG{"문서 종류"}
+  TG -->|"REGULATION"| R1["Registry 해시 대조<br/>불일치 → REGISTRY_MISMATCH"]
+  TG -->|"KNOWHOW"| R2["validateKnowhow<br/>규정 근거 검색 + Sonnet 판정<br/>CONFLICT·OUTDATED → freshness=REVIEW_REQUIRED"]
+  TG -->|"WIKI_EDIT"| R3["이전 판과 비교<br/>바뀐 문장만 충돌 유지"]
+  TG -->|"MANUAL"| R4["인용 기록"]
+  R1 & R2 & R3 & R4 --> RB{"BLOCKED 또는<br/>검토 항목 있음?"}
+  RB -->|"있음"| EX["explain_findings · Sonnet<br/>쉬운 설명 explanation.json"]
+  RB -->|"없음"| AW
+  EX --> BL{"BLOCKED?"}
+  BL -->|"예"| FB["finalize(BLOCKED)<br/>lifecycle=BLOCKED, 원본 격리"]
+  BL -->|"아니오"| AW["await_review<br/>lifecycle=IN_REVIEW<br/>실행 종료, 사람 차례"]
+  classDef block fill:#fde2e1,stroke:#c0392b;
+  classDef human fill:#e3f2fd,stroke:#1565c0;
+  class X1,FB block
+  class AW human

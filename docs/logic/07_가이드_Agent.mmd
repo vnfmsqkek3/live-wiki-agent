@@ -1,0 +1,28 @@
+%% 가이드 Agent 질의: 브라우저 → API → AgentCore Runtime → Gateway 도구 (guide.ts, runtime.ts)
+sequenceDiagram
+  autonumber
+  participant B as 브라우저
+  participant API as API (ECS)
+  participant RT as AgentCore Runtime<br/>가이드 Agent
+  participant GW as Gateway gw-user<br/>+ Interceptor
+  participant T as MCP Lambda<br/>search·regulation·graph·privacy
+  participant M as Bedrock<br/>Haiku·Sonnet
+  B->>API: POST /v1/guides (질문 1~1000자, SSE)
+  API->>RT: InvokeAgentRuntime (사용자 access token)
+  RT->>RT: 질문 개인정보 마스킹
+  RT->>GW: search_wiki(q, top_k 5)
+  GW->>GW: 토큰 검증, __actor 주입
+  GW->>T: search_wiki
+  T-->>RT: 근거 청크 (DB 재검증 통과분)
+  RT->>M: Haiku 질문 확장 (10초)
+  RT->>GW: 2차 검색 최대 7회 (section 확장)
+  alt 근거 없음
+    RT-->>B: NO_EVIDENCE
+  else 근거 있음
+    RT->>M: Sonnet 초안 (Strands Agent, 도구 6회·60초 한도)
+    M->>GW: 필요 시 도구 호출 (허용 목록만)
+    RT->>RT: 단계별 출처가 근거 풀에 있는지 확인, 없으면 버림
+    RT->>RT: 출력 개인정보 재마스킹
+    RT-->>API: SSE progress·result (15초 ping)
+    API-->>B: 그대로 전달
+  end
