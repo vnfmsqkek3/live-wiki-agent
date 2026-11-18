@@ -117,9 +117,21 @@ locals {
     }
     wait-for-approval = { zip = local.dz, handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
     # 규정 개정판 게시 시 그 규정을 근거로 쓴 게시 노하우를 REVIEW_REQUIRED 로 (Documents Scan, dhxorb96 6a3f40a)
+    # + 규정 게시 시 근거 없음(KNOWHOW_NO_BASIS) 노하우를 새 규정과 다시 비교 (dhxorb96 139ff2a, trust-gate 와 같은 env·권한, 노하우 1건 수십 초)
     finalize = {
-      zip        = local.dz, handler = "handlers.finalize", env = local.d_env, memory = 256, timeout = 60, model_caller = false
-      statements = concat(local.d_statements, local.purge, [{ Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn }])
+      zip = local.dz, handler = "handlers.finalize", memory = 512, timeout = 300, model_caller = false
+      env = merge(local.d_env, {
+        TABLE_REGULATIONS = local.t["regulations"].name, KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"]
+        MODEL_SONNET      = var.models["MODEL_SONNET"], MODEL_HAIKU = var.models["MODEL_HAIKU"]
+      })
+      statements = concat(local.d_statements, local.purge, [
+        { Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn },
+        { Effect = "Allow", Action = ["dynamodb:Query"], Resource = local.t["regulations"].arn },
+        { Effect = "Allow", Action = ["s3:GetObject"], Resource = "${local.b["quarantine"].arn}/*/masked/*" },
+        { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
+        { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
+        { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+      ])
     }
     # 일 1회: 시행일이 된 개정판의 근거 노하우를 재검토 대상으로 (EventBridge Scheduler, freshness.tf)
     freshness-sweep = {
