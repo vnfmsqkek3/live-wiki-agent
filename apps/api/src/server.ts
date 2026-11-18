@@ -35,7 +35,9 @@ async function searchWiki() {
 // 외부 법령: 본문 「…법」 중 내부 규정 저장소에 없는 것 (let522mj externalLaws) + 바로 뒤 조문 표기
 async function externalLaws(text: string) {
   if (!process.env.TABLE_REGULATIONS) return [];
-  const reg = (await import('@hanaeum/regulation-server')) as unknown as { externalLaws: (t: string, s: unknown) => Promise<string[]>; DynamoClauseStore: new (t: string) => unknown };
+  const reg = (await import('@hanaeum/regulation-server')) as unknown as { externalLaws: (t: string, s: unknown) => Promise<string[]>; externalLawRefs?: (t: string, s: unknown) => Promise<{ law_name: string; clause?: string }[]>; DynamoClauseStore: new (t: string) => unknown };
+  // let522mj PR #47: 「」『』[ ]《》〈〉 모두 인식 + 조문까지. 병합 전에는 아래 옛 방식
+  if (reg.externalLawRefs) return reg.externalLawRefs(text, new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS));
   const names = await reg.externalLaws(text, new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS));
   return names.map((law_name) => {
     const m = new RegExp(`「${law_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」\\s*(제\\d+조(?:의\\d+)?(?:제\\d+항)?)`).exec(text);
