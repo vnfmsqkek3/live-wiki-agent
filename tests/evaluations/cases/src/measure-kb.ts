@@ -90,13 +90,26 @@ export async function measureUnverified(search: LiveDeps["search"], live: boolea
 
 if (import.meta.main) {
   const { execFileSync } = await import("node:child_process");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
   const env = process.env["HANAEUM_ENV"] === "prod" ? "prod" : "dev";
   const ssm = (n: string) => execFileSync("aws", ["ssm", "get-parameter", "--name", `/hanaeum-mvp/${env}/${n}`, "--query", "Parameter.Value", "--output", "text"]).toString().trim();
   const { BedrockRetriever, DynamoDocStates, searchTools: tools } = await import("@hanaeum/search-server");
   const { DynamoClauseStore, regulationTools } = await import("@hanaeum/regulation-server");
   const kb = ssm("KB_ID");
   const retriever = new BedrockRetriever(kb, ssm("MODEL_RERANK"));
-  const search = tools({ retriever, states: new DynamoDocStates(ssm("TABLE_DOCUMENTS")), regulation: regulationTools(new DynamoClauseStore(ssm("TABLE_REGULATIONS")), { today: () => EVAL_TODAY }) });
+  const local = tools({ retriever, states: new DynamoDocStates(ssm("TABLE_DOCUMENTS")), regulation: regulationTools(new DynamoClauseStore(ssm("TABLE_REGULATIONS")), { today: () => EVAL_TODAY }) });
+  // prod는 문서 상태가 Postgres(VPC 안)라 로컬에서 못 읽음 → search_wiki는 배포된 검색 Lambda를 그대로 호출 (prod 1회차 11/18: Dynamo로 읽어 전부 재검증 탈락)
+  // ponytail: aws CLI 호출(건당 ~1초). 케이스가 수백 건이 되면 @aws-sdk/client-lambda로
+  const viaLambda = async (args: Record<string, unknown>, actor: unknown) => {
+    const ctx = Buffer.from(JSON.stringify({ custom: { bedrockAgentCoreToolName: "search___search_wiki" } })).toString("base64");
+    const f = join(tmpdir(), `measure-${process.pid}.json`);
+    execFileSync("aws", ["lambda", "invoke", "--function-name", "hanaeum-mvp-lambda-mcp-search", "--cli-binary-format", "raw-in-base64-out",
+      "--client-context", ctx, "--payload", JSON.stringify({ ...args, __actor: actor }), f], { stdio: ["ignore", "ignore", "inherit"] });
+    const r = JSON.parse(readFileSync(f, "utf8")) as Record<string, unknown>;
+    return (typeof r["body"] === "string" ? JSON.parse(r["body"]) : r) as Awaited<ReturnType<typeof local.search_wiki>>;
+  };
+  const search = env === "prod" ? { ...local, search_wiki: viaLambda } : local;
   const r = await measureLive({ raw: new BedrockRetriever(kb), search });
   console.log(`| 항목 | 목표 | 실환경 (KB ${kb}, 기준일 ${EVAL_TODAY}) | 판정 |`);
   console.log("|---|---|---|---|");
