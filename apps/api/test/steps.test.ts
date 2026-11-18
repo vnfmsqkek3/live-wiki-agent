@@ -395,3 +395,9 @@ test('carry: 전에 규정 비교를 안 한 문서(매뉴얼→노하우)의 �
   const next = applyCarry(makeCarry('2. 담보가액이 3억원 이상이면 본부 승인을 받는다.', [], false), [kc]) as unknown as { code: string; severity: string; acknowledged?: unknown }[];
   assert.equal(isOpenFix(next[0]!), true);
 });
+
+test('carry: 시스템이 붙인 승인자 판단(system:recheck)은 사람 결정처럼 잇지 않는다 (11/18 prod H5)', async () => {
+  const { makeCarry } = await import('../src/steps/carry.ts');
+  const kc = { finding_id: 'n', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: 'x' }, acknowledged: { by: 'system:recheck', at: 't', reason: 'r' } } as never;
+  assert.deepEqual(makeCarry('x', [kc], true).items.map((i) => i.status), ['OPEN']);
+});

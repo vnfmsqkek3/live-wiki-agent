@@ -19,7 +19,8 @@ export function makeCarry(oldText: string, findings: Finding[], validated = fals
     items: findings.flatMap((f): ReviewCarry['items'] => {
       const st = (f.details as { status?: string; dismiss_reason?: string } | undefined)?.status;
       if (f.code === 'CLARIFY_NEEDED' && st === 'DISMISSED') return [{ code: f.code, key: keyOf(f), status: 'DISMISSED' as const, reason: (f.details as { dismiss_reason?: string }).dismiss_reason ?? f.acknowledged?.reason, by: f.acknowledged?.by, at: f.acknowledged?.at }];
-      if (f.acknowledged) return [{ code: f.code, key: keyOf(f), status: 'ACK' as const, reason: f.acknowledged.reason, by: f.acknowledged.by, at: f.acknowledged.at }];
+      // 시스템이 붙인 '승인자 판단'(system:recheck)은 사람 결정이 아니라 잇지 않는다 → 다음 재검사에서 다시 판단 (11/18 prod H5)
+      if (f.acknowledged && !f.acknowledged.by.startsWith('system:')) return [{ code: f.code, key: keyOf(f), status: 'ACK' as const, reason: f.acknowledged.reason, by: f.acknowledged.by, at: f.acknowledged.at }];
       if ((f.code === 'CLARIFY_NEEDED' && st === 'OPEN') || f.code === 'KNOWHOW_CONFLICT') return [{ code: f.code, key: keyOf(f), status: 'OPEN' as const }];
       return [];
     }),
