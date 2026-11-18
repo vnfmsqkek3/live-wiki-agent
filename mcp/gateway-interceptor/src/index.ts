@@ -14,7 +14,7 @@ interface InterceptorEvent {
 export type Verify = (token: string) => Promise<Json>;
 
 /** 외부 MCP(사용자 결정 11/18, 사용자 직접 확인: '공개 문서 읽기만'): 사람 없는 client_credentials 토큰.
- *  scope hanaeum-mcp/read 가 있어야 하고, 읽기 도구만, __actor groups [] → ACL ALL 공개 게시 문서만 (interfaces 11장) */
+ *  scope hanaeum-wiki-mcp/read 가 있어야 하고, 읽기 도구만, __actor groups [] → ACL ALL 공개 게시 문서만 (interfaces 11장) */
 export const EXTERNAL_SCOPE = 'hanaeum-wiki-mcp/read'; // 이름 확정 11/18: hanaeum-wiki-mcp
 export const EXTERNAL_TOOLS = new Set(['search_wiki', 'retrieve_evidence', 'search_legal_clause', 'get_clause', 'get_official_policy', 'verify_version', 'resolve_reference', 'compare_versions', 'trace_impact', 'get_dependencies', 'get_wiki_document']);
 /** 사람 토큰은 username 이 있다. 없으면 기계(client_credentials) 토큰으로 본다 — 기본 권한(USER)을 주지 않는다 */
