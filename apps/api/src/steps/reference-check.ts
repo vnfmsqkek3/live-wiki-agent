@@ -40,7 +40,8 @@ export function unsafeQuery(q: string, internalDomains: string[] = []): string |
   if (detectPii(s).length) return 'pii';
   if (/(?:hana|hanabank|하나은행|intranet|\.local\b|\.corp\b|\.internal\b)/i.test(s) || internalDomains.some((d) => s.toLowerCase().includes(d.toLowerCase()))) return 'internal_domain';
   // 사람 이름 추정: 한글 2~4자 + 호칭·직함
-  if (/[가-힣]{2,4}\s?(?:님|씨|과장|대리|차장|부장|팀장|주임|사원|책임|선임|담당자)/.test(s)) return 'person_name';
+  // 앞말이 조직 단위로 끝나면('IT인프라팀 팀장', '여신심사부 부장') 사람 이름이 아니다 (사용자 지적 11/18)
+  if ([...s.matchAll(/([가-힣]{2,4})\s?(?:님|씨|과장|대리|차장|부장|팀장|주임|사원|책임|선임|담당자|매니저|실장|본부장|지점장|센터장|이사|대표|프로|심사역)/g)].some((m) => !/(?:팀|부|실|센터|본부|지점|국|과|위원회|점)$/.test(m[1]!))) return 'person_name';
   return undefined;
 }
 

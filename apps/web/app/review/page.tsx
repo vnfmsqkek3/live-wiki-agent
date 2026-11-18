@@ -38,6 +38,9 @@ function ReviewView() {
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editInit, setEditInit] = useState<string | null>(null); // 고치기 편집기 (AI 제안 적용본)
   const [pct, setPct] = useState<number | null>(null);
+  const [fixState, setFixState] = useState<Record<string, string>>({}); // 제안대로 고치기 결과 (사용자 지적 11/18: 눌렀는지 알 수 없었다)
+  const [keep, setKeep] = useState<Record<string, string>>({});
+  const [cur, setCur] = useState<string | null>(null); // 편집기의 지금 글 // 규정 충돌 '그대로 사용' 사유
 
   useEffect(() => {
     if (!id) { setErr('검토할 문서를 찾을 수 없습니다. 문서 등록 화면에서 다시 시작하세요.'); return; }
@@ -79,7 +82,21 @@ function ReviewView() {
   // 규정은 위키에서 고칠 수 없다(사용자 결정 11/17) → 고치기·반영 버튼을 보이지 않는다 (11/18 dev 시험)
   const canFix = r.lifecycle === 'IN_REVIEW' && r.text !== undefined && (r.classification?.document_type ?? '') !== 'REGULATION';
   /** AI 수정 제안 적용: 그 문장을 제안 문장으로 바꾼 본문으로 편집기를 연다 */
-  const applyFix = (f: Fix) => setEditInit(f.suggestion && r.text!.includes(f.excerpt) ? r.text!.replace(f.excerpt, f.suggestion) : r.text!);
+  // 편집기가 열려 있으면 그 글 위에 이어서 적용한다(전에는 원문에서 다시 시작해 앞서 누른 제안이 사라졌다). 결과를 항목에 표시
+  const applyFix = (f: Fix) => {
+    const base = (editInit !== null ? cur ?? editInit : null) ?? r.text!;
+    if (!f.suggestion) { setEditInit(base); setFixState((x) => ({ ...x, [f.finding_id]: '편집기에서 직접 고쳐 주세요' })); return; }
+    if (base.includes(f.excerpt)) { setEditInit(base.replace(f.excerpt, f.suggestion)); setFixState((x) => ({ ...x, [f.finding_id]: '편집기에 반영함 — 아래 [저장하고 검사받기]를 눌러야 적용됩니다' })); }
+    else if (base.includes(f.suggestion)) setFixState((x) => ({ ...x, [f.finding_id]: '이미 제안대로 고쳐져 있습니다 — 저장하면 다시 검사합니다. 그래도 남으면 [그대로 사용]에 사유를 적어 주세요' }));
+    else { setEditInit(base); setFixState((x) => ({ ...x, [f.finding_id]: '본문에서 이 문장을 찾지 못했습니다 — 편집기에서 직접 고치거나 [그대로 사용]에 사유를 적어 주세요' })); }
+    setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50);
+  };
+  async function keepConflict(f: Fix) {
+    const reason = (keep[f.finding_id] ?? '').trim();
+    if (!reason) { setMsg('그대로 사용하는 사유를 한 줄 적어 주세요.'); return; }
+    try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/findings/${encodeURIComponent(f.finding_id)}/ack`, { reason }); setR((x) => x && { ...x, fixes: x.fixes!.map((y) => (y.finding_id === f.finding_id ? { ...y, acknowledged: true, ack_reason: reason } : y)) }); setMsg(''); }
+    catch (e) { setMsg((e as ApiError).message); }
+  }
   async function ack(f: Fix) {
     try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/findings/${encodeURIComponent(f.finding_id)}/ack`); setR((x) => x && { ...x, fixes: x.fixes!.map((y) => (y.finding_id === f.finding_id ? { ...y, acknowledged: true } : y)) }); }
     catch (e) { setMsg((e as ApiError).message); }
@@ -118,6 +135,12 @@ function ReviewView() {
         </ol>
         <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `남은 일 ${open.length}건` : '검토 마치고 게시 요청'}</button>
         <p aria-live="polite" className="note submit-msg">{msg}</p>
+        {/* 왜 게시 요청이 안 되는지 바로 보이게 (사용자 지적 11/18: 다 고쳤다고 생각했는데 막힘) */}
+        {r.lifecycle === 'IN_REVIEW' && open.length > 0 && <ul className="note blockers" aria-label="게시 요청을 막는 항목">
+          {fixOpen.map((f) => <li key={f.finding_id}><a href={`#fx-${f.finding_id}`}>고칠 것: {f.excerpt.slice(0, 40)}…</a></li>)}
+          {clarifyOpen.map((c) => <li key={c.finding_id}>확인 필요: {c.question.slice(0, 40)}…</li>)}
+          {reviewOpen.map((x) => <li key={x.finding_id}>개인정보 확인: {x.message.slice(0, 40)}…</li>)}
+        </ul>}
       </div>
       <div className="layout-a review-layout"><div className="primary">
       {/* 위키 수정본: 직전 버전과 바뀐 부분 (사용자 요청 11/18) */}
@@ -131,7 +154,7 @@ function ReviewView() {
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); setMsg('다시 분석을 시작했습니다. 잠시 뒤 화면이 바뀝니다.'); setTimeout(() => location.reload(), 4000); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
       {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
-      {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} onCancel={() => setEditInit(null)} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
+      {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} base={r.text} onText={setCur} onCancel={() => { setEditInit(null); setCur(null); setFixState({}); }} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
       {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={r.text} canFix={canFix}
@@ -144,15 +167,21 @@ function ReviewView() {
           {!open.length && uncertain > 0 && <p className="notice">규정과 어긋난 문장은 없습니다. 다만 개인정보 가림·글자 인식 등 <strong>확인할 내용 {uncertain}건</strong>이 있습니다. 아래 '자세히: 검사별 결과'에서 확인해 주세요.</p>}
           {!open.length && uncertain === 0 && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
           <ol className="fixes">{(r.fixes ?? []).map((f) => (
-            <li key={f.finding_id} className={`fix${f.acknowledged ? ' done' : ''}`}>
-              <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && ' · 의도한 삭제로 확인함'}</p>
+            <li key={f.finding_id} id={`fx-${f.finding_id}`} className={`fix${f.acknowledged ? ' done' : ''}`}>
+              <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && (f.code === 'KNOWHOW_CONFLICT' ? ` · 그대로 사용(${f.ack_reason ?? ''}) — 승인자가 판단` : ' · 의도한 삭제로 확인함')}</p>
               <p>{f.message}</p>
               {f.excerpt && <blockquote className="basis"><p>{f.excerpt}</p></blockquote>}
               {f.suggestion && <p><strong>AI 수정 제안:</strong> {f.suggestion}</p>}
               {!f.acknowledged && canFix && <div className="actions">
                 {f.code === 'KNOWHOW_CONFLICT' && <button type="button" className="btn solid" onClick={() => applyFix(f)}>{f.suggestion ? '제안대로 고치기' : '직접 고치기'}</button>}
+                {f.code === 'KNOWHOW_CONFLICT' && <details className="clarify-dismiss"><summary>그대로 사용</summary>
+                  <div className="actions" style={{ marginTop: 4 }}>
+                    <input className="field" aria-label="그대로 사용 사유" placeholder="사유 한 줄 (승인자에게 보입니다)" maxLength={200} value={keep[f.finding_id] ?? ''} onChange={(e) => setKeep((t) => ({ ...t, [f.finding_id]: e.target.value }))} />
+                    <button type="button" className="btn" onClick={() => keepConflict(f)}>그대로 사용으로 처리</button>
+                  </div></details>}
                 {f.code === 'EDIT_REMOVED_KEY_SENTENCE' && <><button type="button" className="btn solid" onClick={() => setEditInit(r.text!)}>되돌려 고치기</button><button type="button" className="btn" onClick={() => ack(f)}>의도한 삭제</button></>}
               </div>}
+              {fixState[f.finding_id] && !f.acknowledged && <p className="notice" role="status">{fixState[f.finding_id]}</p>}
             </li>
           ))}</ol>
           {canFix && !open.length && <div className="actions"><button type="button" className="btn" onClick={() => setEditInit(r.text!)}>본문 더 고치기</button></div>}
@@ -176,7 +205,7 @@ function ReviewView() {
             <ul className="ledger">
               {k.items.filter((j) => j.relation !== 'UNRELATED').map((j, i) => (
                 <li key={i} className="entry" style={{ paddingRight: 16 }}>
-                  <p style={{ margin: 0 }}><strong>{REL[j.relation]}</strong><br />노하우: “{j.statement}”</p>
+                  <p style={{ margin: 0 }}><strong>{REL[j.relation]}</strong>{j.relation === 'CONFLICTS' && (() => { const fx = (r.fixes ?? []).find((y) => y.excerpt && (j.statement.includes(y.excerpt.slice(0, 40)) || y.excerpt.includes(j.statement.slice(0, 40)))); return <span className="note"> · {!fx ? '처리 상태 확인 필요' : fx.acknowledged ? `그대로 사용(${fx.ack_reason ?? ''}) — 승인자 판단` : '고칠 것에 남아 있음'}</span>; })()}<br />노하우: “{j.statement}”</p>
                   {j.verified_quote && <p className="quote" style={{ margin: '6px 0' }}>{j.label}: {j.quote}</p>}
                   <p className="note" style={{ margin: 0 }}>{j.reason}</p>
                 </li>

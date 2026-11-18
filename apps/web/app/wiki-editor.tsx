@@ -21,9 +21,12 @@ export function lineDiff(a: string, b: string): { kind: 'add' | 'del'; text: str
   return out.filter((c) => c.text.trim());
 }
 
-export function WikiEditor({ docId, initial, base, focus, onCancel, note }: { docId: string; initial: string; base?: string; focus?: string; onCancel: () => void; note?: string }) {
+export function WikiEditor({ docId, initial, base, focus, onCancel, note, onText }: { docId: string; initial: string; base?: string; focus?: string; onCancel: () => void; note?: string; onText?: (t: string) => void }) {
   const orig = base ?? initial;
   const [text, setText] = useState(initial);
+  // 부모가 제안을 더 적용하면(initial 변경) 그 글로 바꾼다. 부모는 onText 로 지금 글을 받아 그 위에 적용한다 (11/18)
+  useEffect(() => setText(initial), [initial]);
+  useEffect(() => { onText?.(text); }, [text, onText]);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
   const ta = useRef<HTMLTextAreaElement>(null);
@@ -46,7 +49,7 @@ export function WikiEditor({ docId, initial, base, focus, onCancel, note }: { do
     } catch (e) { setErr((e as ApiError).message); setBusy(false); }
   }
   return (
-    <section className="wiki-editor" aria-labelledby="wiki-edit-h">
+    <section className="wiki-editor" id="wiki-editor" aria-labelledby="wiki-edit-h">
       <h2 className="section" id="wiki-edit-h">위키에서 고치기</h2>
       <p className="note">{note ?? '저장하면 새 버전이 만들어지고 AI가 다시 검사합니다. 원래 문서는 승인될 때까지 그대로 보입니다.'} 제목은 ##, 목록은 1. 또는 - 로 씁니다.</p>
       {focus && <p className="notice" role="status">넣은 줄을 선택해 두었습니다. 위치를 옮기거나 문장을 다듬은 뒤 저장하세요.</p>}

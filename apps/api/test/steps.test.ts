@@ -376,3 +376,14 @@ test('carry: 위키 수정 후 재분석 — 해당 없음·그대로 사용은 
   assert.equal(next[3]!.acknowledged?.reason, '가상 데이터');
   assert.deepEqual(applyCarry(undefined, [cl('z', 'x')]).length, 1);
 });
+
+test('carry: 규정 충돌 — 고치지 않은 문장에서 새로 나온 것은 승인자 판단(올린 사람 안 막음), 고친 문장·전에 열려 있던 것은 막음 (사용자 결정 11/18)', async () => {
+  const { makeCarry, applyCarry } = await import('../src/steps/carry.ts');
+  const { isOpenFix } = await import('../src/submit.ts');
+  const kc = (id: string, ex: string) => ({ finding_id: id, step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: ex } }) as never;
+  const old = '1. 1억원 이하 부동산 담보대출은 현장 실사를 생략한다.\n2. 담보가액이 3억원 이상이면 본부 승인을 받는다.';
+  const carry = makeCarry(old, [kc('a', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.')]);
+  const next = applyCarry(carry, [kc('n1', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.'), kc('n2', '담보가액이 3억원 이상이면 본부 승인을 받는다.'), kc('n3', '여신 금액이 5억원 이상이면 위원회 승인을 받는다.')]) as unknown as { finding_id: string; code: string; severity: string; acknowledged?: { by: string } }[];
+  assert.deepEqual(next.map((f) => [f.finding_id, isOpenFix(f)]), [['n1', true], ['n2', false], ['n3', true]]);
+  assert.equal(next[1]!.acknowledged?.by, 'system:recheck');
+});

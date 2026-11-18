@@ -504,8 +504,10 @@ test('원본 보기: 모든 쪽 가린 이미지 presigned 목록(볼 수 있는
   assert.ok(t.store.audits.every((a) => !JSON.stringify(a).includes('s3.example'))); // URL 은 감사에 남기지 않음
 });
 
-test('확인 필요 답 넣기(11/18): 답을 문장에 넣어 before→after, 사람 이름 답은 ok=false, 항목 하나만 바뀜', async () => {
+test('확인 필요 답 넣기(11/18): 담당자 이름 판단은 모델(이름만이면 ok=false), 모델이 없으면 담당자 답은 넣지 않음, 개인정보는 코드가 막음, 항목 하나만 바뀜', async () => {
   const t = setup();
+  // 모델 흉내: f1 은 넣고, f2(이름뿐)는 거절
+  t.deps.composeClarify = async () => ({ edits: [{ n: 0, ok: true, after: '서류는 여신심사부 심사역이 승인한다.' }, { n: 1, ok: false, after: '', reason: '부서·직책으로 적어 주세요' }] });
   const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
   const { doc_id } = (await r.json()) as { doc_id: string };
   const d = (await t.store.getDoc(doc_id))!;
@@ -516,7 +518,11 @@ test('확인 필요 답 넣기(11/18): 답을 문장에 넣어 before→after, �
   assert.equal(res.status, 200);
   const { edits } = (await res.json()) as { edits: { finding_id: string; after: string; ok: boolean }[] };
   assert.deepEqual(edits.map((e) => [e.finding_id, e.ok]), [['f1', true], ['f2', false]]);
-  assert.equal(edits[0]!.after, '서류는 여신심사부 심사역가 승인한다.');
+  assert.equal(edits[0]!.after, '서류는 여신심사부 심사역이 승인한다.');
+  // 모델이 없으면 담당자 답은 그대로 넣지 않는다
+  t.deps.composeClarify = undefined;
+  const nm = (await (await t.call('author', 'POST', `/v1/documents/${doc_id}/clarify/compose`, { answers: [{ finding_id: 'f1', answer: '여신심사부 심사역' }] })).json()) as { edits: { ok: boolean }[] };
+  assert.equal(nm.edits[0]!.ok, false);
   // 문서 상태·다른 항목은 바뀌지 않는다 (저장은 위키 편집기에서 사람이)
   const after = (await t.store.getDoc(doc_id))!;
   assert.equal(after.lifecycle, 'IN_REVIEW');
@@ -552,4 +558,15 @@ test('확인 필요 답 넣기 회귀(let522mj 전달 11/18): span 이 있으면
   assert.equal(fallbackAfter(before, '담당 부서', '관련 부서', 'IT인프라팀'), '문서 관리:내용 변경 시 IT인프라팀 협의 후 개정 이력을 관리하며, 시행 시점과 내부 승인 절차를 확인한다.');
   assert.equal(keepsRest(before, '관련 부서', '문서 관리:내용 변경 시 IT인프라팀과 협의 후 개정 이력을 관리하며, 시행 시점과 내부 승인 절차를 확인한다.'), true);
   assert.equal(keepsRest(before, '관련 부서', '내용이 바뀌면 IT인프라팀과 협의한다.'), false);
+});
+
+test('규정 충돌 그대로 사용(사용자 결정 11/18): 사유 없으면 422, 사유 있으면 잠금 해제·사유가 fixes 에 보임', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', findings: [{ finding_id: 'k1', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'p', location: { excerpt: '문장' } }] as never });
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/findings/k1/ack`, {})).status, 422);
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/findings/k1/ack`, { reason: '내부 예외 승인 건' })).status, 200);
+  const rv = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/review`)).json()) as { fixes: { acknowledged: boolean; ack_reason: string }[] };
+  assert.deepEqual([rv.fixes[0]!.acknowledged, rv.fixes[0]!.ack_reason], [true, '내부 예외 승인 건']);
 });

@@ -49,9 +49,9 @@ export function ClarifyList({ items, docId, text, canFix, onDismissed }: { items
   async function compose(c: ClarifyItem) {
     setBusy(true); setMsg('');
     try {
-      const r = await api<{ edits: { after: string; ok: boolean; reason?: string }[] }>('POST', `/v1/documents/${encodeURIComponent(docId)}/clarify/compose`, { answers: [{ finding_id: c.finding_id, answer: typing[c.finding_id]!.trim() }] });
+      const r = await api<{ edits: { after: string; ok: boolean; reason?: string; note?: string }[] }>('POST', `/v1/documents/${encodeURIComponent(docId)}/clarify/compose`, { answers: [{ finding_id: c.finding_id, answer: typing[c.finding_id]!.trim() }] });
       const e = r.edits[0];
-      if (e?.ok) setPick((p) => ({ ...p, [c.finding_id]: e.after })); else setMsg(e?.reason ?? '이 답은 넣을 수 없습니다.');
+      if (e?.ok) { setPick((p) => ({ ...p, [c.finding_id]: e.after })); if (e.note) setMsg(e.note); } else setMsg(e?.reason ?? '이 답은 넣을 수 없습니다.');
     } catch (e) { setMsg((e as ApiError).message); }
     setBusy(false);
   }

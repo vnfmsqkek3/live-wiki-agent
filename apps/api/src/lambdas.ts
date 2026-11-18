@@ -167,10 +167,11 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       // 1) 찾기 (한 번에 모두: 링크 3 + 그 밖 12, CLARIFY_MAX)
       // 쪽 묶음(8쪽)마다 같은 체크리스트로 훑는다: 긴 입력의 자유 판단을 줄여 실행마다 달라지는 것을 줄인다 (11/18 dev)
       const chunks: (typeof pages)[] = []; for (let k = 0; k < pages.length; k += 8) chunks.push(pages.slice(k, k + 8));
-      const results = await Promise.all(chunks.map((ch) => deps.findClarify!(clarifyPrompt(d.title, ch)).catch(() => ({ value: { items: [] as ClarifyCandidate[] }, model: '' }))));
+      const results = d.review_carry ? [] : await Promise.all(chunks.map((ch) => deps.findClarify!(clarifyPrompt(d.title, ch)).catch(() => ({ value: { items: [] as ClarifyCandidate[] }, model: '' }))));
       const found = { model: results.find((r) => r.model)?.model ?? '', value: { items: results.flatMap((r) => r.value.items ?? []) } };
       // 모델은 담당자·불일치·버전만, 링크·표 빈 칸은 코드 탐지 (Fable 진단 D)
-      const llm = found.value.items.filter((c) => ['VAGUE_ACTOR', 'INCONSISTENT', 'OUTDATED'].includes(c.kind));
+      // 한 번 검토한 뒤(위키 수정·다시 분석)에는 모델 질문을 새로 만들지 않는다: 실행마다 다른 질문이 나와 끝나지 않았다 (사용자 지적 11/18, Fable D). 규칙 질문만 고친 줄에서
+      const llm = d.review_carry ? [] : found.value.items.filter((c) => ['VAGUE_ACTOR', 'INCONSISTENT', 'OUTDATED'].includes(c.kind));
       const pageText = (n: number) => pages.find((p) => p.page === n)?.text;
       const cands = allocate(keepCandidates([...ruleCandidates(pages), ...llm], all, pageText, pages), pageText);
       // 같은 문서 다른 쪽에 답이 있으면 'n쪽 참조' 제안 (잠금 여부는 바꾸지 않는다)

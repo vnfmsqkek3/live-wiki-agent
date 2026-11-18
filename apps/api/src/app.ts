@@ -234,7 +234,7 @@ export function createApp(deps: Deps) {
     const d = await loadDoc(c, c.req.param('id'));
     if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
     const f = d.findings.find((x) => x.finding_id === c.req.param('fid'));
-    if (!f || !['EDIT_REMOVED_KEY_SENTENCE', 'CLARIFY_NEEDED'].includes(f.code)) throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
+    if (!f || !['EDIT_REMOVED_KEY_SENTENCE', 'CLARIFY_NEEDED', 'KNOWHOW_CONFLICT'].includes(f.code)) throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
     const at = new Date().toISOString();
     // 확인 필요 '해당 없음': 사유 한 줄 필수, 감사 기록, 승인 화면 '자세히'에 보인다 (계약 6.5)
     let details = f.details;
@@ -243,8 +243,15 @@ export function createApp(deps: Deps) {
       if (!reason) throw new ApiError('VALIDATION', '해당 없음 사유를 적어 주세요');
       details = { ...(f.details ?? {}), status: 'DISMISSED', dismiss_reason: mask(reason, detectPii(reason)) };
     }
-    await store.putDoc({ ...d, findings: d.findings.map((x) => (x === f ? { ...x, acknowledged: { by: a.sub, at }, ...(details ? { details } : {}) } : x)), updated_at: at });
-    await audit(c, f.code === 'CLARIFY_NEEDED' ? 'CLARIFY_DISMISS' : 'FINDING_ACK', d.doc_id);
+    // 규정 충돌 '그대로 사용': 제안을 적용할 수 없을 때 사유 필수, 승인자 카드에 보인다 (사용자 결정 11/18, 규칙 2 완화)
+    let reason: string | undefined;
+    if (f.code === 'KNOWHOW_CONFLICT') {
+      const r = String(((await c.req.json().catch(() => ({}))) as { reason?: unknown }).reason ?? '').trim().slice(0, 200);
+      if (!r) throw new ApiError('VALIDATION', '그대로 사용하는 사유를 적어 주세요');
+      reason = mask(r, detectPii(r));
+    }
+    await store.putDoc({ ...d, findings: d.findings.map((x) => (x === f ? { ...x, acknowledged: { by: a.sub, at, ...(reason ? { reason } : {}) }, ...(details ? { details } : {}) } : x)), updated_at: at });
+    await audit(c, f.code === 'CLARIFY_NEEDED' ? 'CLARIFY_DISMISS' : f.code === 'KNOWHOW_CONFLICT' ? 'CONFLICT_KEEP' : 'FINDING_ACK', d.doc_id);
     return c.json({ ok: true });
   });
 
@@ -264,9 +271,10 @@ export function createApp(deps: Deps) {
       const e = out.find((x) => x.n === q.n);
       // 모델이 없거나 실패하면 대상 낱말 자리에 답을 넣는다
       const ai = e?.ok !== false && e?.after?.trim() && keepsRest(q.before, q.span, e.after.trim()) ? e.after.trim() : '';
-      const after = ai || fallbackAfter(q.before, q.cand.item, q.span, q.answer);
-      const ok = e?.ok !== false && safeSuggestion(q.cand, { value: q.answer, after });
-      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : q.cand.kind === 'VAGUE_ACTOR' ? "사람 이름은 빼고 부서·직책만 적어 주세요 (예: 'IT인프라팀 매니저'). 사람이 바뀌어도 문서가 맞게 남도록 이름은 쓰지 않습니다." : '개인정보가 들어갔거나 문장이 바뀌지 않았습니다' }) };
+      // 담당자는 모델이 이름을 빼고 넣는다. 모델이 없거나 실패하면 담당자 답은 그대로 넣지 않는다(이름이 섞였을 수 있음, Fable C)
+      const after = ai || (q.cand.kind === 'VAGUE_ACTOR' ? '' : fallbackAfter(q.before, q.cand.item, q.span, q.answer));
+      const ok = e?.ok !== false && !!after && safeSuggestion(q.cand, { value: q.answer, after }, false);
+      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok && e?.reason ? { note: e.reason } : {}), ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : !after ? 'AI가 답을 넣지 못했습니다. 잠시 뒤 다시 눌러 주세요.' : '개인정보(전화번호·이메일 등)가 들어갔거나 문장이 바뀌지 않았습니다' }) };
     });
     await audit(c, 'CLARIFY_COMPOSE', d.doc_id);
     return c.json({ edits });
@@ -279,7 +287,8 @@ export function createApp(deps: Deps) {
     const head = await deps.headObject(quarantineKey(d));
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
     // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
-    const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString() };
+    const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString(),
+      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings) } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D)
     await store.putDoc(doc);
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
@@ -372,7 +381,7 @@ export function createApp(deps: Deps) {
     const fixes = d.findings.filter((f) => FIX_CODES.has(f.code)).map((f) => {
       const ex = f.location?.excerpt ?? '';
       const st = [...sugg.keys()].find((s) => s.includes(ex.slice(0, 40)) || ex.includes(s.slice(0, 40)));
-      return { finding_id: f.finding_id, code: f.code, message: f.user_message ?? f.message, excerpt: st ?? ex, suggestion: st ? sugg.get(st) ?? null : null, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged };
+      return { finding_id: f.finding_id, code: f.code, message: f.user_message ?? f.message, excerpt: st ?? ex, suggestion: st ? sugg.get(st) ?? null : null, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, ack_reason: f.acknowledged?.reason ?? null };
     });
     // 고칠 본문 = 정리본(없으면 원문 글) — 위키 편집기·확인 필요 적용과 같은 기준 (before 가 이 글에 있어야 바꿀 수 있다)
     const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? await editText(d.doc_id) : undefined;
