@@ -307,3 +307,20 @@ test('위키 수정본(md) 형식 검사: 앞부분이 한글 중간에서 잘�
   assert.equal(typeDetection('md', bad).status, 'BLOCKED');
   assert.equal(typeDetection('md', new Uint8Array([0x23, 0x00, 0x41])).status, 'BLOCKED');
 });
+
+test('buildDocPages: 짧은 쪽은 다음과 합치고 장 제목에서 나누고, 잘린 표는 이어 붙이고(머리행 제거), 반복 꼬리말·SYNTHETIC 은 뺀다 (11/18)', async () => {
+  const { buildDocPages } = await import('../src/steps/structure.ts');
+  const foot = 'MEGAZONE 꼬리말';
+  const r = buildDocPages([
+    { page: 1, markdown: 'SYNTHETIC — 하나은행 가상 데이터\n## 개인정보 수집 가이드\n' + foot },
+    { page: 2, markdown: '## 1. 수집 항목\n| 항목 | 목적 |\n|---|---|\n| 이름 | 본인 확인 |\n' + foot },
+    { page: 3, markdown: '| 항목 | 목적 |\n|---|---|\n| 주소 | 우편 발송 |\n표 아래 설명\n' + foot },
+    { page: 4, markdown: '## 2. 이용 기간\n5년 보관\n' + foot },
+  ]);
+  assert.deepEqual(r.map((g) => g.pages), [[1, 2, 3], [4]]);
+  assert.equal(r[0]!.title, '개인정보 수집 가이드');
+  const all = r[0]!.parts.map((x) => x.markdown).join('\n');
+  assert.match(all, /\| 이름 \| 본인 확인 \|\n\| 주소 \| 우편 발송 \|/);
+  assert.equal((all.match(/\| 항목 \| 목적 \|/g) ?? []).length, 1);
+  assert.ok(!/MEGAZONE|SYNTHETIC/.test(all));
+});

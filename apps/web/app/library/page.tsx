@@ -405,6 +405,12 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   // LOW(근거 확인됨·실무 보완)는 고칠 곳이 아니라 참고. 밑줄은 고칠 곳만 긋는다
   // 규칙 1: 게시된 노하우·매뉴얼은 누구나 위키에서 고친다 (규정은 개정 원본 업로드만)
   const figMap = Object.fromEntries((page?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
+  // 정리본은 내용 단위 페이지(doc_pages)로 넘긴다 (사용자 요청 11/18). 원문 탭은 원본 쪽 단위
+  const dps = d.doc_pages ?? [];
+  const k = page ? dps.findIndex((g) => g.pages.includes(page.page)) : -1;
+  const figOf = (n: number) => Object.fromEntries((d.pages.find((pg) => pg.page === n)?.figures ?? []).filter((f) => f.url).map((f) => [f.k, f.url!])) as Record<number, string>;
+  const goDoc = (j: number) => { const n = dps[j]?.pages[0]; const i = d.pages.findIndex((pg) => pg.page === n); if (i >= 0) go(i); };
+  const range = (g: { pages: number[] }) => (g.pages.length > 1 ? `${Math.min(...g.pages)}~${Math.max(...g.pages)}` : `${g.pages[0]}`);
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
   const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION';
@@ -452,15 +458,19 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
 
       {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
         <section aria-label={`${p + 1}쪽`}>
-          <div className="pager">
+          {!showImages && k >= 0 ? <div className="pager">
+            <button className="btn" disabled={k === 0} onClick={() => goDoc(k - 1)}>이전 쪽</button>
+            <span aria-live="polite"><span className="num">{k + 1} / {dps.length}</span> · 원본 <span className="num">{range(dps[k]!)}</span>쪽</span>
+            <button className="btn" disabled={k === dps.length - 1} onClick={() => goDoc(k + 1)}>다음 쪽</button>
+          </div> : <div className="pager">
             <button className="btn" disabled={p === 0} onClick={() => go(p - 1)}>이전 쪽</button>
             <span aria-live="polite"><span className="num">{p + 1} / {d.pages.length}</span>쪽</span>
             <button className="btn" disabled={p === d.pages.length - 1} onClick={() => go(p + 1)}>다음 쪽</button>
-          </div>
+          </div>}
           {parseDocText(page.text).some((b) => b.kind === 'clause') && <details className="clause-index"><summary>이 쪽 목차 · 조문 바로가기</summary><ul>{parseDocText(page.text).filter((b) => b.kind === 'clause').map((b) => <li key={b.start}><a href={`#clause-${b.start}`}>{page.text.slice(b.start, b.end).match(/^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장.*|절.*)/)?.[0] ?? page.text.slice(b.start, Math.min(b.end, b.start + 80))}</a></li>)}</ul></details>}
           <div className="view-toggle seg-tabs" role="group" aria-label="본문 보기 방식">
-            <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>
             <button type="button" className="btn" aria-pressed={showImages} onClick={() => setImages(true)}>필터링된 원문</button>
+            <button type="button" className="btn" aria-pressed={!showImages} onClick={() => setImages(false)}>정리본</button>
           </div>
           {showImages ? <div className="document-columns"><div><OriginalPages docId={d.doc_id} start={p + 1} fallback={page.text} /></div><aside className="page-checks" aria-label="한눈에 보기"><h3 className="section">한눈에 보기</h3>{docMeta}</aside></div> : (
           <div className="document-columns"><div className="sheet page" onClick={(e) => {
@@ -473,7 +483,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
               ? 'AI 정리(그림 기준): AI가 이 쪽 이미지를 보고 정리한 본문입니다. 근거로 인용하지 않으며, 원래 모습은 \'필터링된 원문\'에서 확인하세요.'
               : page.structured_source === 'AI' ? 'AI가 이 쪽 글자와 그림 설명을 함께 읽고 정리한 본문입니다. 그림을 보고 쓴 설명은 근거로 인용하지 않습니다. 그림을 누르면 크게 봅니다.'
               : '이 쪽은 원문 글자를 그대로 보여 줍니다(쪽마다 반복되는 머리글은 뺐습니다).'}</p>
-            <DocText text={page.structured ?? page.text} figures={figMap} hideFigRefs />
+            {k >= 0 ? dps[k]!.parts.map((pt) => <DocText key={pt.page} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />) : <DocText text={page.structured ?? page.text} figures={figMap} hideFigRefs />}
             <ZoomDialog url={zoomUrl} onClose={() => setZoomUrl(null)} />
             </div>
           </div>

@@ -163,10 +163,11 @@ for (const file of FILES) {
   check('D2', hasBasis ? true : (det?.related?.length ? 'partial' : false), hasBasis ? '검증 근거 구역 있음' : `검증 근거 구역 없음 (연관 ${det?.related?.length ?? 0}건, 리뷰 판정 ${reviewInfo.verdict ?? '-'})`);
   const renderedPages = [];
   const renderedSummaries = [];
-  for (let pi = 0; pi < (det?.pages?.length ?? 0); pi++) {
+  const nView = det?.doc_pages?.length || det?.pages?.length || 0; // 정리본은 내용 단위 페이지(11/18)
+  for (let pi = 0; pi < nView; pi++) {
     renderedPages.push(await ev("document.querySelector('.sheet.page')?.innerText.trim() ?? ''"));
     renderedSummaries.push(await readDetail('페이지 요약'));
-    if (pi + 1 < det.pages.length) { await click('다음 쪽'); await sleep(200); }
+    if (pi + 1 < nView) { await click('다음 쪽'); await sleep(200); }
   }
   for (let pi = 1; pi < renderedPages.length; pi++) { await click('이전 쪽'); await sleep(100); }
   check('D3', renderedPages.length > 0 && renderedPages.every(Boolean) && det.pages.every((p) => p.text?.length > 0), `쪽 ${renderedPages.length}개 본문 렌더 확인`);

@@ -89,3 +89,52 @@ export function textFallback(segs: { page_index: number; text: string }[]) {
     return [s.page_index, [heading ? `## ${first}` : first, ...rest].join('\n\n')] as const;
   }));
 }
+
+/** 정리본 보기 페이지 (사용자 요청 11/18): 원본 쪽이 아니라 내용 단위로 묶는다. 보기용 — 근거 인용·색인은 쪽 단위 그대로.
+ *  모델 없이 코드로: 장 제목(#·##)에서 나누고, 짧은 쪽(표지·장 구분)은 다음 내용과 합치고, 한 페이지 ~2,500자 안에서 몰고,
+ *  쪽 넘김으로 잘린 표는 이어지는 행을 앞 쪽 표로 옮기며(반복 머리행 제거), 반복 머리말·꼬리말·워터마크·SYNTHETIC 표시는 뺀다.
+ *  그림 번호가 쪽마다 따로라 페이지 안에서도 쪽별 조각(parts)을 유지한다 */
+export interface DocPage { title: string; pages: number[]; parts: { page: number; markdown: string }[] }
+const isRow = (l: string) => /^\s*\|.*\|\s*$/.test(l);
+const isSep = (l: string) => /^\s*\|?\s*:?-{2,}/.test(l);
+export function buildDocPages(src: { page: number; markdown: string }[], max = 2500): DocPage[] {
+  const lines = src.map((p) => p.markdown.split('\n'));
+  // 반복 줄: 각 쪽 첫 2줄·끝 3줄에서 3쪽 이상 반복되는 40자 이하 줄(제목 모양 제외) + SYNTHETIC·워터마크 줄
+  const seen = new Map<string, number>();
+  for (const ls of lines) {
+    const t = ls.map((l) => l.trim()).filter(Boolean);
+    for (const l of new Set([...t.slice(0, 2), ...t.slice(-3)])) if (l.length <= 40 && !/^#/.test(l)) seen.set(l, (seen.get(l) ?? 0) + 1);
+  }
+  const drop = (l: string) => (seen.get(l.trim()) ?? 0) >= 3 || /SYNTHETIC|가상 데이터|실제 하나은행|^\(빈 쪽\)$|^confidential$/i.test(l.trim());
+  const clean = src.map((p, i) => ({ page: p.page, markdown: lines[i]!.filter((l) => !drop(l)).join('\n').replace(/\n{3,}/g, '\n\n').trim() }));
+  const out: DocPage[] = [];
+  const size = (g: DocPage) => g.parts.reduce((n, x) => n + x.markdown.length, 0);
+  for (const p of clean) {
+    if (!p.markdown) { if (out.length) out[out.length - 1]!.pages.push(p.page); continue; }
+    const cur = out[out.length - 1];
+    const first = p.markdown.split('\n').find((l) => l.trim()) ?? '';
+    const last = cur?.parts[cur.parts.length - 1]?.markdown.split('\n').filter((l) => l.trim()).pop() ?? '';
+    const tableGoesOn = !!cur && isRow(last) && isRow(first);
+    // 표지·목차·장 구분처럼 제목만 있는 짧은 쪽들만 모인 페이지면 다음 내용을 붙인다
+    const onlyShort = !!cur && cur.parts.every((x) => x.markdown.length < 200 && x.markdown.split('\n').filter((l) => l.trim()).length <= 2);
+    const startsChapter = /^#{1,2}\s/.test(first);
+    if (cur && (tableGoesOn ? size(cur) <= max * 2 : (onlyShort || (!startsChapter && size(cur) + p.markdown.length <= max)))) {
+      let md = p.markdown;
+      if (tableGoesOn) {
+        // 앞 표의 머리행이 다시 나오면 지우고, 이어지는 표 행은 앞 조각으로 옮긴다
+        const prev = cur.parts[cur.parts.length - 1]!;
+        const pl = prev.markdown.split('\n'); let h = pl.length - 1; while (h > 0 && isRow(pl[h - 1]!)) h--;
+        const header = pl[h]!.trim();
+        const nl = md.split('\n'); let k = nl.findIndex((l) => l.trim()); if (k < 0) k = 0;
+        if (nl[k]!.trim() === header) { nl.splice(k, 1); if (nl[k] && isSep(nl[k]!)) nl.splice(k, 1); }
+        const rows: string[] = []; while (nl[k] !== undefined && isRow(nl[k]!)) rows.push(nl.splice(k, 1)[0]!);
+        prev.markdown = `${prev.markdown.trimEnd()}\n${rows.join('\n')}`;
+        md = nl.join('\n').trim();
+      }
+      cur.pages.push(p.page);
+      if (md) cur.parts.push({ page: p.page, markdown: md });
+    } else out.push({ title: '', pages: [p.page], parts: [{ page: p.page, markdown: p.markdown }] });
+  }
+  for (const g of out) g.title = g.parts.map((x) => x.markdown.match(/^#{1,3}\s*(.+)$/m)?.[1]).find(Boolean)?.slice(0, 60) ?? `${g.pages[0]}쪽`;
+  return out;
+}

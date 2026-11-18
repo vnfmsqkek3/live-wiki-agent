@@ -15,6 +15,7 @@ import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
 import { FIX_CODES, hasSourceMismatch, isOpenFix, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
+import { buildDocPages } from './steps/structure.ts';
 
 export interface Deps {
   /** 브라우저 허용 출처 (CORS). 와일드카드 금지 (운영 교훈 #3) */
@@ -734,6 +735,8 @@ export function createApp(deps: Deps) {
       ...docDatesOf(d, pages),
       verification: verification(d, approval),
       doc_marks: marks.filter((m) => m.page === null), // 위치를 못 찾은 항목 (예: 공식 원본에서 빠진 조문) → 상단에 모아 표시
+      // 정리본 보기 페이지: 내용 단위로 묶음 (사용자 요청 11/18, 보기용 — 인용·색인은 쪽 단위)
+      doc_pages: buildDocPages(pages.map((p) => ({ page: p.page, markdown: structuredMap.get(p.page)?.markdown ?? p.text }))),
       pages: pages.map((p, i) => ({ page: p.page, text: p.text, structured: structuredMap.get(p.page)?.markdown ?? null, structured_source: structuredMap.get(p.page)?.source ?? null, ...meta.get(p.page),
         clause_groups: clauseGroups(meta.get(p.page)?.clause_refs ?? [], p.text, d.law_name, lawNames),
         // 정리본 '(그림 k)' 아래 인라인 그림 (ImageDescribe 가 잘라낸 masked/figures, presigned 5분). k 는 1부터
