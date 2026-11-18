@@ -9,8 +9,11 @@ export const hasSourceMismatch = (d: DocumentRecord) => d.findings.some((f) => f
 /** 올린 사람이 고쳐야 게시 요청할 수 있는 Finding (사용자 결정 11/17 규칙 2) */
 export const FIX_CODES = new Set(['KNOWHOW_CONFLICT', 'EDIT_REMOVED_KEY_SENTENCE', 'CLARIFY_NEEDED']);
 /** 게시 요청을 막는 '고칠 것': 확인 필요는 MEDIUM(절차 문장의 담당자·빠진 값)이고 아직 열린 것만 (계약 6.5) */
+/** 항목별 사람 확인(Fable 권고·사용자 요청 11/18): 개인정보·비밀값 MEDIUM 은 항목마다 '그대로 사용(사유)' 또는 수정해야 게시 요청 가능. OCR 신뢰도는 잠그지 않음 */
+export const REVIEW_CODES = new Set(['PII_IMAGE_REVIEW', 'PII_IN_FIGURE', 'PII_GUARDRAIL', 'SECRET_MASKED']);
 export const isOpenFix = (f: { code: string; severity: string; acknowledged?: unknown; details?: Record<string, unknown> }) =>
-  FIX_CODES.has(f.code) && !f.acknowledged && !(f.code === 'CLARIFY_NEEDED' && (f.severity !== 'MEDIUM' || f.details?.['status'] !== 'OPEN'));
+  (FIX_CODES.has(f.code) && !f.acknowledged && !(f.code === 'CLARIFY_NEEDED' && (f.severity !== 'MEDIUM' || f.details?.['status'] !== 'OPEN')))
+  || (REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM' && !f.acknowledged);
 
 export async function submitForApproval(store: Store, d: DocumentRecord, actorSub: string): Promise<ApprovalRecord> {
   if (d.owner !== actorSub) throw new ApiError('FORBIDDEN', 'not the owner');
@@ -22,7 +25,7 @@ export async function submitForApproval(store: Store, d: DocumentRecord, actorSu
   // 분류 전 문서는 게시 단계(Promote)가 UnclassifiedDocument로 실패한다 → 요청 단계에서 막는다
   // 규칙 2: AI 가 찾은 '고칠 것'이 남아 있으면 게시 요청을 막는다 (규정과 어긋난 문장, 수정에서 지운 중요 문장)
   const fix = d.findings.filter(isOpenFix).length;
-  if (fix) throw new ApiError('CONFLICT', `고칠 것 ${fix}건이 남아 있습니다. 고친 뒤 게시를 요청하세요`);
+  if (fix) throw new ApiError('CONFLICT', `고칠 것·확인할 것 ${fix}건이 남아 있습니다. 처리한 뒤 게시를 요청하세요`);
   if (!(d.document_type ?? d.classification?.document_type)) throw new ApiError('CONFLICT', 'unclassified: 문서 분류가 끝나지 않아 게시를 요청할 수 없습니다. 분석을 다시 실행하세요');
   const now = new Date().toISOString();
   const apr: ApprovalRecord = {

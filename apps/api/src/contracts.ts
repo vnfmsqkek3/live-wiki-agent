@@ -31,7 +31,7 @@ export interface FindingLocation { page?: number; bbox?: number[][]; excerpt?: s
 
 export interface Finding {
   /** 올린 사람이 '의도한 삭제'로 확인 (EDIT_REMOVED_KEY_SENTENCE). 확인된 것은 게시 요청을 막지 않고 승인자 '자세히'에 남는다 */
-  acknowledged?: { by: string; at: string };
+  acknowledged?: { by: string; at: string; reason?: string };
   finding_id: string;
   step: string;
   severity: Severity;

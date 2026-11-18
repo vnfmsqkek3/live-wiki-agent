@@ -13,7 +13,7 @@ import {
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
-import { FIX_CODES, hasSourceMismatch, isOpenFix, submitForApproval } from './submit.ts';
+import { FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { buildDocPages } from './steps/structure.ts';
 import { composePrompt, safeSuggestion, type ClarifyKind } from './steps/clarify.ts';
@@ -209,6 +209,24 @@ export function createApp(deps: Deps) {
     return c.json({ doc_id: doc.doc_id, previous_doc_id: doc.previous_doc_id ?? null, new_version: doc.doc_id !== t.doc_id }, 201);
   });
 
+  // 항목별 확인 '그대로 사용' (Fable 권고 11/18): 명시한 finding_ids 만, 사유 필수, 요청 1번·저장 1번(병렬 덮어쓰기 방지), 문서 단위 플래그 없음
+  app.post('/v1/documents/:id/findings/ack', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.owner !== a.sub) throw new ApiError('FORBIDDEN', 'not the owner');
+    const b = (await c.req.json().catch(() => ({}))) as { finding_ids?: unknown; reason?: unknown };
+    const ids = [...new Set(Array.isArray(b.finding_ids) ? b.finding_ids.map(String) : [])].slice(0, 100);
+    const reason = String(b.reason ?? '').trim().slice(0, 200);
+    if (!ids.length) throw new ApiError('VALIDATION', '확인할 항목을 고르세요');
+    if (!reason) throw new ApiError('VALIDATION', '그대로 사용하는 사유를 적어 주세요');
+    const targets = ids.map((id) => d.findings.find((x) => x.finding_id === id));
+    if (targets.some((f) => !f || !REVIEW_CODES.has(f.code))) throw new ApiError('NOT_FOUND', '확인할 수 있는 항목이 아닙니다');
+    const at = new Date().toISOString(); const r = mask(reason, detectPii(reason));
+    await store.putDoc({ ...d, findings: d.findings.map((x) => (ids.includes(x.finding_id) ? { ...x, acknowledged: { by: a.sub, at, reason: r } } : x)), updated_at: at });
+    for (const id of ids) await audit(c, 'FINDING_ACK', `${d.doc_id}#${id}`);
+    return c.json({ acked: ids });
+  });
+
   // '의도한 삭제' 확인: 수정에서 지운 중요 문장을 올린 사람이 일부러 지웠다고 확인 (게시 요청 잠금 해제, 승인자에게는 보임)
   app.post('/v1/documents/:id/findings/:fid/ack', async (c) => {
     const a = c.get('actor');
@@ -360,8 +378,10 @@ export function createApp(deps: Deps) {
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
     const suggestions = d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as Record<string, unknown>) }));
     // 확인 필요 (계약 6.5): 질문·원문·제안·잠금 여부. 화면이 항목별 적용을 모아 /edit 한 번
+    // 항목별 확인(개인정보·비밀값): 쪽·사유·처리 여부
+    const reviews = d.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM').map((f) => ({ finding_id: f.finding_id, code: f.code, page: f.location?.page ?? (/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ? Number(/^page:(\d+)/.exec(f.evidence_ref)![1]) : null), message: f.user_message ?? f.message, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, reason: f.acknowledged?.reason ?? null }));
     const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...(f.details as Record<string, unknown>) }));
-    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 

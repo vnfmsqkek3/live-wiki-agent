@@ -470,7 +470,7 @@ test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·origin
     findings: [{ finding_id: 'f1', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'e' }] });
   const s = await t.call('user', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 409);
-  assert.match(JSON.stringify(await s.json()), /고칠 것 1건/);
+  assert.match(JSON.stringify(await s.json()), /고칠 것·확인할 것 1건/);
   const again = (await (await t.call('user', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: '## 고친 본문' })).json()) as { doc_id: string; new_version: boolean };
   assert.equal(again.doc_id, doc_id); assert.equal(again.new_version, false);
   assert.equal((await t.store.getDoc(doc_id))!.findings.length, 0);
@@ -521,4 +521,27 @@ test('확인 필요 답 넣기(11/18): 답을 문장에 넣어 before→after, �
   const after = (await t.store.getDoc(doc_id))!;
   assert.equal(after.lifecycle, 'IN_REVIEW');
   assert.equal(after.findings.filter((f) => (f.details as { status?: string })?.status === 'OPEN').length, 2);
+});
+
+test('항목별 확인(Fable 권고 11/18): 하나만 확인하면 그 하나만, 남으면 게시 409·모두 확인하면 201, 사유 필수, 남의 문서 403, 잠금 아닌 코드 섞이면 404·아무것도 안 씀, OCR·LOW 는 잠그지 않음', async () => {
+  const t = setup();
+  const r = await t.call('author', 'POST', '/v1/documents/upload-url', upload);
+  const { doc_id } = (await r.json()) as { doc_id: string };
+  t.objects.set(`${doc_id}/original.pdf`, { s3_version_id: 'v1', content_hash: 'h1' });
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
+  const d = (await t.store.getDoc(doc_id))!;
+  const F = (id: string, code: string, severity = 'MEDIUM') => ({ finding_id: id, step: 'PII_SCAN', severity, code, message: 'x', evidence_ref: 'page:3' });
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', content_hash: 'sha256:h1', document_type: 'MANUAL',
+    findings: [F('p1', 'PII_IMAGE_REVIEW'), F('p2', 'PII_IMAGE_REVIEW'), F('p3', 'SECRET_MASKED'), F('o1', 'OCR_LOW_CONFIDENCE'), F('l1', 'PII_IMAGE_REVIEW', 'LOW')] as never });
+  const ack = (who: string, ids: string[], reason = '그림에 개인정보 없음') => t.call(who, 'POST', `/v1/documents/${doc_id}/findings/ack`, { finding_ids: ids, reason });
+  assert.equal((await ack('author', ['p1'], '')).status, 422);
+  assert.equal((await ack('author2', ['p1'])).status, 404); // 남의 미게시 문서는 있는지도 숨김
+  assert.equal((await ack('author', ['p1', 'o1'])).status, 404);
+  assert.equal((await t.store.getDoc(doc_id))!.findings.filter((f) => f.acknowledged).length, 0); // 아무것도 안 씀
+  assert.equal((await ack('author', ['p1'])).status, 200);
+  const one = (await t.store.getDoc(doc_id))!.findings;
+  assert.deepEqual(one.filter((f) => f.acknowledged).map((f) => f.finding_id), ['p1']); // 하나만
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`)).status, 409);
+  assert.equal((await ack('author', ['p2', 'p3'])).status, 200);
+  assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/submit`)).status, 201); // OCR·LOW 는 잠그지 않음
 });
