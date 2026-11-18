@@ -33,7 +33,7 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "aae8452" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "e9281df" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
+    dhxorb96 = "a5ba24b" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
     let522mj = "7064cf7" # main: #45 get_wiki_document + #44 #43 #42 #41
   }
 
