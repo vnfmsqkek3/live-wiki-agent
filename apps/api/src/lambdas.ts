@@ -474,7 +474,8 @@ export function makeFinalize(deps: LambdaDeps) {
     }
     // 검증에서 차단되거나 반려된 문서는 원본·작업 파일을 저장소에서 바로 지운다 (사용자 지시 11/17).
     // 개인정보를 가린 설명·쪽 이미지(masked/)는 올린 사람이 사유를 보도록 MASKED_RETENTION_DAYS 동안 남기고 freshnessSweep이 지운다
-    if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && deps.purge) await purgeOriginal(deps, next, i.workflow_id);
+    // 재검토(REVALIDATE)도 outcome=REJECTED 로 오지만 문서는 IN_REVIEW 로 돌아가 다시 고친다 → 원본을 지우지 않는다 (yoyo0704 지적 11/19)
+    if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && next.lifecycle === 'BLOCKED' && deps.purge) await purgeOriginal(deps, next, i.workflow_id);
     return { status: 'OK' };
   };
 }
