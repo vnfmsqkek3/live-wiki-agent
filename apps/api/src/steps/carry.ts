@@ -6,14 +6,15 @@
 import { createHash } from 'node:crypto';
 import type { Finding } from '../contracts.ts';
 
-export interface ReviewCarry { text: string; items: { code: string; key: string; status: 'OPEN' | 'DISMISSED' | 'ACK'; reason?: string; by?: string; at?: string }[] }
+export interface ReviewCarry { text: string; /** 이전 검사에서 규정 비교(노하우 검증)를 했는가. 안 했으면 처음 나온 충돌은 올린 사람이 처리 */ validated?: boolean; items: { code: string; key: string; status: 'OPEN' | 'DISMISSED' | 'ACK'; reason?: string; by?: string; at?: string }[] }
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 const h = (s: string) => createHash('sha256').update(norm(s)).digest('hex').slice(0, 16);
 const textOf = (f: Finding) => String((f.details as { before?: unknown } | undefined)?.before ?? f.location?.excerpt ?? f.message);
 const keyOf = (f: Finding) => h(`${f.code}|${textOf(f)}`);
 
-export function makeCarry(oldText: string, findings: Finding[]): ReviewCarry {
+export function makeCarry(oldText: string, findings: Finding[], validated = false): ReviewCarry {
   return {
+    validated,
     text: norm(oldText).slice(0, 300_000), // 문장이 한 줄 안에 있을 수 있어 해시가 아닌 글로 (정리본 마스킹 글)
     items: findings.flatMap((f): ReviewCarry['items'] => {
       const st = (f.details as { status?: string; dismiss_reason?: string } | undefined)?.status;
@@ -39,7 +40,8 @@ export function applyCarry(c: ReviewCarry | undefined, findings: Finding[]): Fin
     }
     if (prev?.status === 'ACK' && ack && !f.acknowledged) return [{ ...f, acknowledged: ack }];
     // 규정 충돌: 고치지 않은 문장에서 재검사로 새로 나온 것은 올린 사람을 막지 않고 승인자에게 보인다 (사용자 결정 11/18, 규칙 2 완화)
-    if (f.code === 'KNOWHOW_CONFLICT' && !prev && !f.acknowledged && c.text.includes(norm(textOf(f))))
+    // 전에 규정 비교를 한 문서의 재검사에서만 (종류를 매뉴얼→노하우로 바꾼 첫 비교의 충돌은 올린 사람이 처리, 11/18 prod H5)
+    if (f.code === 'KNOWHOW_CONFLICT' && c.validated && !prev && !f.acknowledged && c.text.includes(norm(textOf(f))))
       return [{ ...f, acknowledged: { by: 'system:recheck', at: new Date().toISOString(), reason: '재검사에서 새로 나옴(고치지 않은 문장) — 승인자 판단' } }];
     return [f];
   });
