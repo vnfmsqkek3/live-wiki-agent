@@ -397,3 +397,18 @@ test('Clarify 보정(11/18 dev 재시험): 채택 결과가 없으면 웹 검색
   assert.equal(calls, 2);
   assert.equal((r.findings![0]!.details as { suggestions: { value: string }[] }).suggestions[0]!.value, 'https://www.samsungsvc.co.kr/download');
 });
+
+test('Clarify 시간 예산: 웹 검색이 끝나지 않아도 예산 안에 OK 로 끝난다 (11/18 dev Gateway 300초)', async () => {
+  const { makeReferenceCheck } = await import('../src/lambdas.ts');
+  const body = '삼성 드라이버는 다운로드 자료실 링크 접속 후 받는다.';
+  const t = segSetup([body]); await t.store.putDoc(t.doc);
+  t.objects.set(`${t.doc.doc_id}/masked/segments/0000.json`, { doc_id: t.doc.doc_id, page_index: 0, text: body });
+  process.env.REFCHECK_BUDGET_MS = '22000'; // 웹 한 번에 최대 7초(22-15) 뒤 포기
+  try {
+    const step = makeReferenceCheck({ ...t.deps, findClarify: async () => ({ value: { items: [] }, model: 'm' }), web: { search: () => new Promise(() => {}) } });
+    const t1 = Date.now(); const r = await step(t.input);
+    assert.equal(r.status, 'OK');
+    assert.ok(Date.now() - t1 < 15_000);
+    assert.equal(r.findings!.length, 1); // 링크 항목은 질문만 남음
+  } finally { delete process.env.REFCHECK_BUDGET_MS; }
+});

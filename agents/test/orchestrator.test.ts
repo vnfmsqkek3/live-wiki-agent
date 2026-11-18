@@ -129,3 +129,13 @@ test('참조 확인(REFERENCE_CHECK=on): classify 뒤 reference_check, 그 뒤 t
   assert.equal(order[order.indexOf('classify') + 1], 'reference_check');
   assert.equal(order[order.indexOf('reference_check') + 1], 'trust_gate');
 });
+
+test('참조 확인이 실패해도(Gateway 시간 초과 등) SKIPPED 로 남기고 trust_gate 로 계속 (11/18 dev)', async () => {
+  const t = deps({ reference_check: () => new TypeError('fetch failed') });
+  const d = { ...t.d, referenceCheck: true };
+  const r = await run(ingestGraph(d, input), d, input);
+  assert.notEqual(r.status, 'FAILED');
+  const order = t.calls.map((c) => c.step);
+  assert.ok(order.includes('trust_gate'));
+  assert.ok(t.records.some((x) => /=SKIPPED$/.test(x) && /참조|Reference/i.test(x)));
+});

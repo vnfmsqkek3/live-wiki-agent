@@ -13,6 +13,7 @@ import { blackout, piiBoxes, type OcrPage } from './steps/image-mask.ts';
 import { docDates, primaryDate, titleCandidate } from '@hanaeum/legal-parser';
 import { editReview } from './steps/edit-review.ts';
 import { sitesOf, unsafeQuery } from './steps/reference-check.ts';
+import type { WebHit } from './web-search.ts';
 import { allocate, asRef, findInSameDoc, linkAcceptable, ruleCandidates, sitesFor, webQuery, clarifyPrompt, clarifySeverity, keepCandidates, safeSuggestion, suggestPrompt, WEB_KINDS, type ClarifyCandidate, type ClarifyData, type ClarifySuggestion, type WikiHit } from './steps/clarify.ts';
 import { sameText } from './claims.ts';
 import { faithful, needsStructure, structurePrompt, textFallback } from './steps/structure.ts';
@@ -146,6 +147,9 @@ export function makeInjectionScan(deps: SegmentDeps) {
 export function makeReferenceCheck(deps: SegmentDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
     if (!deps.findClarify) return { status: 'OK', findings: [] };
+    // 전체 시간 예산 240초: Gateway 가 도구 호출을 ~300초에 끊는다 (11/18 dev 과천 가상판 실패). 넘으면 남은 웹 검색은 건너뛴다
+    const t0 = Date.now(); const budget = Number(process.env.REFCHECK_BUDGET_MS ?? 240_000);
+    const left = () => budget - (Date.now() - t0);
     const d = await mustDoc(deps.store, i.doc_id);
     try {
       // 정리본이 있으면 정리본, 없으면 마스킹 본문 (모두 개인정보를 가린 글). 적용은 화면이 이 글 기준으로 before→after
@@ -203,11 +207,20 @@ export function makeReferenceCheck(deps: SegmentDeps) {
       const checked_at = now();
       if (deps.web && webC.length) {
         // 채택 판정을 검색 안으로: 채택할 수 있는 결과가 나올 때까지 사이트별 site: 검색 → 일반 검색 (Fable 진단 C)
-        const run = (qs: string[]) => deps.web!.search(qs, new Map(webC.map(({ q, sites }) => [q!, sites])), new Map(webC.map(({ q, sites }) => [q!, linkAcceptable(all, sites)])));
+        const sitesM = new Map(webC.map(({ q, sites }) => [q!, sites])); const acceptM = new Map(webC.map(({ q, sites }) => [q!, linkAcceptable(all, sites)]));
+        // 검색어마다 따로(동시 2개), 각 60초·남은 예산 안에서. 시간 초과면 그 검색어는 빈 결과
+        const one = (q: string) => {
+          const ms = Math.min(60_000, left() - 15_000);
+          if (ms <= 5_000) { console.log(JSON.stringify({ msg: 'refcheck web skipped', doc_id: d.doc_id, reason: 'budget' })); return Promise.resolve(new Map<string, WebHit[]>()); }
+          return Promise.race([deps.web!.search([q], sitesM, acceptM).catch(() => new Map<string, WebHit[]>()),
+            new Promise<Map<string, WebHit[]>>((r) => setTimeout(() => { console.log(JSON.stringify({ msg: 'refcheck web timeout', doc_id: d.doc_id, ms })); r(new Map()); }, ms))]);
+        };
+        const run = async (qs: string[]) => { const out = new Map<string, WebHit[]>(); for (let k = 0; k < qs.length; k += 2) for (const m of await Promise.all(qs.slice(k, k + 2).map(one))) for (const [q, h] of m) out.set(q, h); return out; };
         const hits = await run([...new Set(webC.map(({ q }) => q!))]);
-        // 웹 결과는 실행마다 달라진다: 채택할 결과가 없는 검색어는 한 번만 다시 (11/18 dev 1회차 빈 제안)
+        // 웹 결과는 실행마다 달라진다: 채택할 결과가 없는 검색어는 남은 시간이 있을 때만 한 번 더 (11/18 dev 1회차 빈 제안)
         const retry = webC.filter(({ q, sites }) => !(hits.get(q!) ?? []).some(linkAcceptable(all, sites))).map(({ q }) => q!);
-        if (retry.length) for (const [q, h] of await run([...new Set(retry)]).catch(() => new Map<string, never[]>())) hits.set(q, [...(hits.get(q) ?? []), ...h]);
+        if (retry.length && left() > 75_000) for (const [q, h] of await run([...new Set(retry)])) hits.set(q, [...(hits.get(q) ?? []), ...h]);
+        console.log(JSON.stringify({ msg: 'refcheck web', doc_id: d.doc_id, queries: webC.length, results: [...hits.values()].map((h) => h.length), accepted: webC.map(({ q, sites }) => (hits.get(q!) ?? []).filter(linkAcceptable(all, sites)).length), left_ms: left() }));
         for (const q of hits.keys()) await deps.store.audit({ at: checked_at, actor: 'system:reference-check', action: 'WEB_SEARCH', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id,
           detail: { query: q, results: hits.get(q)!.length, urls: hits.get(q)!.map((h) => h.url) } });
         for (const { c, n, q, sites } of webC) {

@@ -28,6 +28,8 @@ export interface PipelineDeps {
 }
 
 /** 단계 키 → 기록 이름 (기존 ASL과 동일) */
+/** 실패해도 게시 흐름을 멈추지 않는 단계 */
+export const NON_BLOCKING = new Set(['reference_check']);
 export const STEP_NAMES: Record<string, string> = {
   malware_check: 'MalwareCheck', file_structure_check: 'FileStructureCheck', convert_to_pdf: 'ConvertToPdf', text_layer_extract: 'TextLayerExtract', page_render: 'PageRender',
   ocr_if_needed: 'OcrIfNeeded', segment_build: 'SegmentBuild', pii_scan: 'PiiScan', image_describe: 'ImageDescribe', injection_scan: 'InjectionScan', page_summarize: 'PageSummarize', classify: 'Classify', reference_check: 'ReferenceCheck',
@@ -62,6 +64,11 @@ class StepNode extends Node {
       }
     } catch (e) {
       const err = e as Error;
+      // 게시 비차단 단계(참조 확인 6.4 '실패해도 계속')는 실패해도 SKIPPED 로 남기고 다음 단계로 (11/18 dev: Gateway 300초 끊김으로 업로드 전체 실패)
+      if (NON_BLOCKING.has(this.step)) {
+        await this.deps.record(this.input.workflow_id, this.input.doc_id, name, 'SKIPPED', err.name === 'Error' ? 'StepFailed' : err.name, err.message?.slice(0, 300)).catch(() => {});
+        return done(`${name}: skipped (non-blocking failure)`);
+      }
       await this.deps.record(this.input.workflow_id, this.input.doc_id, name, 'FAILED', err.name === 'Error' ? 'StepFailed' : err.name, err.message?.slice(0, 300));
       throw e; // Graph 실패 → 실행 FAILED 기록은 호출자
     }
