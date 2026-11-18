@@ -346,3 +346,9 @@ test('buildDocPages 안전장치: 앞 쪽이 2열 표로 끝나면 다음 쪽 �
   assert.match(r[0]!.parts[0]!.markdown, /\| 안내 \|.*\n\| 확인 \| 처리 근거 및 동의 필요 여부 \|\n\| 등록 \|.*\n\| 사후 관리 \| 목적 변경 및 보유 기간 점검 \|/);
   assert.match(structurePrompt(1, '본문', [], '| 안내 | 수집 목적 |'), /<prev_page_tail[^>]*>\n\| 안내 \| 수집 목적 \|/);
 });
+
+test('외부 법령 합치기(11/18): 괄호 결과 + 모델 결과, 공백 정리·중복 제거, 조문 있는 항목이 있으면 조문 없는 같은 법령은 뺌', async () => {
+  const { mergeLaws } = await import('../src/steps/external-laws.ts');
+  assert.deepEqual(mergeLaws([{ law_name: '개인정보 보호법' }], [{ law_name: '개인정보  보호법', clause: '제15조 제1항' }, { law_name: '전자금융거래법' }]),
+    [{ law_name: '개인정보 보호법', clause: '제15조제1항' }, { law_name: '전자금융거래법' }]);
+});

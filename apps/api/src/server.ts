@@ -4,6 +4,7 @@ import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { structured } from './model.ts';
 import { COMPOSE_SCHEMA, COMPOSE_SYSTEM } from './steps/clarify.ts';
+import { LAW_SCHEMA, LAW_SYSTEM, mergeLaws, type LawRef } from './steps/external-laws.ts';
 import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
@@ -36,13 +37,16 @@ async function searchWiki() {
 async function externalLaws(text: string) {
   if (!process.env.TABLE_REGULATIONS) return [];
   const reg = (await import('@hanaeum/regulation-server')) as unknown as { externalLaws: (t: string, s: unknown) => Promise<string[]>; externalLawRefs?: (t: string, s: unknown) => Promise<{ law_name: string; clause?: string }[]>; DynamoClauseStore: new (t: string) => unknown };
-  // let522mj PR #47: 「」『』[ ]《》〈〉 모두 인식 + 조문까지. 병합 전에는 아래 옛 방식
-  if (reg.externalLawRefs) return reg.externalLawRefs(text, new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS));
-  const names = await reg.externalLaws(text, new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS));
-  return names.map((law_name) => {
+  const store = new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS);
+  // 1) 괄호 표기 (let522mj PR #47 이 있으면 그 결과, 없으면 옛 「」 방식)
+  const bracket: LawRef[] = reg.externalLawRefs ? await reg.externalLawRefs(text, store) : (await reg.externalLaws(text, store)).map((law_name) => {
     const m = new RegExp(`「${law_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」\\s*(제\\d+조(?:의\\d+)?(?:제\\d+항)?)`).exec(text);
     return { law_name, ...(m ? { clause: m[1] } : {}) };
   });
+  // 2) 괄호가 없어도 법령을 가리키는 곳 (사용자 지적 11/18): 모델이 뽑고, 내부 규정 저장소에 있는 이름은 뺀다
+  const found = await structured<{ laws: LawRef[] }>('HAIKU', LAW_SYSTEM, text.slice(0, 20000), 'submit_laws', LAW_SCHEMA as unknown as Record<string, unknown>).then((r) => r.value.laws ?? []).catch(() => [] as LawRef[]);
+  const external = await Promise.all(found.map(async (l) => ((await reg.externalLaws(`「${l.law_name}」`, store).catch(() => [])).length ? l : null)));
+  return mergeLaws(bracket, external.filter((x): x is LawRef => !!x));
 }
 
 const app = createApp({
