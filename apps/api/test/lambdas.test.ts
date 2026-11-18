@@ -421,3 +421,12 @@ test('규칙 탐지(11/18 dev 시험): 문장 속 기한 내·담당자도 코�
   assert.ok(v && clarifySeverity(v) === 'MEDIUM');
   assert.ok(r.some((c) => c.kind === 'VAGUE_ACTOR' && c.span === '담당자'));
 });
+
+test('E8b 할당: 서로 맞지 않음은 3건까지, 다른 종류는 그대로 (11/18 dev 28쪽 11건)', async () => {
+  const { allocate } = await import('../src/steps/clarify.ts');
+  const inc = [1, 2, 3, 4, 5, 6].map((n) => C0({ kind: 'INCONSISTENT', item: `모델 ${n}`, before: `모델 ${n} 표기`, page: n }));
+  const vals = [1, 2].map((n) => C0({ item: `빈 칸 ${n}`, before: `| ${n} | x |  |`, page: n }));
+  const r = allocate([...inc, ...vals]);
+  assert.equal(r.filter((c) => c.kind === 'INCONSISTENT').length, 3);
+  assert.equal(r.length, 5);
+});

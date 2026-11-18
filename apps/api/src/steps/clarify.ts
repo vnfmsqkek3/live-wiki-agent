@@ -29,6 +29,7 @@ export const CLARIFY_SYSTEM = `당신은 은행 내부 문서 검토자다. <doc
 체크리스트(이것만 본다):
  1) 누가 하는지 '담당자·관련 부서·책임자'로만 적힌 절차 문장 → VAGUE_ACTOR
  2) 같은 문서 안에서 이름·번호·버전이 서로 다른 곳(표끼리, 표와 본문) → INCONSISTENT
+    단, 표기만 다른 것은 내지 않는다: 'series'·제조사명 접두어 유무, 파일 이름과 드라이버 표시 이름, 예시로 든 주소·값, 띄어쓰기·대소문자. 따라 하는 사람이 틀린 행동을 하게 되는 모순만.
  3) 오래된 프로그램·드라이버 버전 → OUTDATED
  (주소 없는 링크·표의 빈 칸은 코드가 따로 찾으니 고르지 않는다)
  고르지 않는 것: 용어 뜻을 묻는 것(같은 문서 다른 곳에 설명이 있을 수 있음), '예시'·'예:'로 든 값, 일반 서술.
@@ -151,14 +152,17 @@ export function ruleCandidates(pages: { page: number; text: string }[]): Clarify
   return out;
 }
 /** 할당 (Fable 진단 D): 링크 2건 + 나머지 3건, 같은 제조사 링크·같은 item 은 한 건 */
-export const CLARIFY_MAX = { links: 3, others: 12 };
+export const CLARIFY_MAX = { links: 3, others: 12, inconsistent: 3 };
 export function allocate(cands: ClarifyCandidate[], pageText?: (page: number) => string | undefined): ClarifyCandidate[] {
   const key = (c: ClarifyCandidate) => (c.kind === 'MISSING_LINK' ? `L:${makerOf(c.before) ?? c.item}` : `${c.kind}:${c.item}`);
   const seen = new Set<string>(); const uniq = cands.filter((c) => { const k = key(c); if (seen.has(k)) return false; seen.add(k); return true; });
   const rank = (c: ClarifyCandidate) => (clarifySeverity(c, c.page ? pageText?.(c.page) : undefined) === 'MEDIUM' ? 0 : 1);
   const byPage = (a: ClarifyCandidate, b: ClarifyCandidate) => rank(a) - rank(b) || (a.page ?? 0) - (b.page ?? 0);
+  // '서로 맞지 않음'은 모델 판단이라 잡음이 많다(11/18 dev 28쪽 매뉴얼 11건, 표기 차이 위주) → 3건까지. 남는 것은 저장 뒤에도 새로 묻지 않는다(steps/carry.ts)
+  const keepInc = new Set(uniq.filter((c) => c.kind === 'INCONSISTENT').sort(byPage).slice(0, CLARIFY_MAX.inconsistent));
+  const others = uniq.filter((c) => c.kind !== 'MISSING_LINK' && (c.kind !== 'INCONSISTENT' || keepInc.has(c)));
   // 한 번에 모두 묻는다 (사용자 지적 11/18: 5건 상한이라 답할 때마다 밀려 있던 질문이 새로 나왔다). 링크 3 + 그 밖 12. 웹 검색은 따로 3건까지
-  return [...uniq.filter((c) => c.kind === 'MISSING_LINK').sort(byPage).slice(0, CLARIFY_MAX.links), ...uniq.filter((c) => c.kind !== 'MISSING_LINK').sort(byPage).slice(0, CLARIFY_MAX.others)];
+  return [...uniq.filter((c) => c.kind === 'MISSING_LINK').sort(byPage).slice(0, CLARIFY_MAX.links), ...others.sort(byPage).slice(0, CLARIFY_MAX.others)];
 }
 
 /** 제조사 → 공식 도메인 (Fable 진단 C). 모델 추정보다 우선. 특정 페이지 주소는 넣지 않는다(과적합 방지). 필요하면 늘린다 */
