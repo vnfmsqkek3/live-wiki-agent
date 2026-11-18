@@ -459,6 +459,8 @@ test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·origin
   await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '시재 마감 노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
   await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
   assert.equal((await t.call('user', 'POST', '/v1/documents/doc_R/edit', { markdown: '# 규정' })).status, 409);
+  await t.store.putDoc({ ...base, doc_id: 'doc_OLD', title: '옛 판', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'SUPERSEDED' });
+  assert.equal((await t.call('user', 'POST', '/v1/documents/doc_OLD/edit', { markdown: '# 옛 판' })).status, 409); // 대체된 판은 최신에서 고친다
   const r = await t.call('user', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감\n1. 마감 30분 전 시재표 출력' });
   assert.equal(r.status, 201);
   const { doc_id, new_version } = (await r.json()) as { doc_id: string; new_version: boolean };

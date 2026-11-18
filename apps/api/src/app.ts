@@ -210,6 +210,7 @@ export function createApp(deps: Deps) {
     if (!t || t.lifecycle === 'DELETED' || (t.owner !== a.sub && !(t.lifecycle === 'PUBLISHED' && canRead(a, t.acl_groups)))) throw new ApiError('NOT_FOUND', 'document not found');
     const type = t.document_type ?? t.classification?.document_type;
     if (type === 'REGULATION') throw new ApiError('CONFLICT', '규정은 위키에서 고칠 수 없습니다. 개정된 원본 파일을 올려 주세요');
+    if (t.freshness === 'SUPERSEDED') throw new ApiError('CONFLICT', '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요');
     const now = new Date().toISOString();
     const md = new TextEncoder().encode(b.markdown);
     const fresh = { lifecycle: 'QUARANTINED' as const, trust_gate_result: undefined, findings: [], workflow_id: newId.wf(), s3_version_id: undefined, content_hash: undefined,
