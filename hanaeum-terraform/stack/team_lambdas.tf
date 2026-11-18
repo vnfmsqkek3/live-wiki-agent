@@ -157,7 +157,7 @@ locals {
     # interceptor: JWT 재검증 후 tools/call 인자에 __actor 주입. JWKS 공개 URL 조회(VPC 밖)
     interceptor = {
       zip = "${local.dp}/interceptor.zip", handler = "index.handler", memory = 256, timeout = 10, model_caller = false
-      env = { COGNITO_USER_POOL_ID = module.cognito.user_pool_id, COGNITO_CLIENT_ID = module.cognito.client_id }, statements = []
+      env = { COGNITO_USER_POOL_ID = module.cognito.user_pool_id, COGNITO_CLIENT_ID = "${module.cognito.client_id},${module.cognito.mcp_external_client_id}" }, statements = [] # 외부 MCP client_credentials (11/18)
     }
     mcp-privacy = { zip = "${local.dp}/mcp_privacy.zip", handler = "index.handler", memory = 256, timeout = 30, model_caller = false, env = {}, statements = [] }
     mcp-approval = {
