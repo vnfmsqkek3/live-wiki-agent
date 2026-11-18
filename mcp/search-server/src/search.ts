@@ -118,7 +118,8 @@ export class BedrockRetriever implements Retriever {
     if (!rerankArn) return hits;
     const top = Math.max(0, ...hits.map((h) => h.score));
     if (top < RELATED_MIN) return [];
-    const kept = hits.filter((h) => h.score >= top * RERANK_RATIO);
+    // 근거 미달(weak)이면 조각마다 RELATED_MIN 하한도 (1위 대비 비율로 남은 0.1 미만 잡음 숨김, 사용자 지적 11/18). Rerank 점수에만 적용
+    const kept = hits.filter((h) => h.score >= Math.max(top * RERANK_RATIO, top < RERANK_TOP1_MIN ? RELATED_MIN : 0));
     return top < RERANK_TOP1_MIN ? kept.map((h) => ({ ...h, weak: true })) : kept;
   }
 }
