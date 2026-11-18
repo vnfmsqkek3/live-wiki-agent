@@ -3,6 +3,7 @@
 // 노하우·매뉴얼: Markdown 제목(##) 단위, 없으면 문서 전체.
 // 임베딩 입력(contentBody) = augmented_search_text = 문맥 헤더 + 실제 본문. original_text는 인용용으로 메타데이터에 분리.
 import { parseLaw } from "@hanaeum/legal-parser";
+import { PII_NAME } from "@hanaeum/pii";
 import { FIGURE_RE, isoOfYmd, FIG_CONTEXT_LABEL, FIG_SUMMARY_RE } from "@hanaeum/schemas";
 import type { DocumentMetadata, Provision, ProvisionStatus } from "@hanaeum/schemas";
 
@@ -203,7 +204,25 @@ const SUMMARY_RE = FIG_SUMMARY_RE;
 
 /** 본문 끝의 그림 줄(⟦그림 pN⟧)은 본문 파싱에서 빼고 별도 청크로. 그림 설명·그림 속 글자는 인용 불가(original_text 비움),
  *  매뉴얼·노하우의 쪽 정리본은 그림 기준 근거(evidence_kind FIGURE, 인용 가능), 쪽 맥락은 같은 쪽 본문 조각의 머리로 */
+/** 마스킹 흔적을 검색 텍스트에서 뺌: 자리 표시([개인정보]·[주민등록번호]… @hanaeum/pii, {LICENSE_PLATE} 같은 Guardrail 표기)와
+ *  "가림 처리"·"가려져 있다" 문장. 가린 문서가 모두 "개인정보" 검색에 걸리던 문제 (사용자 지적 11/18, 과천 36쪽). original_text·화면은 그대로 */
+const MASK_TOKEN = new RegExp(`\\[(?:개인정보|${Object.values(PII_NAME).join("|")})\\]|\\{[A-Z][A-Z_]{2,}\\}`, "gu");
+const MASK_SENTENCE = /[^.\n]*(?:가림\s*처리|가려(?:져|진|짐)|마스킹(?:\s*처리|된))[^.\n]*\.?/gu;
+// "가림 처리" 문장은 AI 그림 설명에서만 뺌. 본문(규정 "마스킹 처리하여 보관한다" 등)은 진짜 내용이라 그대로
+// 그림 설명의 "표기:" 목록에 괄호 없이 옮겨 적은 "개인정보" 칸 이름도 뺌 (과천 실측 "/ 개인정보 / 개인정보 /")
+const MASK_LABEL = /(?<=^|\/ |: )개인정보(?= \/|$)/gmu;
+export const stripMaskTrace = (s: string, figure = false) => (figure ? s.replace(MASK_SENTENCE, "").replace(MASK_LABEL, "") : s).replace(MASK_TOKEN, "").replace(/[ \t]{2,}/gu, " ");
+const unmaskSearch = <T extends Chunk>(c: T): T => {
+  const m = /^\[[^\]]*\]\n/u.exec(c.augmented_search_text); // 머리 [제목 · …]는 그대로
+  const head = m?.[0] ?? "";
+  return { ...c, augmented_search_text: head + stripMaskTrace(c.augmented_search_text.slice(head.length), c.metadata.has_figure === true) };
+};
+
 export function chunkDocument(text: string, meta: DocumentMetadata): Chunk[] {
+  return chunkDocument0(text, meta).map(unmaskSearch);
+}
+
+function chunkDocument0(text: string, meta: DocumentMetadata): Chunk[] {
   const body: string[] = []; const figs: { page: number; text: string }[] = []; const ctx = new Map<number, string>();
   for (const line of text.split("\n")) {
     const m = FIGURE_RE.exec(line);

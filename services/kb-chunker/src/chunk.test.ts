@@ -188,3 +188,14 @@ test("장 번호: 10장 이상도 이어지고, 구분자 없는 숫자(전화�
   const sec = (p: number) => cs.find((c) => c.metadata.source_page === p)!.metadata.section;
   assert.deepEqual([0, 1, 2, 3, 4].map(sec), ["09 아홉째 장", "10 열째 장", "10 열째 장", "10 열째 장", "11 열한째 장"]);
 });
+
+test("검색 텍스트에서 마스킹 흔적 제거, 인용 원문은 그대로 (사용자 지적 11/18: 가린 문서가 '개인정보' 검색에 걸림)", () => {
+  const txt = "주소 종류 [개인정보] / 등록명 [개인정보] 입력 후 저장\n담당 [전화번호] {LICENSE_PLATE}\n\f\n⟦그림 p1⟧ 쪽 정리(AI, 그림 기준): 주소록 등록 화면. 일부 입력 필드는 [개인정보]로 가려져 있다. 중앙에 개인정보 가림 처리된 회색 박스. / 표기: 다운로드 / 개인정보 / 개인정보 / 의도: 등록";
+  const cs = chunkDocument(txt, meta({ document_type: "MANUAL", index_group: "wiki-knowledge" }));
+  for (const c of cs) assert.doesNotMatch(c.augmented_search_text, /개인정보|전화번호|LICENSE_PLATE|가려져|가림/u, c.augmented_search_text);
+  assert.match(cs[0]!.augmented_search_text, /주소 종류 \/ 등록명 입력 후 저장/u);
+  assert.match(cs.find((c) => c.metadata.has_figure)!.augmented_search_text, /주소록 등록 화면\./u);
+  assert.match(cs[0]!.metadata.original_text, /\[개인정보\]/u); // 인용·화면은 그대로
+  // 규정 본문의 "마스킹 처리" 문장은 진짜 내용 → 남김
+  assert.match(chunkDocument("제3조(보관) 주민등록번호는 마스킹 처리하여 보관한다.", meta())[0]!.augmented_search_text, /마스킹 처리하여 보관한다/u);
+});
