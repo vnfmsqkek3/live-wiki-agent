@@ -56,6 +56,9 @@ for id in "${IDS[@]}"; do
   if [ "$LC" != IN_REVIEW ]; then echo "결과 $id $d 승인대기 미도달 lifecycle=$LC TrustGate=$(j trust_gate_result <<<"$B")"; continue; fi
   TG=$(j trust_gate_result <<<"$B"); AS=$(j authority_status <<<"$B"); CT=$(j classification.document_type <<<"$B")
   K=$(kind "$id"); [ "$CT" = "$K" ] || call "$AT" POST "/v1/documents/$d/classification" "{\"document_type\":\"$K\",\"reason\":\"평가 세트 정답 분류\"}" >/dev/null
+  # 합성 문서의 확인 필요(CLARIFY_NEEDED, 예 "담당자는 어느 부서?")는 올린 사람이 '해당 없음'으로 답한다 (prod 시드 11/18: G-KREV-04). 차단 기대 문서는 건드리지 않음
+  [ "${EXPECT:-}" = block ] || for f in $(bodyof "$(call "$AT" GET "/v1/documents/$d/issues")" | python3 -c 'import json,sys; print(" ".join(x["finding_id"] for x in json.load(sys.stdin).get("items",[]) if x.get("code")=="CLARIFY_NEEDED"))'); do
+    call "$AT" POST "/v1/documents/$d/findings/$f/ack" '{"reason":"평가 세트 합성 문서(SYNTHETIC): 해당 없음"}' >/dev/null; done
   R=$(call "$AT" POST "/v1/documents/$d/submit"); [ "$(code "$R")" = 201 ] || { echo "$id $d submit 실패 $(bodyof "$R" | head -c 200) (TrustGate=$TG $AS)"; continue; }
   APR=$(bodyof "$R" | j approval_id)
   if [ "${EXPECT:-}" = block ]; then R=$(call "$PT" POST "/v1/approvals/$APR/decision" '{"decision":"REJECT","reason":"평가: 위조·공격 문서 반려"}'); [ "$(code "$R")" = 200 ] && echo "결과 $id $d TrustGate=$TG authority=$AS → 게시 요청 접수, 사람 반려" || echo "결과 $id $d 반려 실패 $(bodyof "$R" | head -c 200)"; continue; fi
