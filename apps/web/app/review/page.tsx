@@ -2,6 +2,7 @@
 import { DocText } from '../doc-text';
 import { PageHeader } from '../page-header';
 import { ClarifyList } from '../clarify';
+import { ReviewItems } from '../review-items';
 // 05 OCR·PII 검토: 작성자가 자동 분석 결과를 확인·수정하고 게시를 요청한다.
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
@@ -61,8 +62,9 @@ function ReviewView() {
   const blocked = r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED';
   const uncertain = r.findings.filter((f) => f.severity !== 'LOW').length;
   const clarifyOpen = (r.clarify ?? []).filter((c) => c.blocking && c.status === 'OPEN');
+  const reviewOpen = (r.reviews ?? []).filter((x) => !x.acknowledged);
   const fixOpen = (r.fixes ?? []).filter((f) => !f.acknowledged);
-  const open = [...fixOpen, ...clarifyOpen]; // 게시 요청 잠금 = 고칠 것 + 확인 필요(잠금 항목)
+  const open = [...fixOpen, ...clarifyOpen, ...reviewOpen]; // 게시 요청 잠금 = 고칠 것 + 확인 필요(잠금 항목)
   const canFix = r.lifecycle === 'IN_REVIEW' && r.text !== undefined;
   /** AI 수정 제안 적용: 그 문장을 제안 문장으로 바꾼 본문으로 편집기를 연다 */
   const applyFix = (f: Fix) => setEditInit(f.suggestion && r.text!.includes(f.excerpt) ? r.text!.replace(f.excerpt, f.suggestion) : r.text!);
@@ -117,6 +119,8 @@ function ReviewView() {
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {r.lifecycle === 'QUARANTINED' && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} onCancel={() => setEditInit(null)} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
+      {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
+        onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
       {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={r.text} canFix={canFix}
         onDismissed={(fid, reason) => setR((x) => x && { ...x, clarify: x.clarify!.map((c) => (c.finding_id === fid ? { ...c, status: 'DISMISSED', dismiss_reason: reason, blocking: false } : c)) })} />}
       {r.lifecycle === 'IN_REVIEW' && (

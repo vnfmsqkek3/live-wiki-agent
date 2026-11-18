@@ -32,7 +32,7 @@ function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Iss
   );
 }
 
-function PageView({ docId, page, items, onClose }: { docId: string; page: number; items: Issue[]; onClose: () => void }) {
+export function PageView({ docId, page, items, onClose }: { docId: string; page: number; items: Issue[]; onClose: () => void }) {
   const [url, setUrl] = useState('');
   const [size, setSize] = useState<{ w: number; h: number } | null>(null);
   const [err, setErr] = useState('');
@@ -63,7 +63,9 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
   const [openAt, setOpenAt] = useState<number | null>(null); // 위치 보기를 누른 항목
   useEffect(() => { api<Issues>('GET', `/v1/documents/${encodeURIComponent(docId)}/issues`).then(setD).catch(() => setD(null)); }, [docId, refreshKey]);
   if (!d) return null;
-  const shown = d.items.filter((i) => i.severity !== 'LOW');
+  // 항목별 확인 대상(개인정보·비밀값 MEDIUM)은 검토 화면 위쪽 '개인정보 확인'에서 처리하므로 여기서 뺀다 (Fable 권고 11/18)
+  const REVIEW = new Set(['PII_IMAGE_REVIEW', 'PII_IN_FIGURE', 'PII_GUARDRAIL', 'SECRET_MASKED']);
+  const shown = d.items.filter((i) => i.severity !== 'LOW' && !(i.severity === 'MEDIUM' && REVIEW.has(i.code)));
   const info = d.items.filter((i) => i.severity === 'LOW');
   return (
     <section aria-labelledby="issues-h" className="issues">
