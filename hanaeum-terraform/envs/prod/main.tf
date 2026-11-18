@@ -28,7 +28,7 @@ module "stack" {
   # 사용자 결정 11/18 21시: dev 폐기, prod 단일 환경. 팀원 배포 요청은 여기 커밋을 올려 바로 apply (11/18 dev 끝까지 시험 36/36 통과 커밋)
   lambda_refs       = { yoyo0704 = "e22b3f6", dhxorb96 = "791740d", let522mj = "29dfb9a" }
   ocr_source_ref    = "620108a"
-  webapp_source_ref = "9ff4b16" # 웹·API (ECS·CloudFront)
+  webapp_source_ref = "31a14b6" # 웹·API (ECS·CloudFront)
   agents_source_ref = "791740d" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
   # enable_transaction_search = true  # 계정 단위 자원: dev destroy 뒤 켬 (지금은 dev 가 보유)
   team_lambdas = [
