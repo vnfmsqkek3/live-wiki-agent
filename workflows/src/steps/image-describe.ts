@@ -72,7 +72,7 @@ export type Deps = {
   putJson: (key: string, body: unknown) => Promise<void>;
   putPng: (key: string, body: Uint8Array) => Promise<void>;
   crop: (png: Uint8Array, box: number[], pad?: number) => Promise<Uint8Array>;
-  describe: (png: Uint8Array, pageText: string) => Promise<unknown>;
+  describe: (png: Uint8Array, pageText: string, readAll?: boolean) => Promise<unknown>;
   mask: Mask;
   saveFindings: FindingsStore;
 };
@@ -127,7 +127,7 @@ export async function cropFigure(png: Uint8Array, box: number[], pad = 30): Prom
 }
 
 // 모델 출력은 신뢰하지 않는다: 형식 검사 + 빈 묘사 제외 + 모든 글 필드 PII 재마스킹
-export async function sanitize(raw: unknown, mask: Mask): Promise<{ figures: Figure[]; pii: number; page_markdown?: string }> {
+export async function sanitize(raw: unknown, mask: Mask, readAll = false): Promise<{ figures: Figure[]; pii: number; page_markdown?: string }> {
   const list = (raw as { figures?: unknown })?.figures;
   let pii = 0;
   const m = async (t: unknown, max = 2000) => {
@@ -146,7 +146,7 @@ export async function sanitize(raw: unknown, mask: Mask): Promise<{ figures: Fig
     const bbox = normBox((f as Figure).bbox);
     figures.push({ kind, description, ...(overlay_text ? { overlay_text } : {}), ...(intent ? { intent } : {}), ...(bbox ? { bbox } : {}) });
   }
-  const page_markdown = figures.length ? await m((raw as { page_markdown?: unknown })?.page_markdown, PAGE_MD_MAX) : undefined;
+  const page_markdown = figures.length || readAll ? await m((raw as { page_markdown?: unknown })?.page_markdown, PAGE_MD_MAX) : undefined;
   return { figures, pii, ...(page_markdown ? { page_markdown } : {}) };
 }
 
@@ -155,13 +155,15 @@ export function makeHandler(d: Deps) {
     const findings: Finding[] = [];
     let described = 0;
     // 쪽 CONCURRENCY 개씩 동시에 (11/17 dev 실측: 28쪽 순서 처리 > Lambda 300초 → 시간 초과). 쪽 순서는 결과에 영향 없음
+    // OCR 인식률 95% 미만 쪽: 그림이 없어도 Vision 으로 쪽 전체를 읽어 정리본을 만든다 (사용자 결정 11/18 "sonnet 비전 폴백")
+    const low = new Set((await d.getJson<{ low_pages?: number[] }>(`${e.doc_id}/masked/ocr_low_pages.json`))?.low_pages ?? []);
     const one = async (page_index: number) => {
       const ref = `${e.doc_id}/masked/pages/${nnnn(page_index)}.png`;
       const png = await d.getBytes(ref);
       if (!png) return;
       const segKey = `${e.doc_id}/masked/segments/${nnnn(page_index)}.json`;
       const seg = (await d.getJson<Segment>(segKey)) ?? { doc_id: e.doc_id, page_index, text: "" };
-      const { figures, pii, page_markdown } = await sanitize(await d.describe(png, seg.text.slice(0, 4000)), d.mask);
+      const { figures, pii, page_markdown } = await sanitize(await d.describe(png, seg.text.slice(0, 4000), low.has(page_index)), d.mask, low.has(page_index));
       if (pii > 0) findings.push(finding(STEP, "MEDIUM", "PII_IN_FIGURE", `페이지 ${page_index + 1}: 그림 묘사에서 개인정보 ${pii}건 마스킹`, ref, {
         location: { page: page_index + 1 },
         user_message: `${page_index + 1}쪽 그림(사진·캡처)에 개인정보로 보이는 내용이 ${pii}건 있어 가렸습니다.`,
@@ -229,7 +231,7 @@ export const handler = makeHandler({
     putJson: async (Key, body) => {
       await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key, Body: JSON.stringify(body), ContentType: "application/json", ServerSideEncryption: "aws:kms" }));
     },
-    describe: async (png0, pageText) => {
+    describe: async (png0, pageText, readAll) => {
       // 모델이 픽셀 좌표를 정확히 쓰도록 보낼 크기를 정해 알려 준다 (긴 변 1568 이하, Bedrock 내부 축소와 같은 기준)
       const { createCanvas, loadImage } = await import("@napi-rs/canvas");
       const src = await loadImage(Buffer.from(png0));
@@ -242,7 +244,7 @@ export const handler = makeHandler({
         system: [{ text: SYSTEM }],
         messages: [{ role: "user", content: [
           { image: { format: "png", source: { bytes: png } } },
-          { text: `이미지 크기: ${W}×${H} 픽셀\n<page_text>\n${pageText}\n</page_text>\n위 페이지의 그림과 쪽 정리본(page_markdown)을 report_figures 로 보고하라.` },
+          { text: `이미지 크기: ${W}×${H} 픽셀\n<page_text>\n${pageText}\n</page_text>\n위 페이지의 그림과 쪽 정리본(page_markdown)을 report_figures 로 보고하라.${readAll ? "\n이 쪽은 OCR 인식률이 낮다. 그림이 없어도 page_markdown 을 반드시 쓰고, 글자는 이미지를 보고 읽는다." : ""}` },
         ] }],
         toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { tool: { name: TOOL.name } } },
         inferenceConfig: { maxTokens: 4000, temperature: 0 },

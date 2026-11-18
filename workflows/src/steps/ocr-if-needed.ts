@@ -33,6 +33,12 @@ export const PASS_PAGE = 0.95;
 export const FIGURE_LABELS = new Set(["image", "figure", "chart"]);
 
 // 저신뢰 판정: 블록 < 0.85 또는 페이지 평균 < 0.9 → OCR·PII 검토 화면 표시 (기준치는 실측 후 조정)
+/** 쪽 본문 평균 신뢰도 (그림 안 글자·빈 덩어리 제외). 본문이 없으면 undefined */
+export function pageAvg(p: Page): number | undefined {
+  const body = p.blocks.filter((b) => !FIGURE_LABELS.has(b.label ?? "") && (b.text === undefined || b.text.trim() !== ""));
+  return body.length ? body.reduce((s, b) => s + b.confidence, 0) / body.length : undefined;
+}
+
 export function lowConfidence(doc_id: string, pages: Page[]): Finding[] {
   const out: Finding[] = [];
   for (const p of pages) {
@@ -94,6 +100,9 @@ export function makeHandler(d: Deps) {
 
     const pages = chunks.flatMap((c) => c.pages).sort((a, b) => a.page_index - b.page_index);
     await d.put(resultKey, JSON.stringify({ doc_id: e.doc_id, model: chunks[0]!.model, model_version: chunks[0]!.model_version, page_count: targets.page_count, pages }));
+    // 인식률 95% 미만 쪽은 ImageDescribe 가 Sonnet Vision 으로 다시 읽는다(사용자 결정 11/18). 쪽 번호·평균만, 글자 없음 → masked/ 에 둠
+    const low_pages = pages.filter((p) => (pageAvg(p) ?? 1) < PASS_PAGE).map((p) => p.page_index);
+    await d.put(`${e.doc_id}/masked/ocr_low_pages.json`, JSON.stringify({ doc_id: e.doc_id, low_pages }));
     const findings = lowConfidence(e.doc_id, pages);
     await d.saveFindings(e.doc_id, STEP, findings);
     return { status: findings.some((f) => f.severity === "MEDIUM") ? "REVIEW_REQUIRED" : "OK", output_key: resultKey, findings };

@@ -67,6 +67,10 @@ describe("sanitize", () => {
     expect(r.figures).toEqual([{ kind: "other", description: "고객 [전화번호] 상담 화면 캡처", overlay_text: "연락처 [전화번호]", intent: "절차 안내" }]);
   });
   it("tolerates malformed model output", async () => expect(await sanitize("nope", mask)).toEqual({ figures: [], pii: 0 }));
+  it("low-OCR page keeps page_markdown even without figures (vision fallback)", async () => {
+    expect((await sanitize({ figures: [], page_markdown: "## 제목\n본문" }, mask)).page_markdown).toBeUndefined();
+    expect((await sanitize({ figures: [], page_markdown: "## 제목\n본문" }, mask, true)).page_markdown).toBe("## 제목\n본문");
+  });
   it("keeps page_markdown only when the page has figures, masked", async () => {
     const r = await sanitize({ figures: [{ kind: "screenshot", description: "설치 화면" }], page_markdown: "## 설치\n1. **다운로드** 클릭 _(그림 1)_ 010-1234-5678" }, mask);
     expect(r.page_markdown).toContain("1. **다운로드** 클릭 _(그림 1)_");
