@@ -112,6 +112,14 @@ export const ulidTime = (id: string) => {
 type Env = { Variables: { actor: Actor; trace_id: string; token: string } };
 
 /** 화면으로 나가는 Finding: message를 사람이 읽는 문장으로 바꾼다 (원래 message는 감사·운영 기록에만) */
+/** 위키 편집 글과 같은 그림 표시: 쪽(1부터) n 의 '(그림 k)' → '(그림 n-k)'. 이미 'n-k' 인 위키 수정본은 그대로 (11/18) */
+const figRefs = (t: string, page?: number) => (page ? t.replace(/([([])그림\s*(\d+)([)\]])/g, (_m, a: string, k: string, b: string) => `${a}그림 ${page}-${k}${b}`) : t);
+/** 확인 필요 항목의 문장들을 편집 글과 같은 그림 표시로 (그래야 저장 때 본문에서 찾는다, 사용자 지적 11/18 '원래 문장을 찾지 못한 항목') */
+const clarifyView = (det: Record<string, unknown>) => {
+  const pg = typeof det['page'] === 'number' ? det['page'] as number : undefined;
+  const sg = (det['suggestions'] as { after?: string }[] | undefined)?.map((x) => ({ ...x, ...(x.after ? { after: figRefs(x.after, pg) } : {}) }));
+  return { ...det, ...(typeof det['before'] === 'string' ? { before: figRefs(det['before'] as string, pg) } : {}), ...(sg ? { suggestions: sg } : {}) };
+};
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
@@ -278,7 +286,7 @@ export function createApp(deps: Deps) {
       const f = d.findings.find((y) => y.finding_id === x.finding_id && y.code === 'CLARIFY_NEEDED');
       const det = (f?.details ?? {}) as { kind?: string; item?: string; before?: string; question?: string; span?: string };
       const answer = mask(String(x.answer ?? '').trim(), detectPii(String(x.answer ?? '')));
-      return f && det.before && answer ? { n, finding_id: f.finding_id, before: det.before, question: det.question ?? '', answer, ...(det.span ? { span: det.span } : {}), cand: { kind: (det.kind ?? 'MISSING_VALUE') as ClarifyKind, item: det.item ?? '', before: det.before, question: det.question ?? '', in_procedure: false, query: '' } } : undefined;
+      return f && det.before && answer ? { n, finding_id: f.finding_id, page: (det as { page?: number }).page, before: det.before, question: det.question ?? '', answer, ...(det.span ? { span: det.span } : {}), cand: { kind: (det.kind ?? 'MISSING_VALUE') as ClarifyKind, item: det.item ?? '', before: det.before, question: det.question ?? '', in_procedure: false, query: '' } } : undefined;
     }).filter((x): x is NonNullable<typeof x> => !!x);
     if (!items.length) throw new ApiError('VALIDATION', '답을 적은 항목이 없습니다');
     const out = deps.composeClarify ? (await deps.composeClarify(composePrompt(items)).catch(() => ({ edits: [] }))).edits : [];
@@ -289,7 +297,7 @@ export function createApp(deps: Deps) {
       // 담당자는 모델이 이름을 빼고 넣는다. 모델이 없거나 실패하면 담당자 답은 그대로 넣지 않는다(이름이 섞였을 수 있음, Fable C)
       const after = ai || (q.cand.kind === 'VAGUE_ACTOR' ? '' : fallbackAfter(q.before, q.cand.item, q.span, q.answer));
       const ok = e?.ok !== false && !!after && safeSuggestion(q.cand, { value: q.answer, after }, false);
-      return { finding_id: q.finding_id, before: q.before, after: mask(after, detectPii(after)), ok, ...(ok && e?.reason ? { note: e.reason } : {}), ...(e?.no_change ? { no_change: true } : {}), ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : !after ? 'AI가 답을 넣지 못했습니다. 잠시 뒤 다시 눌러 주세요.' : '개인정보(전화번호·이메일 등)가 들어갔거나 문장이 바뀌지 않았습니다' }) };
+      return { finding_id: q.finding_id, before: figRefs(q.before, q.page), after: figRefs(mask(after, detectPii(after)), q.page), ok, ...(ok && e?.reason ? { note: e.reason } : {}), ...(e?.no_change ? { no_change: true } : {}), ...(ok ? {} : { reason: e?.ok === false ? (e.reason ?? '이 답은 넣을 수 없습니다') : !after ? 'AI가 답을 넣지 못했습니다. 잠시 뒤 다시 눌러 주세요.' : '개인정보(전화번호·이메일 등)가 들어갔거나 문장이 바뀌지 않았습니다' }) };
     });
     await audit(c, 'CLARIFY_COMPOSE', d.doc_id);
     return c.json({ edits });
@@ -461,7 +469,7 @@ export function createApp(deps: Deps) {
     // 확인 필요 (계약 6.5): 질문·원문·제안·잠금 여부. 화면이 항목별 적용을 모아 /edit 한 번
     // 항목별 확인(개인정보·비밀값): 쪽·사유·처리 여부
     const reviews = d.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM').map((f) => ({ finding_id: f.finding_id, code: f.code, page: f.location?.page ?? (/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ? Number(/^page:(\d+)/.exec(f.evidence_ref)![1]) : null), message: f.user_message ?? f.message, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, reason: f.acknowledged?.reason ?? null }));
-    const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...(f.details as Record<string, unknown>) }));
+    const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) }));
     return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
@@ -740,8 +748,7 @@ export function createApp(deps: Deps) {
   const editText = async (id: string) => {
     const ps = deps.pages ? (await deps.pages(id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
     const st = deps.structuredPages ? await deps.structuredPages(id).catch(() => new Map<number, { markdown: string }>()) : new Map<number, { markdown: string }>();
-    const multi = ps.length > 1 || (ps[0]?.figure_keys ?? []).some(Boolean);
-    return ps.map((p) => { const t = st.get(p.page)?.markdown ?? p.text; return multi ? t.replace(/([([])그림\s*(\d+)([)\]])/g, (_m, a: string, k: string, b: string) => `${a}그림 ${p.page + 1}-${k}${b}`) : t; }).join('\n\n');
+    return ps.map((p) => figRefs(st.get(p.page)?.markdown ?? p.text, p.page + 1)).join('\n\n');
   };
   /** 그림을 보여도 되는 쪽: 그림 개인정보 확인이 남지 않은 쪽 (1부터) */
   const figurePages = (t: DocumentRecord) => {
@@ -882,7 +889,7 @@ export function createApp(deps: Deps) {
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
-      clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...(f.details as Record<string, unknown>) })),
+      clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) })),
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
