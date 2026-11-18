@@ -47,7 +47,9 @@ test("externalLawRefs: [ ]·『』 괄호도 법령명으로, 바로 뒤 조문 
   assert.deepEqual(await externalLawRefs(t, s), [
     { law_name: "개인정보 보호법", clause: "제15조제1항" },
     { law_name: "신용정보의 이용 및 보호에 관한 법률", clause: "제32조" },
-  ]);
+  ]);  // 대괄호 소제목은 조문 표기가 없으면 법령 아님, "방법·요령·명령"은 법령명 아님 (PR #47 리뷰)
+  assert.deepEqual(await externalLawRefs("[신청 방법] 1. 접수 [작성 요령] [업무 지시 명령] [보안 규칙] [은행법] 참고 [처리방법]제3조", s), []);
+  assert.deepEqual(await externalLawRefs("「은행법」 참고", s), [{ law_name: "은행법" }]);
 });
 
 test("cachedFetcher: 1일 안에 같은 법령은 Browser 재실행 없이 캐시, 지나면 다시 조회", async () => {

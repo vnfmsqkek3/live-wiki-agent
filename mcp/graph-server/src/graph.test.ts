@@ -251,3 +251,10 @@ test("인용 추출은 그림·AI 쪽 정리 줄(⟦그림 pN⟧)을 근거로 �
   assert.ok(cs.some((c) => c.provision_id.endsWith("ARTICLE:12/PARAGRAPH:1")));
   assert.ok(!cs.some((c) => c.provision_id.endsWith("ARTICLE:10/PARAGRAPH:2")));
 });
+
+test("인용 후보 추출: 대괄호 규정명 '[하나은행 기업여신 심사규정] 제12조'도 인용, 긴 한글 줄도 빠름 (PR #47)", async () => {
+  const store = fixtureClauseStore();
+  const got = (await extractCitations("승인은 [하나은행 기업여신 심사규정] 제12조에 따른다.", store, 20261115)).map((c) => c.provision_id);
+  assert.ok(got.some((id) => /ARTICLE:12$/u.test(id)), got.join());
+  const t0 = Date.now(); await extractCitations("가 ".repeat(50000), store, 20261115); assert.ok(Date.now() - t0 < 1000, "선형에 가까운 시간");
+});

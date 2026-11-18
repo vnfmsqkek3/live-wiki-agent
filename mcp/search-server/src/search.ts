@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { PII_NAME } from "@hanaeum/pii";
 // Search MCP: search_wiki, retrieve_evidence, search_legal_clause (docs/04 4.3, docs/01 8.6·8.7)
 // 하드 게이트(ACL·공식성·유효기간)는 Rerank 전에 서버가 필터로 강제하고, 결과는 DynamoDB 현재 상태로 다시 검증한다.
 import { BedrockAgentRuntimeClient, RetrieveCommand } from "@aws-sdk/client-bedrock-agent-runtime";
@@ -440,7 +441,7 @@ export function docPages(content: string, fromPage = 1) {
 const STOP_TERMS = new Set(["관련", "관련된", "문서", "문서들", "문서를", "자료", "자료를", "내용을", "규정", "내용", "방법", "어떻게", "무엇", "찾아줘", "알려줘", "있는", "대한", "대해"]);
 // 가림 표시([개인정보]·[전화번호] 등)는 질의·조각 양쪽에서 빼고 비교 (가린 문서가 "개인정보"에 걸리지 않게, PR #46 리뷰)
 // 가림 표시 이름만 (@hanaeum/pii PII_NAME + [개인정보]). "[개인정보 보호법]" 같은 대괄호 법령명은 지우지 않음
-const MASK_MARK = /\[(?:개인정보|주민등록번호|외국인등록번호|여권번호|운전면허번호|전화번호|이메일|카드번호|계좌번호|고객번호|IP 주소)\]/gu;
+const MASK_MARK = new RegExp(`\\[(?:개인정보|${Object.values(PII_NAME).join("|")})\\]`, "gu");
 const PARTICLE = /(에서|으로|에게|까지|부터|이나|과|와|을|를|이|가|은|는|에|의|도|로)$/u;
 export const queryTerms = (q: string) => [...new Set(q.replace(MASK_MARK, " ").toLowerCase().split(/[^0-9a-z가-힣]+/u)
   .map((w) => (w.length >= 3 ? w.replace(PARTICLE, "") : w)).filter((w) => w.length >= 2 && !STOP_TERMS.has(w)))];
