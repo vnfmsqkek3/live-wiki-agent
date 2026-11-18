@@ -33,8 +33,8 @@ module "stack" {
   ]
   lambda_refs = {
     yoyo0704 = "ab548bd" # workflows·auth-triggers·services/ocr
-    dhxorb96 = "aa7d255" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
-    let522mj = "cc9e8ca" # main: #43 장 section·expand + #42 #41
+    dhxorb96 = "aff7560" # 위키 수정·단순 승인·그림 쪽 이미지 (+주장·분류)
+    let522mj = "d4d2613" # main: #44 마스킹 흔적 색인 제외 + #43 #42 #41
   }
 
   ocr_source_ref = "620108a" # 레이아웃 그림(image·chart) 안쪽 상자 유지 (과천 12쪽)
@@ -45,7 +45,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "aa7d255" # 이유 카드에 참고 주소, (그림 n) 숨김
+  webapp_source_ref = "aff7560" # 이유 카드에 참고 주소, (그림 n) 숨김
   agents_source_ref = "aa7d255" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
