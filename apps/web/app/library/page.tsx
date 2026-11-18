@@ -191,8 +191,21 @@ function Trio({ m }: { m: Mark }) {
   );
 }
 
-function Fix({ m, n, on, onEdit, body }: { m: Mark; n?: number; on?: boolean; onEdit?: (text: string, to?: string) => void; body?: string }) {
-  const aiFix = !!(onEdit && m.original && m.revision && m.revision !== m.original && body?.includes(m.original)); // AI 수정 문장으로 바꿔 편집기에 연다
+function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; on?: boolean; onEdit?: (text: string, to?: string) => void; body?: string; docId?: string; locked?: string }) {
+  // 카드 안에서 바로 고친다 (사용자 요청 11/19: 업로드 뒤 질문 페이지처럼 [수정] → 입력칸). 문장이 본문에 그대로 있을 때만, 없으면 편집기로
+  const inline = !!(onEdit && docId && m.original && body?.includes(m.original));
+  const ai = !!(m.revision && m.revision !== m.original);
+  const [draft, setDraft] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  async function save() {
+    if (!draft?.trim() || !body || !m.original) return;
+    setBusy(true); setErr('');
+    try {
+      const r = await api<{ doc_id: string }>('POST', `/v1/documents/${encodeURIComponent(docId!)}/edit`, { markdown: body.replace(m.original, draft.trim()) });
+      location.href = `/review?id=${encodeURIComponent(r.doc_id)}`;
+    } catch (e) { setErr((e as ApiError).message); setBusy(false); }
+  }
   const trio = m.original !== undefined || m.revision !== undefined; // 새 API(세 칸). 이전 API는 기존 표시
   return (
     <li className={`fix${on ? ' on' : ''}`} id={n ? `mark-${n}` : undefined}>
@@ -205,7 +218,16 @@ function Fix({ m, n, on, onEdit, body }: { m: Mark; n?: number; on?: boolean; on
         </blockquote>
       )}
       {m.fix && m.fix !== m.revision && <p className={trio ? 'note' : undefined}><strong>고칠 내용</strong> {m.fix}</p>}
-      {onEdit && m.original && <div className="actions">{aiFix && <button type="button" className="btn solid" onClick={() => onEdit(m.original!, m.revision!)}>AI 제안대로 고치기</button>}<button type="button" className="btn" onClick={() => onEdit(m.original!)}>{aiFix ? '직접 고치기' : '위키에서 고치기'}</button></div>}
+      {locked && m.original && <p className="note">{locked}</p>}
+      {inline && draft === null && <div className="actions">{ai && <button type="button" className="btn solid" onClick={() => setDraft(m.revision!)}>AI 제안대로 수정</button>}<button type="button" className={ai ? 'btn' : 'btn solid'} onClick={() => setDraft(m.original!)}>{ai ? '직접 수정' : '수정'}</button></div>}
+      {inline && draft !== null && <div className="fix-edit">
+        <label className="lbl" htmlFor={`fix-in-${n ?? 'd'}`}>고친 문장</label>
+        <textarea id={`fix-in-${n ?? 'd'}`} className="field" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+        <p className="note">저장하면 새 버전이 만들어지고 AI가 다시 검사합니다. 원래 문서는 승인될 때까지 그대로 보입니다.</p>
+        {err && <p className="danger-text" role="alert">{err}</p>}
+        <div className="actions"><button type="button" className="btn solid" disabled={busy || !draft.trim() || draft.trim() === m.original} onClick={save}>{busy ? '저장 중…' : '저장하고 검사받기'}</button><button type="button" className="btn" disabled={busy} onClick={() => { setDraft(null); setErr(''); }}>취소</button></div>
+      </div>}
+      {onEdit && m.original && !inline && <div className="actions"><button type="button" className="btn" onClick={() => onEdit(m.original!)}>편집기에서 수정</button></div>}
     </li>
   );
 }
@@ -528,6 +550,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   // 고칠 곳에서 바로 편집기로 (사용자 신고 11/19: 게시 문서의 고칠 곳에 고칠 길이 없음). 그 문장을 선택한 채 연다
   const body = d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n');
   const editAt = canWikiEdit ? (text: string, to?: string) => { const ai = !!to && body.includes(text); setFixOpen(false); setEditFocus(ai ? to : text); setEditing(ai ? body.replace(text, to!) : ''); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ block: 'start' }), 0); } : undefined;
+  // 수정 버튼이 없는 이유를 카드에 적는다 (규정은 위키 수정 불가: 공식 원본 파일로만 바뀐다)
+  const fixLocked = canWikiEdit ? undefined : d.freshness === 'SUPERSEDED' ? '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요.' : (d.document_type ?? 'KNOWHOW') === 'REGULATION' ? '규정은 이 화면에서 고칠 수 없습니다. 공식 원본 파일을 문서 등록에서 다시 올려 주세요.' : d.lifecycle !== 'PUBLISHED' ? '게시 전 문서는 검토 화면에서 고칩니다.' : undefined;
   const jump = (i: number, n: number) => { setImages(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   // 문서 정보는 머리에서 빼 '한눈에 보기' 패널로 (Fable 재배치안 11/18: 머리는 제목·상태 문장·결재란만)
   const docMeta = (<dl className="meta-grid">
@@ -610,7 +634,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <div className="detail-cards" aria-label="문서 상세 항목">
       <p className="cards-head judge">판단 필요</p>
       {(numbered.length > 0 || d.doc_marks.length > 0) && <button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setFixOpen(true)}><CardLabel title="고칠 곳" filled warn count={d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length} /></button>}
-      <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} onEdit={editAt} body={body} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} onEdit={editAt} body={body} />)}</ul></>}</DetailPopup>
+      <DetailPopup title="고칠 곳" open={fixOpen} onClose={() => setFixOpen(false)}><h3 className="section">{p + 1}쪽 고칠 곳</h3><ul className="fixes">{numbered.map(({ m, n }) => <Fix key={n} m={m} n={n} on={active === n} onEdit={editAt} body={body} docId={d.doc_id} locked={fixLocked} />)}</ul>{d.doc_marks.length > 0 && <><h3 className="section" id="doc-marks">본문에서 위치를 찾지 못한 항목</h3><ul className="fixes">{d.doc_marks.map((m, i) => <Fix key={i} m={m} onEdit={editAt} body={body} docId={d.doc_id} locked={fixLocked} />)}</ul></>}</DetailPopup>
       {(d.review || (d.suggestions?.length ?? 0) > 0) && <><button type="button" className="detail-card judge filled" aria-haspopup="dialog" onClick={() => setReasonsOpen(true)}><CardLabel title="확인이 필요한 이유" filled warn count={reasonCount} /></button><DetailPopup title="확인이 필요한 이유" open={reasonsOpen} onClose={() => setReasonsOpen(false)}><Reasons d={d} jump={jump}
         onInsert={canWikiEdit ? (sg) => { setReasonsOpen(false); setEditing(withReference(d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n'), sg)); } : undefined} /></DetailPopup></>}
       {d.verification && d.verification.basis.length > 0 && (

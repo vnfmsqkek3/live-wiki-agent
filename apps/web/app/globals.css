@@ -945,3 +945,6 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 /* 편집기로 바로가기: 위에 고정된 게시 요청 막대에 제목이 가리지 않게 (11/18 화면 확인) */
 #wiki-editor { scroll-margin-top: 150px; }
 .kept-conflicts { border-left:3px solid var(--danger, #b42318); padding:6px 10px; margin:8px 0; font-size:14px; } .kept-conflicts ul { margin:4px 0 0; padding-left:18px; }
+/* 고칠 곳 카드 안 입력칸 (11/19) */
+.fix-edit { margin-top: 12px; display: grid; gap: 6px; min-width: 0; }
+.fix-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; }

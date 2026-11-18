@@ -263,7 +263,7 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
     doc_marks: [],
     pages: [
       { page: 0, text: K002, summary: '금액 기준으로 현장 실사를 생략하는 처리 요령과 보고서 사후 작성을 안내합니다.', marks: [
-        { page: 0, start: K002.indexOf('1억원'), end: K002.indexOf('처리한다.') + 5, severity: 'HIGH', kind: 'CONFLICT', reason: '규정은 담보가 부동산이면 금액과 관계없이 현장 실사를 반드시 하도록 정하고 있습니다.', basis: { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', text: '① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', effective_from: '2026-11-01' }, fix: '근거 조문에 맞게 수정: "담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다."' },
+        { page: 0, start: K002.indexOf('1억원'), end: K002.indexOf('처리한다.') + 5, severity: 'HIGH', kind: 'CONFLICT', original: '1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다.', revision: '1억원 이하 부동산 담보대출도 현장 실사를 반드시 실시하여야 한다.', reason: '규정은 담보가 부동산이면 금액과 관계없이 현장 실사를 반드시 하도록 정하고 있습니다.', basis: { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', text: '① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', effective_from: '2026-11-01' }, fix: '근거 조문에 맞게 수정: "담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다."' },
         { page: 0, start: K002.indexOf('실사 보고서'), end: K002.length, severity: 'MEDIUM', kind: 'INSUFFICIENT', reason: '보고서 작성 시점에 대한 기준을 조문에서 찾지 못했습니다.', fix: '근거 조문을 명시하거나 담당 부서 확인' },
       ] },
     ],
