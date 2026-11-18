@@ -45,7 +45,7 @@ module "stack" {
   enable_transaction_search  = true
 
   # 웹·API (dhxorb96 요청 웹API배포, 사용자 결정 ECS Fargate). dhxorb96 이 podman 빌드로 확인한 커밋
-  webapp_source_ref = "ad96d8a" # 이유 카드에 참고 주소, (그림 n) 숨김
+  webapp_source_ref = "6859f64" # 이유 카드에 참고 주소, (그림 n) 숨김
   agents_source_ref = "ad96d8a" # 파이프라인·가이드 이미지 (웹과 분리: 재게시 중 오케스트레이터 고정)
 }
 
