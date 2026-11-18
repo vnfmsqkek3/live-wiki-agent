@@ -117,6 +117,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: [
       { approval_id: 'apr_K001', doc_id: 'doc_K001', title: '담보평가 실무 체크리스트', detail: '작성자가 개인정보 마스킹을 확인했습니다.', stage: 2 },
     ] };
+  if (path === '/v1/admin/knowledge-debt') return { conflicts: 1, review_required: 2, unverified: 3, healthy: 12, docs_needing_attention: 2 };
   if (path === '/v1/review-queue')
     return { items: [{ doc_id: 'doc_F003', title: '기업여신 심사규정 (출처 미확인 사본)', dept: '여신', findings: [{ message: '공식 원본과 내용 불일치 (조문 1개: ARTICLE:12/PARAGRAPH:1, 원본 5억원 · 업로드본 3억원). 위조 확정 아님, 출처 검토 필요', evidence_ref: 'SYN-LOAN-001@2026-11-01' }] }] };
   if (/\/v1\/documents\/.+\/source-review/.test(path)) return { lifecycle: 'BLOCKED' };

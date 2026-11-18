@@ -887,3 +887,11 @@ html:has(.submit-bar) { scroll-padding-top:120px; }
 @media (max-width:640px) { .search-matches blockquote.clamp { -webkit-line-clamp:2; } }
 .fig-badge { display:inline-block; padding:1px 8px; border:1px solid var(--line); border-radius:999px; font:600 12px/1.6 var(--font-display); color:var(--ink-700); }
 .more-matches > summary { font:600 var(--fs-small)/1.5 var(--font-display); color:var(--navy-600); min-height:44px; display:flex; align-items:center; }
+/* 결재함 지그재그 수정 (사용자 지적 11/18): 할 일 2칸 / 지식 상태 5칸을 위아래 두 줄로, 5칸은 한 줄·낮은 높이 */
+.admin-status { grid-template-columns:1fr !important; gap:12px; }
+.admin-status .debt-grid { display:grid; grid-template-columns:repeat(5, minmax(0, 1fr)); gap:8px; margin:0; }
+.admin-status .debt-cell { min-height:0; padding:10px 14px; display:flex; align-items:baseline; justify-content:space-between; gap:8px; }
+.admin-status .debt-cell dt { font-size:var(--fs-small); }
+.admin-status .debt-cell dd { margin:0; font-size:var(--fs-h3); }
+.admin-status .debt .section { margin:4px 0 8px; }
+@media (max-width:900px) { .admin-status .debt-grid { grid-template-columns:repeat(2, minmax(0, 1fr)); } }
