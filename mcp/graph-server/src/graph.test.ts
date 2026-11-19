@@ -112,7 +112,7 @@ test("ACL: 다른 부서 전용 노하우는 trace_impact·get_dependencies에 �
   await assert.rejects(t.get_dependencies({ id: "K-902@v1" }, { sub: "a", groups: ["AUTHOR"], dept: "여신" }), /권한/u);
 });
 
-test("새 버전 적재 시 겹치는 이전 버전 종료일을 닫아 현행으로 남지 않게 함, 파싱 이슈는 미적재", async () => {
+test("새 버전 적재 시 겹치는 이전 버전 종료일을 닫아 현행으로 남지 않게 함, 파싱 이슈가 있어도 승인된 게시라 '구조 미확정'으로 적재", async () => {
   const graph = new MemoryGraphStore();
   const clauses = new MemoryClauseStore();
   const w = Object.assign(clauses, { putLaw: async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l) });
@@ -124,7 +124,25 @@ test("새 버전 적재 시 겹치는 이전 버전 종료일을 닫아 현행�
   const bad = await graphUpsertStep({ ...base, doc_id: "L-001", version: 1, document_type: "REGULATION", title: "가상여신거래법", effective_from: 20261101, effective_to: 99991231,
     content: read("legal/source/L-001.txt"), law: { law_id: "SYN-VLOAN-001", law_name: "가상여신거래법", revision_id: "2026-11-01" } }, graph, w);
   assert.equal(bad.status, "REVIEW_REQUIRED");
-  assert.equal((await clauses.revisions("SYN-VLOAN-001")).length, 0, "검토 전 미적재");
+  // yoyo0704 11/19: 안 쓰면 KB에는 게시됐는데 조문 저장소·그래프에는 없는 규정이 생김 → parse_ok=false 로 적재, 부재·과거 단정은 조회에서 막음
+  const [vl] = await clauses.revisions("SYN-VLOAN-001");
+  assert.equal(vl?.parse_ok, false);
+  assert.ok((await clauses.provisions("SYN-VLOAN-001", "2026-11-01"))?.length);
+  assert.ok(bad.findings?.every((f) => !/구조 검토 완료/u.test(f.fix_hint ?? "")), "없는 기능 안내 금지");
+  // 개정본에 파싱 이슈가 있으면 노하우 재검토 표시는 생략하고 알림 (못 읽은 조문이 '삭제'로 보이므로)
+  const marked: string[] = [];
+  const claims = { claimsCiting: async () => [{ claim_id: "C#1", provision_id: "SYN-LOAN-001@2026-12-01/ARTICLE:12" }], markClaimReview: async (id: string) => { marked.push(id); } };
+  const partial = await graphUpsertStep({ ...base, doc_id: "F-00X", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270101, effective_to: 99991231,
+    content: read("documents/F-002.txt").replace(/^(제12조.*)$/mu, "$1\n제3조(역행) 번호 오류"), law: { ...LAW, revision_id: "2027-01-01" } }, graph, w, claims);
+  assert.equal(partial.status, "REVIEW_REQUIRED");
+  assert.deepEqual(marked, []);
+  assert.ok(partial.findings?.some((f) => f.code === "CLAIM_REVIEW_SKIPPED"));
+  // 인용 이슈만 있으면("같은 법 제9조" 등) 구조는 멀쩡 → parse_ok=true, 재검토 표시는 실행 (PR #64 리뷰)
+  const refOnly = await graphUpsertStep({ ...base, doc_id: "F-00Y", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270201, effective_to: 99991231,
+    content: read("documents/F-002.txt").replace(/^(제12조[^\n]*)$/mu, "$1 제99조에 따른다."), law: { ...LAW, revision_id: "2027-02-01" } }, graph, w, claims);
+  assert.ok(refOnly.findings?.some((f) => f.code === "UNRESOLVED_REF"));
+  assert.ok(!refOnly.findings?.some((f) => f.code === "CLAIM_REVIEW_SKIPPED"));
+  assert.equal((await clauses.revisions("SYN-LOAN-001")).find((r) => r.revision_id === "2027-02-01")?.parse_ok, true);
 });
 
 test("단계 13 입력 구성: 공통 입력만으로 Documents·게시본을 읽고, 인용이 없으면 본문에서 확인된 조문만 추출", async () => {
@@ -231,9 +249,9 @@ test("주장 재검토 (PR #36 리뷰): 더 오래된 버전 인용도 직접 �
     content: sameish, law: { ...LAW, revision_id: "2027-01-01", previous_revision_id: "2026-12-01" } }, graph, store, claims2);
   assert.deepEqual(marked2, []);
   // 대량 변경(본문 인식 이상 의심) → 표시 보류 + LOW 안내, 게시는 OK
-  const garbled = read("documents/F-002.txt").split("\n").map((l) => (l.trim() ? `${l} 인식오류` : l)).join("\n"); // 모든 조문 본문이 달라짐
+  const garbled = read("documents/F-002.txt").split("\n").map((l) => (l.trim() && !/^부\s*칙/u.test(l) ? `${l} 인식오류` : l)).join("\n"); // 모든 조문 본문이 달라짐 (부칙 머리는 그대로: 깨지면 파싱 이슈가 돼 재검토 자체를 생략)
   const out = await graphUpsertStep({ ...base, doc_id: "F-002c", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270201, effective_to: 99991231,
-    content: garbled, parse_reviewed: true, law: { ...LAW, revision_id: "2027-02-01", previous_revision_id: "2027-01-01" } }, graph, store, claims2);
+    content: garbled, law: { ...LAW, revision_id: "2027-02-01", previous_revision_id: "2027-01-01" } }, graph, store, claims2);
   assert.equal(out.status, "OK");
   assert.ok(out.findings?.some((f) => f.code === "CLAIM_REVIEW_HELD"));
   // 주장 테이블 없음(스키마 배포 전) → 게시 계속

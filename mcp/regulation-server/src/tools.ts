@@ -116,6 +116,8 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
         children: kids.map((c) => ({ provision_id: c.provision_id, path_label: c.path_label, status: c.status, original_text: c.normalized_text })),
       };
     }
+    // 파싱 이슈가 남은 버전은 구조가 완전하다고 볼 수 없으므로 부재를 확정하지 않는다. 과거 버전에서 찾아도 "현행에 없음"이라 단정 못 함 (현행 조문을 못 읽었을 수 있음)
+    if (!rev.parse_ok) return { search_status: "UNVERIFIED", reason: "파싱 검토 미완료 버전: 부재를 확정할 수 없음", ...base };
     // 현행 버전에 없음 → 과거 버전에서 찾으면 HISTORICAL, 어디에도 없으면 확인된 부재
     let unchecked = false;
     for (const old of vis.filter((r) => r.effective_from < rev.effective_from).sort((a, b) => b.effective_from - a.effective_from)) {
@@ -130,8 +132,6 @@ export function regulationTools(store: ClauseStore, opts: { today?: () => number
         };
       }
     }
-    // 파싱 이슈가 남은 버전은 구조가 완전하다고 볼 수 없으므로 부재를 확정하지 않는다
-    if (!rev.parse_ok) return { search_status: "UNVERIFIED", reason: "파싱 검토 미완료 버전: 부재를 확정할 수 없음", ...base };
     if (unchecked || vis.length !== revs.length) return { search_status: "UNVERIFIED", reason: "확인하지 못한 과거 버전이 있어 부재를 확정할 수 없음", ...base };
     return { search_status: "NOT_FOUND_VERIFIED", reason: `${lawId}@${rev.revision_id} 전체 구조에서 ${path} 없음 (과거 버전 포함 확인)`, ...base };
   }
