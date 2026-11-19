@@ -282,7 +282,8 @@ test("조문 구조 이상은 쪽·문장 위치로 안내, 문장 일부는 개
     { page_index: 1, text: "제5조(보관) 다.\n제4조(문의) 담당 800101-1234567 에게 문의한다.\n부칙\n제1조(시행일) 시행.\n제1조(경과) 중복" },
   ];
   const f = structureFindings(segs, "w");
-  assert.equal(f.length, 1);
+  // 번호 역행 외 이슈(인용 못 찾음 등)도 승인 전에 안내 (yoyo0704 11/19: 게시 단계에서만 보이면 승인자가 못 봄)
+  assert.deepEqual(f.map((x) => x.code), ["STRUCTURE_NUMBERING", "STRUCTURE_UNRESOLVED_REF"]);
   assert.equal(f[0]!.location!.page, 2);
   assert.match(f[0]!.location!.excerpt!, /\[주민등록번호\]/u);
   assert.doesNotMatch(JSON.stringify(f), /1234567/u, "원문 식별값 금지");

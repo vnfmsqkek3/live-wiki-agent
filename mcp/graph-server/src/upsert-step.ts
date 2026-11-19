@@ -1,5 +1,5 @@
 // 단계 13 GraphUpsert: 승인된 문서의 관계만 Neptune에 게시. 법령은 구조화 저장소(Regulations)에도 적재.
-import { diffLaws, parseLaw } from "@hanaeum/legal-parser";
+import { diffLaws, ISSUE_TEXT, parseLaw } from "@hanaeum/legal-parser";
 import type { ProvisionChange } from "@hanaeum/legal-parser";
 import { newId, stepFailure } from "@hanaeum/schemas";
 import type { AuthorityStatus, Finding, ParsedLaw, StepInput, StepOutput } from "@hanaeum/schemas";
@@ -16,7 +16,6 @@ export interface GraphUpsertInput extends StepInput {
   content: string; // published 마스킹본 본문 (핸들러가 S3에서 읽어 채움)
   content_hash: string; acl_groups: string[];
   authority_status: AuthorityStatus; // Documents 레코드의 현재 공식성 (하드코딩 금지)
-  parse_reviewed?: boolean; // 파싱 이슈를 사람이 검토·승인했으면 true
   law?: { law_id: string; law_name: string; revision_id: string; previous_revision_id?: string; registry_doc_no?: string };
   citations?: Citation[]; // 승인 시 확정된 인용 (Trust Gate 후보 → 사람 승인)
 }
@@ -30,12 +29,6 @@ export type WritableClauseStore = ClauseStore & {
 export const dayBefore = (ymd: number) => {
   const d = new Date(Date.UTC(Math.floor(ymd / 10000), Math.floor(ymd / 100) % 100 - 1, ymd % 100) - 86400000);
   return Number(d.toISOString().slice(0, 10).replaceAll("-", ""));
-};
-
-const ISSUE_TEXT: Record<string, string> = {
-  NUMBER_REGRESSION: "조·항·호 번호 순서가 맞지 않습니다(조문 누락 또는 번호 오류)",
-  UNRESOLVED_REF: "다른 조문을 가리키는 인용을 찾지 못했습니다",
-  REF_TO_DELETED: "삭제된 조문을 인용하고 있습니다",
 };
 
 /** 주장 상태 갱신 (interfaces 10.2). Records(PgRecords)의 선택 메서드 */
@@ -102,10 +95,10 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
       const excerpt = (lines[i.line - 1] ?? "").trim().slice(0, 120);
       const msg = `"${excerpt.slice(0, 40)}" 부근: ${ISSUE_TEXT[i.code] ?? "조문 구조를 해석하지 못했습니다"}.`;
       return { finding_id: newId("fnd"), step: "GraphUpsert", severity: "MEDIUM", code: i.code, message: msg, evidence_ref: `line:${i.line}`,
-        location: { excerpt }, user_message: msg, fix_hint: "검토자가 원문과 대조해 확인한 뒤 '구조 검토 완료'로 표시하면 조문 저장소에 반영됩니다." };
+        location: { excerpt }, user_message: msg, fix_hint: "조문 저장소에는 '구조 미확정'으로 저장했습니다(없는 조문을 '없음'으로 단정하지 않음). 원본을 고쳐 같은 버전으로 다시 올리면 바로잡힙니다." };
     });
-    // 파싱 이슈가 있으면 사람 검토 전에는 구조 저장소·그래프에 쓰지 않는다 (docs/01 13.5 자동 게시 금지)
-    if (findings.length && !input.parse_reviewed) return { status: "REVIEW_REQUIRED", findings };
+    // 파싱 이슈가 있어도 사람 승인을 거친 게시라 저장한다 (yoyo0704 11/19: 안 쓰면 KB엔 있고 조문 저장소·그래프엔 없는 규정이 생김).
+    // parse_ok=false 로 저장 → 조문 조회가 부재·과거 버전을 단정하지 않고 UNVERIFIED. 승인 전 안내는 SegmentBuild structureFindings
     // Trusted Registry 원본 해시(content_hash·pdf_content_hash)는 덮어쓰지 않는다. 덮어쓰면 같은 공식 원본을 다시 올릴 때
     // 해시 대조가 실패해 "공식 원본과 다름"으로 막힌다 (11/17 재업로드 실측: F-000·F-001 출처 불일치)
     const prev = (await clauses.revisions(law.law_id)).find((r) => r.revision_id === law.revision_id);
@@ -126,13 +119,16 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
     }
     await graph.upsert(lawGraph(law, { doc_id: input.doc_id, effective_from: input.effective_from, effective_to: input.effective_to, previous_revision_id: input.law.previous_revision_id }));
     // 개정본이면 바뀐 조문에 근거를 둔 노하우 주장을 재검토로 (사용자 결정 11/17 얇은 주장 단위, 요청기록 20261117-2300)
-    if (rec.authority_status === "VERIFIED") {
+    // 구조가 일부만 해석된 버전과 비교하면 못 읽은 조문이 '삭제'로 보여 노하우를 잘못 재검토로 돌린다 → 이슈가 있으면 생략하고 알림
+    if (rec.authority_status === "VERIFIED" && findings.length) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_SKIPPED", message: `${law.law_id}@${law.revision_id}`, evidence_ref: `${law.law_id}@${law.revision_id}`,
+      user_message: "조문 구조를 다 해석하지 못해, 이번 개정으로 바뀐 조문에 근거를 둔 노하우의 재검토 표시를 하지 않았습니다.", fix_hint: "원본을 고쳐 같은 버전으로 다시 올리면 재검토 표시가 실행됩니다. 그전까지 관련 노하우는 사람이 확인해 주세요." });
+    else if (rec.authority_status === "VERIFIED") {
       const { held } = await markRevisedClaims({ ...law, effective_from: input.effective_from }, clauses, claims);
       // 대량 변경 보류: 게시는 계속하고, 노하우 재검토 표시는 사람이 확인하도록 알림
       for (const h of held ?? []) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_HELD", message: h, evidence_ref: h,
         user_message: `이전 버전(${h})과 비교해 조문 절반 넘게 바뀐 것으로 나와, 관련 노하우 주장의 재검토 표시를 자동으로 하지 않았습니다.`, fix_hint: "개정 내용이 실제로 이렇게 많은지 확인하고, 본문 인식 문제라면 원본을 다시 올려 주세요." });
     }
-    return { status: "OK", findings };
+    return { status: law.issues.length ? "REVIEW_REQUIRED" : "OK", findings };
   }
   // 노하우·매뉴얼: 존재하는 조문 인용만 게시, 없는 조문은 Finding
   const findings: Finding[] = [];
