@@ -4,7 +4,7 @@
 // 입력: Documents META 의 findings(각 단계가 남긴 사실: code·message·location·user_message·fix_hint·details)만. 원문·work/* 는 읽지 않는다.
 // 출력: {doc}/masked/explanation.json (API 가 업로드·결재 화면에 표시). 모든 글 필드는 @hanaeum/pii 로 재마스킹.
 import { converseTool } from "./converse-tool.js";
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getDocument } from "./findings-store.js";
 import { detectPii, mask as maskSpans } from "@hanaeum/pii";

@@ -4,7 +4,7 @@
 // 출력: {doc}/masked/summaries/{nnnn}.json (쪽별), {doc}/masked/summary.json (문서 전체 목록). 판정은 바꾸지 않는다(status OK).
 // 모델 출력도 @hanaeum/pii 로 다시 마스킹한다. 본문 속 글은 자료로만 다루고 지시로 따르지 않는다.
 import { converseTool } from "./converse-tool.js";
-import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { detectPii, mask as maskSpans } from "@hanaeum/pii";
 import type { StepInput, StepOutput } from "./common.js";

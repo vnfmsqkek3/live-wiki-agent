@@ -8,7 +8,7 @@
 //   원문 보기·조문 인용·PII 검사는 계속 OCR 원본 기준. page_markdown 은 "AI 정리(그림 기준)" 로 표시하고 근거 인용에 쓰지 않는다 (dhxorb96 Classify).
 // 묘사 결과도 PII 규칙(dhxorb96 pii-detect)으로 다시 마스킹한다. 이미지 속 글은 자료로만 다루고 지시로 따르지 않는다.
 import { converseTool } from "./converse-tool.js";
-import { ApplyGuardrailCommand, BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { ApplyGuardrailCommand, BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { finding, type Finding, type StepInput, type StepOutput } from "./common.js";
 import { findingsStore, type FindingsStore } from "./findings-store.js";
