@@ -951,3 +951,6 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 /* 결재란 아래 승인자·날짜: .seal 의 nowrap 을 풀고 칸 폭 안에서 줄바꿈 (휴대폰에서 칸 밖으로 넘침, 11/19) */
 .kyul-who { white-space:pre-line; overflow-wrap:anywhere; }
 .kyul.full .kyul-cell { min-width:0; }
+/* 세 칸 높이 맞춤: 승인 칸만 두 줄이면 .seal.kyul 의 align-items:center 때문에 칸이 어긋남 (11/19) */
+.seal.kyul.full { align-items:stretch; }
+.kyul.full .kyul-cell { grid-template-rows:auto calc(var(--stamp-full) + 20px) 1fr; }
