@@ -51,9 +51,9 @@ module "stack" {
     MODEL_EMBED  = "amazon.titan-embed-text-v2:0"
     MODEL_RERANK = "cohere.rerank-v3-5:0"
   }
-  lambda_refs               = { yoyo0704 = "353fcad", dhxorb96 = "5a579d1", let522mj = "353fcad" }
+  lambda_refs               = { yoyo0704 = "353fcad", dhxorb96 = "42a8388", let522mj = "353fcad" }
   ocr_source_ref            = "620108a"
-  webapp_source_ref         = "5a579d1"
+  webapp_source_ref         = "42a8388"
   agents_source_ref         = "353fcad"
   enable_transaction_search = true
   team_lambdas = [
