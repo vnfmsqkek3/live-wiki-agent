@@ -436,7 +436,7 @@ test('allocate: 같은 문장·종류에서 겹치는 질문은 짧은 쪽 하�
   const base = { page: 1, question: 'q', in_procedure: true, query: '' };
   const b1 = '1. 신청서는 담당자의 승인을 받은 뒤 접수한다.', b3 = '3. 내용 변경 시 관련 부서 협의 후 개정 이력을 관리한다.';
   const out = allocate([
-    { ...base, kind: 'VAGUE_ACTOR', item: '담당자', before: b1 }, { ...base, kind: 'VAGUE_ACTOR', item: '담당자의 승인', before: b1 },
+    { ...base, kind: 'VAGUE_ACTOR', item: '담당자', before: b1 }, { ...base, kind: 'VAGUE_ACTOR', item: '담당자의 승인', before: b1.slice(3) },
     { ...base, kind: 'VAGUE_ACTOR', item: '관련 부서 협의', before: b3 }, { ...base, kind: 'VAGUE_ACTOR', item: '관련 부서', before: b3 },
   ] as never);
   assert.deepEqual(out.map((c) => c.item).sort(), ['관련 부서', '담당자']);

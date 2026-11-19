@@ -157,7 +157,10 @@ export function allocate(cands: ClarifyCandidate[], pageText?: (page: number) =>
   const key = (c: ClarifyCandidate) => (c.kind === 'MISSING_LINK' ? `L:${makerOf(c.before) ?? c.item}` : `${c.kind}:${c.item}`);
   const seen = new Set<string>(); const uniq0 = cands.filter((c) => { const k = key(c); if (seen.has(k)) return false; seen.add(k); return true; });
   // 같은 문장·같은 종류에서 한 질문이 다른 질문을 품으면('담당자'⊂'담당자의 승인') 짧은 쪽 하나만. 하나에 답하면 문장이 바뀌어 나머지는 적용할 수 없다 (11/19 팀 계정 5.5 C1)
-  const uniq = uniq0.filter((c) => !uniq0.some((o) => o !== c && o.kind === c.kind && o.before === c.before && o.item.length < c.item.length && c.item.includes(o.item)));
+  // 원문 줄은 규칙 후보('1. 신청서는…')와 모델 후보('신청서는…')가 번호·공백만 다를 수 있어 공백을 빼고 서로 품는지로 본다 (11/19 5차 C1)
+  const sq = (x: string) => x.replace(/\s+/g, '');
+  const sameLine = (a: string, b: string) => sq(a).includes(sq(b)) || sq(b).includes(sq(a));
+  const uniq = uniq0.filter((c) => !uniq0.some((o) => o !== c && o.kind === c.kind && sameLine(o.before, c.before) && o.item.length < c.item.length && c.item.includes(o.item)));
   const rank = (c: ClarifyCandidate) => (clarifySeverity(c, c.page ? pageText?.(c.page) : undefined) === 'MEDIUM' ? 0 : 1);
   const byPage = (a: ClarifyCandidate, b: ClarifyCandidate) => rank(a) - rank(b) || (a.page ?? 0) - (b.page ?? 0);
   // '서로 맞지 않음'은 모델 판단이라 잡음이 많다(11/18 dev 28쪽 매뉴얼 11건, 표기 차이 위주) → 3건까지. 남는 것은 저장 뒤에도 새로 묻지 않는다(steps/carry.ts)
