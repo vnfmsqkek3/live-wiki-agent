@@ -1,4 +1,6 @@
 export { parseLaw } from "./parse.ts";
+/** 조문 구조 자체가 불완전할 수 있는 이슈. 인용 이슈(UNRESOLVED_REF·REF_TO_DELETED)는 구조는 멀쩡함 ("같은 법 제5조" 같은 외부 인용도 여기에 걸림, PR #64 리뷰) */
+export const STRUCTURE_ISSUES = new Set(["NUMBER_REGRESSION", "DUPLICATE_ID", "ORPHAN_TEXT", "EMPTY_PROVISION"]);
 /** 파싱 이슈 코드 → 사용자 안내 (SegmentBuild 승인 전 안내·GraphUpsert 게시 안내 공통) */
 export const ISSUE_TEXT: Record<string, string> = {
   NUMBER_REGRESSION: "조·항·호 번호 순서가 맞지 않습니다(조문 누락 또는 번호 오류)",

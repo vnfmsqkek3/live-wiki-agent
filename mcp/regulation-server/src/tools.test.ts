@@ -124,3 +124,18 @@ test("버전 박힌 조문 ID 조회 (dhxorb96 1924-1): K-003의 2025 인용 →
   assert.equal(gone.current!.status, "NOT_FOUND");
   assert.equal((await t.get_clause({ clause: "SYN-LOAN-001@2030-01-01/ARTICLE:1" }, user)).search_status, "UNVERIFIED");
 });
+
+test("DynamoClauseStore.putLaw: 같은 버전 재적재 시 새 결과에 없는 조문 항목은 지움 (PR #64 리뷰: 잘못 읽힌 조문이 남지 않게)", async () => {
+  const { DynamoClauseStore } = await import("./store.ts");
+  const { parseLaw } = await import("@hanaeum/legal-parser");
+  const s = new DynamoClauseStore("T");
+  const sent: { name: string; input: Record<string, unknown> }[] = [];
+  (s as unknown as { db: unknown }).db = { send: async (c: { constructor: { name: string }; input: Record<string, unknown> }) => {
+    sent.push({ name: c.constructor.name, input: c.input });
+    return c.constructor.name === "QueryCommand" ? { Items: [{ sk: "REV#2026-01-01#P#ARTICLE:1" }, { sk: "REV#2026-01-01#P#ARTICLE:31" }] } : {};
+  } };
+  const law = parseLaw("제1조(목적) 가.", { law_id: "SYN-T-003", law_name: "가", revision_id: "2026-01-01" });
+  await s.putLaw({ law_id: "SYN-T-003", law_name: "가", revision_id: "2026-01-01", effective_from: 20260101, effective_to: 99991231, authority_status: "VERIFIED", doc_id: "d", content_hash: "", acl_groups: ["ALL"], parse_ok: true }, law);
+  const writes = sent.filter((x) => x.name === "BatchWriteCommand").flatMap((x) => (x.input["RequestItems"] as Record<string, Record<string, { Key?: { sk: string } }>[]>)["T"]!);
+  assert.deepEqual(writes.filter((w) => w["DeleteRequest"]).map((w) => w["DeleteRequest"]!.Key!.sk), ["REV#2026-01-01#P#ARTICLE:31"]);
+});

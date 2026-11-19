@@ -1,5 +1,5 @@
 // 단계 13 GraphUpsert: 승인된 문서의 관계만 Neptune에 게시. 법령은 구조화 저장소(Regulations)에도 적재.
-import { diffLaws, ISSUE_TEXT, parseLaw } from "@hanaeum/legal-parser";
+import { diffLaws, ISSUE_TEXT, parseLaw, STRUCTURE_ISSUES } from "@hanaeum/legal-parser";
 import type { ProvisionChange } from "@hanaeum/legal-parser";
 import { newId, stepFailure } from "@hanaeum/schemas";
 import type { AuthorityStatus, Finding, ParsedLaw, StepInput, StepOutput } from "@hanaeum/schemas";
@@ -98,7 +98,8 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
         location: { excerpt }, user_message: msg, fix_hint: "조문 저장소에는 '구조 미확정'으로 저장했습니다(없는 조문을 '없음'으로 단정하지 않음). 원본을 고쳐 같은 버전으로 다시 올리면 바로잡힙니다." };
     });
     // 파싱 이슈가 있어도 사람 승인을 거친 게시라 저장한다 (yoyo0704 11/19: 안 쓰면 KB엔 있고 조문 저장소·그래프엔 없는 규정이 생김).
-    // parse_ok=false 로 저장 → 조문 조회가 부재·과거 버전을 단정하지 않고 UNVERIFIED. 승인 전 안내는 SegmentBuild structureFindings
+    const broken = law.issues.some((i) => STRUCTURE_ISSUES.has(i.code));
+    // 구조 이슈면 parse_ok=false 로 저장 → 조문 조회가 부재·과거 버전을 단정하지 않고 UNVERIFIED. 승인 전 안내는 SegmentBuild structureFindings
     // Trusted Registry 원본 해시(content_hash·pdf_content_hash)는 덮어쓰지 않는다. 덮어쓰면 같은 공식 원본을 다시 올릴 때
     // 해시 대조가 실패해 "공식 원본과 다름"으로 막힌다 (11/17 재업로드 실측: F-000·F-001 출처 불일치)
     const prev = (await clauses.revisions(law.law_id)).find((r) => r.revision_id === law.revision_id);
@@ -106,7 +107,7 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
       law_id: law.law_id, law_name: law.law_name, revision_id: law.revision_id, registry_doc_no: input.law.registry_doc_no ?? prev?.registry_doc_no,
       effective_from: input.effective_from, effective_to: input.effective_to, authority_status: input.authority_status,
       doc_id: input.doc_id, content_hash: prev?.content_hash || input.content_hash, ...(prev?.pdf_content_hash ? { pdf_content_hash: prev.pdf_content_hash } : {}),
-      acl_groups: input.acl_groups, parse_ok: law.issues.length === 0,
+      acl_groups: input.acl_groups, parse_ok: !broken,
     };
     if (clauses.putLaw) await clauses.putLaw(rec, law);
     // 새 VERIFIED 버전이 시행되면 겹치는 이전 버전의 종료일을 닫는다 (이전 버전이 현행으로 남지 않게)
@@ -120,7 +121,7 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
     await graph.upsert(lawGraph(law, { doc_id: input.doc_id, effective_from: input.effective_from, effective_to: input.effective_to, previous_revision_id: input.law.previous_revision_id }));
     // 개정본이면 바뀐 조문에 근거를 둔 노하우 주장을 재검토로 (사용자 결정 11/17 얇은 주장 단위, 요청기록 20261117-2300)
     // 구조가 일부만 해석된 버전과 비교하면 못 읽은 조문이 '삭제'로 보여 노하우를 잘못 재검토로 돌린다 → 이슈가 있으면 생략하고 알림
-    if (rec.authority_status === "VERIFIED" && findings.length) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_SKIPPED", message: `${law.law_id}@${law.revision_id}`, evidence_ref: `${law.law_id}@${law.revision_id}`,
+    if (rec.authority_status === "VERIFIED" && broken) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_SKIPPED", message: `${law.law_id}@${law.revision_id}`, evidence_ref: `${law.law_id}@${law.revision_id}`,
       user_message: "조문 구조를 다 해석하지 못해, 이번 개정으로 바뀐 조문에 근거를 둔 노하우의 재검토 표시를 하지 않았습니다.", fix_hint: "원본을 고쳐 같은 버전으로 다시 올리면 재검토 표시가 실행됩니다. 그전까지 관련 노하우는 사람이 확인해 주세요." });
     else if (rec.authority_status === "VERIFIED") {
       const { held } = await markRevisedClaims({ ...law, effective_from: input.effective_from }, clauses, claims);

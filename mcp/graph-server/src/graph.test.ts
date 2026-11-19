@@ -137,6 +137,12 @@ test("새 버전 적재 시 겹치는 이전 버전 종료일을 닫아 현행�
   assert.equal(partial.status, "REVIEW_REQUIRED");
   assert.deepEqual(marked, []);
   assert.ok(partial.findings?.some((f) => f.code === "CLAIM_REVIEW_SKIPPED"));
+  // 인용 이슈만 있으면("같은 법 제9조" 등) 구조는 멀쩡 → parse_ok=true, 재검토 표시는 실행 (PR #64 리뷰)
+  const refOnly = await graphUpsertStep({ ...base, doc_id: "F-00Y", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20270201, effective_to: 99991231,
+    content: read("documents/F-002.txt").replace(/^(제12조[^\n]*)$/mu, "$1 제99조에 따른다."), law: { ...LAW, revision_id: "2027-02-01" } }, graph, w, claims);
+  assert.ok(refOnly.findings?.some((f) => f.code === "UNRESOLVED_REF"));
+  assert.ok(!refOnly.findings?.some((f) => f.code === "CLAIM_REVIEW_SKIPPED"));
+  assert.equal((await clauses.revisions("SYN-LOAN-001")).find((r) => r.revision_id === "2027-02-01")?.parse_ok, true);
 });
 
 test("단계 13 입력 구성: 공통 입력만으로 Documents·게시본을 읽고, 인용이 없으면 본문에서 확인된 조문만 추출", async () => {
