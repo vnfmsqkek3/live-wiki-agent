@@ -410,3 +410,34 @@ test('carry: 시스템이 붙인 승인자 판단(system:recheck)은 사람 결�
   const kc = { finding_id: 'n', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: 'x' }, acknowledged: { by: 'system:recheck', at: 't', reason: 'r' } } as never;
   assert.deepEqual(makeCarry('x', [kc], true).items.map((i) => i.status), ['OPEN']);
 });
+
+test('looseFind: 본문이 숫자·단위 사이에 공백을 넣어도 같은 문장을 찾는다 (11/19 팀 계정 C3)', async () => {
+  const { looseFind } = await import('../src/app.ts');
+  const text = '## 2. 담보 확인\n\n1. 1 억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다.';
+  assert.equal(looseFind(text, '1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다.'), '1 억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다.');
+  assert.equal(looseFind(text, '없는 문장입니다 정말로'), undefined);
+});
+
+test('carry ackItem: 관리자가 반영한 수정 요청의 원래 문장은 재검사의 "중요 문장 삭제"를 확인된 것으로 잇는다 (11/19 팀 계정 G4)', async () => {
+  const { ackItem, applyCarry, makeCarry } = await import('../src/steps/carry.ts');
+  const { editReview, sentences } = await import('../src/steps/edit-review.ts');
+  const before = '1. 신청서는 IT인프라팀 팀장의 승인을 받은 뒤 접수한다.\n2. 담보가액이 3억원 이상이면 본부 승인을 받는다.';
+  const after = before.replace('IT인프라팀', '여신지원부');
+  const f = editReview(before, after).findings;
+  assert.equal(f.length, 1); // 설계대로 바뀐 중요 문장은 알린다
+  const carry = makeCarry(before, []);
+  carry.items.push(...sentences('1. 신청서는 IT인프라팀 팀장의 승인을 받은 뒤 접수한다.').map((s) => ackItem('EDIT_REMOVED_KEY_SENTENCE', s.slice(0, 160), 'u-admin', '수정 요청 반영(관리자 승인)')));
+  const out = applyCarry(carry, f);
+  assert.equal(out[0]!.acknowledged?.by, 'u-admin');
+});
+
+test('allocate: 같은 문장·종류에서 겹치는 질문은 짧은 쪽 하나만 (11/19 팀 계정 C1)', async () => {
+  const { allocate } = await import('../src/steps/clarify.ts');
+  const base = { page: 1, question: 'q', in_procedure: true, query: '' };
+  const b1 = '1. 신청서는 담당자의 승인을 받은 뒤 접수한다.', b3 = '3. 내용 변경 시 관련 부서 협의 후 개정 이력을 관리한다.';
+  const out = allocate([
+    { ...base, kind: 'VAGUE_ACTOR', item: '담당자', before: b1 }, { ...base, kind: 'VAGUE_ACTOR', item: '담당자의 승인', before: b1.slice(3) },
+    { ...base, kind: 'VAGUE_ACTOR', item: '관련 부서 협의', before: b3 }, { ...base, kind: 'VAGUE_ACTOR', item: '관련 부서', before: b3 },
+  ] as never);
+  assert.deepEqual(out.map((c) => c.item).sort(), ['관련 부서', '담당자']);
+});

@@ -7,7 +7,8 @@
 //   쪽 전체(본문 + 그림)를 한 흐름의 마크다운으로 쓴다. 화면 캡처형 가이드에서 OCR 레이아웃이 틀려도 정리본이 이미지에서 바로 나온다.
 //   원문 보기·조문 인용·PII 검사는 계속 OCR 원본 기준. page_markdown 은 "AI 정리(그림 기준)" 로 표시하고 근거 인용에 쓰지 않는다 (dhxorb96 Classify).
 // 묘사 결과도 PII 규칙(dhxorb96 pii-detect)으로 다시 마스킹한다. 이미지 속 글은 자료로만 다루고 지시로 따르지 않는다.
-import { ApplyGuardrailCommand, BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
+import { converseTool } from "./converse-tool.js";
+import { ApplyGuardrailCommand, BedrockRuntimeClient } from "@aws-sdk/client-bedrock-runtime";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { finding, type Finding, type StepInput, type StepOutput } from "./common.js";
 import { findingsStore, type FindingsStore } from "./findings-store.js";
@@ -242,17 +243,17 @@ export const handler = makeHandler({
       const W = Math.round(src.width * k), H = Math.round(src.height * k);
       const cv = createCanvas(W, H); cv.getContext("2d").drawImage(src, 0, 0, W, H);
       const png = k < 1 ? new Uint8Array(cv.toBuffer("image/png")) : png0;
-      const r = await bedrock.send(new ConverseCommand({
+      const r = await converseTool(bedrock, {
         modelId: process.env.MODEL_SONNET,
-        system: [{ text: SYSTEM }],
+        system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5 는 temperature 400, Sonnet 5.5 는 도구 강제도 400 → converseTool (11/19 실측) */
         messages: [{ role: "user", content: [
           { image: { format: "png", source: { bytes: png } } },
           { text: `이미지 크기: ${W}×${H} 픽셀\n<page_text>\n${pageText}\n</page_text>\n위 페이지의 그림과 쪽 정리본(page_markdown)을 report_figures 로 보고하라.${readAll ? "\n이 쪽은 OCR 인식률이 낮다. 그림이 없어도 page_markdown 을 반드시 쓰고, 글자는 이미지를 보고 읽는다." : ""}` },
         ] }],
-        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { tool: { name: TOOL.name } } },
-        inferenceConfig: { maxTokens: 4000, temperature: 0 },
-      }));
-      const out = r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input as { figures?: { bbox?: unknown }[] } | undefined; // 구조화 출력만 사용
+        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }] },
+        inferenceConfig: { maxTokens: 4000 },
+      }, TOOL.name);
+      const out = r as { figures?: { bbox?: unknown }[] } | undefined; // 구조화 출력만 사용
       for (const f of out?.figures ?? []) {
         if (Array.isArray(f.bbox) && f.bbox.length === 4) f.bbox = (f.bbox as number[]).map((v, i) => (Number(v) / (i % 2 ? H : W)) * 1000); // 픽셀 → 0~1000
       }

@@ -1,5 +1,6 @@
 import { changePrompt, type ChangeRequest } from './steps/change-request.ts';
-import { makeCarry } from './steps/carry.ts';
+import { ackItem, makeCarry } from './steps/carry.ts';
+import { sentences } from './steps/edit-review.ts';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
 import { ulid } from 'ulid';
@@ -125,6 +126,12 @@ const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMess
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
 /** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
 export const markKey = (m: Pick<Mark, 'kind' | 'reason'> & { original?: string | null }) => `${m.kind}|${m.original ?? m.reason}`.slice(0, 400);
+/** 공백만 다른 같은 문장을 본문에서 찾아 본문 쪽 글자를 돌려준다 (없으면 undefined) */
+export const looseFind = (text: string, s: string) => {
+  const chars = [...s.replace(/\s+/g, '')];
+  if (chars.length < 6) return undefined;
+  return new RegExp(chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*'), 'u').exec(text)?.[0];
+};
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
 
 export function createApp(deps: Deps) {
@@ -205,7 +212,7 @@ export function createApp(deps: Deps) {
     return c.json(r, 201);
   });
   /** 위키 수정 본체: 수정 요청 반영(관리자)도 같은 길로 새 버전을 만든다 */
-  const editDoc = async (a: Actor, id: string, markdown: string) => {
+  const editDoc = async (a: Actor, id: string, markdown: string, acks: ReturnType<typeof ackItem>[] = []) => {
     if (!deps.putOriginal) throw new ApiError('NOT_FOUND', '위키 수정이 설정되지 않았습니다');
     const b = { markdown };
     const t = await store.getDoc(id);
@@ -227,6 +234,7 @@ export function createApp(deps: Deps) {
       ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
     };
     else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
+    if (acks.length && doc.review_carry) doc.review_carry = { ...doc.review_carry, items: [...doc.review_carry.items, ...acks] };
     doc.figure_source = t.figure_source ?? { doc_id: t.doc_id, pages: figurePages(t) };
     // 처음 올린 원본 파일을 기억한다(버킷 버전 관리로 남아 있음): 수정 뒤에도 '원본 파일' 다운로드 (사용자 요청 11/18)
     if (t.source !== 'WIKI_EDIT' && t.s3_version_id) doc.original_upload = { key: quarantineKey(t), version_id: t.s3_version_id, filename: t.filename ?? `${t.title.slice(0, 80)}.${t.ext}` };
@@ -354,7 +362,9 @@ export function createApp(deps: Deps) {
       if (detectPii(after).length) throw new ApiError('VALIDATION', '개인정보가 들어간 문장은 넣을 수 없습니다');
       const text = await editText(d.doc_id);
       if (!text.includes(cr.before)) throw new ApiError('CONFLICT', '문서가 바뀌어 요청한 부분을 찾지 못했습니다');
-      const r = await editDoc(a, d.doc_id, text.replace(cr.before, after));
+      // 관리자가 승인한 변경: 바뀐 원래 문장의 '중요 문장 삭제'는 이 결정으로 확인된 것으로 잇는다 (재검사에서 다시 막지 않음)
+      const acks = sentences(cr.before).map((x) => ackItem('EDIT_REMOVED_KEY_SENTENCE', x.slice(0, 160), a.sub, '수정 요청 반영(관리자 승인)'));
+      const r = await editDoc(a, d.doc_id, text.replace(cr.before, after), acks);
       next = { status: 'APPLIED', new_doc_id: r.doc_id, ...(reason ? { decision_reason: mask(reason, detectPii(reason)) } : {}) };
     } else throw new ApiError('VALIDATION', 'decision 은 APPLY 또는 REJECT');
     const cur = (await store.getDoc(d.doc_id))!;
@@ -463,13 +473,15 @@ export function createApp(deps: Deps) {
     if (!hasRole(a, APPROVERS) && d.owner !== a.sub) throw new ApiError('NOT_FOUND', 'document not found');
     // 규칙 2: 올린 사람이 고칠 것 (규정과 어긋난 문장은 AI 수정 제안과 함께, 지운 중요 문장은 '의도한 삭제' 확인)
     const sugg = new Map((d.knowhow_validation?.items ?? []).map((it) => [it.statement, it.suggestion]));
+    // 고칠 본문 = 정리본(없으면 원문 글) — 위키 편집기·확인 필요 적용과 같은 기준 (before 가 이 글에 있어야 바꿀 수 있다)
+    const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? await editText(d.doc_id) : undefined;
+    // 모델이 뽑은 문장과 본문이 공백만 다르면('1억원'↔'1 억원') 본문 쪽 글자로 돌려준다: [제안대로 고치기]가 본문에서 찾을 수 있게 (11/19 팀 계정 C3)
+    const inText = (ex: string) => (!text || !ex || text.includes(ex) ? ex : looseFind(text, ex) ?? ex);
     const fixes = d.findings.filter((f) => FIX_CODES.has(f.code)).map((f) => {
       const ex = f.location?.excerpt ?? '';
       const st = [...sugg.keys()].find((s) => s.includes(ex.slice(0, 40)) || ex.includes(s.slice(0, 40)));
-      return { finding_id: f.finding_id, code: f.code, message: f.user_message ?? f.message, excerpt: st ?? ex, suggestion: st ? sugg.get(st) ?? null : null, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, ack_reason: f.acknowledged?.reason ?? null };
+      return { finding_id: f.finding_id, code: f.code, message: f.user_message ?? f.message, excerpt: inText(st ?? ex), suggestion: st ? sugg.get(st) ?? null : null, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, ack_reason: f.acknowledged?.reason ?? null };
     });
-    // 고칠 본문 = 정리본(없으면 원문 글) — 위키 편집기·확인 필요 적용과 같은 기준 (before 가 이 글에 있어야 바꿀 수 있다)
-    const text = d.lifecycle === 'IN_REVIEW' && d.owner === a.sub ? await editText(d.doc_id) : undefined;
     const workflow_failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
     const page_summaries = [...(await pageMetas(deps, d.doc_id))].map(([page_index, m]) => ({ page_index, ...m })).sort((x, y) => x.page_index - y.page_index);
     const suggestions = d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as Record<string, unknown>) }));
