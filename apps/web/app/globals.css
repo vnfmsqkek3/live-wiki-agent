@@ -948,3 +948,6 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 /* 고칠 곳 카드 안 입력칸 (11/19) */
 .fix-edit { margin-top: 12px; display: grid; gap: 6px; min-width: 0; }
 .fix-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+/* 결재란 아래 승인자·날짜: .seal 의 nowrap 을 풀고 칸 폭 안에서 줄바꿈 (휴대폰에서 칸 밖으로 넘침, 11/19) */
+.kyul-who { white-space:pre-line; overflow-wrap:anywhere; }
+.kyul.full .kyul-cell { min-width:0; }

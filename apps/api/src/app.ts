@@ -123,6 +123,8 @@ const clarifyView = (det: Record<string, unknown>) => {
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
+/** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
+export const markKey = (m: Pick<Mark, 'kind' | 'reason'> & { original?: string | null }) => `${m.kind}|${m.original ?? m.reason}`.slice(0, 400);
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
 
 export function createApp(deps: Deps) {
@@ -879,12 +881,31 @@ export function createApp(deps: Deps) {
     return c.json({ items: similar(d, hits, vis, card(d, vis).related) });
   });
 
+  // 게시 문서 '고칠 곳' 해당 없음: 올린 사람·결재자만, 사유 필수·개인정보 가림, 감사 기록. 본문은 바꾸지 않는다 (사용자 요청 11/19)
+  app.post('/v1/library/:id/marks/dismiss', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.lifecycle !== 'PUBLISHED') throw new ApiError('CONFLICT', '게시 전 문서는 검토 화면에서 처리합니다');
+    if (d.owner !== a.sub && !hasRole(a, [...APPROVERS, 'PLATFORM_OPERATOR'])) throw new ApiError('FORBIDDEN', '올린 사람이나 결재자만 해당 없음으로 둘 수 있습니다');
+    const b = (await c.req.json().catch(() => ({}))) as { key?: unknown; reason?: unknown };
+    const key = String(b.key ?? '').slice(0, 400); const reason = String(b.reason ?? '').trim().slice(0, 200);
+    if (!key) throw new ApiError('VALIDATION', 'key 가 필요합니다');
+    if (!reason) throw new ApiError('VALIDATION', '해당 없음 사유를 적어 주세요');
+    const at = new Date().toISOString();
+    const x = { key, reason: mask(reason, detectPii(reason)), by: a.sub, at };
+    await store.putDoc({ ...d, mark_dismissals: [...(d.mark_dismissals ?? []).filter((y) => y.key !== key), x], updated_at: at });
+    await audit(c, 'MARK_DISMISSED', d.doc_id);
+    return c.json({ ok: true, reason: x.reason });
+  });
   app.get('/v1/library/:id', async (c) => {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
     const d = await libraryDoc(c, vis, true);
     const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
-    const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
+    // 해당 없음으로 둔 곳은 '참고'(LOW)로 내리고 사유를 보인다 (사용자 요청 11/19). key 는 화면이 해당 없음 요청에 쓴다
+    const dis = new Map((d.mark_dismissals ?? []).map((x) => [x.key, x]));
+    const marks = (deps.marks && pages.length ? await deps.marks(pages, d) : []).map((m) => { const key = markKey(m); const x = dis.get(key);
+      return x ? { ...m, key, severity: 'LOW' as const, reason: `해당 없음으로 둠: ${x.reason}` } : { ...m, key }; });
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const lawNames = vis.flatMap((x) => (x.law_name ? [x.law_name] : [])); // 인용 조문을 등록 규정 이름과 묶기

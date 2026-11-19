@@ -198,6 +198,7 @@ function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; o
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
+  const [why, setWhy] = useState('');
   async function save() {
     if (!draft?.trim() || !body || !m.original) return;
     setBusy(true); setErr('');
@@ -205,6 +206,13 @@ function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; o
       const r = await api<{ doc_id: string }>('POST', `/v1/documents/${encodeURIComponent(docId!)}/edit`, { markdown: body.replace(m.original, draft.trim()) });
       location.href = `/review?id=${encodeURIComponent(r.doc_id)}`;
     } catch (e) { setErr((e as ApiError).message); setBusy(false); }
+  }
+  // 해당 없음: 본문은 그대로, 사유를 남기고 '참고'로 내린다 (질문 페이지의 해당 없음과 같은 자리)
+  async function dismiss() {
+    if (!why.trim()) { setErr('해당 없음 사유를 한 줄 적어 주세요.'); return; }
+    setBusy(true); setErr('');
+    try { await api('POST', `/v1/library/${encodeURIComponent(docId!)}/marks/dismiss`, { key: m.key, reason: why.trim() }); location.reload(); }
+    catch (e) { setErr((e as ApiError).message); setBusy(false); }
   }
   const trio = m.original !== undefined || m.revision !== undefined; // 새 API(세 칸). 이전 API는 기존 표시
   return (
@@ -219,13 +227,22 @@ function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; o
       )}
       {m.fix && m.fix !== m.revision && <p className={trio ? 'note' : undefined}><strong>고칠 내용</strong> {m.fix}</p>}
       {locked && m.original && <><p className="note">{locked}</p>{locked.startsWith('규정') && <div className="actions"><Link className="btn solid" href="/upload">공식 원본 다시 올리기</Link></div>}</>}
-      {inline && draft === null && <div className="actions">{ai && <button type="button" className="btn solid" onClick={() => setDraft(m.revision!)}>AI 제안대로 수정</button>}<button type="button" className={ai ? 'btn' : 'btn solid'} onClick={() => setDraft(m.original!)}>{ai ? '직접 수정' : '수정'}</button></div>}
+      {inline && draft === null && <div className="actions"><button type="button" className="btn solid" onClick={() => setDraft(m.original!)}>수정</button></div>}
       {inline && draft !== null && <div className="fix-edit">
-        <label className="lbl" htmlFor={`fix-in-${n ?? 'd'}`}>고친 문장</label>
-        <textarea id={`fix-in-${n ?? 'd'}`} className="field" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} autoFocus />
+        {ai ? <div className="clarify-sugg"><span className="src-badge">AI 추천</span><span>{m.revision}</span><button type="button" className={`btn${draft === m.revision ? ' solid' : ''}`} aria-pressed={draft === m.revision} onClick={() => setDraft(m.revision!)}>적용</button></div>
+          : <p className="note">AI 추천 없음: 근거 조문을 찾지 못해 AI가 고칠 문장을 만들지 않았습니다. 직접 고치거나, 맞는 내용이면 해당 없음으로 두세요.</p>}
+        <label className="lbl" htmlFor={`fix-in-${n ?? 'd'}`}>직접 입력</label>
+        <textarea id={`fix-in-${n ?? 'd'}`} className="field" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} />
+        {draft.trim() && draft.trim() !== m.original && <ol className="diff-lines" aria-label="고치기 전·후"><li className="del"><span className="num">전</span><del>{m.original}</del></li><li className="add"><span className="num">후</span><ins>{draft.trim()}</ins></li></ol>}
         <p className="note">저장하면 새 버전이 만들어지고 AI가 다시 검사합니다. 원래 문서는 승인될 때까지 그대로 보입니다.</p>
-        {err && <p className="danger-text" role="alert">{err}</p>}
         <div className="actions"><button type="button" className="btn solid" disabled={busy || !draft.trim() || draft.trim() === m.original} onClick={save}>{busy ? '저장 중…' : '저장하고 검사받기'}</button><button type="button" className="btn" disabled={busy} onClick={() => { setDraft(null); setErr(''); }}>취소</button></div>
+        {m.key && <details className="clarify-dismiss"><summary>해당 없음</summary>
+          <div className="actions" style={{ marginTop: 4 }}>
+            <input className="field" aria-label="해당 없음 사유" placeholder="사유 한 줄 (기록에 남습니다)" maxLength={200} value={why} onChange={(e) => setWhy(e.target.value)} />
+            <button type="button" className="btn" disabled={busy} onClick={dismiss}>해당 없음으로 처리</button>
+          </div>
+        </details>}
+        {err && <p className="danger-text" role="alert">{err}</p>}
       </div>}
       {onEdit && m.original && !inline && <div className="actions"><button type="button" className="btn" onClick={() => onEdit(m.original!)}>편집기에서 수정</button></div>}
     </li>

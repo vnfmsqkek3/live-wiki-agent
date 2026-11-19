@@ -629,3 +629,20 @@ test('검토 중 문서 종류를 바꾸면 다시 검사 (11/18 prod 시험: �
   const n = (await t.store.getDoc(doc_id))!;
   assert.deepEqual([n.lifecycle, n.classification?.source, n.document_type], ['QUARANTINED', 'HUMAN', 'KNOWHOW']);
 });
+
+test('고칠 곳 해당 없음: 올린 사람·결재자만, 사유 필수, 상세에서 참고(LOW)로 내림 (11/19)', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-author', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
+  t.deps.pages = async () => [{ page: 1, text: '담보 서류는 기한 내 제출받는다.' }];
+  t.deps.marks = async () => [{ page: 0, start: 0, end: 5, severity: 'MEDIUM', kind: 'INSUFFICIENT', reason: '조문 없음', original: '담보 서류는 기한 내 제출받는다.' } as never];
+  const get = async () => ((await (await t.call('user', 'GET', '/v1/library/doc_K')).json()) as { pages: { marks: { key: string; severity: string; reason: string }[] }[] }).pages[0]!.marks[0]!;
+  const key = (await get()).key;
+  assert.equal(key, 'INSUFFICIENT|담보 서류는 기한 내 제출받는다.');
+  assert.equal((await t.call('user', 'POST', '/v1/library/doc_K/marks/dismiss', { key, reason: '영업점 기준' })).status, 403);
+  assert.equal((await t.call('author', 'POST', '/v1/library/doc_K/marks/dismiss', { key, reason: ' ' })).status, 422);
+  assert.equal((await t.call('approver', 'POST', '/v1/library/doc_K/marks/dismiss', { key, reason: '영업점 기준' })).status, 200);
+  const m = await get();
+  assert.deepEqual([m.severity, m.reason], ['LOW', '해당 없음으로 둠: 영업점 기준']);
+  assert.equal(t.store.audits.at(-1)!.action, 'MARK_DISMISSED');
+});

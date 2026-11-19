@@ -128,6 +128,8 @@ export interface DocumentRecord {
   knowhow_validation?: import('./steps/knowhow.ts').KnowhowValidation;
   /** 근거 규정 개정·시행으로 재검토가 필요해진 이유 (freshness=REVIEW_REQUIRED). 자동 수정 없음 */
   /** deleted_doc: 근거 규정 문서가 삭제됨(문서 삭제 흐름, interfaces 6.0) */
+  /** 게시 문서 '고칠 곳'을 해당 없음으로 둔 기록 (사용자 요청 11/19). key = markKey. 표시는 참고로 내린다 */
+  mark_dismissals?: { key: string; reason: string; by: string; at: string }[];
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string };
   deleted_reason?: string;
   deleted_by?: string;
