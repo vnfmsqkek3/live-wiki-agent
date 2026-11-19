@@ -51,6 +51,8 @@ resource "aws_cloudwatch_log_delivery" "traces" {
   for_each                 = local.obs_sources
   delivery_source_name     = aws_cloudwatch_log_delivery_source.traces[each.key].name
   delivery_destination_arn = aws_cloudwatch_log_delivery_destination.xray.arn
+  # 새 계정: Transaction Search(trace segment → CloudWatch Logs)가 먼저 켜져야 생성됨 (11/19 팀 계정 첫 apply ValidationException)
+  depends_on = [aws_xray_trace_segment_destination.cwl]
 }
 
 # ---------- 계정 단위: Transaction Search ----------
