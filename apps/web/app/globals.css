@@ -945,3 +945,12 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 /* 편집기로 바로가기: 위에 고정된 게시 요청 막대에 제목이 가리지 않게 (11/18 화면 확인) */
 #wiki-editor { scroll-margin-top: 150px; }
 .kept-conflicts { border-left:3px solid var(--danger, #b42318); padding:6px 10px; margin:8px 0; font-size:14px; } .kept-conflicts ul { margin:4px 0 0; padding-left:18px; }
+/* 고칠 곳 카드 안 입력칸 (11/19) */
+.fix-edit { margin-top: 12px; display: grid; gap: 6px; min-width: 0; }
+.fix-edit textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+/* 결재란 아래 승인자·날짜: .seal 의 nowrap 을 풀고 칸 폭 안에서 줄바꿈 (휴대폰에서 칸 밖으로 넘침, 11/19) */
+.kyul-who { white-space:pre-line; overflow-wrap:anywhere; }
+.kyul.full .kyul-cell { min-width:0; }
+/* 세 칸 높이 맞춤: 승인 칸만 두 줄이면 .seal.kyul 의 align-items:center 때문에 칸이 어긋남 (11/19) */
+.seal.kyul.full { align-items:stretch; }
+.kyul.full .kyul-cell { grid-template-rows:auto calc(var(--stamp-full) + 20px) 1fr; }

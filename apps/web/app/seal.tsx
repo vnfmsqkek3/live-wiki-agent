@@ -58,7 +58,7 @@ export function Seal({ i, size = 'mini', stampedNow = false, who }: { i: Doc; si
     );
   }
   const day = (x?: string | null) => (x ? new Date(x).toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }).slice(5) : '');
-  const under = [day(who?.written_at), day(who?.checked_at), [who?.approver, day(who?.approved_at)].filter(Boolean).join(' ')];
+  const under = [day(who?.written_at), day(who?.checked_at), [who?.approver, day(who?.approved_at)].filter(Boolean).join('\n')]; // 승인자·날짜는 두 줄: 한 줄이면 휴대폰에서 칸 밖으로 넘침 (사용자 신고 11/19);
   return (
     <span className={`seal kyul ${size}`} role="img" aria-label={label}>
       {stamps.map((s, n) => (

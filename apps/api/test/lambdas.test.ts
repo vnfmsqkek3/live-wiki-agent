@@ -78,6 +78,17 @@ test('FileStructure: 스크립트 PDF는 BLOCKED, TrustGate는 QUARANTINED→BLO
   assert.equal((await t.store.getDoc(t.doc.doc_id))!.lifecycle, 'BLOCKED');
 });
 
+test('Finalize REJECTED: 반려(BLOCKED)는 원본을 지우고, 재검토(IN_REVIEW)는 남긴다', async () => {
+  for (const [lifecycle, purged] of [['BLOCKED', true], ['IN_REVIEW', false]] as const) {
+    const t = setup(pdf);
+    const gone: string[] = [];
+    await t.store.putDoc({ ...t.doc, lifecycle });
+    await makeFinalize({ ...t.deps, purge: async (p: string) => { gone.push(p); return 1; } })({ ...t.input, outcome: 'REJECTED' });
+    assert.equal(gone.length > 0, purged, lifecycle);
+    assert.equal((await t.store.getDoc(t.doc.doc_id))!.lifecycle, lifecycle);
+  }
+});
+
 test('문서가 없으면 예외 (빈 성공 금지)', async () => {
   const t = setup(pdf);
   await assert.rejects(makeTrustGate(t.deps)(t.input), /document not found/);
