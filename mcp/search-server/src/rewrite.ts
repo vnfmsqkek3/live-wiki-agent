@@ -66,11 +66,11 @@ export class BedrockRewriter implements Rewriter {
     try {
       const res = await this.c.send(new ConverseCommand({
         modelId: this.model,
-        system: [{ text: SYSTEM }],
+        system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측) */
         // 질의 안의 <, >는 바꿔 태그를 닫고 지시를 넣지 못하게
         messages: [{ role: "user", content: [{ text: `<query>${masked.slice(0, 500).replace(/[<>]/gu, " ")}</query>` }] }],
-        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { tool: { name: TOOL.name } } },
-        inferenceConfig: { maxTokens: 200, temperature: 0 },
+        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { auto: {} } },
+        inferenceConfig: { maxTokens: 200 },
       }), { abortSignal: AbortSignal.timeout(BedrockRewriter.TIMEOUT_MS) });
       r = sanitize(res.output?.message?.content?.find((x) => x.toolUse)?.toolUse?.input, base, masked);
     } catch (e) {

@@ -7,16 +7,17 @@ const br = () => (client ??= new BedrockRuntimeClient({ region: process.env.AWS_
 
 export type ModelTier = 'HAIKU' | 'SONNET' | 'OPUS';
 
-/** JSON 스키마를 만족하는 객체 1개를 받는다. temperature 0 */
+/** JSON 스키마를 만족하는 객체 1개를 받는다 */
+// Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측)
 export async function structured<T>(tier: ModelTier, system: string, user: string, name: string, schema: Record<string, unknown>): Promise<{ value: T; model: string }> {
   const model = process.env[`MODEL_${tier}`];
   if (!model) throw new Error(`missing env MODEL_${tier}`);
   const r = await br().send(new ConverseCommand({
     modelId: model,
-    system: [{ text: system }],
+    system: [{ text: `${system}\n결과는 반드시 ${name} 도구로 제출한다.` }],
     messages: [{ role: 'user', content: [{ text: user }] }],
-    inferenceConfig: { temperature: 0, maxTokens: 4096 },
-    toolConfig: { tools: [{ toolSpec: { name, description: '결과를 이 형식으로 제출', inputSchema: { json: schema } as ToolInputSchema.JsonMember } }], toolChoice: { tool: { name } } },
+    inferenceConfig: { maxTokens: 4096 },
+    toolConfig: { tools: [{ toolSpec: { name, description: '결과를 이 형식으로 제출', inputSchema: { json: schema } as ToolInputSchema.JsonMember } }], toolChoice: { auto: {} } },
   }));
   const use = r.output?.message?.content?.find((c) => c.toolUse)?.toolUse;
   if (!use?.input) throw new Error('model returned no structured output'); // 빈 결과로 성공 처리 금지

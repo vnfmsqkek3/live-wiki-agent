@@ -119,10 +119,10 @@ export const handler = makeHandler({
   explain: async (factsJson) => {
     const r = await bedrock.send(new ConverseCommand({
       modelId: MODEL,
-      system: [{ text: SYSTEM }],
+      system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측) */
       messages: [{ role: "user", content: [{ text: `<findings>\n${factsJson}\n</findings>\n위 검사 결과를 올린 직원에게 설명하라.` }] }],
-      toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { tool: { name: TOOL.name } } },
-      inferenceConfig: { maxTokens: 2000, temperature: 0 },
+      toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { auto: {} } },
+      inferenceConfig: { maxTokens: 2000 },
     }));
     return r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input;
   },

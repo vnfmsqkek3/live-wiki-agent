@@ -244,13 +244,13 @@ export const handler = makeHandler({
       const png = k < 1 ? new Uint8Array(cv.toBuffer("image/png")) : png0;
       const r = await bedrock.send(new ConverseCommand({
         modelId: process.env.MODEL_SONNET,
-        system: [{ text: SYSTEM }],
+        system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측) */
         messages: [{ role: "user", content: [
           { image: { format: "png", source: { bytes: png } } },
           { text: `이미지 크기: ${W}×${H} 픽셀\n<page_text>\n${pageText}\n</page_text>\n위 페이지의 그림과 쪽 정리본(page_markdown)을 report_figures 로 보고하라.${readAll ? "\n이 쪽은 OCR 인식률이 낮다. 그림이 없어도 page_markdown 을 반드시 쓰고, 글자는 이미지를 보고 읽는다." : ""}` },
         ] }],
-        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { tool: { name: TOOL.name } } },
-        inferenceConfig: { maxTokens: 4000, temperature: 0 },
+        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { auto: {} } },
+        inferenceConfig: { maxTokens: 4000 },
       }));
       const out = r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input as { figures?: { bbox?: unknown }[] } | undefined; // 구조화 출력만 사용
       for (const f of out?.figures ?? []) {
