@@ -25,3 +25,4 @@ dist/
 .lambda/
 hanaeum-terraform/.artifacts/
 __pycache__/
+hanaeum-terraform/envs/team5/backend.hcl
