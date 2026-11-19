@@ -31,6 +31,9 @@ const h = (s: string) => createHash('sha256').update(norm(s)).digest('hex').slic
 const textOf = (f: Finding) => String((f.details as { before?: unknown } | undefined)?.before ?? f.location?.excerpt ?? f.message);
 const keyOf = (f: Finding) => h(`${f.code}|${textOf(f)}`);
 
+/** 이미 내린 결정을 새 버전에 미리 잇는다 (예: 관리자가 승인해 반영한 수정 요청으로 바뀐 문장의 '중요 문장 삭제' — 11/19 팀 계정 G4) */
+export const ackItem = (code: string, text: string, by: string, reason: string): ReviewCarry['items'][number] => ({ code, key: h(`${code}|${text}`), status: 'ACK', reason, by, at: new Date().toISOString() });
+
 export function makeCarry(oldText: string, findings: Finding[], validated = false): ReviewCarry {
   return {
     validated,
