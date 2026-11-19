@@ -106,6 +106,12 @@ test('관리자(PLATFORM_OPERATOR)는 본인 문서 승인 가능 — self_appro
   const { approval_id } = await submitted(t);
   const list = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; own: boolean }[] };
   assert.equal(list.items.find((i) => i.approval_id === approval_id)?.own, true);
+  // 그대로 사용한 규정 충돌은 결재 카드에 (승인자 판단, 사용자 결정 11/18)
+  const { doc_id } = (await t.store.getApproval(approval_id))!;
+  const dd = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...dd, findings: [{ finding_id: 'k', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'e', location: { excerpt: '재무제표 보관 기간 5년' }, acknowledged: { by: 'u', at: 't', reason: '영업점 기준' } }] });
+  const l2 = (await (await t.call('authorAdmin', 'GET', '/v1/approvals?status=PENDING')).json()) as { items: { approval_id: string; kept: unknown }[] };
+  assert.deepEqual(l2.items.find((i) => i.approval_id === approval_id)?.kept, [{ text: '재무제표 보관 기간 5년', reason: '영업점 기준', system: false }]);
   const r = await t.call('authorAdmin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'x' });
   assert.equal(r.status, 200);
   assert.equal((await t.store.getApproval(approval_id))?.self_approved, true);
@@ -459,6 +465,8 @@ test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·origin
   await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '시재 마감 노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
   await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
   assert.equal((await t.call('user', 'POST', '/v1/documents/doc_R/edit', { markdown: '# 규정' })).status, 409);
+  await t.store.putDoc({ ...base, doc_id: 'doc_OLD', title: '옛 판', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'SUPERSEDED' });
+  assert.equal((await t.call('user', 'POST', '/v1/documents/doc_OLD/edit', { markdown: '# 옛 판' })).status, 409); // 대체된 판은 최신에서 고친다
   const r = await t.call('user', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감\n1. 마감 30분 전 시재표 출력' });
   assert.equal(r.status, 201);
   const { doc_id, new_version } = (await r.json()) as { doc_id: string; new_version: boolean };
@@ -603,6 +611,38 @@ test('위키 수정·검토 중 다시 분석은 이전 검사 결과를 저장�
   assert.deepEqual(cleared, [doc_id]);
   t.objects.set(`${doc_id}/original.md`, { s3_version_id: 'v2', content_hash: 'h2' });
   await t.store.putDoc({ ...(await t.store.getDoc(doc_id))!, lifecycle: 'IN_REVIEW' });
+  const wf0 = (await t.store.getDoc(doc_id))!.workflow_id;
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/analyze`)).status, 202);
   assert.deepEqual(cleared, [doc_id, doc_id]);
+  const after = (await t.store.getDoc(doc_id))!;
+  assert.notEqual(after.workflow_id, wf0, '검토 중 재분석은 새 실행 id (같은 id 는 다시 돌지 않음, prod 결함 ⑤)');
+  assert.equal(after.lifecycle, 'QUARANTINED');
+});
+
+test('검토 중 문서 종류를 바꾸면 다시 검사 (11/18 prod 시험: 매뉴얼→노하우로 바꿔도 규정 비교 없이 게시 요청 가능)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'IN_REVIEW', document_type: 'MANUAL', classification: { document_type: 'MANUAL', business_path: [], tags: [], confidence: 0.8, rationale: '', source: 'MODEL' } } as never);
+  const r = (await (await t.call('author', 'POST', `/v1/documents/${doc_id}/classification`, { document_type: 'KNOWHOW', reason: '실무 체크리스트' })).json()) as { reanalyzed: boolean };
+  assert.equal(r.reanalyzed, true);
+  const n = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([n.lifecycle, n.classification?.source, n.document_type], ['QUARANTINED', 'HUMAN', 'KNOWHOW']);
+});
+
+test('고칠 곳 해당 없음: 올린 사람·결재자만, 사유 필수, 상세에서 참고(LOW)로 내림 (11/19)', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-author', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
+  t.deps.pages = async () => [{ page: 1, text: '담보 서류는 기한 내 제출받는다.' }];
+  t.deps.marks = async () => [{ page: 0, start: 0, end: 5, severity: 'MEDIUM', kind: 'INSUFFICIENT', reason: '조문 없음', original: '담보 서류는 기한 내 제출받는다.' } as never];
+  const get = async () => ((await (await t.call('user', 'GET', '/v1/library/doc_K')).json()) as { pages: { marks: { key: string; severity: string; reason: string }[] }[] }).pages[0]!.marks[0]!;
+  const key = (await get()).key;
+  assert.equal(key, 'INSUFFICIENT|담보 서류는 기한 내 제출받는다.');
+  assert.equal((await t.call('user', 'POST', '/v1/library/doc_K/marks/dismiss', { key, reason: '영업점 기준' })).status, 403);
+  assert.equal((await t.call('author', 'POST', '/v1/library/doc_K/marks/dismiss', { key, reason: ' ' })).status, 422);
+  assert.equal((await t.call('approver', 'POST', '/v1/library/doc_K/marks/dismiss', { key, reason: '영업점 기준' })).status, 200);
+  const m = await get();
+  assert.deepEqual([m.severity, m.reason], ['LOW', '해당 없음으로 둠: 영업점 기준']);
+  assert.equal(t.store.audits.at(-1)!.action, 'MARK_DISMISSED');
 });

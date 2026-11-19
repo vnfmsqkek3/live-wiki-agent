@@ -278,8 +278,11 @@ export function makeClassify(deps: SegmentDeps) {
       ...addFindings(d, findings),
       ...(autoTitle ? { title: autoTitle } : {}),
       ...(dates.length ? { doc_dates: dates, ...(main ? { doc_date: main } : {}) } : {}),
-      document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
-      classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' },
+      // 사람이 정한 문서 종류는 다시 분석해도 바꾸지 않는다 (11/18 prod 시험: 노하우로 바꾼 뒤 재분석이 매뉴얼로 되돌림)
+      ...(d.classification?.source === 'HUMAN' ? {} : {
+        document_type: v.document_type, // Promote가 최상위 document_type을 읽는다 (let522mj)
+        classification: { document_type: v.document_type, business_path: v.business_path, tags: v.tags, confidence: v.confidence, rationale: v.rationale, source: 'MODEL' as const },
+      }),
       ...(sum ? { summary: sum.value.summary, page_summaries: sum.value.pages } : {}),
     });
     // 업무 분류 칸 배정: 실패해도 게시는 막지 않는다 (주기 정리·보충 스크립트가 다시 배정)
@@ -393,7 +396,8 @@ export function makeTrustGate(deps: LambdaDeps) {
         const k = await validateKnowhow(await deps.knowhow.maskedText(d), deps.knowhow);
         findings = [...findings, ...k.findings];
         if (k.gate === 'REVIEW_REQUIRED') result = 'REVIEW_REQUIRED';
-        extra = { knowhow_validation: k.validation, ...(k.freshness ? { freshness: k.freshness } : {}) };
+        // 재검사에서 충돌이 사라지면 CURRENT로 되돌린다 (사용자 신고 11/19: 첫 검사의 충돌 표시가 고친 뒤 게시까지 남아 '재검토 필요')
+        extra = { knowhow_validation: k.validation, freshness: k.freshness ?? 'CURRENT' };
       }
     }
     // 위키 수정본: 이전 버전과 비교 — 바뀐 문장에 대한 규정 판정만 남기고, 지운 중요 문장은 '고칠 것' (사용자 결정 11/17 규칙 2)
@@ -450,7 +454,8 @@ export function makeFinalize(deps: LambdaDeps) {
     const base = { ...d, updated_at: now() };
     const next: DocumentRecord =
       // 노하우·매뉴얼은 사람 승인이 곧 검증이다 (규정은 TrustGate Registry 대조로 VERIFIED). 승인·게시가 끝났으면 VERIFIED
-      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED', ...(base.authority_status === 'UNVERIFIED' && (base.document_type ?? base.classification?.document_type) !== 'REGULATION' ? { authority_status: 'VERIFIED' as const } : {}) }
+      // 검사 단계의 충돌 표시(REVIEW_REQUIRED)는 승인자가 판단해 승인했으므로 게시 때 CURRENT. 개정 전 조문 인용(OUTDATED)·규정 변경 사유가 있으면 유지 (prod 2회차 H8 11/19)
+      i.outcome === 'PUBLISHED' ? { ...base, lifecycle: 'PUBLISHED', ...(base.freshness === 'REVIEW_REQUIRED' && !base.freshness_reason && base.knowhow_validation?.verdict !== 'OUTDATED' ? { freshness: 'CURRENT' as const } : {}), ...(base.authority_status === 'UNVERIFIED' && (base.document_type ?? base.classification?.document_type) !== 'REGULATION' ? { authority_status: 'VERIFIED' as const } : {}) }
       : i.outcome === 'BLOCKED' ? { ...base, lifecycle: 'BLOCKED', trust_gate_result: 'QUARANTINED' }
       : base; // REJECTED: 승인 API가 이미 BLOCKED(반려) 또는 IN_REVIEW(재검증)로 바꿈
     await deps.store.putDoc(next);
@@ -469,7 +474,8 @@ export function makeFinalize(deps: LambdaDeps) {
     }
     // 검증에서 차단되거나 반려된 문서는 원본·작업 파일을 저장소에서 바로 지운다 (사용자 지시 11/17).
     // 개인정보를 가린 설명·쪽 이미지(masked/)는 올린 사람이 사유를 보도록 MASKED_RETENTION_DAYS 동안 남기고 freshnessSweep이 지운다
-    if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && deps.purge) await purgeOriginal(deps, next, i.workflow_id);
+    // 재검토(REVALIDATE)도 outcome=REJECTED 로 오지만 문서는 IN_REVIEW 로 돌아가 다시 고친다 → 원본을 지우지 않는다 (yoyo0704 지적 11/19)
+    if ((i.outcome === 'BLOCKED' || i.outcome === 'REJECTED') && next.lifecycle === 'BLOCKED' && deps.purge) await purgeOriginal(deps, next, i.workflow_id);
     return { status: 'OK' };
   };
 }

@@ -119,24 +119,28 @@ export class DynamoClauseStore implements ClauseStore {
       }));
     } catch (e) { if ((e as Error).name !== "ConditionalCheckFailedException") throw e; }
   }
-  /** 승인된 법령 버전 적재 (Promote 이후 호출). 25건 배치 */
+  /** 승인된 법령 버전 적재 (Promote 이후 호출). 25건 배치. 같은 버전을 다시 올리면 새 결과에 없는 조문은 지운다
+   *  (파싱 이슈 본도 적재하므로, 잘못 읽힌 "제31조"가 고친 재업로드 뒤에도 FOUND로 남지 않게. PR #64 리뷰) */
   async putLaw(rec: RevisionRecord, law: ParsedLaw) {
+    const keep = new Set(law.provisions.map((p) => `REV#${rec.revision_id}#P#${relPath(p.provision_id)}`));
+    const stale = (await this.query(`LAW#${rec.law_id}`, `REV#${rec.revision_id}#P#`)).map((i) => String(i["sk"])).filter((sk) => !keep.has(sk));
     const items = [
       { pk: "LAWNAMES", sk: `LAW#${rec.law_id}`, law_id: rec.law_id, law_name: rec.law_name },
       { pk: `LAW#${rec.law_id}`, sk: `REV#${rec.revision_id}`, ...rec },
       ...[rec.content_hash, rec.pdf_content_hash].filter(Boolean).map((h) => ({ pk: `REGHASH#${h}`, sk: "REV", law_id: rec.law_id, revision_id: rec.revision_id })),
       ...law.provisions.map((p) => ({ pk: `LAW#${rec.law_id}`, sk: `REV#${rec.revision_id}#P#${relPath(p.provision_id)}`, ...p })),
     ];
-    for (let i = 0; i < items.length; i += 25) {
-      let req: Record<string, { PutRequest: { Item: Record<string, unknown> } }[]> | undefined = {
-        [this.table]: items.slice(i, i + 25).map((Item) => ({ PutRequest: { Item } })),
-      };
-      for (let attempt = 0; req && Object.keys(req).length; attempt++) {
-        if (attempt > 5) throw new Error("BatchWrite 미처리 항목 재시도 초과");
-        const r = await this.db.send(new BatchWriteCommand({ RequestItems: req }));
-        req = r.UnprocessedItems as typeof req;
-        if (req && Object.keys(req).length) await new Promise((res) => setTimeout(res, 100 * 2 ** attempt));
-      }
+    for (let i = 0; i < items.length; i += 25) await this.batch(items.slice(i, i + 25).map((Item) => ({ PutRequest: { Item } })));
+    for (let i = 0; i < stale.length; i += 25) await this.batch(stale.slice(i, i + 25).map((sk) => ({ DeleteRequest: { Key: { pk: `LAW#${rec.law_id}`, sk } } })));
+  }
+  /** BatchWrite 25건 + 미처리 항목 재시도 */
+  private async batch(reqs: Record<string, unknown>[]) {
+    let req: Record<string, Record<string, unknown>[]> | undefined = { [this.table]: reqs };
+    for (let attempt = 0; req && Object.keys(req).length; attempt++) {
+      if (attempt > 5) throw new Error("BatchWrite 미처리 항목 재시도 초과");
+      const r = await this.db.send(new BatchWriteCommand({ RequestItems: req as never }));
+      req = r.UnprocessedItems as typeof req;
+      if (req && Object.keys(req).length) await new Promise((res) => setTimeout(res, 100 * 2 ** attempt));
     }
   }
 }

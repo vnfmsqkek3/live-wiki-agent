@@ -100,6 +100,19 @@ describe("ImageDescribe", () => {
     expect(w.sent).toEqual([]);
   });
 
+  it("low-OCR page without figures → reads the masked full-page view image and keeps page_markdown", async () => {
+    const view = new Uint8Array([7]);
+    const w = world({
+      "doc_1/masked/ocr_low_pages.json": { low_pages: [2] },
+      "doc_1/masked/view/0002.png": view,
+      "doc_1/masked/view/0003.png": new Uint8Array([8]), // 95% 이상 쪽은 보내지 않음
+      "doc_1/masked/segments/0002.json": { doc_id: "doc_1", page_index: 2, text: "흐린 글" },
+    }, { figures: [], page_markdown: "| 항목 | 값 |" });
+    expect(await w.handler(input)).toEqual({ status: "OK" });
+    expect(w.sent).toEqual([view]);
+    expect(w.puts.get("doc_1/masked/segments/0002.json")).toMatchObject({ page_markdown: "| 항목 | 값 |" });
+  });
+
   it("PII found in the model's description → masked and REVIEW_REQUIRED", async () => {
     const w = world({ "doc_1/masked/pages/0000.png": masked },
       { figures: [{ kind: "photo", description: "명함 사진, 010-1234-5678" }] });

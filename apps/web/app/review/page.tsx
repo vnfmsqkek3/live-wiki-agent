@@ -107,9 +107,12 @@ function ReviewView() {
 
   async function saveType() {
     try {
-      await api('POST', `/v1/documents/${encodeURIComponent(id)}/classification`, { document_type: type, reason });
-      setR((x) => x && { ...x, classification: { ...x.classification!, document_type: type as 'KNOWHOW', source: 'HUMAN', confidence: 1 } });
-      setReason(''); setMsg('문서 종류를 바꿨습니다. 수정 이력이 함께 저장됩니다.');
+      const x = await api<{ reanalyzed?: boolean }>('POST', `/v1/documents/${encodeURIComponent(id)}/classification`, { document_type: type, reason });
+      setR((v) => v && { ...v, classification: { ...v.classification!, document_type: type as 'KNOWHOW', source: 'HUMAN', confidence: 1 } });
+      setReason('');
+      // 종류가 바뀌면 그 종류의 검사(노하우=규정 비교)로 다시 검사한다 → 진행 화면으로
+      if (x.reanalyzed) { setMsg('문서 종류를 바꿨습니다. 이 종류에 맞게 AI가 다시 검사합니다.'); setTimeout(() => location.reload(), 1500); }
+      else setMsg('문서 종류를 바꿨습니다. 수정 이력이 함께 저장됩니다.');
     } catch (e) { setMsg((e as ApiError).message); }
   }
   async function saveTitle() {
@@ -165,7 +168,7 @@ function ReviewView() {
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} base={r.text} focus={editFocus} onText={setCur} onCancel={() => { setEditInit(null); setCur(null); setFixState({}); }} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
-      {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={r.text} canFix={canFix}
+      {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={cur ?? r.text} canFix={canFix}
         onDismissed={(fid, reason) => setR((x) => x && { ...x, clarify: x.clarify!.map((c) => (c.finding_id === fid ? { ...c, status: 'DISMISSED', dismiss_reason: reason, blocking: false } : c)) })} />}
       {r.lifecycle === 'IN_REVIEW' && (
         <section aria-labelledby="fix-h" className="fix-list">
@@ -184,7 +187,7 @@ function ReviewView() {
               {f.suggestion && <p><strong>AI 수정 제안:</strong> {f.suggestion}</p>}
               {!f.acknowledged && canFix && <div className="actions">
                 {f.code === 'KNOWHOW_CONFLICT' && <button type="button" className="btn solid" onClick={() => applyFix(f)}>{f.suggestion ? '제안대로 고치기' : '직접 고치기'}</button>}
-                {f.code === 'KNOWHOW_CONFLICT' && isAdmin && <button type="button" className="btn" onClick={() => { setEditFocus(f.excerpt); setEditInit((editInit !== null ? cur ?? editInit : null) ?? r.text!); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>편집기로 바로가기</button>}
+                {f.code === 'KNOWHOW_CONFLICT' && isAdmin && <button type="button" className="btn" onClick={() => { const t = (editInit !== null ? cur ?? editInit : null) ?? r.text!; setEditFocus(f.excerpt && t.includes(f.excerpt) ? f.excerpt : f.suggestion ?? f.excerpt); setEditInit(t); /* 제안대로 고친 뒤면 원문이 없으므로 고친 문장을 고른다 (prod 2회차 H5) */ setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); }}>편집기로 바로가기</button>}
                 {f.code === 'KNOWHOW_CONFLICT' && <details className="clarify-dismiss"><summary>그대로 사용</summary>
                   <div className="actions" style={{ marginTop: 4 }}>
                     <input className="field" aria-label="그대로 사용 사유" placeholder="사유 한 줄 (승인자에게 보입니다)" maxLength={200} value={keep[f.finding_id] ?? ''} onChange={(e) => setKeep((t) => ({ ...t, [f.finding_id]: e.target.value }))} />

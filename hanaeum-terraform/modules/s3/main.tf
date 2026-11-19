@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호 (stack local.protect)
+}
 # 버킷 4종 (interfaces.md 3장). quarantine(원본 등급)·published(정제본) 분리 (docs/03 ①).
 variable "n" { type = object({ prefix = string, suffix = string }) }
 variable "kms_key_arn" { type = string }
@@ -18,7 +22,7 @@ locals {
 resource "aws_s3_bucket" "b" {
   for_each      = local.buckets
   bucket        = "${var.n.prefix}-s3-${each.key}${var.n.suffix}"
-  force_destroy = var.n.suffix != "" # prod 만 보호
+  force_destroy = !var.protect
 }
 
 resource "aws_s3_bucket_public_access_block" "b" {

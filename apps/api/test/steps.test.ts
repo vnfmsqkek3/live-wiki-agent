@@ -382,8 +382,31 @@ test('carry: 규정 충돌 — 고치지 않은 문장에서 새로 나온 것�
   const { isOpenFix } = await import('../src/submit.ts');
   const kc = (id: string, ex: string) => ({ finding_id: id, step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: ex } }) as never;
   const old = '1. 1억원 이하 부동산 담보대출은 현장 실사를 생략한다.\n2. 담보가액이 3억원 이상이면 본부 승인을 받는다.';
-  const carry = makeCarry(old, [kc('a', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.')]);
+  const carry = makeCarry(old, [kc('a', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.')], true);
   const next = applyCarry(carry, [kc('n1', '1억원 이하 부동산 담보대출은 현장 실사를 생략한다.'), kc('n2', '담보가액이 3억원 이상이면 본부 승인을 받는다.'), kc('n3', '여신 금액이 5억원 이상이면 위원회 승인을 받는다.')]) as unknown as { finding_id: string; code: string; severity: string; acknowledged?: { by: string } }[];
   assert.deepEqual(next.map((f) => [f.finding_id, isOpenFix(f)]), [['n1', true], ['n2', false], ['n3', true]]);
   assert.equal(next[1]!.acknowledged?.by, 'system:recheck');
+});
+
+test('carry: 모델이 표 행을 문장으로 바꿔 쓴 충돌도 고치지 않은 행이면 승인자 판단, 값이 바뀐 행·다른 줄 낱말 조합은 막음 (11/19 prod H6)', async () => {
+  const { makeCarry, applyCarry } = await import('../src/steps/carry.ts');
+  const { isOpenFix } = await import('../src/submit.ts');
+  const kc = (id: string, ex: string) => ({ finding_id: id, step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: ex } }) as never;
+  const old = '## 3. 서류 목록\n| 번호 | 서류 | 제출처 | 보관 기간 |\n|---|---|---|---|\n| ① | 사업자등록증 | 영업점 | 5년 |\n2. 여신 금액이 5억원 이상이면 본부 승인을 받는다.\n3. 담보가액이 3억원 이상이면 보고한다.';
+  const next = applyCarry(makeCarry(old, [], true), [kc('row', '사업자등록증 보관 기간 5년 (영업점 보관)'), kc('chg', '사업자등록증 보관 기간 3년 (영업점 보관)'), kc('mix', '여신 금액이 3억원 이상이면 본부 승인을 받는다.')]) as unknown as { finding_id: string; code: string; severity: string }[];
+  assert.deepEqual(next.map((f) => [f.finding_id, isOpenFix(f)]), [['row', false], ['chg', true], ['mix', true]]);
+});
+
+test('carry: 전에 규정 비교를 안 한 문서(매뉴얼→노하우)의 첫 충돌은 올린 사람을 막는다 (11/18 prod H5)', async () => {
+  const { makeCarry, applyCarry } = await import('../src/steps/carry.ts');
+  const { isOpenFix } = await import('../src/submit.ts');
+  const kc = { finding_id: 'n', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: '담보가액이 3억원 이상이면 본부 승인을 받는다.' } } as never;
+  const next = applyCarry(makeCarry('2. 담보가액이 3억원 이상이면 본부 승인을 받는다.', [], false), [kc]) as unknown as { code: string; severity: string; acknowledged?: unknown }[];
+  assert.equal(isOpenFix(next[0]!), true);
+});
+
+test('carry: 시스템이 붙인 승인자 판단(system:recheck)은 사람 결정처럼 잇지 않는다 (11/18 prod H5)', async () => {
+  const { makeCarry } = await import('../src/steps/carry.ts');
+  const kc = { finding_id: 'n', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', location: { excerpt: 'x' }, acknowledged: { by: 'system:recheck', at: 't', reason: 'r' } } as never;
+  assert.deepEqual(makeCarry('x', [kc], true).items.map((i) => i.status), ['OPEN']);
 });

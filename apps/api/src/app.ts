@@ -123,6 +123,8 @@ const clarifyView = (det: Record<string, unknown>) => {
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
+/** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
+export const markKey = (m: Pick<Mark, 'kind' | 'reason'> & { original?: string | null }) => `${m.kind}|${m.original ?? m.reason}`.slice(0, 400);
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
 
 export function createApp(deps: Deps) {
@@ -210,17 +212,18 @@ export function createApp(deps: Deps) {
     if (!t || t.lifecycle === 'DELETED' || (t.owner !== a.sub && !(t.lifecycle === 'PUBLISHED' && canRead(a, t.acl_groups)))) throw new ApiError('NOT_FOUND', 'document not found');
     const type = t.document_type ?? t.classification?.document_type;
     if (type === 'REGULATION') throw new ApiError('CONFLICT', '규정은 위키에서 고칠 수 없습니다. 개정된 원본 파일을 올려 주세요');
+    if (t.freshness === 'SUPERSEDED') throw new ApiError('CONFLICT', '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요');
     const now = new Date().toISOString();
     const md = new TextEncoder().encode(b.markdown);
     const fresh = { lifecycle: 'QUARANTINED' as const, trust_gate_result: undefined, findings: [], workflow_id: newId.wf(), s3_version_id: undefined, content_hash: undefined,
       knowhow_validation: undefined, ext: 'md', source: 'WIKI_EDIT' as const, updated_at: now };
     let doc: DocumentRecord;
-    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh, review_carry: makeCarry(await editText(t.doc_id), t.findings) }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석. 결정은 잇는다(원본을 쓰면 옛 결과가 지워지므로 그 전에 읽음)
+    if (t.owner === a.sub && t.lifecycle === 'IN_REVIEW') doc = { ...t, ...fresh, review_carry: makeCarry(await editText(t.doc_id), t.findings, !!t.knowhow_validation) }; // 내 검토 중 문서: '고칠 것'을 반영해 다시 분석. 결정은 잇는다(원본을 쓰면 옛 결과가 지워지므로 그 전에 읽음)
     else if (t.lifecycle === 'PUBLISHED') doc = {
       ...fresh, doc_id: newId.doc(), version: 1, owner: a.sub, dept: a.dept ?? t.dept, acl_groups: t.acl_groups, title: t.title, title_source: 'USER',
       filename: `${t.title.slice(0, 80)}.md`, authority_status: 'UNVERIFIED', freshness: 'CURRENT', previous_doc_id: t.doc_id, created_at: now,
       // 새 버전도 이전 버전에서 답한 확인 필요·결정을 잇는다 (사용자 지적 11/18: 수정 요청 반영 뒤 이미 답한 질문이 다시 나왔다)
-      review_carry: makeCarry(await editText(t.doc_id), t.findings),
+      review_carry: makeCarry(await editText(t.doc_id), t.findings, !!t.knowhow_validation),
       ...(type ? { classification: { ...(t.classification ?? { business_path: [], tags: [], confidence: 1, rationale: '' }), document_type: type, source: 'HUMAN' as const } } : {}),
     };
     else throw new ApiError('CONFLICT', '게시된 문서이거나, 검토 중인 내 문서만 고칠 수 있습니다');
@@ -368,12 +371,13 @@ export function createApp(deps: Deps) {
     if (!head) throw new ApiError('CONFLICT', 'file not uploaded');
     // 이미 고정된 검사 버전이 있으면 바꾸지 않는다 (type-detection이 검사한 버전과 다른 버전이 끼어드는 것 방지)
     const doc = { ...d, s3_version_id: d.s3_version_id ?? head.s3_version_id, updated_at: new Date().toISOString(),
-      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings), findings: [] } : {}) }; // 다시 분석해도 결정은 잇는다 (Fable D). 검토 중 재분석은 결과를 새로
+      // 검토 중 재분석: 결정은 잇고(Fable D) 결과는 새로. 새 실행 id 로 — 같은 id 는 '이미 끝난 실행'이라 다시 돌지 않아 지운 결과가 비어 남았다 (11/18 prod 결함 ⑤)
+      ...(d.lifecycle === 'IN_REVIEW' ? { review_carry: makeCarry(await editText(d.doc_id), d.findings, !!d.knowhow_validation), findings: [], lifecycle: 'QUARANTINED' as const, workflow_id: newId.wf() } : {}) };
     await store.putDoc(doc);
     if (d.lifecycle === 'IN_REVIEW') await store.clearFindings?.(doc.doc_id); // 처음 분석·실패 재시도는 앞 단계(형식 검사) 결과를 지우지 않는다
     await deps.startWorkflow(doc);
     await audit(c, 'ANALYZE', d.doc_id);
-    return c.json({ workflow_id: d.workflow_id }, 202);
+    return c.json({ workflow_id: doc.workflow_id }, 202);
   });
 
   app.get('/v1/documents/:id', async (c) => {
@@ -534,7 +538,17 @@ export function createApp(deps: Deps) {
       updated_at: at,
     });
     await audit(c, 'CLASSIFY_EDIT', d.doc_id);
-    return c.json({ document_type: b.document_type });
+    // 종류가 바뀌면 다시 검사한다: 노하우는 규정 비교, 규정은 공식 원본 대조가 종류에 따라 달라진다 (11/18 prod 시험: 매뉴얼→노하우로 바꿔도 규정 비교 없이 게시 요청 가능했음)
+    let reanalyzed = false;
+    if (prev?.document_type !== b.document_type && deps.startWorkflow) {
+      const cur = (await store.getDoc(d.doc_id))!;
+      const next = { ...cur, review_carry: makeCarry(await editText(d.doc_id), cur.findings, !!cur.knowhow_validation && prev?.document_type === 'KNOWHOW'), findings: [], lifecycle: 'QUARANTINED' as const, workflow_id: newId.wf(), updated_at: new Date().toISOString() };
+      await store.putDoc(next);
+      await store.clearFindings?.(d.doc_id);
+      await deps.startWorkflow(next);
+      reanalyzed = true;
+    }
+    return c.json({ document_type: b.document_type, reanalyzed });
   });
 
   // ---- 주장 (얇은 버전, interfaces 10.2): 문서 주장 + 같은 조문을 근거로 한 게시 문서 주장의 지지·충돌 수 ----
@@ -691,7 +705,9 @@ export function createApp(deps: Deps) {
       const v = d?.previous_doc_id && status === 'PENDING' ? await versionDiff(c.get('actor'), d).catch(() => null) : null;
       // 규칙 3: 승인자는 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히'(문서 상세)
       const summary_line = (d?.summary ?? '').split(/(?<=[.다])\s+/u)[0]?.slice(0, 140) || null;
-      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD',
+      // 올린 사람이 '그대로 사용'한 규정 충돌·재검사에서 새로 나온 충돌은 승인자가 판단 (사용자 결정 11/18) → 카드에 보인다
+      const kept = (d?.findings ?? []).filter((f) => f.code === 'KNOWHOW_CONFLICT' && f.acknowledged).map((f) => ({ text: (f.location?.excerpt ?? '').slice(0, 120), reason: f.acknowledged!.reason ?? '', system: f.acknowledged!.by.startsWith('system:') }));
+      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
         ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
@@ -865,12 +881,31 @@ export function createApp(deps: Deps) {
     return c.json({ items: similar(d, hits, vis, card(d, vis).related) });
   });
 
+  // 게시 문서 '고칠 곳' 해당 없음: 올린 사람·결재자만, 사유 필수·개인정보 가림, 감사 기록. 본문은 바꾸지 않는다 (사용자 요청 11/19)
+  app.post('/v1/library/:id/marks/dismiss', async (c) => {
+    const a = c.get('actor');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.lifecycle !== 'PUBLISHED') throw new ApiError('CONFLICT', '게시 전 문서는 검토 화면에서 처리합니다');
+    if (d.owner !== a.sub && !hasRole(a, [...APPROVERS, 'PLATFORM_OPERATOR'])) throw new ApiError('FORBIDDEN', '올린 사람이나 결재자만 해당 없음으로 둘 수 있습니다');
+    const b = (await c.req.json().catch(() => ({}))) as { key?: unknown; reason?: unknown };
+    const key = String(b.key ?? '').slice(0, 400); const reason = String(b.reason ?? '').trim().slice(0, 200);
+    if (!key) throw new ApiError('VALIDATION', 'key 가 필요합니다');
+    if (!reason) throw new ApiError('VALIDATION', '해당 없음 사유를 적어 주세요');
+    const at = new Date().toISOString();
+    const x = { key, reason: mask(reason, detectPii(reason)), by: a.sub, at };
+    await store.putDoc({ ...d, mark_dismissals: [...(d.mark_dismissals ?? []).filter((y) => y.key !== key), x], updated_at: at });
+    await audit(c, 'MARK_DISMISSED', d.doc_id);
+    return c.json({ ok: true, reason: x.reason });
+  });
   app.get('/v1/library/:id', async (c) => {
     const a = c.get('actor');
     const vis = await visibleDocs(a);
     const d = await libraryDoc(c, vis, true);
     const pages = deps.pages ? (await deps.pages(d.doc_id).catch(() => [])).sort((x, y) => x.page - y.page) : [];
-    const marks = deps.marks && pages.length ? await deps.marks(pages, d) : [];
+    // 해당 없음으로 둔 곳은 '참고'(LOW)로 내리고 사유를 보인다 (사용자 요청 11/19). key 는 화면이 해당 없음 요청에 쓴다
+    const dis = new Map((d.mark_dismissals ?? []).map((x) => [x.key, x]));
+    const marks = (deps.marks && pages.length ? await deps.marks(pages, d) : []).map((m) => { const key = markKey(m); const x = dis.get(key);
+      return x ? { ...m, key, severity: 'LOW' as const, reason: `해당 없음으로 둠: ${x.reason}` } : { ...m, key }; });
     const sum = new Map((d.page_summaries ?? []).map((p) => [p.page, p.summary]));
     const meta = await pageMetas(deps, d.doc_id); // 쪽 요약 단계 결과가 있으면 Classify 요약보다 우선
     const lawNames = vis.flatMap((x) => (x.law_name ? [x.law_name] : [])); // 인용 조문을 등록 규정 이름과 묶기

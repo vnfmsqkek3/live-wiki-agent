@@ -1,0 +1,14 @@
+%% Gateway Interceptor: 사람 토큰과 외부 MCP 토큰 (mcp/gateway-interceptor/src/index.ts)
+flowchart TD
+  RQ["gw-user 요청"] --> M{"tools/call?"}
+  M -->|"아니오 (tools/list 등)"| PASS["그대로 통과"]
+  M -->|"예"| V{"Cognito access token 검증<br/>web 또는 외부 MCP client"}
+  V -->|"실패"| D1["거부 unauthenticated"]
+  V -->|"성공"| H{"username 클레임?"}
+  H -->|"없음: 기계 토큰"| SC{"scope hanaeum-wiki-mcp/read?"}
+  SC -->|"아니오"| D2["거부 forbidden: scope"]
+  SC -->|"예"| AL{"외부 허용 도구?<br/>검색·조문·규정 조회·문서 조회<br/>(승인·개인정보·법령 웹조회 제외)"}
+  AL -->|"아니오"| D3["감사 MCP_EXTERNAL DENIED, 거부"]
+  AL -->|"예"| A1["감사 ALLOWED<br/>__actor = client, groups 없음<br/>→ 전체 공개 문서만"]
+  H -->|"있음: 사람"| A2["__actor = sub, 역할 그룹, 부서"]
+  A1 & A2 --> CE["Cedar 정책 (5개 대상 허용)"] --> L["MCP Lambda<br/>역할·ACL 다시 확인"]

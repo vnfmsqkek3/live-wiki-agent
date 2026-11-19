@@ -1,5 +1,5 @@
 // 단계 5 SegmentBuild: 쪽별 세그먼트 (docs/04 1.1, 2.1). 본문은 OCR 결과 (TXT·MD와 변환 단계 배포 전 DOCX·HWPX만 text_layer)
-import { ocrRows, ocrRowsY, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
+import { ISSUE_TEXT, ocrRows, ocrRowsY, parseLaw, restoreCircled } from "@hanaeum/legal-parser";
 import { detectPii, mask } from "@hanaeum/pii";
 import { newId, defangFigureLine } from "@hanaeum/schemas";
 import type { Finding, StepInput, StepOutput } from "@hanaeum/schemas";
@@ -243,14 +243,16 @@ export function structureFindings(segments: Pick<Segment, "page_index" | "text">
   const suppAt = lines.findIndex((l) => /^부\s*칙/u.test(l.text.trim()));
   const law = parseLaw(lines.map((l) => l.text).join("\n"), { law_id: "CHECK", law_name: "check", revision_id: "2000-01-01" });
   return law.issues
-    .filter((i) => i.code === "NUMBER_REGRESSION" && i.line && (suppAt < 0 || i.line - 1 < suppAt))
+    .filter((i) => i.line && (suppAt < 0 || i.line - 1 < suppAt))
     .slice(0, 5)
     .map((i) => {
       const at = lines[i.line! - 1]!;
       const excerpt = maskText(at.text.trim()).slice(0, 120);
-      const msg = `${at.page}쪽 "${excerpt.slice(0, 40)}" 부근: 조·항·호 번호 순서가 맞지 않습니다(${i.message.split(":")[0]}). 조문이 빠졌거나 번호가 잘못 붙었을 수 있습니다.`;
+      const msg = i.code === "NUMBER_REGRESSION"
+        ? `${at.page}쪽 "${excerpt.slice(0, 40)}" 부근: 조·항·호 번호 순서가 맞지 않습니다(${i.message.split(":")[0]}). 조문이 빠졌거나 번호가 잘못 붙었을 수 있습니다.`
+        : `${at.page}쪽 "${excerpt.slice(0, 40)}" 부근: ${ISSUE_TEXT[i.code] ?? "조문 구조를 해석하지 못했습니다"}.`;
       return {
-        finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM" as const, code: "STRUCTURE_NUMBERING", message: msg,
+        finding_id: newId("fnd"), step: "SegmentBuild", severity: "MEDIUM" as const, code: i.code === "NUMBER_REGRESSION" ? "STRUCTURE_NUMBERING" : `STRUCTURE_${i.code}`, message: msg,
         evidence_ref: `${work}/segments/`, location: { page: at.page, excerpt }, user_message: msg,
         fix_hint: "원본에서 해당 쪽의 조·항·호 번호를 확인해 고친 뒤 다시 올려 주세요. 의도된 번호라면 검토자에게 사유를 남겨 주세요.",
       };

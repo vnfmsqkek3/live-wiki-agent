@@ -1,0 +1,13 @@
+%% 위키 검색 (mcp/search-server/src/search.ts). /v1/search 는 API 안에서, 가이드·외부 MCP 는 Gateway 로 같은 로직
+flowchart TD
+  Q["질의"] --> M1["개인정보 마스킹"]
+  M1 --> RW["Haiku 질의 다듬기 (2초, 실패 시 규칙 결과)"]
+  RW --> F["사전 필터<br/>ACL · PUBLISHED · REJECTED 아님 · 오늘 시행 중 · 조문 삭제 아님"]
+  F --> R["KB Retrieve HYBRID 50건<br/>→ Cohere Rerank 15건"]
+  R --> SC{"점수"}
+  SC -->|"최고점 < 0.10"| NONE["결과 없음"]
+  SC -->|"최고점 x 0.4 이상만"| W{"최고점 < 0.30?"}
+  W -->|"예"| WK["모두 '관련' (근거 아님)"]
+  W -->|"아니오"| RV
+  WK --> RV["DB 현재 상태로 재검증<br/>PUBLISHED · ACL · published_content_hash 일치 ·<br/>freshness·시행일은 DB 값 우선"]
+  RV --> OUT["top(근거) · related · search_status<br/>FOUND / HISTORICAL / UNVERIFIED<br/>dropped_after_revalidation"]

@@ -1,3 +1,7 @@
+variable "protect" {
+  type    = bool
+  default = false # true: 삭제 보호·저장소 강제 삭제 금지 (stack local.protect)
+}
 # 문서 처리 오케스트레이션 (긴급 요청 11/16 dhxorb96_to_team: Step Functions → AgentCore).
 #   Gateway `hanaeum-mvp-gw-pipeline`(AWS_IAM, 시스템 전용): 단계 Lambda = Tool (이름 = 단계 키)
 #   Runtime `hanaeum_mvp_rt_pipeline`(IAM): Strands Graph 오케스트레이터 (코드 dhxorb96 agents/). 이미지가 생기면 생성
@@ -194,7 +198,7 @@ resource "aws_bedrockagentcore_gateway_target" "step" {
 resource "aws_ecr_repository" "orchestrator" {
   name                 = "${var.n.prefix}-ecr-pipeline${var.n.suffix}"
   image_tag_mutability = "IMMUTABLE"
-  force_delete         = var.n.suffix != ""
+  force_delete         = !var.protect
   image_scanning_configuration { scan_on_push = true }
   encryption_configuration {
     encryption_type = "KMS"
