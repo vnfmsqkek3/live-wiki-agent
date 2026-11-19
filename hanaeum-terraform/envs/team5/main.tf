@@ -51,10 +51,10 @@ module "stack" {
     MODEL_EMBED  = "amazon.titan-embed-text-v2:0"
     MODEL_RERANK = "cohere.rerank-v3-5:0"
   }
-  lambda_refs               = { yoyo0704 = "d4cb22d", dhxorb96 = "d4cb22d", let522mj = "d4cb22d" }
+  lambda_refs               = { yoyo0704 = "353fcad", dhxorb96 = "353fcad", let522mj = "353fcad" }
   ocr_source_ref            = "620108a"
-  webapp_source_ref         = "d4cb22d"
-  agents_source_ref         = "d4cb22d"
+  webapp_source_ref         = "353fcad"
+  agents_source_ref         = "353fcad"
   enable_transaction_search = true
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
