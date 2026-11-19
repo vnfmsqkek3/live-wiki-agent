@@ -5,6 +5,9 @@
 # - VPC: modules/network 기본 10.40.0.0/16. 팀 계정 기존 team5-vpc 10.5.0.0/16 과 겹치지 않아 그대로 둔다
 terraform {
   required_version = ">= 1.14.0"
+  required_providers {
+    aws = { source = "hashicorp/aws", version = "~> 6.73" }
+  }
   backend "s3" {
     # bucket 은 backend.hcl (git 제외, 계정 ID 포함): terraform init -backend-config=backend.hcl
     key          = "team5/terraform.tfstate"
