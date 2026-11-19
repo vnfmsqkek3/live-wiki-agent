@@ -3,6 +3,7 @@
 // AgentCore 파이프라인 Gateway Tool `explain-findings___explain_findings` — 오케스트레이터가 최종 상태가 OK 가 아닐 때 호출.
 // 입력: Documents META 의 findings(각 단계가 남긴 사실: code·message·location·user_message·fix_hint·details)만. 원문·work/* 는 읽지 않는다.
 // 출력: {doc}/masked/explanation.json (API 가 업로드·결재 화면에 표시). 모든 글 필드는 @hanaeum/pii 로 재마스킹.
+import { converseTool } from "./converse-tool.js";
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { getDocument } from "./findings-store.js";
@@ -117,14 +118,14 @@ const maskText = (t: string) => { const sp = detectPii(t); return sp.length ? ma
 export const handler = makeHandler({
   getDoc: (doc_id) => getDocument<Doc>(doc_id),
   explain: async (factsJson) => {
-    const r = await bedrock.send(new ConverseCommand({
+    const r = await converseTool(bedrock, {
       modelId: MODEL,
-      system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측) */
+      system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5 는 temperature 400, Sonnet 5.5 는 도구 강제도 400 → converseTool (11/19 실측) */
       messages: [{ role: "user", content: [{ text: `<findings>\n${factsJson}\n</findings>\n위 검사 결과를 올린 직원에게 설명하라.` }] }],
-      toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { auto: {} } },
+      toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }] },
       inferenceConfig: { maxTokens: 2000 },
-    }));
-    return r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input;
+    }, TOOL.name);
+    return r;
   },
   putJson: async (Key, body) => {
     await s3.send(new PutObjectCommand({ Bucket: process.env.BUCKET_QUARANTINE, Key, Body: JSON.stringify(body), ContentType: "application/json", ServerSideEncryption: "aws:kms" }));

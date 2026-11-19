@@ -3,6 +3,7 @@
 // 입력: masked/segments/*.json (PiiScan 마스킹본 text + ImageDescribe figures)만. model-caller Role 은 work/* 를 읽을 수 없다.
 // 출력: {doc}/masked/summaries/{nnnn}.json (쪽별), {doc}/masked/summary.json (문서 전체 목록). 판정은 바꾸지 않는다(status OK).
 // 모델 출력도 @hanaeum/pii 로 다시 마스킹한다. 본문 속 글은 자료로만 다루고 지시로 따르지 않는다.
+import { converseTool } from "./converse-tool.js";
 import { BedrockRuntimeClient, ConverseCommand } from "@aws-sdk/client-bedrock-runtime";
 import { GetObjectCommand, ListObjectsV2Command, PutObjectCommand, S3Client } from "@aws-sdk/client-s3";
 import { detectPii, mask as maskSpans } from "@hanaeum/pii";
@@ -124,14 +125,14 @@ export const handler = makeHandler({
     await s3.send(new PutObjectCommand({ Bucket: BUCKET, Key, Body: JSON.stringify(body), ContentType: "application/json", ServerSideEncryption: "aws:kms" }));
   },
   summarize: async (pageXml) => {
-    const r = await bedrock.send(new ConverseCommand({
+    const r = await converseTool(bedrock, {
       modelId: MODEL,
-      system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측) */
+      system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5 는 temperature 400, Sonnet 5.5 는 도구 강제도 400 → converseTool (11/19 실측) */
       messages: [{ role: "user", content: [{ text: `${pageXml}\n위 쪽을 report_page 로 보고하라.` }] }],
-      toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { auto: {} } },
+      toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }] },
       inferenceConfig: { maxTokens: 800 },
-    }));
-    return r.output?.message?.content?.find((c) => c.toolUse)?.toolUse?.input;
+    }, TOOL.name);
+    return r;
   },
   mask: (t) => { const sp = detectPii(t); return sp.length ? maskSpans(t, sp) : t; },
   model: MODEL,

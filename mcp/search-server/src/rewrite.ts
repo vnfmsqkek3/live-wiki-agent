@@ -66,10 +66,10 @@ export class BedrockRewriter implements Rewriter {
     try {
       const res = await this.c.send(new ConverseCommand({
         modelId: this.model,
-        system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5(Sonnet·Haiku)는 temperature·도구 강제(toolChoice tool)를 400으로 거부 → auto + 지시문 (11/19 팀 계정 실측) */
+        system: [{ text: `${SYSTEM}\n결과는 반드시 ${TOOL.name} 도구로 제출한다.` }], /* Claude 5.5 는 temperature 400, Sonnet 5.5 는 도구 강제도 400 → converseTool (11/19 실측) */
         // 질의 안의 <, >는 바꿔 태그를 닫고 지시를 넣지 못하게
         messages: [{ role: "user", content: [{ text: `<query>${masked.slice(0, 500).replace(/[<>]/gu, " ")}</query>` }] }],
-        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: { auto: {} } },
+        toolConfig: { tools: [{ toolSpec: { name: TOOL.name, description: TOOL.description, inputSchema: { json: TOOL.inputSchema as never } } }], toolChoice: /sonnet-5-5|opus-5-5|fable-5/.test(this.model) ? { auto: {} } : { tool: { name: TOOL.name } } }, // Sonnet 5.5 등은 도구 강제 400 (11/19)
         inferenceConfig: { maxTokens: 200 },
       }), { abortSignal: AbortSignal.timeout(BedrockRewriter.TIMEOUT_MS) });
       r = sanitize(res.output?.message?.content?.find((x) => x.toolUse)?.toolUse?.input, base, masked);
