@@ -80,8 +80,8 @@ function fnd(severity: Finding['severity'], code: string, message: string, evide
   return { finding_id: newId.fnd(), step: 'TRUST_GATE', severity, code, message, evidence_ref, ...extra };
 }
 
-/** 'ARTICLE:12/PARAGRAPH:1' → '제12조제1항' */
-const label = (p: string) => p.split('/').map((x) => {
-  const [k, n] = x.split(':'); const [a, b] = (n ?? '').split('-');
-  return k === 'ARTICLE' ? `제${a}조${b ? `의${b}` : ''}` : k === 'PARAGRAPH' ? `제${a}항` : k === 'ITEM' ? `제${a}호` : '';
+/** 'ARTICLE:12/PARAGRAPH:1' → '제12조제1항'. 3단 가지번호 'ARTICLE:2-1-2' → '제2-1조의2' (schemas PR #114) */
+export const label = (p: string) => p.split('/').map((x) => {
+  const [k, n] = x.split(':'); const [a, b, c] = (n ?? '').split('-');
+  return k === 'ARTICLE' ? (c ? `제${a}-${b}조의${c}` : `제${a}조${b ? `의${b}` : ''}`) : k === 'PARAGRAPH' ? `제${a}항` : k === 'ITEM' ? `제${a}호` : '';
 }).join('');
