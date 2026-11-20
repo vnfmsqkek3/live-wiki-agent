@@ -27,7 +27,7 @@ const SUBITEM_ALT = Object.values(SUBITEM_CODES).sort((a, b) => b.length - a.len
 // 부칙은 본칙과 별도 네임스페이스(SUPPLEMENTARY:{k}/), 별표는 ANNEX:{n}[-{m}] (팀 결정 v0)
 export const ProvisionId = z.string().regex(
   new RegExp(
-    `^${LAW_ID}@${REV}/(?:(?:SUPPLEMENTARY:\\d+/)?ARTICLE:\\d+(?:-\\d+)?(?:/PARAGRAPH:\\d+)?(?:/ITEM:\\d+(?:-\\d+)?)?(?:/SUBITEM:(?:${SUBITEM_ALT}))?|SUPPLEMENTARY:\\d+|ANNEX:\\d+(?:-\\d+)?)$`,
+    `^${LAW_ID}@${REV}/(?:(?:SUPPLEMENTARY:\\d+/)?ARTICLE:\\d+(?:-\\d+){0,2}(?:/PARAGRAPH:\\d+)?(?:/ITEM:\\d+(?:-\\d+)?)?(?:/SUBITEM:(?:${SUBITEM_ALT}))?|SUPPLEMENTARY:\\d+|ANNEX:\\d+(?:-\\d+)?)$`,
   ),
 );
 

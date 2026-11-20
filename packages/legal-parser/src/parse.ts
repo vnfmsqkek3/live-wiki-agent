@@ -25,7 +25,7 @@ const RE = {
   // 제목 괄호 뒤에는 공백·줄끝이 와야 한다 ("제10조(특례)에 따른 …" 같은 본문 인용 줄을 조로 오인하지 않게)
   // 제목 안의 괄호 한 단계 허용: "제50조(분사무소(分事務所) 설치의 등기)"
   // OCR은 "제 1 조(목적)"처럼 번호 앞뒤에 공백을 넣기도 한다(11/17 DOCX→PDF→OCR 실측)
-  article: /^제\s*(\d+)\s*(?:-\s*(\d+)\s*조|조(?:\s*의\s*(\d+))?)(?:\s*\(((?:[^()]|\([^()]*\))*)\)(?=\s|$))?\s*(.*)$/u, // 제9-5조(행정규칙 가지번호)는 제9조의5와 같은 ARTICLE:9-5
+  article: /^제\s*(\d+)\s*(?:-\s*(\d+)\s*조(?:\s*의\s*(\d+))?|조(?:\s*의\s*(\d+))?)(?:\s*\(((?:[^()]|\([^()]*\))*)\)(?=\s|$))?\s*(.*)$/u, // 제9-5조(행정규칙 가지번호)는 제9조의5와 같은 ARTICLE:9-5, 제2-1조의2는 ARTICLE:2-1-2 (외국환거래규정 20개, prod 11/20)
   // ①~⑳, ㉑~㉟, ㊱~㊿ 또는 "<16>" 표기 (국가법령정보센터 원문은 16항부터 <16>을 쓰기도 함)
   paragraph: /^(?:([①-⑳㉑-㉟㊱-㊿])|<(\d{1,2})>)\s*(?:<\2>\s*)?(.*)$/u,
   item: /^(\d+)(?:의(\d+))?\.\s*(.*)$/u,
@@ -122,14 +122,15 @@ export function parseLaw(text: string, meta: LawMeta): ParsedLaw {
       continue;
     }
     if ((m = line.match(RE.article))) {
-      const no = Number(m[1]); const dash = !!m[2]; const br = Number(m[2] ?? m[3] ?? 0);
-      const title = m[4]; const rest = m[5] ?? "";
-      const name = dash ? `제${no}-${br}조` : `제${no}조${br ? `의${br}` : ""}`;
+      const no = Number(m[1]); const dash = !!m[2]; const br1 = Number(m[2] ?? m[4] ?? 0); const br2 = Number(m[3] ?? 0);
+      const br = br1 * 1000 + br2; // 정렬용 (제2-1조 < 제2-1조의2 < 제2-2조)
+      const title = m[5]; const rest = m[6] ?? "";
+      const name = dash ? `제${no}-${br1}조${br2 ? `의${br2}` : ""}` : `제${no}조${br1 ? `의${br1}` : ""}`;
       // 줄 머리 "제N조"라도 제목 괄호나 "삭제"가 없으면 본문 인용으로 본다 (예: "제5조제1항에 따라 …")
       const looksHeader = title !== undefined || /^삭제/u.test(rest) || rest === "" || rest === "생략"; // "제2조 생략": 타법개정 부칙의 생략 조
       const forward = !ctx || no > ctx.articleNo || (no === ctx.articleNo && br > ctx.articleBranch);
       if (looksHeader && forward) {
-        const key: string = `${base}/${ns}ARTICLE:${no}${br ? `-${br}` : ""}`;
+        const key: string = `${base}/${ns}ARTICLE:${no}${br1 ? `-${br1}` : ""}${br2 ? `-${br2}` : ""}`;
         const label: string = `${ns ? "부칙 " : ""}${name}`;
         ctx = { articleNo: no, articleBranch: br, articleKey: key, articleLabel: label, paraNo: 0, paraKey: null, paraLabel: "", itemNo: 0, itemBranch: 0, itemKey: null, itemLabel: "", subitemIdx: -1 };
         const parent = ns ? `${base}/${ns.slice(0, -1)}` : null;

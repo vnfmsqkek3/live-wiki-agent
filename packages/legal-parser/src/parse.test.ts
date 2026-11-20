@@ -146,3 +146,14 @@ test("행정규칙 가지번호 조문 제9-5조 → ARTICLE:9-5 (외국환거�
   assert.ok(l.provisions.some((p) => p.provision_id === "X@2026-01-01/ARTICLE:9-9/PARAGRAPH:1/ITEM:1"));
   assert.ok(l.provisions.some((p) => p.provision_id === "X@2026-01-01/ARTICLE:10"));
 });
+
+test("가지번호에 '의'가 붙은 조문 제2-1조의2 → ARTICLE:2-1-2, 항이 앞 조에 붙지 않음 (외국환거래규정 20개, prod 11/20)", () => {
+  const l = parseLaw("제2-1조(등록) ① 등록한다.\n② 변경한다.\n제2-1조의2(지급 및 수령) ① 거래한다.\n② 제2-1조제2항에 따라 확인한다.\n제2-2조(기타) 끝.", { law_id: "X", law_name: "외국환거래규정", revision_id: "2026-01-01" });
+  const ids = l.provisions.map((p) => p.provision_id.replace("X@2026-01-01/", ""));
+  assert.deepEqual(ids.filter((x) => x.startsWith("ARTICLE:2-1")), ["ARTICLE:2-1", "ARTICLE:2-1/PARAGRAPH:1", "ARTICLE:2-1/PARAGRAPH:2", "ARTICLE:2-1-2", "ARTICLE:2-1-2/PARAGRAPH:1", "ARTICLE:2-1-2/PARAGRAPH:2"]);
+  assert.equal(l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2-1-2"))!.path_label, "제2-1조의2");
+  assert.equal(l.issues.filter((i) => i.code === "NUMBER_REGRESSION").length, 0);
+  // 본문의 가지번호 참조도 해석 (제2-1조제2항 → ARTICLE:2-1/PARAGRAPH:2)
+  const ref = l.provisions.find((p) => p.provision_id.endsWith("ARTICLE:2-1-2/PARAGRAPH:2"))!.references[0]!;
+  assert.equal(ref.target_id, "X@2026-01-01/ARTICLE:2-1/PARAGRAPH:2");
+});
