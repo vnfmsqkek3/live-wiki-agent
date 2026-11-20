@@ -42,6 +42,7 @@ test('수정 초안 괄호 인용에 규정 이름을 붙인다 (이미 있으�
   const { withLawName, checkImpactDraft } = await import('../src/steps/impact-draft.ts');
   assert.equal(withLawName('3. LTV는 감정가의 60% 이내로 산정한다(제15조제1항).', '[SYNTHETIC] 기업여신 심사규정'), '3. LTV는 감정가의 60% 이내로 산정한다(기업여신 심사규정 제15조제1항).');
   assert.equal(withLawName('…산정한다(기업여신 심사규정 제15조제1항).', '기업여신 심사규정'), '…산정한다(기업여신 심사규정 제15조제1항).');
+  assert.equal(withLawName('담보(제3자 담보 포함)는 제외한다(제9-5조제1항).', '외국환거래규정'), '담보(제3자 담보 포함)는 제외한다(외국환거래규정 제9-5조제1항).', '조문 아닌 괄호는 그대로');
   const r = checkImpactDraft('LTV는 감정가의 70% 이내로 산정한다(제15조제1항).', { verdict: 'APPROPRIATE', after: 'LTV는 감정가의 60% 이내로 산정한다(제15조제1항).', reason: 'r' },
     { path: 'ARTICLE:15/PARAGRAPH:1', kind: 'MODIFIED', old_text: '70%', new_text: '감정가의 60%', law_name: '기업여신 심사규정' });
   assert.equal(r.after, 'LTV는 감정가의 60% 이내로 산정한다(기업여신 심사규정 제15조제1항).');

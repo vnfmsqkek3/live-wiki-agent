@@ -9,7 +9,7 @@ export interface ImpactChange { path: string; kind: 'ADDED' | 'REMOVED' | 'MODIF
 /** 괄호 인용이 조문만 있으면 규정 이름을 붙인다: '(제15조제1항)' → '(기업여신 심사규정 제15조제1항)'. 이미 이름이 있으면 그대로 (사용자 피드백 11/20) */
 export function withLawName(text: string, lawName?: string): string {
   const name = lawName?.replace(/^\[SYNTHETIC\]\s*/, '').trim();
-  return name ? text.replace(/\((\s*제\s*\d[^()]*)\)/g, (_m, ref: string) => `(${name} ${ref.trim()})`) : text;
+  return name ? text.replace(/\((\s*제\s*\d+(?:-\d+)*\s*조[^()]*)\)/g, (_m, ref: string) => `(${name} ${ref.trim()})`) : text;
 }
 
 export const IMPACT_SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나은행 규정 아님) 실무 노하우 편집자다. 근거 규정 조문이 개정됐다.
