@@ -1,15 +1,11 @@
 // 파이프라인 정량 (docs/02 4장, sets.json): 정상 5 게시 · 위조 5 차단 · Injection 5 KB 유입 차단 · 노하우 충돌 5 탐지.
 // 읽기 전용: 이미 올라간 prod 문서의 상태·Finding만 본다 (업로드·승인 안 함). 토큰은 admin(승인자) 계정.
 // 실행: set -a; . ./.env.local; set +a; API=https://… node agents/scripts/measure-pipeline.ts F-001=doc_… G-FORGE-01=doc_… …
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { prodToken } from './prod-auth.ts';
 
 const sets = JSON.parse(readFileSync(new URL('../../tests/evaluations/cases/sets.json', import.meta.url), 'utf8')) as Record<string, string[]>;
-const aws = (...a: string[]) => execFileSync('aws', [...a, '--output', 'text'], { encoding: 'utf8' }).trim();
-const client = aws('ssm', 'get-parameter', '--name', '/hanaeum-mvp/prod/COGNITO_CLIENT_ID', '--query', 'Parameter.Value');
-const users = JSON.parse(aws('secretsmanager', 'get-secret-value', '--secret-id', 'hanaeum-mvp/demo-users', '--query', 'SecretString'));
-const pw = typeof users.admin === 'string' ? users.admin : users.admin.password;
-const token = aws('cognito-idp', 'initiate-auth', '--client-id', client, '--auth-flow', 'USER_PASSWORD_AUTH', '--auth-parameters', `USERNAME=admin,PASSWORD=${pw}`, '--query', 'AuthenticationResult.AccessToken');
+const token = prodToken('admin');
 const get = async (p: string) => (await fetch(`${process.env.API}${p}`, { headers: { authorization: `Bearer ${token}` } })).json() as Promise<Record<string, unknown>>;
 
 type Row = { set: string; id: string; doc: string; lifecycle: string; gate: string; codes: string[]; pass: boolean };

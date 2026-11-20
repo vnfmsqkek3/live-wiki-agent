@@ -1,16 +1,12 @@
 // 가이드 근거 인용 측정 (docs/02: 근거 인용 19/20 이상, UNVERIFIED를 '없다'로 단정 0건). prod 가이드 Runtime을 user 토큰으로 직접 호출.
 // 케이스 기준일(as_of)을 Runtime에 넘긴다 (PR #97). 금지 문서(forbidden_doc_ids)는 fixture ID → 업로드 팀 결과 JSON으로 doc_id 매핑.
 // 실행: set -a; . ./.env.local; set +a; node agents/scripts/measure-citation.ts [map.json …] (ONLY=CT-01,UV-02)
-import { execFileSync } from 'node:child_process';
 import { readFileSync } from 'node:fs';
+import { aws, prodToken } from './prod-auth.ts';
 import type { Evidence, GuideResult } from '../src/guide.ts';
 
-const aws = (...a: string[]) => execFileSync('aws', [...a, '--output', 'text'], { encoding: 'utf8' }).trim();
-const client = aws('ssm', 'get-parameter', '--name', '/hanaeum-mvp/prod/COGNITO_CLIENT_ID', '--query', 'Parameter.Value');
-const users = JSON.parse(aws('secretsmanager', 'get-secret-value', '--secret-id', 'hanaeum-mvp/demo-users', '--query', 'SecretString'));
-const pw = typeof users.user === 'string' ? users.user : users.user.password;
-const token = aws('cognito-idp', 'initiate-auth', '--client-id', client, '--auth-flow', 'USER_PASSWORD_AUTH', '--auth-parameters', `USERNAME=user,PASSWORD=${pw}`, '--query', 'AuthenticationResult.AccessToken');
-const arn = process.env.GUIDE_RUNTIME_ARN ?? aws('bedrock-agentcore-control', 'list-agent-runtimes', '--query', "agentRuntimes[?agentRuntimeName=='hanaeum_mvp_rt_guide'].agentRuntimeArn | [0]");
+const token = prodToken('user');
+const arn = process.env.GUIDE_RUNTIME_ARN ?? aws(['bedrock-agentcore-control', 'list-agent-runtimes', '--query', "agentRuntimes[?agentRuntimeName=='hanaeum_mvp_rt_guide'].agentRuntimeArn | [0]"]);
 const url = `https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`;
 
 async function ask(prompt: string, as_of: string): Promise<GuideResult> {
