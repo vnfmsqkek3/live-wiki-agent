@@ -53,7 +53,11 @@ async function guardWithGuardrail(text: string) {
     guardrailIdentifier: env('GUARDRAIL_ID'), guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', content: [{ text: { text } }],
   }));
   const hits = (r.assessments ?? []).flatMap((a) => [...(a.sensitiveInformationPolicy?.piiEntities ?? []), ...(a.sensitiveInformationPolicy?.regexes ?? [])]);
-  return { blocked: hits.some((e) => e.action === 'BLOCKED'), matches: [...new Set(hits.map((e) => e.match ?? '').filter(Boolean))] };
+  // 차단: 어느 정책이든 BLOCKED (지금 guardrail 은 PII 정책뿐. content·topic·word 정책을 붙여도 여기서 잡힌다).
+  // r.action 은 ANONYMIZE 에도 GUARDRAIL_INTERVENED 라 쓰지 않는다
+  const others = (r.assessments ?? []).flatMap((a) => [...(a.contentPolicy?.filters ?? []), ...(a.topicPolicy?.topics ?? []),
+    ...(a.wordPolicy?.customWords ?? []), ...(a.wordPolicy?.managedWordLists ?? [])]);
+  return { blocked: [...hits, ...others].some((e) => e.action === 'BLOCKED'), matches: [...new Set(hits.map((e) => e.match ?? '').filter(Boolean))] };
 }
 
 async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void }) {
