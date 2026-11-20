@@ -17,7 +17,7 @@ import {
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
-import type { Store } from './store.ts';
+import type { Rating, Store } from './store.ts';
 import { CHECK_CODES, checkView, FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { buildDocPages } from './steps/structure.ts';
@@ -95,7 +95,9 @@ export interface Deps {
   /** 위키 수정 요청 판단 (Haiku) */
   judgeChange?(prompt: string): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   /** Change Impact 수정 초안 (AI팀 steps/impact-draft.ts: impactPrompt → 모델 → checkImpactDraft). 없으면 UNKNOWN 으로만 저장 */
-  draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
+  /** Gateway 안에서 일어난 거부(AgentCore Policy·interceptor). API 감사 DB 밖이라 Gateway 로그에서 읽는다 (P1 데모 06, 11/20). sub 는 넘기지 않는다 */
+  gatewayDenials?(since: string): Promise<{ at: string; role: string; tool: string; reason: string; trace_id: string }[]>;
+  draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string; /** 개정 규정 이름 → 초안 괄호 인용에 붙임 (AI팀 11/20) */ law_name?: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
 
@@ -126,6 +128,8 @@ const clarifyView = (det: Record<string, unknown>) => {
   return { ...det, ...(typeof det['before'] === 'string' ? { before: figRefs(det['before'] as string, pg) } : {}), ...(sg ? { suggestions: sg } : {}) };
 };
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
+/** 평점(인기)은 결재·검증(신뢰성)과 따로: rating{avg,count}(별점 0건이면 생략)·useful_count (P1 추천·평점, 프론트 요청 11/20) */
+const ratingOf = (r?: Rating) => ({ ...(r?.count ? { rating: { avg: r.avg, count: r.count } } : {}), ...(r?.useful_count ? { useful_count: r.useful_count } : {}) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
 /** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
@@ -683,6 +687,8 @@ export function createApp(deps: Deps) {
     const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
     const [run] = await store.listAudit({ since: ago(30), action: 'EVALUATION_RUN', limit: 1 });
     const denied = await store.listAudit({ since: ago(7), result: 'DENIED', limit: 50 });
+    // Gateway 로그를 못 읽어도 화면은 API 거부만으로 보인다
+    const gw = deps.gatewayDenials ? await deps.gatewayDenials(ago(7)).catch(() => []) : [];
     const arr = (v: unknown) => (Array.isArray(v) ? v as Record<string, unknown>[] : []);
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
     const num = (v: unknown) => (typeof v === 'number' ? v : 0);
@@ -691,7 +697,8 @@ export function createApp(deps: Deps) {
       items: arr(run?.detail?.items).map((i) => ({ key: str(i.key), label: str(i.label), target: str(i.target), passed: num(i.passed), total: num(i.total), pass: i.pass === true })),
       failures: arr(run?.detail?.failures).slice(0, 100).map((f) => ({ key: str(f.key), case_id: str(f.case_id), reason: str(f.reason).slice(0, 300) })),
       // 거부 기록에는 사용자 식별값(sub)을 내보내지 않는다. 역할만
-      denials: denied.map((e) => ({ at: e.at, role: (Array.isArray(e.detail?.roles) ? (e.detail!.roles as string[]) : []).join(','), tool: e.action, reason: str(e.detail?.reason), trace_id: e.trace_id })),
+      denials: [...denied.map((e) => ({ at: e.at, role: (Array.isArray(e.detail?.roles) ? (e.detail!.roles as string[]) : []).join(','), tool: e.action, reason: str(e.detail?.reason), trace_id: e.trace_id, source: 'API' })),
+        ...gw.map((g) => ({ ...g, source: 'GATEWAY' }))].sort((x, y) => y.at.localeCompare(x.at)).slice(0, 50),
       trace_url: 'https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core',
     });
   });
@@ -707,6 +714,8 @@ export function createApp(deps: Deps) {
     type Ev = { cited_provision_id: string; evidence_span: string; change: { path: string; kind: string; old_text: string; new_text: string } };
     const r = await deps.traceImpact({ law }, c.get('token')).catch(() => { throw new ApiError('NOT_FOUND', '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다'); }) as { law_id?: string; impacted?: { doc_id: string; evidence?: Ev[] }[] };
     const hit = r.impacted?.find((i) => i.doc_id === doc_id);
+    // 초안 인용 '(제15조제1항)'에 규정 이름을 붙이도록 Registry 이름을 넘긴다 (사용자 피드백 11/20)
+    const lawName = r.law_id ? (await store.listDocs()).find((x) => x.law_id === r.law_id && x.law_name)?.law_name : undefined;
     const d = await store.getDoc(doc_id);
     if (!hit || !d || d.lifecycle !== 'PUBLISHED' || !canRead(a, d.acl_groups)) throw new ApiError('NOT_FOUND', '이 규정 개정의 영향 문서가 아닙니다');
     const text = await editText(doc_id);
@@ -720,7 +729,7 @@ export function createApp(deps: Deps) {
       const dup = open.find((x) => x.before === (before ?? span) && x.path === ev.change.path);
       if (dup) { out.push(dup); continue; }
       const i = before ? text.indexOf(before) : -1;
-      const j = before && deps.draftImpact ? await deps.draftImpact({ before, old_clause: ev.change.old_text, new_clause: ev.change.new_text, path: ev.change.path, kind: ev.change.kind,
+      const j = before && deps.draftImpact ? await deps.draftImpact({ before, old_clause: ev.change.old_text, new_clause: ev.change.new_text, path: ev.change.path, kind: ev.change.kind, ...(lawName ? { law_name: lawName } : {}),
         context: text.slice(Math.max(0, i - 1500), i + before.length + 1500) }).catch(() => undefined) : undefined;
       // 마지막 방어: AI팀 checkImpactDraft 를 거친 값이어도 PII·무변경이면 버린다
       const after = j?.verdict === 'APPROPRIATE' && j.after?.trim() && j.after.trim() !== before && !detectPii(j.after).length ? j.after.trim() : undefined;
@@ -902,7 +911,8 @@ export function createApp(deps: Deps) {
     const groups = [...groupSeries(vis.filter((d) => d.lifecycle !== 'BLOCKED')).values()];
     const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f) && inCat(rep.doc_id))
       .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
-    return c.json({ items });
+    const rt = await store.ratings?.(c.get('actor').sub);
+    return c.json({ items: items.map((i) => ({ ...i, ...ratingOf(rt?.get(i.doc_id)) })) });
   });
   // 원본 보기 (사용자 요청 11/17 '원본 내용 그대로 png, 쪽별 파일 presigned URL'): 모든 쪽, 개인정보만 가린 이미지.
   // 가리지 않은 원본은 올린 사람·결재자의 원본 다운로드로만. URL 은 로그·감사에 남기지 않는다
@@ -1040,8 +1050,10 @@ export function createApp(deps: Deps) {
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
+    const myRt = (await store.ratings?.(a.sub))?.get(d.doc_id);
     return c.json({
       ...base,
+      ...ratingOf(myRt), my_stars: myRt?.mine ?? null,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
@@ -1101,7 +1113,8 @@ export function createApp(deps: Deps) {
     const items = [...groupByDoc((type ? sem.filter((i) => i.document_type === type) : sem) as unknown as { doc_id: string; basis?: string; snippet: string }[]), ...kw];
     const shown = new Set(items.map((i) => i.doc_id));
     const related = groupByDoc(all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type)) as unknown as { doc_id: string; basis?: string; snippet: string }[]);
-    return c.json({ items, related, ...(rewritten ? { rewritten } : {}) });
+    const rt = await store.ratings?.(a.sub);
+    return c.json({ items: items.map((i) => ({ ...i, ...ratingOf(rt?.get(i.doc_id)) })), related, ...(rewritten ? { rewritten } : {}) });
   });
 
   app.post('/v1/guides', async (c) => {

@@ -240,6 +240,7 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | Terraform / AWS provider | Terraform ≥1.14 (최신 1.17.2) / aws `~> 6.73`, archive `~> 2.7`, random `~> 3.7` (`.terraform.lock.hcl`) | yoyo0704 |
 | PaddleOCR 이미지·모델 | paddleocr 3.7.0 (11/18 컨테이너 빌드 시 확정) | yoyo0704 |
 | Strands Agents TS SDK | `@strands-agents/sdk` 1.25.0 (Node 24 컨테이너, MCP·structured output 지원 확인) | dhxorb96 |
+| ADOT Node 자동 계측 | `@aws/aws-distro-opentelemetry-node-autoinstrumentation` 0.14.0 (agents 컨테이너 `node --require …/register`, AgentCore Observability span) | ai |
 | Backend 프레임워크 | Hono 4.13.18 + `@hono/node-server` 2.1.8, `aws-jwt-verify` 5.2.1, AWS SDK v3 3.1169.0, 테스트 `node:test` (TypeScript는 root 6.0.3) | dhxorb96 |
 | Next.js | 16.4.6 (React 19.3.1) | dhxorb96 |
 | zod | 4.6.7 | let522mj |
@@ -373,3 +374,7 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-20 | infra | 3·4·8 | prod 단일 환경(사용자 결정 11/20): 버킷 `[-닉네임]` 접미사 삭제, `HANAEUM_ENV=prod`, 공유 dev 문구 삭제. 모델 5.5 미허용 재확인(566533524321). 섹션 Owner yoyo0704 → infra |
 | 2026-11-20 | data | 1(조문 ID) | 가지번호에 '의'가 붙은 `제n-m조의k` = `ARTICLE:n-m-k` (외국환거래규정 20개 조가 앞 조에 붙던 문제, parser·clausePath·본문 참조 해석) |
 | 2026-11-20 | backend | 7(Backend API) | 사람 확인 필요 항목 노출(MX-002 외부 법령 불일치가 화면에 안 보임): `GET /v1/documents/{id}/review` `checks[]`{finding_id, code, severity, message, excerpt, fix_hint, evidence_ref}, `GET /v1/approvals` 카드 `checks_count`·`checks[]`(최대 5: code, text, message). 대상 코드 MEDIUM `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_BASIS_MISMATCH`·`KNOWHOW_OUTDATED_CITATION`·`KNOWHOW_NO_BASIS`, LOW `KNOWHOW_EXTERNAL_SKIPPED`·`GUARDRAIL_SKIPPED`(확인하지 못함). 게시 잠금 아님. 문서보관함 검증 정보: 매뉴얼도 외부 법령 대조 결과를 basis에. 단계 라벨 `KNOWHOW_VALIDATION`='근거 대조', `EXTERNAL_LAW_CHECK`='외부 법령 대조'. 통지: 프론트·AI |
+| 2026-11-20 | ai | 8(버전) | ADOT Node 자동 계측 0.14.0 추가 — 가이드·파이프라인 Runtime span 수집(P1 Observability) |
+| 2026-11-20 | data | 평가 | AgentCore Evaluations 정답 데이터셋 `tests/fixtures/evaluations/agentcore-dataset.json` (AgentCore dataset 형식: scenario_id·turns[input, expected_response]·assertions·metadata, expected_trajectory 없음). 46건 = 근거 인용 20·정확 조문 20·검색 실패 판정 6, 질문에 기준일 포함 |
+| 2026-11-20 | backend | 7(Backend API) | 평점(인기, 신뢰성과 분리, P1): `GET /v1/library`·`/v1/library/{id}`·`/v1/search` 문서 항목에 `rating`{avg(소수 1자리), count}(별점 0건이면 생략)·`useful_count`(0이면 생략), 상세에 `my_stars`(없으면 null). feedback 집계. 통지: 프론트 |
+| 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` denials에 Gateway 거부(AgentCore Policy) 합침: 사용자 Gateway vended logs(`GATEWAY_LOG_GROUP`)의 'Policy evaluation denied request' + 같은 trace_id 요청 이벤트에서 tool·역할만(인자·sub 버림). 항목에 `source`('API'|'GATEWAY'), 시간 역순 최대 50. 로그 읽기 실패 시 API 거부만. `POST /v1/admin/impact/draft` 초안 생성에 개정 규정 `law_name` 전달(AI팀 초안 인용에 규정 이름). 통지: 프론트·데이터QA·AI |

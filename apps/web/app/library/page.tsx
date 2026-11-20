@@ -10,7 +10,7 @@ import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { ConfirmCurrent } from '../confirm-current';
 import { isAdmin } from '../lib/roles';
 import { api, ApiError, getSession, isCheck, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
-import { FreshnessFlag, Seal } from '../seal';
+import { FreshnessFlag, Popularity, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { CardBoundary } from '../card-boundary';
 import { isRowText, rowAsTable } from '../clarify';
@@ -172,6 +172,7 @@ function List() {
               <dl>
                 {d.category_path ? <><dt>분류</dt><dd>{d.category_path.split('/').join(' › ')}</dd></> : d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
+                {d.rating && <><dt>평점</dt><dd><Popularity r={d.rating} /></dd></>}
                 {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
                 {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
                 <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
@@ -304,7 +305,7 @@ const REVIEW_STATE: Record<string, string> = {
 };
 
 /** 쪽 밑줄(marks)이 있으면 review.findings는 근거 불일치만 따로 보인다 (밑줄로 안 그려짐, 총괄 11/20 MX-002) */
-const reviewFindings = (d: LibraryDoc) => !d.review ? [] : d.pages.length ? d.review.findings.filter((f) => isCheck(f.code)) : d.review.findings;
+const reviewFindings = (d: LibraryDoc) => !d.review ? [] : d.pages.length ? d.review.findings.filter((f) => isCheck(f.code) || f.ack_reason) : d.review.findings;
 
 /** 결재 대상: 맨 위에 '확인이 필요한 이유'. 누르면 그 쪽·밑줄로 이동 */
 function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n: number) => void; onInsert?: (s: RefSuggestion) => void }) {
@@ -332,6 +333,7 @@ function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n:
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
             <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : isCheck(f.code) ? '근거 확인 필요' : '확인 필요'}</p>
             <p style={{ margin: 0 }}>{f.message}</p>
+            {f.ack_reason && <p style={{ margin: 0 }}><strong>작성자 '그대로 사용' 사유</strong> {f.ack_reason}</p>}
             {f.fix_hint && <p style={{ margin: 0 }}><strong>{isCheck(f.code) ? '수정 제안' : '고치는 방법'}</strong> {isCheck(f.code) ? f.fix_hint.replace(/^확인 후 이렇게 고쳐 주세요:\s*/, '') : f.fix_hint}</p>}
           </li>
         ))}
@@ -444,8 +446,8 @@ function ChangeRequest({ id }: { id: string }) {
 }
 
 /** 평점 (P1 추천·평점): 사용자당 문서 1건, 다시 누르면 덮어쓴다. 평점은 인기일 뿐 검증 상태(인장)와 별개 */
-function Rating({ id }: { id: string }) {
-  const [stars, setStars] = useState(0);
+function Rating({ id, mine, avg }: { id: string; mine?: number | null; avg?: { avg: number; count: number } }) {
+  const [stars, setStars] = useState(mine ?? 0);
   const [msg, setMsg] = useState('');
   async function rate(n: number) {
     setStars(n); setMsg('');
@@ -458,6 +460,7 @@ function Rating({ id }: { id: string }) {
       <div className="view-toggle" style={{ flexWrap: 'wrap' }} role="group" aria-label="별점 주기">
         {[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" className="btn" aria-pressed={stars === n} aria-label={`${n}점`} onClick={() => rate(n)}>{'★'.repeat(n)}</button>)}
       </div>
+      {avg && <p className="meta">지금 평균 <Popularity r={avg} />{mine ? ` · 내 별점 ${mine}점` : ''}</p>}
       <p className="note">평점은 다른 사람의 추천 참고용입니다. 규정 근거 확인 여부(검증 상태)와는 따로 판단합니다.</p>
       {msg && <p className="notice" role="status">{msg}</p>}
     </section>
@@ -783,7 +786,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
-      {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} /></DetailCard>}
+      {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} mine={d.my_stars} avg={d.rating} /></DetailCard>}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
       </div></CardBoundary>{decided ? <p className="notice" role="status">{decided}</p> : d.review && <Decide r={d.review} docId={d.doc_id} onDone={setDecided} />}
 

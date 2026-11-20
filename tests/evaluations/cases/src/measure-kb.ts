@@ -29,7 +29,8 @@ export function fingerprints(): { id: string; lines: string[] }[] {
   })).filter((f) => f.lines.length);
 }
 
-export interface LiveDeps { raw: Retriever; search: ReturnType<typeof searchTools> }
+/** seedDocIds: 시드 매핑의 prod doc_id. 주면 검색 결과에서 시드 밖 문서(오늘 QA·데모 업로드)를 빼고 잰다 (데모 초기화 전 간섭 제외, 인프라 요청 11/20) */
+export interface LiveDeps { raw: Retriever; search: ReturnType<typeof searchTools>; seedDocIds?: Set<string> }
 
 /** 승인 전·차단 문서 KB 노출: 필터 없이 조회해 고유 문장 30자가 들어간 청크가 하나라도 있으면 노출 */
 export async function measureVisibility(raw: Retriever) {
@@ -58,8 +59,9 @@ export async function measureLive(d: LiveDeps) {
   // 근거 검색 Recall@5 + 금지 근거(삭제·과거·위조) 반환 여부
   const cite = { total: 0, hit: 0, forbidden: [] as string[], misses: [] as string[] };
   for (const c of jsonl<CiteCase>("citation.jsonl")) {
-    const r = await d.search.search_wiki({ query: c.question, as_of: c.as_of, top_k: 5 }, USER);
-    const ids = r.items.map((x) => x.provision_id);
+    // 시드만 볼 때는 10건을 받아 시드 밖 문서를 빼고 앞 5건 (QA 업로드가 상위를 차지해도 시드 기준 Recall@5)
+    const r = await d.search.search_wiki({ query: c.question, as_of: c.as_of, top_k: d.seedDocIds ? 10 : 5 }, USER);
+    const ids = r.items.filter((x) => !d.seedDocIds || d.seedDocIds.has(x.doc_id)).slice(0, 5).map((x) => x.provision_id);
     cite.total++;
     if (c.expected_provision_ids.some((p) => ids.includes(p))) cite.hit++; else cite.misses.push(`${c.id}: ${r.search_status} [${ids.join(", ")}]`);
     if ((c.forbidden_provision_ids ?? []).some((p) => ids.includes(p))) cite.forbidden.push(c.id);
@@ -94,7 +96,7 @@ export async function measureImpactLive(trace: (a: { law: string; old_revision: 
   const out = { expected: 0, detected: 0, falsePos: [] as string[], excluded: [] as string[], rows: [] as string[] };
   for (const s of sets) {
     const r = await trace({ law: s.law_id, old_revision: s.old_revision, new_revision: s.new_revision });
-    const got = r.impacted.map((i) => byDocId.get(i.doc_id) ?? byTitle.get(squash(i.title.replace(/^\[SYNTHETIC\]\s*/u, ""))) ?? `?${i.title}`);
+    const got = r.impacted.filter((i) => !seed || byDocId.has(i.doc_id)).map((i) => byDocId.get(i.doc_id) ?? byTitle.get(squash(i.title.replace(/^\[SYNTHETIC\]\s*/u, ""))) ?? `?${i.title}`);
     const exp = s.expected_impacted.filter((d) => published.has(d));
     out.excluded.push(...s.expected_impacted.filter((d) => !published.has(d)));
     out.expected += exp.length;
@@ -144,11 +146,11 @@ if (import.meta.main) {
   };
   const viaLambda = invoke("hanaeum-mvp-lambda-mcp-search", "search___search_wiki") as unknown as typeof local.search_wiki;
   const search = { ...local, search_wiki: viaLambda };
-  const r = await measureLive({ raw: new BedrockRetriever(kb), search });
+  // SEED_IDS=seed-doc-ids.json (데이터팀 시드 매핑, git 미추적). 주면 시드 밖 문서(QA 업로드)를 빼고 잰다. 없으면 manifest 기준 분모 + 제목 매핑
+  const seed = process.env["SEED_IDS"] ? JSON.parse(readFileSync(process.env["SEED_IDS"], "utf8")) as Record<string, string> : undefined;
+  const r = await measureLive({ raw: new BedrockRetriever(kb), search, ...(seed ? { seedDocIds: new Set(Object.values(seed)) } : {}) });
   // trace_impact는 AUTHOR·REG_APPROVER 전용. 그래프는 Neptune(VPC)이라 배포된 graph Lambda로 호출
   const trace = invoke("hanaeum-mvp-lambda-mcp-graph", "graph___trace_impact");
-  // SEED_IDS=seed-doc-ids.json (데이터팀 시드 매핑, git 미추적). 없으면 manifest 기준 분모 + 제목 매핑
-  const seed = process.env["SEED_IDS"] ? JSON.parse(readFileSync(process.env["SEED_IDS"], "utf8")) as Record<string, string> : undefined;
   const im = await measureImpactLive((a) => trace(a, { sub: "eval-author", groups: ["AUTHOR"], dept: "여신" }) as never, seed);
   console.log(`| 항목 | 목표 | 실환경 (KB ${kb}, 기준일 ${EVAL_TODAY}) | 판정 |`);
   console.log("|---|---|---|---|");
