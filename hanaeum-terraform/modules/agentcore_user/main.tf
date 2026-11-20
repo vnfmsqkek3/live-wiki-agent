@@ -325,3 +325,37 @@ output "ecr_repository_name" { value = aws_ecr_repository.guide.name }
 output "ecr_repository_arn" { value = aws_ecr_repository.guide.arn }
 output "runtime_arn" { value = try(aws_bedrockagentcore_agent_runtime.guide[0].agent_runtime_arn, "") }
 output "runtime_arn_pattern" { value = "arn:aws:bedrock-agentcore:${local.region}:${local.acct}:runtime/${replace("${var.n.prefix}_rt_guide${var.n.suffix}", "-", "_")}-*" }
+
+# ---------- 관측: 사용자 Gateway APPLICATION_LOGS·TRACES (11/20 P1: Policy 거부가 어디에도 안 남음 → 평가 화면 denials·데모 06 거부 Trace) ----------
+resource "aws_cloudwatch_log_group" "gateway" {
+  name              = "/aws/vendedlogs/bedrock-agentcore/${var.n.prefix}-gw-user${var.n.suffix}"
+  retention_in_days = 30
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_cloudwatch_log_delivery_source" "gateway" {
+  for_each     = toset(["APPLICATION_LOGS", "TRACES"])
+  name         = "${var.n.prefix}-lds-gw-user-${lower(replace(each.key, "_", "-"))}${var.n.suffix}"
+  log_type     = each.key
+  resource_arn = aws_bedrockagentcore_gateway.user.gateway_arn
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "gateway_logs" {
+  name = "${var.n.prefix}-ldd-gw-user-logs${var.n.suffix}"
+  delivery_destination_configuration {
+    destination_resource_arn = aws_cloudwatch_log_group.gateway.arn
+  }
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "gateway_xray" {
+  name                      = "${var.n.prefix}-ldd-gw-user-xray${var.n.suffix}"
+  delivery_destination_type = "XRAY"
+}
+
+resource "aws_cloudwatch_log_delivery" "gateway" {
+  for_each                 = aws_cloudwatch_log_delivery_source.gateway
+  delivery_source_name     = each.value.name
+  delivery_destination_arn = each.key == "TRACES" ? aws_cloudwatch_log_delivery_destination.gateway_xray.arn : aws_cloudwatch_log_delivery_destination.gateway_logs.arn
+}
+
+output "gateway_log_group" { value = { name = aws_cloudwatch_log_group.gateway.name, arn = aws_cloudwatch_log_group.gateway.arn } }
