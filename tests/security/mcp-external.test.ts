@@ -90,5 +90,6 @@ test('응답에 원문 PII 없음: 검색·정리본에 주민등록번호·카�
     (await call('search___search_wiki', { query: '고객 주민등록번호 계좌' })).raw,
     ...(docs.public ? [(await call('search___get_wiki_document', { doc_id: docs.public })).raw] : []),
   ];
-  for (const b of bodies) assert.deepEqual(detectPii(b.replace(/\\n/g, '\n')).map((x) => x.type), [], '원문 PII 형식');
+  // 검색 score 실수의 소수부(16자리)가 카드 형식에 걸린다 → 점수 숫자는 빼고 본다
+  for (const b of bodies) assert.deepEqual(detectPii(b.replace(/\\n/g, '\n').replace(/\\?"score\\?":[\d.e-]+/g, '')).map((x) => x.type), [], '원문 PII 형식');
 });

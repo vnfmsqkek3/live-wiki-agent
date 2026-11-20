@@ -337,7 +337,7 @@ test("get_wiki_document: 게시본을 쪽별로 (본문 TEXT, 글자 없는 캡�
   const st = { doc_id: DOC, lifecycle: "PUBLISHED", authority_status: "UNVERIFIED", freshness: "CURRENT", acl_groups: ["ALL"], published_content_hash: sha("CONTENT"), version: 2, effective_from: 20260101, effective_to: 99991231 } as DocState;
   const s2 = { get: async (ids: string[]) => new Map(ids.includes(DOC) ? [[DOC, st]] : []) } as unknown as DocStates;
   const meta: Record<string, unknown> = { title: "과천 매뉴얼", document_type: "MANUAL", category_path: "총무/사무기기" };
-  st.published_content_hash = sha(content);
+  st.published_content_hash = `sha256:${sha(content)}`; // Promote 가 기록하는 실제 형식
   let body = content;
   const t = searchTools({ retriever, states: s2, regulation: regulationTools(fixtureClauseStore()), published: { get: async () => ({ content: body, meta }) } });
   const r = await t.get_wiki_document({ doc_id: DOC }, user) as unknown as { version: number; category_path: string; page_count: number; pages: { page: number; markdown: string; source: string; ai_summary?: string }[] };
