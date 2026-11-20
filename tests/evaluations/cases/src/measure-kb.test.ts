@@ -63,3 +63,19 @@ test("변경 영향 실그래프 + 시드 매핑: 매핑에 없는 데모 문서
   assert.equal(r.detected, 3);
   assert.deepEqual(r.falsePos, []);
 });
+
+test("시드만 보기(seedDocIds): 시드 밖 문서(QA 업로드)가 상위를 차지해도 빼고 Recall@5", async () => {
+  const env = buildEnv();
+  const base = await measureLive({ raw: env.retriever, search: env.search });
+  // 모든 검색 결과 앞에 시드 밖 문서 5건을 끼워 넣음 (prod 11/20: 엔드유저 재업로드 K-001이 CT-04 상위)
+  const noisy = { ...env.search, search_wiki: (async (a: Record<string, unknown>, u: never) => {
+    const r = await env.search.search_wiki(a as never, u);
+    const qa = Array.from({ length: 5 }, (_, i) => ({ ...(r.items[0] ?? {}), doc_id: `doc_QA${i}`, provision_id: `doc_QA${i}#s1` }));
+    return { ...r, items: [...qa, ...r.items].slice(0, Number(a["top_k"] ?? 5)) };
+  }) as typeof env.search.search_wiki };
+  const polluted = await measureLive({ raw: env.retriever, search: noisy });
+  assert.equal(polluted.cite.hit, 0, "시드 필터 없으면 QA 문서가 상위 5건을 차지");
+  const notQa = { has: (id: string) => !id.startsWith("doc_QA") } as Set<string>; // 시드 = QA 업로드 외 전부
+  const filtered = await measureLive({ raw: env.retriever, search: noisy, seedDocIds: notQa });
+  assert.equal(filtered.cite.hit, base.cite.hit, "시드 필터로 QA 문서를 빼면 원래 결과와 같음");
+});

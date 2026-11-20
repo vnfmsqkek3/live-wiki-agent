@@ -5,7 +5,7 @@ import { PageHeader } from '../page-header';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type LibraryCard, type SearchItem } from '../lib/api';
-import { FreshnessFlag, Seal } from '../seal';
+import { FreshnessFlag, Popularity, Seal } from '../seal';
 import { PageThumb } from '../page-thumb';
 
 // 문서 종류로 거른다 (태그는 AI가 붙인 자유 문구라 필터로 쓰면 0건이 되기 쉽다)
@@ -178,7 +178,7 @@ function Results() {
                   {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
                   {i.business_path && i.business_path.length > 0 && <><dt>업무</dt><dd>{i.business_path.join(' › ')}</dd></>}
                   {i.team && <><dt>작성</dt><dd>{i.team}</dd></>}
-                  {i.stars !== undefined && <><dt>평점</dt><dd><span className="num">{i.stars.toFixed(1)} / 5</span></dd></>}
+                  {i.rating && <><dt>평점</dt><dd><Popularity r={i.rating} /></dd></>}
                   <dt>찾은 이유</dt><dd>{i.reason}</dd>
                 </dl>
                 <SearchMatches item={i} />

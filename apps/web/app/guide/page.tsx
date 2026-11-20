@@ -27,6 +27,8 @@ function GuideView() {
   }, [q]);
 
   const docs = g ? [...new Map(g.steps.flatMap((s) => s.sources).map((e) => [e.doc_id, e])).values()] : [];
+  // 근거 0건이거나 게시·승인 요청 거절이면 '확인이 더 필요한 부분'을 맨 위에 (엔드유저 ⑧ 11/20: 근거 1건이어도 거절이 아래에 묻힘)
+  const top = !!g?.uncertainty && (!docs.length || (/게시|승인/.test(g.uncertainty) && /할 수 없|불가/.test(g.uncertainty)));
   async function useful() {
     const top = docs[0];
     if (!top) return;
@@ -50,14 +52,14 @@ function GuideView() {
       {g && (
         <>
           {/* 근거 0건 + 확인 필요 문구(게시·승인 요청 거절 등)면 그 문구를 맨 위에 (엔드유저 데모 06 ⑧ 11/20) */}
-          {!docs.length && g.uncertainty ? <div className="notice" role="status" style={{ display: 'block' }}>
+          {top ? <div className="notice" role="status" style={{ display: 'block' }}>
             <p style={{ margin: 0, whiteSpace: 'pre-line' }}><GText s={g.uncertainty} /></p>
-            {/게시|승인/.test(g.uncertainty) && <p className="note" style={{ marginBottom: 0 }}>가이드는 문서를 게시하거나 승인할 수 없습니다. 본인 문서는 등록 &gt; 검토 화면에서 [검토 마치고 게시 요청]을 누르면 승인자에게 갑니다.</p>}
+            {/게시|승인/.test(g.uncertainty) && !g.uncertainty.includes('게시 요청') && <p className="note" style={{ marginBottom: 0 }}>가이드는 문서를 게시하거나 승인할 수 없습니다. 본인 문서는 등록 &gt; 검토 화면에서 [검토 마치고 게시 요청]을 누르면 승인자에게 갑니다.</p>}
           </div> : <p className="notice" style={{ color: 'var(--ink)' }}>
-            검증된 문서 {docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.
+            {docs.length ? `검증된 문서 ${docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.` : '근거가 되는 승인 문서를 찾지 못해 가이드를 만들지 않았습니다. 질문을 바꾸거나 담당 부서에 문의하세요.'}
           </p>}
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}
-          {g.status === 'NO_EVIDENCE' ? g.uncertainty && !docs.length ? null : <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
+          {g.status === 'NO_EVIDENCE' || !docs.length ? !docs.length ? null : <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
             <>{(g.sections?.length ? g.sections : [{ title: '', note: '', steps: g.steps, fallback: '', source_note: '' }]).map((sec, k) => { const list = sec.steps; const brief = !!g.sections?.length; return (
               <section key={k} className="guide-section" aria-label={sec.title || '가이드'}>
                 {sec.title && <h2 className="section"><GText s={sec.title} /></h2>}
@@ -79,7 +81,7 @@ function GuideView() {
                 {sec.source_note && <p className="meta guide-source"><GText s={sec.source_note} />{list[0]?.sources[0] && <> · <a href={`/library?id=${encodeURIComponent(list[0].sources[0].doc_id)}${list[0].sources[0].page ? `&page=${list[0].sources[0].page}` : ''}`}>원문 보기</a></>}</p>}
               </section>); })}</>
           )}
-          {g.uncertainty && docs.length > 0 && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}><GText s={g.uncertainty} /></p></>}
+          {g.uncertainty && !top && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}><GText s={g.uncertainty} /></p></>}
           <div className="actions">
             <button className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}`)}>근거 문서 보기</button>
             <button className="btn" onClick={useful} disabled={thanks || docs.length === 0}>{thanks ? '의견을 남겼습니다' : '도움이 됐어요'}</button>
