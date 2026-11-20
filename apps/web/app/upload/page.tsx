@@ -83,7 +83,8 @@ export default function Upload() {
         {state.kind === 'busy' && sent > 0 && <Bar label="파일 올리기" value={sent} />}
         {prog && (
           <section aria-label="분석 진행" className="progress">
-            <Bar label={prog.halted ? '분석이 멈췄습니다' : prog.finished ? '분석이 끝났습니다' : `분석 중 (${prog.done}/${prog.total})`} value={prog.done / prog.total} danger={prog.halted} />
+            {/* 차단은 오류로 멈춘 것이 아니라 검사가 끝난 결과 (엔드유저 D02 11/20: '멈췄습니다 91%'가 오류로 읽힘) */}
+            <Bar label={prog.lifecycle === 'BLOCKED' ? '검사를 마쳤습니다: 등록 차단' : prog.halted ? '분석이 멈췄습니다' : prog.finished ? '분석이 끝났습니다' : `분석 중 (${prog.done}/${prog.total})`} value={prog.lifecycle === 'BLOCKED' ? 1 : prog.done / prog.total} danger={prog.halted} />
             <ol className="prog-steps">
               {prog.steps.map((s) => <li key={s.key} className={s.state}>{s.label}{s.state === 'running' && ' 중'}{s.state === 'failed' && ' 실패'}{s.state === 'blocked' && ' 차단'}</li>)}
             </ol>

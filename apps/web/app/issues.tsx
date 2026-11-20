@@ -6,27 +6,30 @@ import { api, ApiError, apiBlobUrl, type DocChange, type Explanation, type Issue
 
 const SEV: Record<Issue['severity'], string> = { HIGH: '등록 불가·수정 필요', MEDIUM: '확인 필요', LOW: '참고' };
 
+// 어려운 용어 쉬운 말 병기 (엔드유저 D02 11/20). 문장마다 처음 한 번만
+const plain = (s: string) => s.replace(/프롬프트 인젝션(?!\()/, '프롬프트 인젝션(AI를 속이는 숨은 지시문)').replace(/HTML 주석(?!\()/, 'HTML 주석(화면에 보이지 않는 메모 칸)');
+
 /** AgentCore가 확인 결과를 사람이 읽을 문장으로 정리한 설명 (판정은 바꾸지 않음) */
 function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Issue[]; pages: number[]; onPage: (p: number) => void }) {
   const pageOf = (id: string, p?: number) => p ?? issues.find((i) => i.finding_id === id)?.location?.page;
   return (
     <div className="explain">
-      <p className="lead" style={{ marginTop: 0 }}>{e.summary}</p>
+      <p className="lead" style={{ marginTop: 0 }}>{plain(e.summary)}</p>
       <ul className="fixes">
         {e.items.map((it) => {
           const p = pageOf(it.finding_id, it.page);
           return (
             <li key={it.finding_id} className={`fix ${it.risk === '높음' ? 'sev-HIGH' : ''}`}>
-              <p className="fix-head">{p ? `${p}쪽 · ` : ''}{it.where} <span className={it.risk === '높음' ? 'danger-text' : 'note'}>· 위험도 {it.risk}</span></p>
-              <p><strong>무엇이</strong> {it.problem}</p>
-              <p><strong>왜</strong> {it.reason}</p>
-              <p><strong>고치는 방법</strong> {it.fix}</p>
+              <p className="fix-head">{p ? `${p}쪽 · ` : ''}{plain(it.where)} <span className={it.risk === '높음' ? 'danger-text' : 'note'}>· 위험도 {it.risk}</span></p>
+              <p><strong>무엇이</strong> {plain(it.problem)}</p>
+              <p><strong>왜</strong> {plain(it.reason)}</p>
+              <p><strong>고치는 방법</strong> {plain(it.fix)}</p>
               {p && pages.includes(p) && <button className="btn" type="button" onClick={() => onPage(p)}>{p}쪽에서 위치 보기</button>}
             </li>
           );
         })}
       </ul>
-      {e.next_action && <p><strong><Icon name="arrow" /> 다음에 할 일</strong> {e.next_action}</p>}
+      {e.next_action && <p><strong><Icon name="arrow" /> 다음에 할 일</strong> {plain(e.next_action)}</p>}
       <p className="meta">AI가 검사 결과를 설명한 내용입니다. 등록 가능 여부 판정은 검사 규칙이 정하며, 설명이 판정을 바꾸지 않습니다.</p>
     </div>
   );
