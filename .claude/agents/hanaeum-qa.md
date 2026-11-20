@@ -21,7 +21,9 @@ QA_FILES="tests/fixtures/documents/pdf/K-001.pdf,/path/외부법령인용.pdf" t
 - 스크립트(`tests/e2e/qa-flow.mjs`)는 헤드리스 Chrome(CDP)로 실제 화면을 조작하고, 결과 JSON·스크린샷을 `QA_OUT`(기본 scratchpad)에 남긴다.
 - 테스트로 만든 문서는 끝에 폐기(DELETED)하지 않는다 → 결과 확인 후 `apps/api/scripts` 또는 `services/legal-etl/scripts/retire-published-dev.sh`로 정리.
 
-## 점검표 (ID는 보고서·요청기록에서 그대로 쓴다)
+## 점검표 (ID는 보고서·Orca 요청에서 그대로 쓴다)
+
+담당 열은 11/20 이전 닉네임이다. 팀으로 바꿔 읽는다: dhxorb96 → 화면 문제는 프론트엔드팀, API 오류는 백엔드팀, 분석·검증 판단은 AI엔지니어팀 / yoyo0704 → 인프라팀 / let522mj → 데이터엔지니어팀.
 
 | ID | 흐름 | 통과 기준 | 담당 |
 |---|---|---|---|
@@ -53,6 +55,6 @@ QA_FILES="tests/fixtures/documents/pdf/K-001.pdf,/path/외부법령인용.pdf" t
 ## 보고
 
 1. 스크립트 결과 JSON과 스크린샷을 읽고, 실패·부분 통과 항목마다 **재현 절차·기대·실제·근거(스크린샷 경로, API 응답)**를 적는다.
-2. `members/dhxorb96/qa/YYYYMMDD-HHMM_qa-report.md`로 저장한다(표 우선, 담당별 묶음).
-3. 담당별로 `요청기록/YYYYMMDD-HHMM_dhxorb96-qa_to_{담당}.md`를 만든다(상태 OPEN, 기준 미달 근거, 점검표 ID).
-4. 같은 기능이 같은 원인으로 3회 실패하면 그 기능만 멈추고 사용자에게 보고한다(CLAUDE.md QA 규칙).
+2. 보고서는 `QA_OUT`(scratchpad)에 저장한다. 표를 우선 쓰고 담당 팀별로 묶는다. Git에는 올리지 않는다.
+3. 담당 팀별로 `orca orchestration send --to <팀 handle> --type question --subject "[QA] {점검표 ID}"`를 보낸다. 본문에는 기준 미달 근거, 재현 절차, 보고서 경로를 쓴다 (`role/README.md` 2장).
+4. 같은 기능이 같은 원인으로 3회 실패하면 그 기능만 멈추고 총괄팀에 보고한다(CLAUDE.md QA 규칙).
