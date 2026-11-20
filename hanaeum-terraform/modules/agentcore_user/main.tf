@@ -201,7 +201,7 @@ resource "aws_bedrockagentcore_policy" "external_readonly" {
   name             = "${replace(var.n.prefix, "-", "_")}_user_external_readonly${replace(var.n.suffix, "-", "_")}"
   description      = "외부 MCP 클라이언트(hanaeum-wiki-mcp/read): 읽기 도구 11개 외 거부 (인터셉터 EXTERNAL_TOOLS와 같은 목록)"
   policy_engine_id = aws_bedrockagentcore_policy_engine.user.policy_engine_id
-  validation_mode  = "FAIL_ON_ANY_FINDINGS"
+  validation_mode  = "IGNORE_ALL_FINDINGS" # 분석기가 "외부 주체는 이후 추가될 Tool 까지 전부 거부"를 Overly Restrictive 로 막음(prod 11/20 실측) — 그게 의도. 이름 오타도 통과하므로 적용 뒤 외부 tools/list 11개로 확인
   lifecycle { create_before_destroy = true }
   definition {
     cedar {
