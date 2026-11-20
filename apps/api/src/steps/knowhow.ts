@@ -27,6 +27,10 @@ export interface Judgement {
   statement: string; provision_id: string; relation: Relation; reason: string; quote: string;
   /** 근거 조문에 맞게 노하우 문장을 고쳐 쓴 한 문장 (CONFLICTS만, 사용자 요청 11/17 '근거내용을 바탕으로 한 수정내용') */
   suggestion?: string;
+  /** 판단 못함·관련 없음(INSUFFICIENT·UNRELATED)일 때 그 조문이 어디서 왔나 (사용자 피드백 11/20, 화면 구분용·판정 불변).
+   *  CITED: 문서가 그 문장에서 이 조문을 근거로 들었는데 내용이 다름 → '근거와 다름'
+   *  NONE: 문서가 든 근거가 아니라 검색으로 붙은 조문 → 근거로 보여 주지 않음('관련 조문 없음') */
+  basis?: 'CITED' | 'NONE';
 }
 export type Verdict = 'SUPPORTED' | 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT';
 
@@ -126,6 +130,8 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
     const relation: Relation = verified_quote || j.relation === 'UNRELATED' ? j.relation : 'INSUFFICIENT';
     return { ...j, relation, label: cl?.label ?? j.provision_id, verified_quote };
   });
+  // 모델 스스로 판단 못함·관련 없음이라고 한 것만 (인용 미확인으로 낮춘 충돌·일치는 그대로 둔다 → 원본 오탐 증가 없음)
+  items.forEach((j, i) => { if (j.relation === 'INSUFFICIENT' || j.relation === 'UNRELATED') checked[i]!.basis = citedIn(maskedText, j.statement, checked[i]!.label) ? 'CITED' : 'NONE'; });
   const isExt = (j: { provision_id: string }) => !!byId.get(j.provision_id)?.external;
   const externalItems = checked.filter(isExt);
   const internal = checked.filter((j) => !isExt(j));
@@ -151,6 +157,13 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
     findings.push(fnd('MEDIUM', 'KNOWHOW_OUTDATED_CITATION', `개정 전 조문 인용 → 현행 ${o.label} 기준으로 재검토 필요`, o.cited, {
       user_message: `개정 전 조문(${o.label}, 이전 시행본)을 근거로 쓰고 있습니다.`,
       fix_hint: '현행 조문 기준으로 내용을 고친 뒤 다시 올려 주세요. 문서보관함의 밑줄에 현행 조문 원문이 있습니다.',
+    }));
+  // 문서가 든 근거 조문과 내용이 다름: 사람 확인 (MEDIUM, submit.ts 잠금 코드 아님 → 판정·게시 판단 불변)
+  for (const j of internal.filter((x) => x.basis === 'CITED'))
+    findings.push(fnd('MEDIUM', 'KNOWHOW_BASIS_MISMATCH', `근거로 든 ${j.label}와 내용이 다름: ${j.reason}`.slice(0, 300), j.provision_id, {
+      location: { excerpt: j.statement.slice(0, 120) },
+      user_message: `"${j.statement.slice(0, 60)}" 문장이 근거로 든 ${j.label}과 다른 내용으로 보입니다.`.slice(0, 300),
+      fix_hint: BASIS_MISMATCH_HINT,
     }));
   // 외부 법령 불일치: 미검증 근거라 차단·잠금 없이 사람 확인 (MEDIUM, submit.ts 잠금 코드 아님)
   findings.push(...externalMismatch(externalItems));
@@ -199,6 +212,18 @@ export async function validateExternal(maskedText: string, deps: Pick<KnowhowDep
     fixable.forEach((j, i) => { const s = out[i]?.trim(); if (s) j.suggestion = s.slice(0, 300); });
   }
   return { findings: [...externalSkipped(ext.skipped), ...externalMismatch(checked)], external: checked };
+}
+
+export const BASIS_MISMATCH_HINT = '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.';
+/** 문서가 그 문장에서 이 조문(조 번호)을 직접 들었나: 문장 또는 문장이 있는 줄에 '제N조(의M)'가 있으면 CITED.
+ *  ponytail: 조 번호 문자열 대조만 — 다른 법령의 같은 조 번호도 맞다고 봄. 줄에 법령이 둘 이상이면 법령 이름까지 대조로 올린다 */
+export function citedIn(text: string, statement: string, label: string): boolean {
+  const art = norm(label).match(/제\d+조(?:의\d+)?/)?.[0];
+  if (!art) return false;
+  const st = norm(statement);
+  const line = text.split('\n').map(norm).find((l) => l.includes(st) || (l.length > 8 && st.includes(l))) ?? st;
+  const re = new RegExp(`${art}(?![의\\d])`); // 제7조 ≠ 제7조의2·제71조
+  return re.test(line) || re.test(st);
 }
 
 function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {

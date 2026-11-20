@@ -124,6 +124,7 @@ const real = process.env.REAL === '1' ? await realDeps() : undefined;
 console.log(`모드: ${real ? '실제 (규정 저장소·KB 검색)' : '임시 (fixture 파서·2-gram 검색)'}`);
 let conflictHit = 0;
 let falsePositive = 0;
+let basisFp = 0;
 const suggestions: string[] = [];
 console.log('| 문서 | 기대 | 판정 | 결과 | 근거 |\n|---|---|---|---|---|');
 for (const [id, expected] of cases) {
@@ -135,8 +136,10 @@ for (const [id, expected] of cases) {
   if (conflict5.includes(id) && v === 'CONFLICT') conflictHit++;
   if (expected === 'NOT_CONFLICT' && v === 'CONFLICT') falsePositive++;
   const why = r.validation.items.find((j) => j.relation === 'CONFLICTS') ?? r.validation.items[0];
-  console.log(`| ${id} | ${expected} | ${v} | ${ok ? '✅' : '❌'} | ${why ? `${why.label}: ${why.reason}`.replace(/\|/g, '/').slice(0, 90) : r.validation.outdated[0]?.label ?? '-'} |`);
+  const mis = r.findings.filter((f) => f.code === 'KNOWHOW_BASIS_MISMATCH').length; // 근거와 다름 (11/20, 원본 오탐 확인용)
+  if (expected === 'NOT_CONFLICT' || expected === 'SUPPORTED') basisFp += mis;
+  console.log(`| ${id} | ${expected} | ${v} | ${ok ? '✅' : '❌'} | ${why ? `${why.label}: ${why.reason}`.replace(/\|/g, '/').slice(0, 90) : r.validation.outdated[0]?.label ?? '-'}${mis ? ` · 근거와 다름 ${mis}` : ''} |`);
   if (process.env.SHOW_FIX) for (const j of r.validation.items.filter((x) => x.suggestion)) suggestions.push(`- ${id} [${j.relation}] "${j.statement}" → "${j.suggestion}"`);
 }
 if (suggestions.length) console.log(`\n수정 문장 (suggestion)\n${suggestions.join('\n')}`);
-console.log(`\n노하우 충돌 탐지: ${conflictHit}/5 (기준 4/5 이상: ${conflictHit >= 4 ? '통과' : '미달'}) · 정상 노하우 오탐: ${falsePositive}/5`);
+console.log(`\n노하우 충돌 탐지: ${conflictHit}/5 (기준 4/5 이상: ${conflictHit >= 4 ? '통과' : '미달'}) · 정상 노하우 오탐: ${falsePositive}/5 · 정상·일치 문서 근거와 다름 경고: ${basisFp}건`);
