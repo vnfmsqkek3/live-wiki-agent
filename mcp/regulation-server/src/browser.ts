@@ -26,7 +26,10 @@ export function checkUrl(url: string, allowHosts?: string[]): URL {
   if (allowHosts && !allowHosts.some((a) => h === a || h.endsWith(`.${a}`))) throw Object.assign(new Error(`허용 목록 밖 호스트: ${h}`), { name: "BlockedUrl" });
   return u;
 }
-export const lawUrl = (lawName: string) => `${LAW_SITE}/법령/${encodeURIComponent(lawName.trim())}`;
+// 행정규칙(고시·훈령·예규·지침, "외국환거래규정")은 /행정규칙/ 경로 (/법령/은 빈 안내 쪽, 11/20 확인)
+// ponytail: 이름 끝으로 판정. "~규정"인 대통령령(예 공무원보수규정)은 잘못 고르므로 그런 인용이 생기면 /법령/ 재시도 추가
+const ADMIN_RULE = /(?:규정|고시|훈령|예규|지침)$/u;
+export const lawUrl = (lawName: string) => `${LAW_SITE}/${ADMIN_RULE.test(lawName.trim()) ? "행정규칙" : "법령"}/${encodeURIComponent(lawName.trim())}`;
 
 export interface LawPage { url: string; header: string; body: string; fetched_at?: string; from_cache?: boolean }
 export interface LawPageFetcher { fetch(lawName: string): Promise<LawPage> }
@@ -36,16 +39,21 @@ export interface LawPageFetcher { fetch(lawName: string): Promise<LawPage> }
 // 법령명 괄호: 「」 외에 OCR·작성자가 쓰는 『』 [ ] 《》 〈〉 도 (사용자 지적 11/18: "[개인정보 보호법]제15조제1항"이 외부 법령에 안 나옴)
 // ponytail: 괄호 없는 "개인정보 보호법 제15조"는 앞 낱말과 경계가 모호해 제외 (예 "근거하여 은행법")
 // 괄호 짝이 달라도 허용 (OCR이 한쪽만 다르게 읽는 경우). [ ]《》〈〉는 소제목에 흔해 바로 뒤에 조문 표기가 있을 때만 (PR #47 리뷰)
-const LAW_REF = /([「『[《〈])\s*([^」』\]》〉\n]{2,40}?)\s*[」』\]》〉]\s*(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?)?/gu;
-// 법령명 끝: 법·법률·시행령·규칙·…령. "방법"·"요령"·"명령"은 제외
-const LAW_NAME_END = /(?<!방)법$|법률$|시행령$|(?<![요명])령$|규칙$/u;
+// 조문 표기: 제12조, 제12조의2, 가지번호 제9-5조(행정규칙), 뒤 제n항
+const CLAUSE = String.raw`제\s*\d+(?:\s*-\s*\d+)?\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?`;
+const LAW_REF = new RegExp(String.raw`([「『[《〈])\s*([^」』\]》〉\n]{2,40}?)\s*[」』\]》〉]\s*(${CLAUSE})?`, "gu");
+// 괄호 없는 이름: 줄 첫머리나 여는 괄호 바로 뒤의 띄어쓰기 없는 한 낱말 + 조문 표기만 (사용자 문서 11/20 "(외국환거래규정 제9-5조제1항)").
+// ponytail: 앞 낱말과 경계가 모호한 "근거하여 은행법 제5조"·"개인정보 보호법 제15조"는 여전히 제외 → API Haiku 추출이 보완
+const BARE_REF = new RegExp(String.raw`(?:^|(?<=[(（]))\s*()([\p{Script=Hangul}A-Za-z0-9·]{2,40})\s*(${CLAUSE})`, "gmu");
+// 법령명 끝: 법·법률·시행령·규칙·규정·…령. "방법"·"요령"·"명령"은 제외
+const LAW_NAME_END = /(?<!방)법$|법률$|시행령$|(?<![요명])령$|규칙$|규정$/u; // 규정: 외국환거래규정 같은 행정규칙(고시). 내부 규정은 저장소에 있어 빠짐
 /** 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것)과 바로 뒤 조문 표기 (최대 max개) */
 export async function externalLawRefs(text: string, store: ClauseStore, max = 5): Promise<{ law_name: string; clause?: string }[]> {
   const seen = new Map<string, string | undefined>();
-  for (const m of text.matchAll(LAW_REF)) {
+  for (const m of [...text.matchAll(LAW_REF), ...text.matchAll(BARE_REF)]) {
     const n = m[2]!.replace(/\s+/gu, " ").trim();
     if (!LAW_NAME_END.test(n)) continue; // 법령명만 (서식·문서명·"신청 방법" 제외)
-    if (!"「『".includes(m[1]!) && !m[3]) continue;
+    if (!"「『".includes(m[1]!) && !m[3]) continue; // [ ]·《》·〈〉·괄호 없음은 조문 표기가 있을 때만
     const c = m[3]?.replace(/\s+/gu, "");
     if (!seen.has(n) || (!seen.get(n) && c)) seen.set(n, c);
   }
@@ -156,7 +164,7 @@ export class AgentCoreLawFetcher implements LawPageFetcher {
 /** "[시행 2026. 7. 1.] [법률 제21296호, 2025. 12. 30., 일부개정]" */
 export function parseHeader(h: string) {
   const eff = /\[시행\s*(\d{4}\.\s*\d{1,2}\.\s*\d{1,2})\.?\]/u.exec(h);
-  const no = /\[([^\]]*제\d+호)[^\]]*\]/u.exec(h);
+  const no = /\[([^\]]*제\d+(?:-\d+)?호)[^\]]*\]/u.exec(h); // 고시 번호 "제2025-12호"
   return { effective_from: eff ? isoFromDotted(eff[1]!) : undefined, promulgation: no?.[1] };
 }
 

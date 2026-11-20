@@ -32,6 +32,8 @@
 | `role` | `USER` / `AUTHOR` / `REG_APPROVER` / `SECURITY_REVIEWER` / `PLATFORM_OPERATOR` (Cognito 그룹명과 동일) |
 | `index_group` | `legal-clauses` / `wiki-knowledge` / `official-manuals` |
 
+외부 법령 대조 Finding (11/20, 노하우 검증, AI엔지니어팀 구현): `KNOWHOW_EXTERNAL_MISMATCH`(MEDIUM, 외부·미검증 근거(국가법령정보센터 공식본)와 불일치, 게시 차단·잠금 아님, `fix_hint`에 수정 제안), `KNOWHOW_EXTERNAL_SKIPPED`(LOW, 외부 조회 실패·60초 초과·지시문 의심으로 대조 생략). 외부 법령 인식은 `externalLawRefs`(괄호 표기 + 줄 첫머리·여는 괄호 뒤 한 낱말 법령명, `…규정`·가지번호 `제9-5조` 포함), 행정규칙(`…규정·고시·훈령·예규·지침`)은 law.go.kr `/행정규칙/` 경로. 가지번호 `제n-m조`는 `제n조의m`과 같은 `ARTICLE:n-m`.
+
 ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
 
 ## 3. S3 레이아웃 (Owner yoyo0704)
@@ -359,3 +361,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-19 | let522mj | 3(Finding, SegmentBuild·GraphUpsert)·regulation-server | GraphUpsert(규정): 파싱 이슈가 있어도 승인된 게시라 조문 저장소·그래프에 적재하고 이슈 finding은 안내로 남김(`status=REVIEW_REQUIRED`, 게시는 계속). 구조 이슈(`STRUCTURE_ISSUES`: 번호 역행·중복·소속 없는 문장·빈 조문)면 `parse_ok=false`, 노하우 주장 재검토 표시를 생략하고 `CLAIM_REVIEW_SKIPPED`(LOW). 인용 이슈만이면 `parse_ok=true`. `putLaw`는 같은 버전 재적재 시 새 결과에 없는 조문 항목을 지움. `parse_reviewed` 입력 제거(설정하는 곳 없음). SegmentBuild 구조 안내를 번호 역행 외 모든 파싱 이슈로 확대(`STRUCTURE_{코드}`, 번호 역행은 `STRUCTURE_NUMBERING` 유지, 부칙 제외·최대 5건). `get_clause`: 현행 버전이 `parse_ok=false`면 과거 버전에만 있는 조문도 HISTORICAL 대신 UNVERIFIED (yoyo0704 11/19: 이슈가 있으면 KB엔 게시되고 조문 저장소·그래프엔 없는 규정이 생김) |
 | 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |
 | 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
+| 2026-11-20 | data | 1(조문 ID)·2(Finding)·regulation-server | 가지번호 `제n-m조` = `ARTICLE:n-m`(parser·clausePath). 외부 법령 인식에 괄호 없는 한 낱말 법령명·`…규정` 추가, 행정규칙 `/행정규칙/` URL·고시 번호 해석. Finding `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_EXTERNAL_SKIPPED` (AI팀 요청, 사용자 결정 11/20 외부 법령 대조). 사용자 문서 fixture M-002·M-003·MX-002·MX-003 (manifest `user_documents`) |
