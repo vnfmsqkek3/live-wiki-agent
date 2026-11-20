@@ -66,5 +66,6 @@ orca terminal list --include-visual-layouts --json   # tab title이 팀명인 te
 
 - 팀 브랜치는 `team/{slug}`이다. 각 팀은 자기 Orca worktree에서 작업한다. 엔드유저팀은 코드를 바꾸지 않으므로 총괄팀 worktree를 같이 써도 된다.
 - 코드는 PR → 리뷰(1장 표) → CI 통과 → main 병합 순서를 따른다. 리뷰 요청도 Orca 메시지로 한다.
+- 모든 팀이 같은 GitHub 계정이라 Approve가 안 된다. 리뷰 팀은 PR에 `[리뷰 승인] {팀명}` 코멘트를 남기고 작성 팀에 Orca로 회신한다. 이 둘이 있으면 리뷰 1팀으로 인정한다 (총괄팀 결정 11/20).
 - `checkout -B`, `reset --hard`, force push를 쓰지 않는다. push한 브랜치는 rebase하지 않는다.
 - 커밋 메시지 형식: `[{slug}] {영역}: {요약}`.
