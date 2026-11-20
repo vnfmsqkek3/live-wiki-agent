@@ -6,7 +6,7 @@ import { newId, type DocumentRecord, type Finding, type StepOutput } from './con
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
 import { trustGate, type RegistryEntry } from './steps/trust-gate.ts';
-import { validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
+import { validateExternal, validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
 import { staleKnowhow } from './steps/freshness.ts';
@@ -414,6 +414,11 @@ export function makeTrustGate(deps: LambdaDeps) {
     if (d.classification?.document_type === 'MANUAL' && result !== 'QUARANTINED' && deps.knowhow) {
       const cites = (await deps.knowhow.extractCitations(await deps.knowhow.maskedText(d))).filter((c) => c.confidence >= 0.9);
       if (cites.length) extra = { ...extra, citations: cites };
+      // 외부 법령 대조만 (총괄 결정 A 11/20, AI팀 PR #76): 내부 판정·NO_BASIS 없음, 결과·최신성 그대로. 실패는 게시를 막지 않는다
+      if (deps.knowhow.external) {
+        const x = await validateExternal(await deps.knowhow.maskedText(d), { ...deps.knowhow, external: deps.knowhow.external }).catch(() => undefined);
+        if (x) findings = [...findings, ...x.findings];
+      }
     }
     const regFields: Partial<DocumentRecord> = reg ? { // Promote는 REGULATION이면 law_id·revision_id 필수 (let522mj)
       law_id: reg.law_id, revision_id: reg.revision_id, effective_from: reg.effective_from,

@@ -12,6 +12,7 @@ import { AgentCoreWebSearcher } from './web-search.ts';
 import { CLASSIFY_SCHEMA, CLASSIFY_SYSTEM, SUMMARY_SCHEMA, SUMMARY_SYSTEM, type ClassifyOut, type SummaryOut } from './steps/classify.ts';
 import { JUDGE_SCHEMA, JUDGE_SYSTEM, judgePrompt, SUGGEST_SCHEMA, SUGGEST_SYSTEM, suggestPrompt, type Judgement } from './steps/knowhow.ts';
 import { knowhowDeps, type ClauseStoreLike } from './knowhow-deps.ts';
+import { findExternalLaws } from './law-refs.ts';
 import { DynamoClauseStore, regulationTools } from '@hanaeum/regulation-server';
 import { BedrockRetriever, DynamoDocStates, PgDocStates, searchTools } from '@hanaeum/search-server';
 import { db } from '@hanaeum/db';
@@ -35,6 +36,18 @@ const registry: LambdaDeps['registry'] = process.env.TABLE_REGULATIONS
   }
   : undefined;
 
+/** mcp-regulation fetch_official_law 를 Lambda 직접 호출 (clarifyWiki 와 같은 방식). 오류·없음은 null */
+const fetchOfficialLawVia = (fn: string) => {
+  const lambda = new LambdaClient({});
+  return async (a: { law_name: string; clause: string }) => {
+    const r = await lambda.send(new InvokeCommand({ FunctionName: fn,
+      ClientContext: Buffer.from(JSON.stringify({ custom: { bedrockAgentCoreToolName: 'fetch_official_law' } })).toString('base64'),
+      Payload: Buffer.from(JSON.stringify({ law_name: a.law_name, clause: a.clause, __actor: { sub: 'system:trust-gate', groups: [] } })) }));
+    const out = JSON.parse(Buffer.from(r.Payload ?? new Uint8Array()).toString('utf8') || '{}') as { error?: unknown; clause?: { path: string; text: string } | null; url?: string; effective_from?: string };
+    return out.error || r.FunctionError ? null : { clause: out.clause ?? null, ...(out.url ? { url: out.url } : {}), ...(out.effective_from ? { effective_from: out.effective_from } : {}) };
+  };
+};
+
 /** 노하우 검증 실제 Tool (규정 저장소·KB 검색·Sonnet 판정). KB_ID·TABLE_REGULATIONS 있을 때만. 검색은 시스템 행위자(승인자 범위)로 ACL·현재 상태 재검증 */
 const e = process.env;
 const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
@@ -55,6 +68,9 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
         },
         suggest: async (items) => (await structured<{ suggestions: string[] }>('HAIKU', SUGGEST_SYSTEM, suggestPrompt(items), 'submit_suggestions', SUGGEST_SCHEMA as unknown as Record<string, unknown>)).value.suggestions,
       }),
+      // 외부 법령 대조 (AI팀 PR #76): 찾기는 문서보관함 '외부 법령 참고'와 같은 로직, 원문은 mcp-regulation Lambda fetch_official_law 직접 Invoke
+      // (Browser 권한·1일 캐시는 그 Lambda 쪽에. 이 Lambda 는 lambda:InvokeFunction 만). MCP_REGULATION_FN 없으면 외부 대조 생략
+      ...(e.MCP_REGULATION_FN ? { external: { findLaws: findExternalLaws, fetchLaw: fetchOfficialLawVia(e.MCP_REGULATION_FN), timeoutMs: 60_000 } } : {}),
     };
   })()
   : undefined;
