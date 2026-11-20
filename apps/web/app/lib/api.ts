@@ -86,7 +86,9 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
   if (/\/v1\/library\/.+\/similar/.test(path)) return { items: [] };
-  if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
+  if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '외국환거래법', clauses: [], result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-20T02:00:00Z', from_cache: false, effective_from: '2026-01-01', note: '외부 공식 사이트 원문 참고용', clause: null } }, { law_name: '외국환거래규정', clauses: [
+    { clause: '제9-9조제1항', sub: ['제8호', '제9호'], result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-20T02:00:00Z', from_cache: true, effective_from: '2026-07-01', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:9-9/PARAGRAPH:1', text: '① 거주자가 다음 각 호의 어느 하나에 해당하는 해외직접투자를 하고자 하는 경우에는…' } } },
+    { clause: '제9-4조제1항', result: null, error: 'NOT_FOUND' }] }, { law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
   if (/^\/v1\/library\/[^/]+\/versions$/.test(path)) {
     const id = decodeURIComponent(path.split('/')[3]!);
     const d = MOCK_LIBRARY.find((x) => x.doc_id === id);
@@ -255,8 +257,10 @@ export interface Verification {
   checks: { trust_gate: string | null; verdict: string | null; checked_at: string | null };
   approved_by: string | null; approved_at: string | null; approval_reason: string | null;
 }
-export interface ExternalLaw { law_name: string; clause?: string; error?: string;
-  result?: { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null } | null }
+export interface LawResult { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null }
+/** clauses: 본문이 인용한 조문 전부(등장 순서). 없으면 옛 응답(clause·result 1건) */
+export interface ExternalLaw { law_name: string; clause?: string; error?: string; result?: LawResult | null;
+  clauses?: { clause: string; sub?: string | string[]; result: LawResult | null; error?: string }[] }
 /** 결재 대상 문서를 관리자가 열었을 때 (GET /v1/library/:id). 쪽 본문이 없으면 findings로 이유를 보여 준다 */
 export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
