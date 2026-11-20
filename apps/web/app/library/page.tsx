@@ -269,7 +269,7 @@ function ExternalLaws({ id }: { id: string }) {
               <p className="fix-head">「{x.law_name}」 {cs.some((c) => c.clause) ? `인용 조문 ${cs.length}곳` : '조문 번호 없이 인용'}</p>
               <ol className="law-clauses">{cs.map((c, n) => (
                 <li key={c.clause + n}>
-                  <p style={{ margin: 0 }}><strong>{c.clause || '법령 전체'}</strong>{c.sub && <span className="note"> ({Array.isArray(c.sub) ? c.sub.join('·') : c.sub})</span>}{c.result?.effective_from && <span className="note"> · {c.result.effective_from} 시행본</span>}</p>
+                  <p style={{ margin: 0 }}><strong>{c.clause || '법령 전체'}</strong>{c.sub?.length ? <span className="note"> ({c.sub.join('·')})</span> : null}{c.result?.effective_from && <span className="note"> · {c.result.effective_from} 시행본</span>}</p>
                   {c.error || !c.result ? <p className="note">원문 조회 실패. 잠시 뒤 다시 열어 보세요.</p> : (
                     <>
                       {c.result.clause?.text ? <blockquote className="basis"><p>{c.result.clause.text}</p></blockquote> : <p className="note">{c.clause ? '요청한 조문을 찾지 못했습니다.' : '본문이 조문을 특정하지 않았습니다. 원문 보기에서 확인하세요.'}</p>}
