@@ -34,6 +34,8 @@
 
 외부 법령 대조 Finding (11/20, 노하우 검증, AI엔지니어팀 구현): `KNOWHOW_EXTERNAL_MISMATCH`(MEDIUM, 외부·미검증 근거(국가법령정보센터 공식본)와 불일치, 게시 차단·잠금 아님, `fix_hint`에 수정 제안), `KNOWHOW_EXTERNAL_SKIPPED`(LOW, 외부 조회 실패·60초 초과·지시문 의심으로 대조 생략). 외부 법령 인식은 `externalLawRefs`(괄호 표기 + 줄 첫머리·여는 괄호 뒤 한 낱말 법령명, `…규정`·가지번호 `제9-5조` 포함), 행정규칙(`…규정·고시·훈령·예규·지침`)은 law.go.kr `/행정규칙/` 경로. 가지번호 `제n-m조`는 `제n조의m`과 같은 `ARTICLE:n-m`.
 
+근거 불일치 Finding (11/20, 사용자 피드백, AI엔지니어팀): `KNOWHOW_BASIS_MISMATCH`(MEDIUM, 문서가 그 문장에서 든 조문과 내용이 다름, 게시 차단·잠금 아님, `fix_hint` '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.'). `knowhow_validation.items[].basis`(모델 판정이 INSUFFICIENT·UNRELATED일 때만): `CITED` 문서가 그 문장·줄에서 그 조 번호를 듦 → 근거와 다름 / `NONE` 검색으로 붙은 조문 → 화면에 근거로 표시하지 않음. 없으면 기존과 같음.
+
 ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
 
 ## 3. S3 레이아웃 (Owner infra)
@@ -371,3 +373,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
 | 2026-11-20 | data | 1(조문 ID)·2(Finding)·regulation-server | 가지번호 `제n-m조` = `ARTICLE:n-m`(parser·clausePath). 외부 법령 인식에 괄호 없는 한 낱말 법령명·`…규정` 추가, 행정규칙 `/행정규칙/` URL·고시 번호 해석. Finding `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_EXTERNAL_SKIPPED` (AI팀 요청, 사용자 결정 11/20 외부 법령 대조). 사용자 문서 fixture M-002·M-003·MX-002·MX-003 (manifest `user_documents`) |
 | 2026-11-20 | infra | 3·4·8 | prod 단일 환경(사용자 결정 11/20): 버킷 `[-닉네임]` 접미사 삭제, `HANAEUM_ENV=prod`, 공유 dev 문구 삭제. 모델 5.5 미허용 재확인(566533524321). 섹션 Owner yoyo0704 → infra |
+| 2026-11-20 | ai | 2(Finding)·6(knowhow_validation) | Finding `KNOWHOW_BASIS_MISMATCH`, `items[].basis`(CITED·NONE) — 사용자 피드백 '판단 못함'과 '근거와 다름' 구분. 판정·게시 판단 불변. 통지: 데이터(marks.ts)·프론트(문서보관함 문구) |
