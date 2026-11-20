@@ -36,11 +36,12 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
 
 /** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
 /** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
-type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; ai_reason?: string; at: string };
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string };
 function ChangeRequests() {
   const [items, setItems] = useState<CR[] | null>(null);
   const [edit, setEdit] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
   const [msg, setMsg] = useState('');
+  const [manual, setManual] = useState<Record<string, boolean>>({}); // 반영 409: 본문에서 문장을 못 찾음 → 위키에서 직접 고치기
   useEffect(() => { api<{ items: CR[] }>('GET', '/v1/admin/change-requests').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
   async function decide(i: CR, decision: 'APPLY' | 'REJECT') {
     setMsg('');
@@ -48,7 +49,7 @@ function ChangeRequests() {
       const r = await api<{ new_doc_id: string | null }>('POST', `/v1/admin/change-requests/${encodeURIComponent(i.doc_id)}/${encodeURIComponent(i.id)}`, { decision, reason: why[i.id] ?? '', after: edit[i.id] ?? i.after ?? '' });
       if (r.new_doc_id) { location.href = `/review?id=${encodeURIComponent(r.new_doc_id)}`; return; }
       setItems((x) => x && x.filter((y) => y.id !== i.id));
-    } catch (e) { setMsg((e as ApiError).message); }
+    } catch (e) { const x = e as ApiError; if (decision === 'APPLY' && x.status === 409) setManual((m) => ({ ...m, [i.id]: true })); else setMsg(x.message); }
   }
   if (!items?.length) return null;
   const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
@@ -58,14 +59,16 @@ function ChangeRequests() {
       <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
-          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span></p>
+          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}</p>
           <blockquote className="basis"><p>{i.before}</p></blockquote>
-          <p><strong>요청:</strong> {i.request}</p>
+          {i.request && <p><strong>요청:</strong> {i.request}</p>}
+          {!i.after && i.source === 'IMPACT' && <p className="danger-text">AI 초안 없음: 바꿀 문장을 직접 쓰거나 문서에서 직접 고치세요.</p>}
           {i.ai_reason && <p className="note">AI 의견: {i.ai_reason}</p>}
           <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
           <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
           <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
           <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim()} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
+          {manual[i.id] && <p className="error" role="alert">본문에서 이 문장을 찾지 못해 초안으로 반영할 수 없습니다. <Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>문서를 열어 [위키에서 고치기]로 직접 고쳐 주세요.</Link></p>}
         </li>
       ))}</ol>
       {msg && <p className="error" role="alert">{msg}</p>}
@@ -122,7 +125,7 @@ export default function Admin() {
   }
 
   const [opinion, setOpinion] = useState<Record<string, string>>({}); // 카드별 결재 의견
-  async function decide(id: string, decision: 'APPROVE' | 'REJECT') {
+  async function decide(id: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
     const r = await decideApproval(id, decision, opinion[id] ?? '');
     if (!r) return;
     if (r.status) setDone((d) => ({ ...d, [id]: r.status! }));
@@ -150,6 +153,7 @@ export default function Admin() {
       <div className="actions ops-row" role="group" aria-label="운영 도구">
         <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
         <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
+        <Link className="btn" href="/admin/evals"><Icon name="clock" />Agent 평가</Link>
       </div>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
@@ -195,6 +199,7 @@ export default function Admin() {
                     <Link className="btn" href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}><Icon name="library" />{viewed[i.doc_id] ? '확인함 · 다시 보기' : '문서 확인'}</Link>
                     <span className="actions-gap" aria-hidden="true" />
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
+                    <button className="btn" onClick={() => decide(i.approval_id, 'REVALIDATE')} title="게시하지 않고 문서를 작성자 검토 단계로 돌려보냅니다 (의견 필수)">재검증 요청</button>
                     {/* 열어 보기 전 승인 잠금 (사용자 결정 11/18). 반려는 열지 않아도 가능 */}
                     <button className={`btn${viewed[i.doc_id] ? ' solid' : ''}`} onClick={() => decide(i.approval_id, 'APPROVE')} disabled={!viewed[i.doc_id]} aria-describedby={viewed[i.doc_id] ? undefined : `lock-${i.approval_id}`}>승인</button>
                     {!viewed[i.doc_id] && <p className="note lock-hint" id={`lock-${i.approval_id}`}>문서를 열어 확인한 뒤 승인할 수 있습니다.</p>}

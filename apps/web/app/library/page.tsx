@@ -418,6 +418,27 @@ function ChangeRequest({ id }: { id: string }) {
   );
 }
 
+/** 평점 (P1 추천·평점): 사용자당 문서 1건, 다시 누르면 덮어쓴다. 평점은 인기일 뿐 검증 상태(인장)와 별개 */
+function Rating({ id }: { id: string }) {
+  const [stars, setStars] = useState(0);
+  const [msg, setMsg] = useState('');
+  async function rate(n: number) {
+    setStars(n); setMsg('');
+    try { await api('POST', '/v1/feedback', { doc_id: id, stars: n, useful: n >= 4 }); setMsg(`${n}점으로 저장했습니다.`); }
+    catch (e) { setStars(0); setMsg((e as ApiError).message); }
+  }
+  return (
+    <section aria-labelledby="rate-h">
+      <h3 className="section" id="rate-h">이 문서가 업무에 도움이 됐나요?</h3>
+      <div className="view-toggle" style={{ flexWrap: 'wrap' }} role="group" aria-label="별점 주기">
+        {[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" className="btn" aria-pressed={stars === n} aria-label={`${n}점`} onClick={() => rate(n)}>{'★'.repeat(n)}</button>)}
+      </div>
+      <p className="note">평점은 다른 사람의 추천 참고용입니다. 규정 근거 확인 여부(검증 상태)와는 따로 판단합니다.</p>
+      {msg && <p className="notice" role="status">{msg}</p>}
+    </section>
+  );
+}
+
 function DeleteDoc({ d }: { d: LibraryDoc }) {
   const [state, setState] = useState<'idle' | 'running' | 'done' | 'slow' | 'error'>('idle');
   const [info, setInfo] = useState('');
@@ -735,6 +756,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
+      {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} /></DetailCard>}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
       </div></CardBoundary>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
