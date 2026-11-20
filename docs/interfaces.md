@@ -32,6 +32,8 @@
 | `role` | `USER` / `AUTHOR` / `REG_APPROVER` / `SECURITY_REVIEWER` / `PLATFORM_OPERATOR` (Cognito 그룹명과 동일) |
 | `index_group` | `legal-clauses` / `wiki-knowledge` / `official-manuals` |
 
+외부 법령 대조 Finding (11/20, 노하우 검증, AI엔지니어팀 구현): `KNOWHOW_EXTERNAL_MISMATCH`(MEDIUM, 외부·미검증 근거(국가법령정보센터 공식본)와 불일치, 게시 차단·잠금 아님, `fix_hint`에 수정 제안), `KNOWHOW_EXTERNAL_SKIPPED`(LOW, 외부 조회 실패·60초 초과·지시문 의심으로 대조 생략). 외부 법령 인식은 `externalLawRefs`(괄호 표기 + 줄 첫머리·여는 괄호 뒤 한 낱말 법령명, `…규정`·가지번호 `제9-5조` 포함), 행정규칙(`…규정·고시·훈령·예규·지침`)은 law.go.kr `/행정규칙/` 경로. 가지번호 `제n-m조`는 `제n조의m`과 같은 `ARTICLE:n-m`.
+
 ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
 
 ## 3. S3 레이아웃 (Owner yoyo0704)
@@ -365,3 +367,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/admin/impact/draft` 추가 (Change Impact 수정 초안, AI팀 계약 합의·총괄 승인). 위키 수정 요청에 `source`·`law`·`path`·`requested_by` |
 | 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` 추가 (프론트엔드팀 요청, 화면 08). 평가 실행기는 결과를 감사 기록 `EVALUATION_RUN`으로 남긴다. API 403 감사 기록 `detail`에 `roles`·`reason` 추가 |
 | 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
+| 2026-11-20 | data | 1(조문 ID)·2(Finding)·regulation-server | 가지번호 `제n-m조` = `ARTICLE:n-m`(parser·clausePath). 외부 법령 인식에 괄호 없는 한 낱말 법령명·`…규정` 추가, 행정규칙 `/행정규칙/` URL·고시 번호 해석. Finding `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_EXTERNAL_SKIPPED` (AI팀 요청, 사용자 결정 11/20 외부 법령 대조). 사용자 문서 fixture M-002·M-003·MX-002·MX-003 (manifest `user_documents`) |

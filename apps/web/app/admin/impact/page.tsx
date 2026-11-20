@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '../../lib/api';
 import { PageHeader } from '../../page-header';
+import { ConfirmCurrent } from '../../confirm-current';
 
 interface Change { path: string; kind: string; old_text: string; new_text: string; numbers_changed?: unknown[] }
 interface Impacted { doc_id: string; title: string; relation: 'DIRECT' | 'INDIRECT'; risk: 'HIGH' | 'MEDIUM'; evidence: { cited_provision_id: string; evidence_span: string; change: { path: string; kind: string; old_text: string; new_text: string } }[] }
@@ -87,6 +88,7 @@ export default function Impact() {
                   <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`}>{i.title}</Link></h3>
                   <p className="meta">{i.relation === 'DIRECT' ? '바뀐 조문을 직접 인용' : '바뀐 조문을 참조하는 조문을 인용'} · 재검토 필요</p>
                   <ul>{i.evidence.map((e, n) => <li key={n}><strong>{clause(e.change.path)}</strong> 근거: “{e.evidence_span}”</li>)}</ul>
+                  <div className="actions"><ConfirmCurrent docId={i.doc_id} /></div>
                   <DraftButton law={law} docId={i.doc_id} />
                 </li>
               ))}</ul>

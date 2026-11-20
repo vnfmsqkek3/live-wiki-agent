@@ -137,3 +137,12 @@ test("OCR 줄 '제2 관리자는…'은 제목이 아니라 본문으로 남음 
   const l = parseLaw("제1조(점검) 이 규정에 따라\n제2 관리자는 다음 사항을 점검하여", meta);
   assert.match(l.provisions[0]!.normalized_text, /관리자는/u);
 });
+
+test("행정규칙 가지번호 조문 제9-5조 → ARTICLE:9-5 (외국환거래규정 형식, 11/20)", () => {
+  const l = parseLaw("제9-4조(회수) ① 회수한다.\n제9-5조(신고) ① 신고한다.\n② 사후보고.\n제9-9조(보고) ① 낸다.\n1. 송금\n제10조(기타) 끝.", { law_id: "X", law_name: "외국환거래규정", revision_id: "2026-01-01" });
+  assert.deepEqual(l.issues, []);
+  const a = l.provisions.find((p) => p.provision_id === "X@2026-01-01/ARTICLE:9-5")!;
+  assert.equal(a.path_label, "제9-5조");
+  assert.ok(l.provisions.some((p) => p.provision_id === "X@2026-01-01/ARTICLE:9-9/PARAGRAPH:1/ITEM:1"));
+  assert.ok(l.provisions.some((p) => p.provision_id === "X@2026-01-01/ARTICLE:10"));
+});

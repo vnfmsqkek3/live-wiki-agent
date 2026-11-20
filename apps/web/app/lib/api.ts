@@ -133,6 +133,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
   // 규정 변경 영향 (SYNTHETIC): 제14조제1항 개정 → K-002 직접 영향
   if (path === '/v1/admin/change-requests') return { items: [{ id: 'cr_MOCK2', doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', before: '1억원 이하는 감정평가서만으로 처리한다.', request: '', verdict: 'UNKNOWN', after: null, ai_reason: '금액 기준 예외가 개정 조문과 어떻게 맞물리는지 판단할 수 없습니다.', at: '2026-11-20T09:00:00Z', source: 'IMPACT', law: '기업여신 심사규정', path: 'ARTICLE:14/PARAGRAPH:1' }] };
   if (/\/v1\/admin\/change-requests\/.+/.test(path)) { if ((body as { decision: string }).decision === 'APPLY') throw new ApiError(409, 'before not found in document'); return { new_doc_id: null }; }
+  if (/\/v1\/documents\/.+\/freshness\/confirm/.test(path)) return { doc_id: path.split('/')[3], freshness: 'CURRENT', law_id: 'SYN-LOAN-001', revision: '2026-12-01' };
   if (path === '/v1/admin/impact/laws') return { items: [{ law_name: '기업여신 심사규정', versions: 2 }] };
   if (path.startsWith('/v1/admin/impact?')) return { old_revision: '2026-11-01', new_revision: '2026-12-01',
     changes: [{ path: 'ARTICLE:14/PARAGRAPH:1', kind: 'MODIFIED', old_text: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', new_text: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하고 실사 보고서를 승인 전에 작성하여야 한다.' }],
