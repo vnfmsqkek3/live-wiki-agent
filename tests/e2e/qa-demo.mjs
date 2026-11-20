@@ -17,6 +17,7 @@ const S = process.env.QA_PART === 'demo' ? DEMO
   : { normal: sets.normal_register_5, forged: sets.forged_block_5, attack: sets.attack_block_5, conflict: ['K-002'] };
 const fileOf = (id) => ['documents/pdf/' + id + '.pdf', 'golden/pdf/' + id + '.pdf', 'documents/' + id + '.png'].map((p) => resolve('tests/fixtures', p)).find(existsSync);
 const pw = JSON.parse(readFileSync(0, 'utf8'));
+// 데모 계정(사용자 결정 11/20): user = 작성자(업로드·검색·비인가 시도), admin = 승인·반려·관리 화면. approver 없음
 mkdirSync(OUT, { recursive: true });
 
 // ---- CDP (qa-flow.mjs 와 같은 방식) ----
