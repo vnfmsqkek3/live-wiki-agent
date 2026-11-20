@@ -59,8 +59,8 @@
 | 버전 | 설치 전 최신 안정판 조회 → `interfaces.md` 8장 고정표에 기록 → lockfile 고정 |
 | 모델 | Sonnet 5.5 / Haiku 5.5 기본, Opus 5.5는 고위험 검토에만. 모델 ID는 환경변수로만 |
 | 리전·계정 | us-east-1. AWS 명령 전 계정 ID가 `.env.local`의 `HANAEUM_ACCOUNT_ID`와 같은지 확인 |
-| 네이밍 | 팀 dev `hanaeum-mvp-{약어}-{용도}-{slug}` / 최종 `hanaeum-mvp-{약어}-{용도}`. 태그 `Project=hanaeum-mvp`, `Owner={slug}` |
-| 배포 | 팀 dev는 각 팀이 한다. 공유 dev·prod는 인프라팀만 `hanaeum-terraform/`으로 한다. State는 S3 backend |
+| 네이밍 | prod `hanaeum-mvp-{약어}-{용도}`. 태그 `Project=hanaeum-mvp`, `Owner={slug}` |
+| 배포 | **prod 단일 환경** (사용자 결정 11/20: dev 미사용). 테스트·반영·수정 모두 prod에서 한다. 배포는 인프라팀만 `hanaeum-terraform/`으로 한다. 다른 팀은 dev 리소스를 만들지 않고 main 병합 → 인프라팀 prod 배포를 요청한다. State는 S3 backend |
 | 데이터 | 실제 은행 문서·고객정보 금지. 합성 문서는 가상 **하나은행** 데이터로 만들고 모든 원본 머리에 `SYNTHETIC — 하나은행 가상 데이터 · … 실제 하나은행 … 아님` 표시 (사용자 결정 11/16) |
 | 자료 조사 | `.env.local`의 `HANAEUM_RESEARCH`: `bedrock-websearch`(EC2) / `chrome`(로컬, Claude in Chrome 확장. 없으면 설치 요청). 못 찾는 필수 자료는 사용자에게 PDF 요청 |
 | 자료 저장 | 내려받은 파일은 바로 `자료/{용도}/{카테고리}/`로. 파일명 `YYYYMMDD_{출처}_{제목}.{확장자}`. `자료/README.md` 색인에 한 줄 |
