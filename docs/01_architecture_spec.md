@@ -313,6 +313,7 @@ AgentCore Runtime → Observability / Evaluations
 ```
 
 - 영향받은 미수정 문서는 `REVALIDATION_REQUIRED`로 표시하거나 고위험 검색에서 제외한다.
+- 구현 (11/20 backend): 영향 분석 `GET /v1/admin/impact`(graph trace_impact) → 결재자 `POST /v1/admin/impact/draft`가 영향 문장마다 AI 초안(AI팀 `steps/impact-draft.ts`)을 '위키 수정 요청'으로만 저장하고 문서를 `REVIEW_REQUIRED`로 → 결재함 [반영] → 새 버전 → AI 검사 → 사람 승인. 고칠 것이 없으면 `POST /v1/documents/{id}/freshness/confirm`(변경 없이 유효, 같은 개정판으로 재표시 안 함). 자동 수정·게시 없음. 계약은 `interfaces.md` 7장
 - 예시: 가상 여신 규정 제12조 승인 기준 5억 → 3억. 이 조항을 인용한 체크리스트 2개와 FAQ 1개를 찾는다. FAQ는 적용 대상이 불명확하므로 자동 수정하지 않고 검토 요청한다.
 
 ---
@@ -387,6 +388,7 @@ SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:1/SUBITEM:GA
 ```
 
 - 표시용 조문명: "제12조제2항제1호가목"
+- 행정규칙(고시) 가지번호 "제9-5조"는 "제9조의5"와 같은 `ARTICLE:9-5`로 둔다 (한 규정 안에 두 표기가 함께 쓰이지 않는다는 전제, 11/20 data).
 - 내부 ID는 조문 개정 버전과 상위 경로를 포함한다.
 - 원본 glyph, Unicode 정규화 값, 원본 OCR 좌표를 모두 보존한다.
 
@@ -417,6 +419,7 @@ SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:1/SUBITEM:GA
 | 제○조에도 불구하고 | REFERENCES + EXCEPTION_CANDIDATE | 예외 확정은 검토 |
 | 별표 1 | 별표 ID 및 적용 조문 연결 | 표/셀 매핑 재검토 |
 | 다른 법령의 조항 | 법령 ID + 버전 + 적용일로 연결 | 동명이법·폐지법 확인 |
+| 내부 Registry에 없는 외부 법령 | `externalLawRefs`로 법령명·인용 조문 목록 추출 → 국가법령정보센터 공식본 조회(법률·시행령 `/법령/`, 행정규칙 `…규정·고시·훈령·예규·지침` `/행정규칙/`). 결과는 UNVERIFIED 참고 | 조회 실패·지시문 의심이면 대조 생략(`KNOWHOW_EXTERNAL_SKIPPED`) |
 
 ### 7.9 개정·삭제·부칙
 
@@ -604,16 +607,17 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 > |---|---|---|---|
 > | Orchestrator | AgentCore Runtime 파이프라인 오케스트레이터 (Strands Graph, 단계 순서 고정) | 없음 | 완료 |
 > | Document Intelligence | Classify 단계 (분류 + 문서·쪽 요약) | Haiku → 신뢰도 0.7 미만 Sonnet | 완료 |
-> | Privacy & Security | PiiScan·InjectionScan 단계 (규칙·체크섬) + Guardrails | 규칙. Guardrails는 GUARDRAIL_ID 설정 시 | 규칙 완료, **Guardrails 미설정** |
+> | Privacy & Security | PiiScan·InjectionScan 단계 (규칙·체크섬) + Guardrails(PII ANONYMIZE). 가이드 답변도 출력 검사(ApplyGuardrail OUTPUT, 탐지 값 가림·차단 시 답변 버림·호출 실패는 fail-closed) | 규칙. Guardrails는 GUARDRAIL_ID 설정 시 | 완료 (11/20 prod guide runtime env·IAM 반영) |
 > | Authority Verification | TrustGate 단계 Registry 해시·조문 대조 | 없음 (Registry 우선) | 완료 |
-> | Trust Verification | TrustGate 단계 노하우 검증 (인용 추출·조문 검색·판정·인용 원문 대조) | Sonnet | 완료 |
+> | Trust Verification | TrustGate 단계 노하우 검증 (인용 추출·조문 검색·판정·인용 원문 대조). 11/20 외부 법령 대조 추가: 본문이 인용한 외부 법령 조문(최대 3)을 law.go.kr 원문(UNVERIFIED)과 비교 → 불일치 `KNOWHOW_EXTERNAL_MISMATCH` MEDIUM + 수정 제안, 조회 실패·60초 초과·지시문 의심 `KNOWHOW_EXTERNAL_SKIPPED` LOW. 게시 차단·잠금·verdict 반영 없음. MANUAL 은 외부 대조만(`validateExternal`) | Sonnet 판정·Haiku 수정 제안, temperature 0 | 완료 (로컬 실측 MX 4곳 5회 20/20·원본 오탐 0) |
 > | Knowledge Graph | GraphUpsert 단계·graph Tool (let522mj) | 없음 | 완료 |
-> | Change Impact | graph `trace_impact` Tool (let522mj) + 화면 07·초안 (dhxorb96) | 없음 | **탐지 Tool만. 게시된 노하우 자동 재검증 표시·화면 07 미구현** |
-> | Wiki Maintenance | approval `draft_change` Tool (DRAFT 저장, 자동 게시 없음) | **초안 생성 모델 미연결** | 부분 |
+> | Change Impact | graph `trace_impact` Tool(데이터) → `GET /v1/admin/impact`·`POST /v1/admin/impact/draft`(백엔드). 초안 요청 시 영향 문서 freshness CURRENT → REVIEW_REQUIRED, 초안은 Wiki Maintenance 행 | 없음(탐지) | 완료 (11/20, 영향 화면 '초안 만들기'는 프론트) |
+> | Wiki Maintenance | Change Impact 수정 초안: `POST /v1/admin/impact/draft` → 영향 근거 문장마다 개정 조문대로 고친 초안(`steps/impact-draft.ts`, 숫자 지어내기·PII·조문 삭제는 코드로 UNKNOWN) → 위키 수정 요청(OPEN)으로만 저장 → [반영] → 새 버전 → AI 검사 → 사람 승인 | Haiku | 완료 (11/20, 화면은 프론트) |
 > | Recommendation | 피드백 API(별점)만 | — | P1 미착수 |
 > | Knowledge Synthesis | 가이드 Agent (AgentCore Runtime, 검색 Tool 근거만 인용) | Sonnet | 완료 (검색 Tool 실연동 전) |
 > | 고위험 Opus 검토 | 없음 | — | **미구현** |
 - 고위험 조항은 Opus 5.5 검토를 추가하되 최종 승인자는 사람이다.
+- 11/20 (AI엔지니어팀): prod 계정은 5.5 미허용이라 Haiku 4.5·Sonnet 4.6(모델 ID는 환경변수). `structured` 호출은 temperature 0(5.5·Fable 은 거부해 뺌). 위 표 Privacy·Trust·Wiki Maintenance 행 갱신.
 
 ---
 
@@ -632,8 +636,10 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 | POST | `/v1/approvals/{id}/decision` | approve/reject (human only) |
 | GET | `/v1/search?q=&tags=` | ACL-filtered reranked results |
 | POST | `/v1/guides` | cited synthesis job |
-| POST | `/v1/policies/{id}/impact` | clause-level impact analysis |
-| GET | `/v1/admin/observability` | sanitized metrics |
+| POST | `/v1/admin/impact/draft` | 변경 영향 수정 초안 (원안 `/v1/policies/{id}/impact` 대체, 11/20) |
+| GET | `/v1/admin/runs` · `/v1/admin/evaluations` | 실행 기록·평가 결과·거부 기록 (원안 `/v1/admin/observability` 대체, 11/20) |
+
+> 실제 API 전체 목록은 `interfaces.md` 7장 (11/20 backend: 이 표는 원안 요약).
 
 > 팀 결정(기본값): 승인 API는 범위로 나눈다. 일반 문서(노하우·매뉴얼·규정 게시) 승인은 `/v1/approvals/{id}/decision`, 법령 수집(ingestion) 파싱 결과 검토는 `/v1/legal/reviews`.
 
@@ -1040,6 +1046,26 @@ observability/                            # Trace correlation, 평가 집계, �
 
 연동 기준: Next.js 화면 → 백엔드 인증/업무 API → Step Functions 또는 AgentCore → 상태 조회 및 감사 이벤트. 버튼 활성화는 서버 권한과 문서 상태로 판단한다.
 
+### 16.2 구현 현황 (`apps/web`, 프론트엔드팀 11/20)
+
+위 16.1은 원래 시안이다. 실제 화면은 아래와 같고, 다르면 이 표가 우선한다.
+
+| 시안 | 경로 | 실제 구현과 차이 |
+|---|---|---|
+| 01 사용자 홈 | `/` | 검색창, 자주 쓰는 태그(게시 문서 태그 상위 8개, 누르면 그 말로 검색), 추천 Wiki(근거 확인·현행 우선, 그다음 최근 변경. 평점은 섞지 않음), 내 할 일 칸 |
+| 02 검색 결과 | `/search` | 태그는 AI가 붙인 자유 문구라 필터로 쓰지 않는다. 필터는 문서 종류·업무·부서·일자·검증 상태·최신성 |
+| 03 AI 업무 가이드 | `/guide` | 모델은 환경변수(prod 계정은 5.5가 막혀 4.x) |
+| 04·05 업로드·검토 | `/upload`, `/review` | 05의 분석 결과·고칠 것·노하우 검증(조문·판정)·분류 변경·게시 요청이 `/review` 한 화면 |
+| 06 관리자 대시보드 | `/admin` | 결재 대기(승인·반려·재검증 요청), 출처 확인 필요, 위키 수정 요청(규정 개정 영향 초안 포함), 지식 상태 |
+| 07 규정 변경 영향 | `/admin/impact` | 영향 노하우마다 [수정 초안 만들기](결재함 위키 수정 요청으로, 자동 게시 없음)와 [변경 없이 유효] |
+| 08 Agent Observability | `/admin/runs`, `/admin/evals` | 모델별 비중 카운터 대신 실행 기록(단계별 상태)과 CloudWatch Trace 링크. 평가 결과·실패 사례·비인가 게시 거부는 `/admin/evals`(평가 실행 기록이 없으면 평가 결과·실패 사례는 mock 표시된 예시 값) |
+| (추가) 문서보관함 | `/library` | 카드, 본문(정리본·원본 쪽), 고칠 곳 밑줄, 버전, 외부 법령 참고(인용 조문 전부), 평점, 재검토 배너의 [변경 없이 유효] |
+
+- 공통 내비게이션: 모바일은 하단 탭, 데스크톱은 왼쪽 메뉴(홈·검색·보관함·가이드·등록·결재함). 390px·1280px에서 가로 넘침이 없어야 한다.
+- 데모 계정은 `user`(작성자)와 `admin`(승인·관리) 두 개다. 관리 화면 노출은 편의일 뿐이고, 권한은 서버가 Cognito 그룹으로 검사한다.
+
+> 변경 2026-11-20 프론트엔드팀: 16.2 추가. 시안과 실제 화면이 달라 QA·데모가 시안 기준으로 판단하지 않도록 함.
+
 ---
 
 ## 결론
@@ -1047,3 +1073,5 @@ observability/                            # Trace correlation, 평가 집계, �
 - Living Wiki의 핵심은 Agent 수가 아니라 지식의 출처·권한·버전·유효성·감사 가능성을 보장하는 Knowledge Governance다.
 - 해커톤에서는 합성 문서로 정상 업로드 → 의심 문서 보류 → 규정 변경 영향 → 승인 기반 수정 → 검색·가이드의 전체 흐름을 검증한다.
 - 은행 이관 전에는 HPG 실제 정책, 모델 리전, 개인정보 처리, 법적 특례 필요성을 별도 승인받아야 한다.
+
+> 변경 2026-11-20 data: 7.6 가지번호 조문 ID, 7.8 외부 법령 참조 처리 (사용자 결정 11/20 외부 법령 대조).

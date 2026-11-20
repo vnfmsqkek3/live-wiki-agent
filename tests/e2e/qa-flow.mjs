@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const OUT = process.env.QA_OUT ?? './qa-out';
 const FILES = (process.env.QA_FILES ?? 'tests/fixtures/documents/pdf/K-001.pdf').split(',').map((f) => resolve(f.trim()));
 const pw = JSON.parse(readFileSync(0, 'utf8'));

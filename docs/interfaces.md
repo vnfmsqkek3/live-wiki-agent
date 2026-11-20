@@ -205,9 +205,10 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
 | `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
 | `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
-| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지) |
+| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지. PLATFORM_OPERATOR만 예외: `self_approved`·감사 SELF_APPROVAL, 11/18) |
 | `GET /v1/library` | USER+ | 문서 묶음 카드. `?category=`(하위 포함)·`type`·세부 필터, 카드 `category_path` |
 | `GET /v1/library/{id}` | 권한 내 | 상세: `pages[].structured`(AI 정리본)·`structured_source`(TEXT\|VISION)·`clause_groups`, `image_pages`, `claims`, `category_path`·`category_id`, `verification.basis[].statement·reason·relation` |
+| `GET /v1/library/{id}/external-laws` | 상세를 볼 수 있는 사람 | 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것) 법령당 1건: `{law_name, clause?, result, error?, clauses:[{clause, sub?, result, error?}]}`. `clauses`는 조·항 단위(호·목은 `sub`), 본문 등장 순, 법령·조문 각 최대 10. `clause`·`result`는 첫 조문(하위 호환). 원문은 `regulation___fetch_official_law`(UNVERIFIED) (11/20 데이터팀 합의) |
 | `GET /v1/library/{id}/pages` | 문서를 볼 수 있는 사람 | 원본 보기: 모든 쪽 `masked/view/{nnnn}.png`(개인정보만 가림) presigned GET 5분 `[{page,url}]` |
 | `GET /v1/library/{id}/pages/{n}/image` | 문서를 볼 수 있는 사람 | 개인정보 가린 쪽 이미지(masked/pages) |
 | `GET /v1/categories` · `PATCH /v1/categories/{id}` · `POST /v1/categories/{id}/merge` | USER+ / 결재자 | 업무 분류 트리(볼 수 있는 게시 문서 수) / 이름 수정·병합 (10.1) |
@@ -228,7 +229,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 
 Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash, author_sub, approver_sub?, status(PENDING|APPROVED|REJECTED|USED), reason?, decided_at, used_by?`
 - 결정 후 재개는 AgentCore 오케스트레이터 `InvokeAgentRuntime({action:"resume", decision, input})` (6.1). `task_token`은 폐기(Step Functions 폐기 11/16) — 이전 레코드에 남은 값은 무시하고 응답에서 숨긴다
-- 승인 시 조건부 쓰기: `status = PENDING` AND `approver_sub ≠ author_sub` AND 현재 객체의 `s3_version_id`·`content_hash`가 레코드와 일치.
+- 승인 시 조건부 쓰기: `status = PENDING` AND `approver_sub ≠ author_sub`(PLATFORM_OPERATOR 자기 승인은 `self_approved=true`로만 허용) AND 현재 객체의 `s3_version_id`·`content_hash`가 레코드와 일치.
 - Promote 단계는 `APPROVED` → `USED`로 조건부 전환 후에만 진행 (재사용·중복 callback 차단).
 
 ## 8. 버전 고정표 (M0에 기입)
@@ -363,6 +364,7 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-18 | let522mj | 3(Finding, SegmentBuild) | SegmentBuild `LOW_OCR_CONFIDENCE`(MEDIUM) finding 제거. 95% 미만 쪽은 ImageDescribe가 Vision으로 다시 읽음 (사용자 결정 11/18 17시, yoyo0704 전달). `NO_TEXT`(HIGH)·구조 경고와 segments의 `avg_confidence`·`low_confidence`는 유지 |
 | 2026-11-19 | let522mj | 3(Finding, SegmentBuild·GraphUpsert)·regulation-server | GraphUpsert(규정): 파싱 이슈가 있어도 승인된 게시라 조문 저장소·그래프에 적재하고 이슈 finding은 안내로 남김(`status=REVIEW_REQUIRED`, 게시는 계속). 구조 이슈(`STRUCTURE_ISSUES`: 번호 역행·중복·소속 없는 문장·빈 조문)면 `parse_ok=false`, 노하우 주장 재검토 표시를 생략하고 `CLAIM_REVIEW_SKIPPED`(LOW). 인용 이슈만이면 `parse_ok=true`. `putLaw`는 같은 버전 재적재 시 새 결과에 없는 조문 항목을 지움. `parse_reviewed` 입력 제거(설정하는 곳 없음). SegmentBuild 구조 안내를 번호 역행 외 모든 파싱 이슈로 확대(`STRUCTURE_{코드}`, 번호 역행은 `STRUCTURE_NUMBERING` 유지, 부칙 제외·최대 5건). `get_clause`: 현행 버전이 `parse_ok=false`면 과거 버전에만 있는 조문도 HISTORICAL 대신 UNVERIFIED (yoyo0704 11/19: 이슈가 있으면 KB엔 게시되고 조문 저장소·그래프엔 없는 규정이 생김) |
 | 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |
+| 2026-11-20 | backend | 7·7.1 | `GET /v1/library/{id}/external-laws` 행 추가(clauses[]). 승인 결정·7.1에 PLATFORM_OPERATOR 자기 승인 예외 명시(코드·마이그레이션 008과 일치) (docs 최신화 공지) |
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/documents/{id}/freshness/confirm` 추가 (Change Impact 재승인: 변경 없이 유효). 문서 `freshness_confirmed[]` |
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/admin/impact/draft` 추가 (Change Impact 수정 초안, AI팀 계약 합의·총괄 승인). 위키 수정 요청에 `source`·`law`·`path`·`requested_by` |
 | 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` 추가 (프론트엔드팀 요청, 화면 08). 평가 실행기는 결과를 감사 기록 `EVALUATION_RUN`으로 남긴다. API 403 감사 기록 `detail`에 `roles`·`reason` 추가 |

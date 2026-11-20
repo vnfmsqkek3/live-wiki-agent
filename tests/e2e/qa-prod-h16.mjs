@@ -3,7 +3,7 @@
 // 실행: QA_PW=… QA_BASE=https://<웹 주소> QA_CLIENT=<Cognito 웹 클라이언트 id> node tests/e2e/qa-prod-flow.mjs [저장소 루트] > 결과.log
 // H16 (노하우 재검증) 전용. 빈 prod 에서 맨 먼저 실행 (members/dhxorb96/qa/20261118_prod시험_체크리스트.md 2회차 ①)
 import { readFileSync, writeFileSync } from 'node:fs';
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const P = process.argv[2] ?? '.';
 const IN = `${P}/tests/e2e/inputs`;
 const results = [];
