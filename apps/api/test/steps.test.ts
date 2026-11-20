@@ -454,3 +454,13 @@ test('외부 법령 조문 전부(데이터팀 합의 11/20): externalLawRefs �
   // 옛 모양(clause 하나)·조문 없는 언급도 그대로
   assert.deepEqual(groupLaws(flatRefs([{ law_name: '전자금융거래법' }, { law_name: '은행법', clause: '제5조' }])), [{ law_name: '전자금융거래법', clauses: [] }, { law_name: '은행법', clauses: [{ clause: '제5조' }] }]);
 });
+
+test('PiiScan: 비밀값은 쪽마다가 아니라 문서당 한 건 + 쪽 목록 (사용자 피드백 11/20)', async () => {
+  const { piiScan } = await import('../src/steps/pii.ts');
+  const g = async (t: string) => ({ text: t, detected: 1, entities: [{ type: 'PASSWORD', match: t.match(/Pw\d+/)![0] }] });
+  const r = await piiScan([0, 2, 5].map((page) => ({ page, text: `관리자 비밀번호 Pw${page}123` })), g);
+  const s = r.findings!.filter((f) => f.code === 'SECRET_MASKED');
+  assert.equal(s.length, 1);
+  assert.match(s[0]!.user_message!, /1·3·6쪽에 .* 비밀값 3건/);
+  assert.ok(r.masked.every((m) => m.text.includes('[비밀값]')), '가림은 쪽마다 그대로');
+});
