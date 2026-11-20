@@ -261,17 +261,26 @@ function ExternalLaws({ id }: { id: string }) {
     <section aria-labelledby="ext-h">
       <h3 className="section" id="ext-h">외부 법령 최신본 참고 <span className="note">(미검증)</span></h3>
       <ul className="fixes">
-        {items.map((x) => (
-          <li key={x.law_name + (x.clause ?? '')} className="fix">
-            <p className="fix-head">「{x.law_name}」{x.clause ? ` ${x.clause}` : ''}{x.result?.effective_from && ` · ${x.result.effective_from} 시행본`}</p>
-            {x.error || !x.result ? <p className="note">공식 사이트에서 가져오지 못했습니다. 잠시 뒤 다시 열어 보세요.</p> : (
-              <>
-                {x.result.clause?.text ? <blockquote className="basis"><p>{x.result.clause.text}</p></blockquote> : <p className="note">요청한 조문을 찾지 못했습니다.</p>}
-                <p className="meta">출처 {x.result.source} · 조회 {new Date(x.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{x.result.from_cache ? ' (1일 보관본)' : ''} · <a href={x.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
-              </>
-            )}
-          </li>
-        ))}
+        {items.map((x) => {
+          // 옛 응답(clauses 없음)은 clause·result 1건으로 본다
+          const cs = x.clauses ?? [{ clause: x.clause ?? '', result: x.result ?? null, error: x.error }];
+          return (
+            <li key={x.law_name} className="fix">
+              <p className="fix-head">「{x.law_name}」 인용 조문 {cs.length}곳</p>
+              <ol className="law-clauses">{cs.map((c, n) => (
+                <li key={c.clause + n}>
+                  <p style={{ margin: 0 }}><strong>{c.clause || '조문 미지정'}</strong>{c.sub && <span className="note"> ({Array.isArray(c.sub) ? c.sub.join('·') : c.sub})</span>}{c.result?.effective_from && <span className="note"> · {c.result.effective_from} 시행본</span>}</p>
+                  {c.error || !c.result ? <p className="note">원문 조회 실패. 잠시 뒤 다시 열어 보세요.</p> : (
+                    <>
+                      {c.result.clause?.text ? <blockquote className="basis"><p>{c.result.clause.text}</p></blockquote> : <p className="note">요청한 조문을 찾지 못했습니다.</p>}
+                      <p className="meta">출처 {c.result.source} · 조회 {new Date(c.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{c.result.from_cache ? ' (1일 보관본)' : ''} · <a href={c.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
+                    </>
+                  )}
+                </li>
+              ))}</ol>
+            </li>
+          );
+        })}
       </ul>
       <p className="meta">공식 사이트 원문을 참고로 보여 줍니다. 공식 규정 등록·승인 전에는 검증 근거로 쓰지 않습니다.</p>
     </section>
