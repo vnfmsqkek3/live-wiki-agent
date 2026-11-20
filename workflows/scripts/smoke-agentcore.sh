@@ -3,7 +3,7 @@
 #   업로드 → EventBridge → SQS → type-detection → InvokeAgentRuntime(오케스트레이터) → Gateway Tool(단계 Lambda)
 #   → Documents lifecycle=IN_REVIEW 와 단계 기록(WF#/STEP#)을 확인하면 PASS. 승인 resume 은 승인 API(dhxorb96) 경로.
 # 사용: set -a; . ./.env.local; set +a; workflows/scripts/smoke-agentcore.sh [env=dev]
-#   TITLE=… 문서 제목. FILE=합성문서.docx 를 주면 생성 PDF 대신 그 파일을 올린다 (확장자 그대로). KEEP=1 이면 정리하지 않음
+#   TITLE=… 문서 제목. FILE=합성문서 를 주면 기본(F-001.pdf) 대신 그 파일을 올린다 (확장자 그대로). KEEP=1 이면 정리하지 않음
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 ENV=${1:-dev}; APPROVE=${2:-}
@@ -20,28 +20,11 @@ fi
 echo "store=$GOV"
 ulid() { node -e 'const B="0123456789ABCDEFGHJKMNPQRSTVWXYZ";let t="",n=Date.now();for(let i=0;i<10;i++,n=Math.floor(n/32))t=B[n%32]+t;let r="";for(let i=0;i<16;i++)r+=B[Math.floor(Math.random()*32)];console.log(t+r)'; }
 DOC="doc_$(ulid)"; WF0="wf_$(ulid)" # API analyze 가 workflow_id 를 미리 넣는다 (type-detection 이 실행 이름으로 사용)
-TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 NOW=$(date -u +%FT%TZ)
 
-# 텍스트 레이어가 충분한 1쪽 합성 PDF (OCR 대상 아님)
-node -e '
-const lines = ["SYNTHETIC Hanbit Bank (Synthetic Bank) collateral appraisal know-how",
-  "Step 1. Check the appraisal report and the registry certificate before approval.",
-  "Step 2. Confirm the loan amount does not exceed the approval limit in Article 12."];
-const body = lines.map((l, i) => `BT /F1 11 Tf 40 ${780 - i * 20} Td (${l}) Tj ET`).join("\n");
-const objs = ["<< /Type /Catalog /Pages 2 0 R >>", "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-  "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-  `<< /Length ${body.length} >>\nstream\n${body}\nendstream`, "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>"];
-let s = "%PDF-1.4\n"; const off = [];
-objs.forEach((o, i) => { off.push(s.length); s += `${i + 1} 0 obj\n${o}\nendobj\n`; });
-const x = s.length;
-s += `xref\n0 ${objs.length + 1}\n0000000000 65535 f \n` + off.map((o) => `${String(o).padStart(10, "0")} 00000 n \n`).join("");
-s += `trailer\n<< /Size ${objs.length + 1} /Root 1 0 R >>\nstartxref\n${x}\n%%EOF\n`;
-require("fs").writeFileSync(process.argv[1], s);
-' "$TMP/doc.pdf"
-
-EXT=pdf; SRC="$TMP/doc.pdf"
-if [[ -n "${FILE:-}" ]]; then SRC=$FILE; EXT=$(echo "${FILE##*.}" | tr A-Z a-z); fi
+# 기본 문서: 합성 규정 F-001. 직접 만든 영문 1쪽 PDF 는 전부 OCR 로 바뀐 뒤(11/17) NO_TEXT 로 BLOCKED 되어 쓰지 않는다 (11/20)
+FILE=${FILE:-tests/fixtures/documents/pdf/F-001.pdf}
+SRC=$FILE; EXT=$(echo "${FILE##*.}" | tr A-Z a-z)
 if [ "$GOV" = postgres ]; then
   sql "INSERT INTO documents (doc_id, version, owner, title, dept, acl_groups, ext, lifecycle, authority_status, freshness, workflow_id, created_at, updated_at)
        VALUES ('$DOC', 1, 'smoke-author', '${TITLE:-SYNTHETIC smoke 담보평가 노하우}', '여신', ARRAY['ALL'], '$EXT', 'QUARANTINED', 'UNVERIFIED', 'CURRENT', '$WF0', now(), now()) RETURNING doc_id" >/dev/null
