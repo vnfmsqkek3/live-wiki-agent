@@ -36,7 +36,8 @@
 | `mcp/approval-server/`, `mcp/privacy-server/` | dhxorb96 | yoyo0704 | |
 | `mcp/gateway-interceptor/` | dhxorb96 | yoyo0704 | Gateway REQUEST interceptor (`__actor` 주입) |
 | `services/auth-triggers/` | yoyo0704 | dhxorb96 | Cognito Pre Token V2 (access token `dept`) |
-| `tests/e2e/`, `tests/security/` | dhxorb96 | yoyo0704 | |
+| `tests/e2e/` | 프론트엔드QA팀 | 프론트엔드팀 | 11/20 역할별 팀 체제 (`role/README.md` 1장 우선) |
+| `tests/security/` | 백엔드팀 | 인프라팀 | 〃 |
 | `docs/interfaces.md` | 섹션별 Owner | 나머지 2명 | |
 
 리뷰 규칙: 리뷰어 1명 승인 + CI 통과 후 main 병합 (`06` 2장).
