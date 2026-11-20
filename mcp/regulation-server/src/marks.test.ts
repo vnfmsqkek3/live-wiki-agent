@@ -129,3 +129,25 @@ test("확인이 필요한 건 세 칸(11/17): 원본 내용 · 근거 내용 · 
   assert.equal(sentenceAt("확인했습니까? 생략함. 다음", 8, 10), "생략함.");
   assert.equal(asRecommendation("보관 기간은 5년"), "보관 기간은 5년 (권장 사항이며 규정상 의무는 아님).");
 });
+
+test("근거 표시(사용자 피드백 11/20): 든 적 없는 조문(basis=NONE)은 근거로 보이지 않고, 든 조문과 다르면(CITED) '근거와 다름'", async () => {
+  const s = fixtureClauseStore();
+  const pid = "SYN-DEP-001@2026-11-01/ARTICLE:7-2";
+  const pages = ["1. 수신업무 처리규정 제7조의2에 따라 비대면 계좌 개설은 2가지 이상 인증 수단을 사용한다.\n2. 처리 결과를 고객에게 안내한다."];
+  const item = (statement: string, relation: string, basis?: "CITED" | "NONE") => ({ statement, provision_id: pid, relation, reason: "판단 근거 부족", quote: "", label: "수신업무 처리규정 제7조의2", verified_quote: false, ...(basis ? { basis } : {}) });
+  // G-KN-01 재현: 2번 문장은 제7조의2를 든 적 없음 → 밑줄(확인 필요)은 두되 근거 조문 없음
+  const [none] = await buildMarks(pages, { knowhow: { items: [item("처리 결과를 고객에게 안내한다.", "INSUFFICIENT", "NONE")], outdated: [] } }, s);
+  assert.equal(none!.kind, "INSUFFICIENT"); assert.equal(none!.basis, undefined); assert.equal(span(pages, none!), "처리 결과를 고객에게 안내한다.");
+  // 무관(UNRELATED)+NONE 은 지금처럼 밑줄 없음
+  assert.equal((await buildMarks(pages, { knowhow: { items: [item("처리 결과를 고객에게 안내한다.", "UNRELATED", "NONE")], outdated: [] } }, s)).length, 0);
+  // 든 조문과 내용이 다름: INSUFFICIENT·UNRELATED 모두 BASIS_MISMATCH, 근거=그 조문
+  for (const rel of ["INSUFFICIENT", "UNRELATED"]) {
+    const [m] = await buildMarks(pages, { knowhow: { items: [item("비대면 계좌 개설은 2가지 이상 인증 수단을 사용한다.", rel, "CITED")], outdated: [] } }, s);
+    assert.equal(m!.kind, "BASIS_MISMATCH"); assert.equal(m!.label, "근거와 다름"); assert.equal(m!.severity, "MEDIUM");
+    assert.equal(m!.basis?.provision_id, pid);
+    assert.equal(m!.fix, "근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요."); assert.equal(m!.revision, m!.fix);
+  }
+  // basis 없는 기존 항목은 그대로 (확인 필요 + 근거 조문)
+  const [old] = await buildMarks(pages, { knowhow: { items: [item("처리 결과를 고객에게 안내한다.", "INSUFFICIENT")], outdated: [] } }, s);
+  assert.equal(old!.kind, "INSUFFICIENT"); assert.equal(old!.basis?.provision_id, pid);
+});
