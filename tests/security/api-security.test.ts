@@ -1,5 +1,6 @@
 // 보안 테스트 (Owner dhxorb96, docs/02 4장 · TODO 11/21). 실행 중인 API에 데모 계정으로 직접 요청하는 블랙박스 테스트.
-// 실행: set -a; . ./.env.local; set +a; eval "$(apps/api/scripts/ssm-env.sh prod)"; API=http://localhost:8080 node --test tests/security/*.test.ts
+// 실행: set -a; . ./.env.local; set +a; eval "$(apps/api/scripts/ssm-env.sh prod)"; API=https://{CloudFront 도메인} node --test --test-concurrency=1 tests/security/api-security.test.ts
+// 배포된 API에 직접 (로컬 API는 AGENT_RUNTIME_ARN 등 Terraform 전용 env가 없어 가이드가 500)
 // 의존성 없음: AWS 호출은 aws CLI로 한다. 문서는 공유 dev 실제 파이프라인으로 IN_REVIEW까지 만든다.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -123,7 +124,7 @@ test('검사 후 변경: 남은 presigned URL로 파일을 바꾸면 승인 거�
 test('ACL: 미게시 문서는 올린 사람·결재자 외 모든 조회 경로에서 숨김 (admin이 올린 문서를 user가 조회)', async () => {
   const { doc_id } = await reviewedDoc('admin');
   assert.equal((await call('user', 'GET', `/v1/documents/${doc_id}`)).status, 404);
-  assert.equal((await call('user', 'GET', `/v1/documents/${doc_id}/review`)).status, 403);
+  assert.equal((await call('user', 'GET', `/v1/documents/${doc_id}/review`)).status, 404); // 존재 자체를 숨김 (0ddc660)
   assert.equal((await call('user', 'POST', '/v1/feedback', { doc_id, useful: true })).status, 404);
   assert.equal((await call('user', 'GET', '/v1/approvals?status=PENDING')).status, 403);
   const g = await call('admin', 'GET', `/v1/documents/${doc_id}`);
