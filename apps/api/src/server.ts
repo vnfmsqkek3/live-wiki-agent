@@ -1,11 +1,12 @@
 // API 실행 진입점 (ECS Fargate / 로컬). 값은 환경변수(SSM)로만 받는다.
 import { CHANGE_SCHEMA, CHANGE_SYSTEM } from './steps/change-request.ts';
+import { checkImpactDraft, IMPACT_SCHEMA, IMPACT_SYSTEM, impactPrompt, type ImpactChange } from './steps/impact-draft.ts';
 import { db } from '@hanaeum/db';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
 import { structured } from './model.ts';
 import { COMPOSE_SCHEMA, COMPOSE_SYSTEM } from './steps/clarify.ts';
-import { LAW_SCHEMA, LAW_SYSTEM, mergeLaws, type LawRef } from './steps/external-laws.ts';
+import { findExternalLaws } from './law-refs.ts';
 import { cognitoVerifier } from './auth.ts';
 import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
@@ -34,21 +35,6 @@ async function searchWiki() {
   return t.search_wiki as unknown as SearchWiki;
 }
 
-// 외부 법령: 본문 「…법」 중 내부 규정 저장소에 없는 것 (let522mj externalLaws) + 바로 뒤 조문 표기
-async function externalLaws(text: string) {
-  if (!process.env.TABLE_REGULATIONS) return [];
-  const reg = (await import('@hanaeum/regulation-server')) as unknown as { externalLaws: (t: string, s: unknown) => Promise<string[]>; externalLawRefs?: (t: string, s: unknown) => Promise<{ law_name: string; clause?: string }[]>; DynamoClauseStore: new (t: string) => unknown };
-  const store = new reg.DynamoClauseStore(process.env.TABLE_REGULATIONS);
-  // 1) 괄호 표기 (let522mj PR #47 이 있으면 그 결과, 없으면 옛 「」 방식)
-  const bracket: LawRef[] = reg.externalLawRefs ? await reg.externalLawRefs(text, store) : (await reg.externalLaws(text, store)).map((law_name) => {
-    const m = new RegExp(`「${law_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}」\\s*(제\\d+조(?:의\\d+)?(?:제\\d+항)?)`).exec(text);
-    return { law_name, ...(m ? { clause: m[1] } : {}) };
-  });
-  // 2) 괄호가 없어도 법령을 가리키는 곳 (사용자 지적 11/18): 모델이 뽑고, 내부 규정 저장소에 있는 이름은 뺀다
-  const found = await structured<{ laws: LawRef[] }>('HAIKU', LAW_SYSTEM, text.slice(0, 20000), 'submit_laws', LAW_SCHEMA as unknown as Record<string, unknown>).then((r) => r.value.laws ?? []).catch(() => [] as LawRef[]);
-  const external = await Promise.all(found.map(async (l) => ((await reg.externalLaws(`「${l.law_name}」`, store).catch(() => [])).length ? l : null)));
-  return mergeLaws(bracket, external.filter((x): x is LawRef => !!x));
-}
 
 const app = createApp({
   verify: cognitoVerifier(env('COGNITO_USER_POOL_ID'), env('COGNITO_CLIENT_ID')),
@@ -86,8 +72,14 @@ const app = createApp({
   explanation,
   pageSummary,
   structuredPages,
-  externalLaws,
+  externalLaws: findExternalLaws,
   judgeChange: async (prompt: string) => (await structured<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>('HAIKU', CHANGE_SYSTEM, prompt, 'submit_judgement', CHANGE_SCHEMA as unknown as Record<string, unknown>)).value,
+  // 변경 영향 수정 초안 (AI팀 impact-draft.ts): 모델 출력은 checkImpactDraft 를 거쳐서만 저장
+  draftImpact: async (i) => {
+    const change = { path: i.path, kind: i.kind as ImpactChange['kind'], old_text: i.old_clause, new_text: i.new_clause };
+    const j = await structured<{ verdict?: string; after?: string; reason?: string }>('HAIKU', IMPACT_SYSTEM, impactPrompt({ before: i.before, change, context: i.context }), 'submit_draft', IMPACT_SCHEMA as unknown as Record<string, unknown>).catch(() => undefined);
+    return checkImpactDraft(i.before, j?.value, change);
+  },
   composeClarify: async (prompt: string) => (await structured<{ edits: { n: number; ok: boolean; no_change?: boolean; after: string; reason?: string }[] }>('HAIKU', COMPOSE_SYSTEM, prompt, 'submit_edits', COMPOSE_SCHEMA as unknown as Record<string, unknown>)).value,
   ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),

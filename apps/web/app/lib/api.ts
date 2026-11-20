@@ -86,7 +86,9 @@ function mock(method: string, path: string, body?: unknown): unknown {
     return { items: MOCK_ITEMS.filter((i) => !tag || i.tags.includes(tag)) }; // ponytail: mock은 질의 무관 전체 반환
   }
   if (/\/v1\/library\/.+\/similar/.test(path)) return { items: [] };
-  if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
+  if (/\/v1\/library\/.+\/external-laws/.test(path)) return { items: [{ law_name: '외국환거래법', clauses: [], result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-20T02:00:00Z', from_cache: false, effective_from: '2026-01-01', note: '외부 공식 사이트 원문 참고용', clause: null } }, { law_name: '외국환거래규정', clauses: [
+    { clause: '제9-9조제1항', sub: ['제8호', '제9호'], result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-20T02:00:00Z', from_cache: true, effective_from: '2026-07-01', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:9-9/PARAGRAPH:1', text: '① 거주자가 다음 각 호의 어느 하나에 해당하는 해외직접투자를 하고자 하는 경우에는…' } } },
+    { clause: '제9-4조제1항', result: null, error: 'NOT_FOUND' }] }, { law_name: '개인정보 보호법', clause: '제15조제1항', result: { source: '국가법령정보센터 (AgentCore Browser)', url: 'https://www.law.go.kr', fetched_at: '2026-11-17T02:00:00Z', from_cache: false, effective_from: '2026-09-11', note: '외부 공식 사이트 원문 참고용', clause: { path: 'ARTICLE:15/PARAGRAPH:1', text: '① 개인정보처리자는 다음 각 호의 어느 하나에 해당하는 경우에는 개인정보를 수집할 수 있으며…' } } }] };
   if (/^\/v1\/library\/[^/]+\/versions$/.test(path)) {
     const id = decodeURIComponent(path.split('/')[3]!);
     const d = MOCK_LIBRARY.find((x) => x.doc_id === id);
@@ -130,6 +132,17 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (/\/v1\/documents\/.+\/submit/.test(path)) return { approval_id: 'apr_MOCK' };
   if (path === '/v1/guides') return MOCK_GUIDE;
   if (path === '/v1/feedback') return { ok: true };
+  // 규정 변경 영향 (SYNTHETIC): 제14조제1항 개정 → K-002 직접 영향
+  if (path === '/v1/admin/change-requests') return { items: [{ id: 'cr_MOCK2', doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', before: '1억원 이하는 감정평가서만으로 처리한다.', request: '', verdict: 'UNKNOWN', after: null, ai_reason: '금액 기준 예외가 개정 조문과 어떻게 맞물리는지 판단할 수 없습니다.', at: '2026-11-20T09:00:00Z', source: 'IMPACT', law: '기업여신 심사규정', path: 'ARTICLE:14/PARAGRAPH:1' }] };
+  if (/\/v1\/admin\/change-requests\/.+/.test(path)) { if ((body as { decision: string }).decision === 'APPLY') throw new ApiError(409, 'before not found in document'); return { new_doc_id: null }; }
+  if (/\/v1\/documents\/.+\/freshness\/confirm/.test(path)) return { doc_id: path.split('/')[3], freshness: 'CURRENT', law_id: 'SYN-LOAN-001', revision: '2026-12-01' };
+  if (path === '/v1/admin/impact/laws') return { items: [{ law_name: '기업여신 심사규정', versions: 2 }] };
+  if (path.startsWith('/v1/admin/impact?')) return { old_revision: '2026-11-01', new_revision: '2026-12-01',
+    changes: [{ path: 'ARTICLE:14/PARAGRAPH:1', kind: 'MODIFIED', old_text: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', new_text: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하고 실사 보고서를 승인 전에 작성하여야 한다.' }],
+    impacted: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'DIRECT', risk: 'HIGH', evidence: [{ cited_provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', evidence_span: '실사 보고서는 나중에 작성해도 된다', change: { path: 'ARTICLE:14/PARAGRAPH:1', kind: 'MODIFIED', old_text: '', new_text: '' } }] }] };
+  if (path === '/v1/admin/impact/draft') return { items: [
+    { id: 'cr_MOCK1', doc_id: (body as { doc_id: string }).doc_id, path: 'ARTICLE:14/PARAGRAPH:1', before: '실사 보고서는 나중에 작성해도 된다.', after: '실사 보고서는 승인 전에 작성한다 (기업여신 심사규정 제14조제1항, 2026-12-01 개정).', verdict: 'APPROPRIATE', ai_reason: '개정 조문이 실사 보고서를 승인 전에 작성하도록 정했습니다.' },
+    { id: 'cr_MOCK2', doc_id: (body as { doc_id: string }).doc_id, path: 'ARTICLE:14/PARAGRAPH:1', before: '1억원 이하는 감정평가서만으로 처리한다.', after: null, verdict: 'UNKNOWN', ai_reason: '금액 기준 예외가 개정 조문과 어떻게 맞물리는지 판단할 수 없습니다.' }] };
   throw new ApiError(404, `mock 없음: ${method} ${path}`);
 }
 
@@ -244,8 +257,10 @@ export interface Verification {
   checks: { trust_gate: string | null; verdict: string | null; checked_at: string | null };
   approved_by: string | null; approved_at: string | null; approval_reason: string | null;
 }
-export interface ExternalLaw { law_name: string; clause?: string; error?: string;
-  result?: { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null } | null }
+export interface LawResult { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null }
+/** clauses: 본문이 인용한 조문 전부(등장 순서). 없으면 옛 응답(clause·result 1건) */
+export interface ExternalLaw { law_name: string; clause?: string; error?: string; result?: LawResult | null;
+  clauses?: { clause: string; sub?: string[]; result: LawResult | null; error?: string }[] }
 /** 결재 대상 문서를 관리자가 열었을 때 (GET /v1/library/:id). 쪽 본문이 없으면 findings로 이유를 보여 준다 */
 export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;

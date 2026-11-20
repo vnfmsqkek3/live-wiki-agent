@@ -192,3 +192,18 @@ test('불확실 안내에 내부 구간 표시(#s1)·상태 코드(freshness=…
   assert.doesNotMatch(r.uncertainty, /#s\d|freshness=|doc_K/);
   assert.match(r.uncertainty, /「서류 체크리스트」/);
 });
+
+test('Guardrails 출력 검사: 탐지 값은 가리고, 차단이면 답변을 버린다', async () => {
+  const draft = { steps: [{ text: '비밀번호 hunter2 로 접속한다.', sources: ['doc_F001'] }], uncertainty: '' };
+  const seen: string[] = [];
+  const masked = await guide('접속 방법', { ...deps(draft), guard: async (t) => { seen.push(t); return { blocked: false, matches: ['hunter2'] }; } });
+  assert.equal(masked.guard, 'MASKED');
+  assert.equal(masked.steps[0]!.text, '비밀번호 [민감정보] 로 접속한다.');
+  assert.ok(seen[0]!.includes('hunter2'), '검사 대상에 답변 문장이 들어가야 함');
+  const blocked = await guide('접속 방법', { ...deps(draft), guard: async () => ({ blocked: true, matches: [] }) });
+  assert.equal(blocked.guard, 'BLOCKED');
+  assert.equal(blocked.status, 'NO_EVIDENCE');
+  assert.equal(blocked.steps.length, 0);
+  assert.ok(!JSON.stringify(blocked.steps).includes('hunter2'));
+  await assert.rejects(guide('접속 방법', { ...deps(draft), guard: async () => { throw new Error('guardrail down'); } }));
+});

@@ -5,7 +5,7 @@ import { ToolError } from "@hanaeum/mcp-kit";
 import { relPath } from "./store.ts";
 
 const SUB = Object.keys(SUBITEM_CODES).join("");
-export const CLAUSE_EXPR = new RegExp(`^(부칙\\s*)?제(\\d+)조(?:의(\\d+))?(?:\\s*제(\\d+)항)?(?:\\s*제(\\d+)호(?:의(\\d+))?)?(?:\\s*([${SUB}])목)?$`, "u");
+export const CLAUSE_EXPR = new RegExp(`^(부칙\\s*)?제(\\d+)(?:-(\\d+)조|조(?:의(\\d+))?)(?:\\s*제(\\d+)항)?(?:\\s*제(\\d+)호(?:의(\\d+))?)?(?:\\s*([${SUB}])목)?$`, "u");
 
 /** "제12조제2항제3호가목" 또는 provision_id → 버전 무관 상대 경로 */
 export function clausePath(expr: string): string {
@@ -13,7 +13,8 @@ export function clausePath(expr: string): string {
   if (e.includes("/ARTICLE:") || /^(?:SUPPLEMENTARY:\d+\/)?ARTICLE:/u.test(e)) return e.includes("@") ? relPath(e) : e;
   const m = e.replace(/\s+/gu, "").match(CLAUSE_EXPR) ?? e.match(CLAUSE_EXPR);
   if (!m) throw new ToolError("INVALID_ARGUMENT", `조문 표현을 해석할 수 없음: ${expr}`);
-  const [, supp, a, ab, p, i, ib, s] = m;
+  const [, supp, a, dashB, uiB, p, i, ib, s] = m; // 제9-5조 = 제9조의5 (ARTICLE:9-5)
+  const ab = dashB ?? uiB;
   let path = `${supp ? "SUPPLEMENTARY:*/" : ""}ARTICLE:${a}${ab ? `-${ab}` : ""}`;
   if (p) path += `/PARAGRAPH:${p}`;
   if (i) path += `/ITEM:${i}${ib ? `-${ib}` : ""}`;

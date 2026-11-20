@@ -26,7 +26,10 @@ export function checkUrl(url: string, allowHosts?: string[]): URL {
   if (allowHosts && !allowHosts.some((a) => h === a || h.endsWith(`.${a}`))) throw Object.assign(new Error(`허용 목록 밖 호스트: ${h}`), { name: "BlockedUrl" });
   return u;
 }
-export const lawUrl = (lawName: string) => `${LAW_SITE}/법령/${encodeURIComponent(lawName.trim())}`;
+// 행정규칙(고시·훈령·예규·지침, "외국환거래규정")은 /행정규칙/ 경로 (/법령/은 빈 안내 쪽, 11/20 확인)
+// ponytail: 이름 끝으로 판정. "~규정"인 대통령령(예 공무원보수규정)은 잘못 고르므로 그런 인용이 생기면 /법령/ 재시도 추가
+const ADMIN_RULE = /(?:규정|고시|훈령|예규|지침)$/u;
+export const lawUrl = (lawName: string) => `${LAW_SITE}/${ADMIN_RULE.test(lawName.trim()) ? "행정규칙" : "법령"}/${encodeURIComponent(lawName.trim())}`;
 
 export interface LawPage { url: string; header: string; body: string; fetched_at?: string; from_cache?: boolean }
 export interface LawPageFetcher { fetch(lawName: string): Promise<LawPage> }
@@ -36,21 +39,49 @@ export interface LawPageFetcher { fetch(lawName: string): Promise<LawPage> }
 // 법령명 괄호: 「」 외에 OCR·작성자가 쓰는 『』 [ ] 《》 〈〉 도 (사용자 지적 11/18: "[개인정보 보호법]제15조제1항"이 외부 법령에 안 나옴)
 // ponytail: 괄호 없는 "개인정보 보호법 제15조"는 앞 낱말과 경계가 모호해 제외 (예 "근거하여 은행법")
 // 괄호 짝이 달라도 허용 (OCR이 한쪽만 다르게 읽는 경우). [ ]《》〈〉는 소제목에 흔해 바로 뒤에 조문 표기가 있을 때만 (PR #47 리뷰)
-const LAW_REF = /([「『[《〈])\s*([^」』\]》〉\n]{2,40}?)\s*[」』\]》〉]\s*(제\s*\d+\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?)?/gu;
-// 법령명 끝: 법·법률·시행령·규칙·…령. "방법"·"요령"·"명령"은 제외
-const LAW_NAME_END = /(?<!방)법$|법률$|시행령$|(?<![요명])령$|규칙$/u;
-/** 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것)과 바로 뒤 조문 표기 (최대 max개) */
-export async function externalLawRefs(text: string, store: ClauseStore, max = 5): Promise<{ law_name: string; clause?: string }[]> {
-  const seen = new Map<string, string | undefined>();
-  for (const m of text.matchAll(LAW_REF)) {
+// 조문 표기: 제12조, 제12조의2, 가지번호 제9-5조(행정규칙), 뒤 제n항
+const CLAUSE = String.raw`제\s*\d+(?:\s*-\s*\d+)?\s*조(?:\s*의\s*\d+)?(?:\s*제\s*\d+\s*항)?(?:\s*제\s*\d+\s*호(?:\s*의\s*\d+)?(?:\s*[·,]\s*제\s*\d+\s*호(?:\s*의\s*\d+)?)*)?`; // 호 목록 "제8호·제9호"까지 (API가 조·항 아래 sub로 묶음)
+const LAW_REF = new RegExp(String.raw`([「『[《〈])\s*([^」』\]》〉\n]{2,40}?)\s*[」』\]》〉]\s*(${CLAUSE})?`, "gu");
+// 괄호 없는 이름: 줄 첫머리나 여는 괄호 바로 뒤의 띄어쓰기 없는 한 낱말 + 조문 표기만 (사용자 문서 11/20 "(외국환거래규정 제9-5조제1항)").
+// ponytail: 앞 낱말과 경계가 모호한 "근거하여 은행법 제5조"·"개인정보 보호법 제15조"는 여전히 제외 → API Haiku 추출이 보완
+const BARE_REF = new RegExp(String.raw`(?:^|(?<=[(（]))\s*()([\p{Script=Hangul}A-Za-z0-9·]{2,40})\s*(${CLAUSE})`, "gmu");
+// 법령명 끝: 법·법률·시행령·규칙·규정·…령. "방법"·"요령"·"명령"은 제외
+// 괄호 없는 이름 중 지시어·일반 명칭("동법"·"같은법"·"본규정"·"시행령"·"규정")은 법령명이 아님 (PR #75 데이터QA 리뷰). "이자제한법"처럼 접두어만 같은 실제 법령은 유지
+const DEICTIC = /^(?:동|같은|본|이|당|당행|본행|위|해당|상기)?\s*(?:법|법률|규정|규칙|시행령|시행규칙|령)$/u;
+const LAW_NAME_END = /(?<!방)법$|법률$|시행령$|(?<![요명])령$|규칙$|규정$/u; // 규정: 외국환거래규정 같은 행정규칙(고시). 내부 규정은 저장소에 있어 빠짐
+// 법령명 없이 줄 첫머리·여는 괄호 바로 뒤에 온 조문 "(제9-5조제3항)" → 본문에서 바로 앞에 나온 법령의 조문 (문장 가운데 "제5조에 따라"는 대상 아님)
+const BARE_CLAUSE = new RegExp(String.raw`(?:^|(?<=[(（]))\s*(${CLAUSE})`, "gmu");
+export interface ExternalLawRef { law_name: string; /** 첫 조문 (하위 호환) */ clause?: string; /** 본문 인용 조문 전부, 나온 순서·중복 제거, 호 목록은 호마다 (11/20) */ clauses: string[] }
+/** 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것)과 인용 조문 (법령 최대 max개, 법령당 조문 최대 10개) */
+export async function externalLawRefs(text: string, store: ClauseStore, max = 5): Promise<ExternalLawRef[]> {
+  const named: { at: number; end: number; name: string; clause?: string }[] = [];
+  for (const m of [...text.matchAll(LAW_REF), ...text.matchAll(BARE_REF)]) {
     const n = m[2]!.replace(/\s+/gu, " ").trim();
     if (!LAW_NAME_END.test(n)) continue; // 법령명만 (서식·문서명·"신청 방법" 제외)
-    if (!"「『".includes(m[1]!) && !m[3]) continue;
-    const c = m[3]?.replace(/\s+/gu, "");
-    if (!seen.has(n) || (!seen.get(n) && c)) seen.set(n, c);
+    if (!"「『".includes(m[1]!) && !m[3]) continue; // [ ]·《》·〈〉·괄호 없음은 조문 표기가 있을 때만
+    if (DEICTIC.test(n)) continue;
+    named.push({ at: m.index, end: m.index + m[0].length, name: n, ...(m[3] ? { clause: m[3] } : {}) });
   }
-  const out: { law_name: string; clause?: string }[] = [];
-  for (const [n, c] of seen) if (out.length < max && !(await store.lawIdByName(n))) out.push({ law_name: n, ...(c ? { clause: c } : {}) });
+  named.sort((a, b) => a.at - b.at);
+  const refs = [...named];
+  for (const m of text.matchAll(BARE_CLAUSE)) {
+    if (named.some((x) => m.index >= x.at && m.index < x.end)) continue; // 이미 법령명과 함께 잡힌 조문
+    const prev = named.filter((x) => x.at < m.index).at(-1);
+    if (prev) refs.push({ at: m.index, end: m.index, name: prev.name, clause: m[1]! });
+  }
+  refs.sort((a, b) => a.at - b.at);
+  const seen = new Map<string, string[]>();
+  for (const r of refs) {
+    const list = seen.get(r.name) ?? [];
+    // "제9-9조제1항제8호·제9호" → 호마다 나눔 (clausePath·fetch_official_law가 해석 가능한 표기만, AI팀 요청 11/20)
+    const c = r.clause?.replace(/\s+/gu, "");
+    const [head, ...items] = c ? c.split(/[·,]/u) : [];
+    const base = head?.replace(/제\d+호(?:의\d+)?$/u, "");
+    for (const x of head ? [head, ...items.map((i) => base + i)] : []) if (!list.includes(x) && list.length < 10) list.push(x);
+    seen.set(r.name, list);
+  }
+  const out: ExternalLawRef[] = [];
+  for (const [n, cs] of seen) if (out.length < max && !(await store.lawIdByName(n))) out.push({ law_name: n, ...(cs[0] ? { clause: cs[0] } : {}), clauses: cs });
   return out;
 }
 export async function externalLaws(text: string, store: ClauseStore, max = 5): Promise<string[]> {
@@ -156,7 +187,7 @@ export class AgentCoreLawFetcher implements LawPageFetcher {
 /** "[시행 2026. 7. 1.] [법률 제21296호, 2025. 12. 30., 일부개정]" */
 export function parseHeader(h: string) {
   const eff = /\[시행\s*(\d{4}\.\s*\d{1,2}\.\s*\d{1,2})\.?\]/u.exec(h);
-  const no = /\[([^\]]*제\d+호)[^\]]*\]/u.exec(h);
+  const no = /\[([^\]]*제\d+(?:-\d+)?호)[^\]]*\]/u.exec(h); // 고시 번호 "제2025-12호"
   return { effective_from: eff ? isoFromDotted(eff[1]!) : undefined, promulgation: no?.[1] };
 }
 

@@ -9,7 +9,7 @@ import { DynamoDBClient, ConditionalCheckFailedException } from '@aws-sdk/client
 import { DynamoDBDocumentClient, GetCommand, PutCommand, QueryCommand, ScanCommand, UpdateCommand } from '@aws-sdk/lib-dynamodb';
 import type { ApprovalRecord, DocumentRecord, DraftRecord } from './contracts.ts';
 import { ApiError } from './errors.ts';
-import type { Store } from './store.ts';
+import type { AuditEvent, Store } from './store.ts';
 
 export interface Tables { documents: string; approvals: string; feedback: string; audit: string }
 
@@ -112,6 +112,24 @@ export function dynamoStore(t: Tables, client = new DynamoDBClient({})): Store {
     },
     async audit(e) {
       await db.send(new PutCommand({ TableName: t.audit, Item: { pk: `AUDIT#${e.at.slice(0, 10)}`, sk: `${e.at}#${e.trace_id}`, ...e } }));
+    },
+    async listAudit(a) {
+      // 날짜 파티션을 오늘부터 since 날짜까지 거꾸로. ponytail: 일 파티션 Query, 기록이 많아지면 result·action GSI
+      const out: AuditEvent[] = [];
+      for (let d = new Date(); d.toISOString().slice(0, 10) >= a.since.slice(0, 10) && out.length < a.limit; d = new Date(d.getTime() - 86_400_000)) {
+        const names: Record<string, string> = {}; const values: Record<string, unknown> = { ':pk': `AUDIT#${d.toISOString().slice(0, 10)}`, ':since': a.since };
+        const f: string[] = [];
+        if (a.result) { names['#r'] = 'result'; values[':r'] = a.result; f.push('#r = :r'); }
+        if (a.action) { names['#a'] = 'action'; values[':a'] = a.action; f.push('#a = :a'); }
+        let key: Record<string, unknown> | undefined;
+        do {
+          const r = await db.send(new QueryCommand({ TableName: t.audit, KeyConditionExpression: 'pk = :pk AND sk >= :since', ExpressionAttributeValues: values, ScanIndexForward: false,
+            ...(f.length ? { FilterExpression: f.join(' AND '), ExpressionAttributeNames: names } : {}), ExclusiveStartKey: key }));
+          out.push(...(r.Items ?? []).map((x) => strip<AuditEvent>(x)!));
+          key = r.LastEvaluatedKey;
+        } while (key && out.length < a.limit);
+      }
+      return out.slice(0, a.limit);
     },
   };
 }
