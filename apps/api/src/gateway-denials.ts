@@ -26,15 +26,27 @@ export function parseRequest(message: string): { tool: string; role: string } {
   } catch { return { tool: '', role: '' }; }
 }
 
-/** ponytail: 거부 최대 20건, 건마다 trace_id 로 요청 이벤트 1회 조회. 거부가 많아지면 Logs Insights 한 번으로 */
+/** FilterLogEvents 는 오래된 것부터·빈 페이지+nextToken 이 올 수 있다 → 페이지를 끝까지 따라가 최신 20건 (인프라 리뷰 #131).
+ *  ponytail: 페이지 상한 50, 거부마다 요청 이벤트 1회 조회(±5초 창). 거부가 많아지면 Logs Insights 한 번으로 */
 export function gatewayDenialsReader(logGroupName: string, client = new CloudWatchLogsClient({})) {
-  const filter = async (filterPattern: string, startTime: number, limit: number) =>
-    (await client.send(new FilterLogEventsCommand({ logGroupName, filterPattern, startTime, limit }))).events ?? [];
+  const filter = async (filterPattern: string, startTime: number, endTime?: number, stopAtFirst = false) => {
+    const out: { message?: string; timestamp?: number }[] = [];
+    let nextToken: string | undefined;
+    for (let page = 0; page < 50; page++) {
+      const r = await client.send(new FilterLogEventsCommand({ logGroupName, filterPattern, startTime, ...(endTime ? { endTime } : {}), nextToken }));
+      out.push(...(r.events ?? []));
+      if (!r.nextToken || (stopAtFirst && out.length)) break;
+      nextToken = r.nextToken;
+    }
+    return out;
+  };
   return async (since: string): Promise<GatewayDenial[]> => {
-    const start = Date.parse(since);
-    const denials = (await filter('"Policy evaluation denied request"', start, 20)).map((e) => parseDenial(e.message ?? '')).filter((d) => !!d);
+    const denials = (await filter('"Policy evaluation denied request"', Date.parse(since)))
+      .map((e) => parseDenial(e.message ?? '')).filter((d) => !!d)
+      .sort((x, y) => y.at.localeCompare(x.at)).slice(0, 20);
     return Promise.all(denials.map(async (d) => {
-      const [req] = await filter(`{ $.trace_id = "${d.trace_id.replace(/[^0-9a-f]/g, '')}" && $.body.log = "Started processing request" }`, start, 1).catch(() => []);
+      const t = Date.parse(d.at);
+      const [req] = await filter(`{ $.trace_id = "${d.trace_id.replace(/[^0-9a-f]/g, '')}" && $.body.log = "Started processing request" }`, t - 5000, t + 5000, true).catch(() => []);
       return { ...d, ...(req ? parseRequest(req.message ?? '') : { tool: '', role: '' }) };
     }));
   };

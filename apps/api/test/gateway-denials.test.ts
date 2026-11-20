@@ -15,3 +15,19 @@ test('Gateway Policy 거부 로그 → denials 항목: 도구·역할·사유·t
   assert.equal(parseDenial(JSON.stringify({ trace_id: 'x', body: { policy: { decision: 'ALLOW' } } })), undefined);
   assert.equal(parseDenial('not json'), undefined);
 });
+
+test('리더: 빈 페이지+nextToken 을 따라가 최신 거부까지, 요청 조회는 거부 시각 ±5초 (인프라 리뷰 #131)', async () => {
+  const { gatewayDenialsReader } = await import('../src/gateway-denials.ts');
+  const ev = (ts: number, id: string) => JSON.stringify({ event_timestamp: ts, trace_id: id, body: { policy: { decision: 'DENY', reason: 'r' } } });
+  const calls: { filterPattern?: string; startTime?: number; endTime?: number }[] = [];
+  const pages = [{ events: [{ message: ev(1000, 'aa') }], nextToken: 'p2' }, { events: [], nextToken: 'p3' }, { events: [{ message: ev(9000, 'bb') }] }];
+  const client = { send: async (c: { input: { filterPattern?: string; startTime?: number; endTime?: number; nextToken?: string } }) => {
+    calls.push(c.input);
+    if (c.input.filterPattern?.startsWith('"Policy')) return pages[c.input.nextToken === 'p2' ? 1 : c.input.nextToken === 'p3' ? 2 : 0];
+    return { events: [{ message: req }] };
+  } };
+  const r = await gatewayDenialsReader('g', client as never)(new Date(0).toISOString());
+  assert.deepEqual(r.map((x) => x.trace_id), ['bb', 'aa'], '최신 먼저, 빈 페이지 뒤 것도 포함');
+  const look = calls.find((c) => c.filterPattern?.includes('"bb"'))!;
+  assert.deepEqual([look.startTime, look.endTime], [4000, 14000]);
+});
