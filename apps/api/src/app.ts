@@ -1,4 +1,5 @@
 import { changePrompt, type ChangeRequest } from './steps/change-request.ts';
+import { groupLaws } from './steps/external-laws.ts';
 import { ackItem, makeCarry } from './steps/carry.ts';
 import { sentences } from './steps/edit-review.ts';
 import { Hono, type Context } from 'hono';
@@ -923,11 +924,21 @@ export function createApp(deps: Deps) {
     const vis = await visibleDocs(c.get('actor'));
     const d = await libraryDoc(c, vis);
     if (!deps.pages || !deps.externalLaws) return c.json({ items: [], note: '외부 법령 조회가 설정되지 않았습니다' });
-    const laws = await deps.externalLaws((await deps.pages(d.doc_id)).map((p) => p.text).join('\n'));
-    const items = await Promise.all(laws.map(async (l) => {
-      try { return { ...l, result: deps.officialLaw ? await deps.officialLaw(l, c.get('token')) : null }; }
-      catch (e) { return { ...l, error: (e as Error).name }; }
-    }));
+    const laws = groupLaws(await deps.externalLaws((await deps.pages(d.doc_id)).map((p) => p.text).join('\n')));
+    // 법령당 1건, 인용 조문(조·항) 전부. clause·result·error 는 첫 조문 값 (하위 호환). 조회는 조·항 단위 (법령 페이지는 regulation-server 캐시)
+    const fetch = async (law_name: string, clause?: string) => {
+      try { return { result: deps.officialLaw ? await deps.officialLaw({ law_name, ...(clause ? { clause } : {}) }, c.get('token')) : null }; }
+      catch (e) { return { result: null, error: (e as Error).name }; }
+    };
+    // Browser 세션 폭증 방지 (인프라 리뷰 11/20): 법령 3개씩, 법령마다 첫 조문을 먼저 받아 페이지 캐시를 채운 뒤 나머지 조문을 병렬로
+    const one = async (g: (typeof laws)[number]) => {
+      const [c0, ...more] = g.clauses;
+      const first = await fetch(g.law_name, c0?.clause);
+      const rest = await Promise.all(more.map(async (x) => ({ ...x, ...(await fetch(g.law_name, x.clause)) })));
+      return { law_name: g.law_name, ...(c0 ? { clause: c0.clause } : {}), ...first, clauses: c0 ? [{ ...c0, ...first }, ...rest] : [] };
+    };
+    const items: Awaited<ReturnType<typeof one>>[] = [];
+    for (let i = 0; i < laws.length; i += 3) items.push(...await Promise.all(laws.slice(i, i + 3).map(one)));
     return c.json({ items });
   });
 

@@ -747,3 +747,33 @@ test('재검토 문서 변경 없이 유효(재승인 흐름): 결재자만·사
   assert.equal((await t.call('approver', 'POST', url, { reason: '두 번' })).status, 409);
   assert.ok(t.store.audits.some((e) => e.action === 'FRESHNESS_CONFIRMED' && e.resource === doc_id));
 });
+
+test('외부 법령 참고(총괄 지시 11/20): 법령당 1건, 인용 조문 전부(조·항 단위, 호는 sub), 첫 조문 clause·result 하위 호환', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'MANUAL', acl_groups: ['ALL'] } as never);
+  t.deps.pages = async () => [{ page: 0, text: '본문' }] as never;
+  const L = '외국환거래규정';
+  // M-002·M-003 (tests/fixtures/documents, 데이터팀 PR #75) 본문 인용을 externalLawRefs(조문마다 1건) + 모델 보조가 낸 모양
+  let refs = [{ law_name: L, clause: '제9-5조제1항' }, { law_name: L, clause: '제9-5조제2항' }, { law_name: L, clause: '제9-5조제3항' }, { law_name: L, clause: '제9-5조제1항' }, { law_name: L }];
+  t.deps.externalLaws = async () => refs;
+  const calls: string[] = [];
+  t.deps.officialLaw = async (a) => { calls.push(`${a.law_name}|${a.clause ?? ''}`); if (a.clause === '제9-5조제3항') throw Object.assign(new Error('x'), { name: 'PageNotReady' }); return { text: a.clause }; };
+  type R = { items: { law_name: string; clause?: string; result: unknown; clauses: { clause: string; sub?: string[]; result: unknown; error?: string }[] }[] };
+  const m2 = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
+  assert.equal(m2.items.length, 1);
+  assert.deepEqual(m2.items[0]!.clauses.map((x) => x.clause), ['제9-5조제1항', '제9-5조제2항', '제9-5조제3항']);
+  assert.deepEqual([m2.items[0]!.clause, m2.items[0]!.result], ['제9-5조제1항', { text: '제9-5조제1항' }]);
+  assert.equal(m2.items[0]!.clauses[2]!.error, 'PageNotReady');
+  assert.equal(calls.length, 3, '조·항마다 1번');
+
+  refs = [{ law_name: L, clause: '제9-9조제1항' }, { law_name: L, clause: '제9-4조제1항' }, { law_name: L, clause: '제9-9조제1항제8호·제9호' }];
+  const m3 = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
+  assert.deepEqual(m3.items[0]!.clauses.map((x) => [x.clause, x.sub]), [['제9-9조제1항', ['제8호', '제9호']], ['제9-4조제1항', undefined]]);
+
+  refs = [{ law_name: '전자금융거래법' }];
+  const none = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
+  assert.deepEqual([none.items[0]!.clause, none.items[0]!.clauses], [undefined, []]);
+  assert.ok(none.items[0]!.result, '조문 없는 법령도 법령 단위로 조회');
+});

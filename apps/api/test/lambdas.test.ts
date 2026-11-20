@@ -466,3 +466,27 @@ test('새 규정 게시 → 근거 없이 게시된 노하우는 재검토 필�
   assert.equal(k.freshness, 'REVIEW_REQUIRED');
   assert.ok(t.store.audits.some((a) => a.action === 'FRESHNESS_REVIEW_REQUIRED' && a.resource === k.doc_id));
 });
+
+test('TrustGate MANUAL(총괄 결정 A 11/20): 외부 법령 대조만 → 외부 불일치 finding, 내부 판정·NO_BASIS 없음, 결과는 그대로', async () => {
+  const t = setup(pdf);
+  await t.store.putDoc({ ...t.doc, classification: { document_type: 'MANUAL' } } as never);
+  const quote = '미화 5만불을 초과하는 경우 외국환은행의 장에게 신고하여야 한다';
+  const judged: string[][] = [];
+  t.deps.knowhow = {
+    maskedText: async () => '5만불 초과 송금은 사후 보고한다 (외국환거래규정 제9-5조제1항).',
+    extractCitations: async () => [], getClause: async () => undefined, searchClauses: async () => [],
+    judge: async (_t, cl) => { judged.push(cl.map((c) => c.label)); return { items: [{ statement: '5만불 초과 송금은 사후 보고한다', provision_id: cl[0]!.provision_id, relation: 'CONFLICTS', reason: '사전 신고', quote }], model: 'm' }; },
+    external: { findLaws: async () => [{ law_name: '외국환거래규정', clause: '제9-5조제1항' }], fetchLaw: async () => ({ clause: { path: 'ARTICLE:9-5/PARAGRAPH:1', text: quote } }) },
+  };
+  const before = (await makeTrustGate(t.deps)(t.input)).status;
+  const d = (await t.store.getDoc(t.doc.doc_id))!;
+  assert.ok(d.findings.some((f) => f.code === 'KNOWHOW_EXTERNAL_MISMATCH'), JSON.stringify(d.findings.map((f) => f.code)));
+  assert.ok(!d.findings.some((f) => f.code === 'KNOWHOW_NO_BASIS' || f.code === 'KNOWHOW_CONFLICT'));
+  assert.equal(d.knowhow_validation, undefined);
+  assert.ok(judged[0]!.every((l) => l.includes('외부')), '외부 조문만 판정');
+  // 외부 대조가 실패해도 단계는 그대로 끝난다
+  const u = setup(pdf);
+  await u.store.putDoc({ ...u.doc, classification: { document_type: 'MANUAL' } } as never);
+  u.deps.knowhow = { ...t.deps.knowhow, external: { findLaws: async () => { throw new Error('x'); }, fetchLaw: async () => null } };
+  assert.equal((await makeTrustGate(u.deps)(u.input)).status, before);
+});
