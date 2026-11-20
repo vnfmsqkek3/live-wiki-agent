@@ -47,10 +47,11 @@ before(async () => {
 });
 
 test('인증: 토큰 없음·위조 서명 토큰은 도구 호출 거부', async () => {
-  assert.ok(denied((await mcp('tools/call', { name: 'search___search_wiki', arguments: { query: '담보' } }, null)).body) || (await mcp('tools/list', {}, null)).status === 401);
   const [h, p] = token.split('.');
-  const r = await mcp('tools/call', { name: 'search___search_wiki', arguments: { query: '담보' } }, `${h}.${p}.AAAA`);
-  assert.ok(r.status === 401 || denied(r.body), r.raw.slice(0, 200));
+  for (const t of [null, `${h}.${p}.AAAA`]) {
+    const r = await mcp('tools/call', { name: 'search___search_wiki', arguments: { query: '담보' } }, t);
+    assert.ok(r.status === 401 || denied(r.body), r.raw.slice(0, 200));
+  }
 });
 
 test('읽기 도구만 허용: search_wiki·get_wiki_document 는 결과, 쓰기·민감 도구 6종은 모두 거부', async () => {

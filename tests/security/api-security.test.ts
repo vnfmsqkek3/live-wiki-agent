@@ -57,27 +57,17 @@ async function submitted() {
   return { ...d, approval_id: s.json.approval_id as string };
 }
 
-/** 감사 기록 (prod 는 PostgreSQL audit_events, 사용자 결정 11/17·11/20). DynamoDB 는 옛 dev */
-const pg = process.env.GOV_STORE === 'postgres';
+/** 감사 기록: prod PostgreSQL audit_events (dev·DynamoDB 폐지 11/20) */
 function pgRows(sql: string, params: Record<string, string>) {
   const r = JSON.parse(aws('rds-data', 'execute-statement', '--resource-arn', env('DB_CLUSTER_ARN'), '--secret-arn', env('DB_SECRET_ARN'), '--database', env('DB_NAME'), '--sql', sql,
     '--parameters', JSON.stringify(Object.entries(params).map(([name, v]) => ({ name, value: { stringValue: v } }))))) as { records?: { stringValue?: string; longValue?: number }[][] };
   return r.records ?? [];
 }
-function deniedCount(sub: string, since: string) {
-  if (pg) return pgRows("SELECT count(*) FROM audit_events WHERE at >= :since::timestamptz AND actor = :a AND result = 'DENIED'", { since, a: sub })[0]?.[0]?.longValue ?? 0;
-  const day = since.slice(0, 10);
-  const r = JSON.parse(aws('dynamodb', 'query', '--table-name', env('TABLE_AUDIT_EVENTS'), '--key-condition-expression', 'pk = :p AND sk >= :s',
-    '--filter-expression', 'actor = :a AND #r = :d', '--expression-attribute-names', '{"#r":"result"}',
-    '--expression-attribute-values', JSON.stringify({ ':p': { S: `AUDIT#${day}` }, ':s': { S: since }, ':a': { S: sub }, ':d': { S: 'DENIED' } }), '--select', 'COUNT'));
-  return r.Count as number;
-}
+const deniedCount = (sub: string, since: string) =>
+  pgRows("SELECT count(*) FROM audit_events WHERE at >= :since::timestamptz AND actor = :a AND result = 'DENIED'", { since, a: sub })[0]?.[0]?.longValue ?? 0;
 /** since 이후 감사 기록 전체 (문자열). 질의 원문이 남지 않았는지 확인용 */
-function auditSince(since: string) {
-  if (pg) return JSON.stringify(pgRows("SELECT action || ' ' || resource || ' ' || coalesce(detail::text, '') FROM audit_events WHERE at >= :since::timestamptz", { since }));
-  return aws('dynamodb', 'query', '--table-name', env('TABLE_AUDIT_EVENTS'), '--key-condition-expression', 'pk = :p AND sk >= :s',
-    '--expression-attribute-values', JSON.stringify({ ':p': { S: `AUDIT#${since.slice(0, 10)}` }, ':s': { S: since } }));
-}
+const auditSince = (since: string) =>
+  JSON.stringify(pgRows("SELECT action || ' ' || resource || ' ' || coalesce(detail::text, '') FROM audit_events WHERE at >= :since::timestamptz", { since }));
 
 before(() => {
   const secret = JSON.parse(JSON.parse(aws('secretsmanager', 'get-secret-value', '--secret-id', process.env.DEMO_USERS_SECRET ?? 'hanaeum-mvp/demo-users', '--query', 'SecretString')));
