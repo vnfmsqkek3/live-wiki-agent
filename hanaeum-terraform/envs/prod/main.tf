@@ -30,7 +30,7 @@ module "stack" {
   lambda_refs               = { yoyo0704 = "140ca60", dhxorb96 = "140ca60", let522mj = "d1f5f40" }
   ocr_source_ref            = "620108a"
   webapp_source_ref         = "140ca60" # 웹·API (ECS·CloudFront)
-  agents_source_ref         = "9998e0c" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
+  agents_source_ref         = "1b3f7cf" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
   enable_transaction_search = true      # 계정 단위 자원 (dev destroy 11/18 23:22 뒤 prod 가 보유)
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
