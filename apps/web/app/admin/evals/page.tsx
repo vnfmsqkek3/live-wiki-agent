@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError } from '../../lib/api';
 import { PageHeader } from '../../page-header';
+import { roleText } from '../../lib/roles';
 
 interface Metric { key: string; label: string; target: string; passed: number; total: number; pass: boolean }
 interface Failure { key: string; case_id: string; reason: string }
@@ -24,6 +25,9 @@ const MOCK_EVALS: Evals = {
   failures: [{ key: 'citation', case_id: 'C-EXAMPLE', reason: '예시: 인용한 조문 번호가 정답과 다름' }],
   denials: [{ at: '2026-11-20T09:00:00Z', role: 'USER', tool: 'create_review_request', reason: '예시: 일반 사용자는 게시 도구를 호출할 수 없음', trace_id: 'trace-example' }],
 };
+// 거부 기록을 사람이 읽는 문장으로 (엔드유저 11/20). 원래 값은 '기술 정보'에 남긴다
+const WHAT = (t: string) => /approv|decision|decide/i.test(t) ? '결재' : /submit|review_request|publish/i.test(t) ? '게시 요청' : /admin/i.test(t) ? '관리 기능 사용' : '권한이 필요한 작업';
+const WHO = (r: string) => r.split(',').includes('AUTHOR') ? '작성자' : roleText(r.split(',')[0] ?? r);
 const at = (s: string) => new Date(s).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
 
 export default function EvalsPage() {
@@ -70,8 +74,9 @@ export default function EvalsPage() {
               <ul className="ledger">{r.denials.map((d) => (
                 <li className="entry" key={d.trace_id + d.at}>
                   <span className="run-status bad">거부</span>
-                  <h3 className="doc-title">{d.tool}</h3>
-                  <p className="meta">{at(d.at)} · 역할 {d.role} · {d.reason} · Trace {d.trace_id}</p>
+                  <h3 className="doc-title">{WHO(d.role)} 계정의 {WHAT(d.tool)} 시도를 권한이 없어 거부함</h3>
+                  <p className="meta">{at(d.at)} · 역할 {roleText(d.role).replace(/,/g, '·')}</p>
+                  <details><summary className="note">기술 정보</summary><p className="meta">{d.tool} · {d.reason} · Trace {d.trace_id}</p></details>
                 </li>
               ))}</ul>
             )}

@@ -53,7 +53,7 @@ export function WikiEditor({ docId, initial, base, focus, onCancel, note, onText
       <h2 className="section" id="wiki-edit-h">위키에서 고치기</h2>
       <p className="note">{note ?? '저장하면 새 버전이 만들어지고 AI가 다시 검사합니다. 원래 문서는 승인될 때까지 그대로 보입니다.'} 제목은 ##, 목록은 1. 또는 - 로 씁니다.</p>
       {focus && <p className="notice" role="status">넣은 줄을 선택해 두었습니다. 위치를 옮기거나 문장을 다듬은 뒤 저장하세요.</p>}
-      <label className="lbl" htmlFor="wiki-md">본문 (마크다운)</label>
+      <label className="lbl" htmlFor="wiki-md">본문</label>
       <textarea ref={ta} id="wiki-md" className="field wiki-md" value={text} onChange={(e) => setText(e.target.value)} rows={18} spellCheck={false} />
       <section className="edit-diff" aria-labelledby="edit-diff-h">
         <h3 className="lbl" id="edit-diff-h">바뀐 부분 {diff === null ? '(문서가 커서 표시 생략)' : diff.length ? <b className="num">{diff.length}줄</b> : '없음'}</h3>

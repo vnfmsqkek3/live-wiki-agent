@@ -1,4 +1,5 @@
 'use client';
+import { roleText } from './roles';
 // API·인증 클라이언트. NEXT_PUBLIC_API_URL이 정의되지 않으면 합성 mock으로 동작한다 (11/17 공유 dev 연동 전).
 // 버튼 노출은 편의일 뿐 권한은 서버가 강제한다 (01 §3.1).
 
@@ -63,7 +64,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   }).catch((e: Error) => { throw new ApiError(0, e.name === 'TimeoutError' ? '응답이 늦어 중단했습니다. 다시 시도해 주세요.' : '서버에 연결하지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요.'); });
   const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
   if (r.status === 401) expired();
-  if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
+  if (!r.ok) throw new ApiError(r.status, roleText(j.error?.message ?? `HTTP ${r.status}`));
   return j as T;
 }
 
