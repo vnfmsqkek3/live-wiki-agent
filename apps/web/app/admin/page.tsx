@@ -7,6 +7,7 @@ import Link from 'next/link';
 import { api, ApiError, getSession, type DocChange, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
+import { readable } from '../lib/readable';
 import { Icon } from '../icons';
 import { Seal } from '../seal';
 
@@ -61,9 +62,9 @@ function ChangeRequests() {
         <li key={i.id} className="fix">
           <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}</p>
           <blockquote className="basis"><p>{i.before}</p></blockquote>
-          {i.request && <p><strong>요청:</strong> {i.request}</p>}
+          {i.request && <p><strong>요청:</strong> {readable(i.request)}</p>}
           {!i.after && i.source === 'IMPACT' && <p className="danger-text">AI 초안 없음: 바꿀 문장을 직접 쓰거나 문서에서 직접 고치세요.</p>}
-          {i.ai_reason && <p className="note">AI 의견: {i.ai_reason}</p>}
+          {i.ai_reason && <p className="note">AI 의견: {readable(i.ai_reason)}</p>}
           <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
           <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
           <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
@@ -77,7 +78,7 @@ function ChangeRequests() {
 }
 
 function InReview() {
-  const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number }[] | null>(null);
+  const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number; source_mismatch?: boolean }[] | null>(null);
   useEffect(() => { api<{ items: NonNullable<typeof items> }>('GET', '/v1/admin/in-review').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
   if (!items?.length) return null;
   return (
@@ -87,7 +88,7 @@ function InReview() {
         <li key={i.doc_id}>
           <Link href={i.own ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link>
           {i.own && <span className="kind-tag own">본인 문서</span>}
-          <span className="note">{i.lifecycle === 'QUARANTINED' ? 'AI 검사 중' : i.lifecycle === 'BLOCKED' ? '차단됨 (게시 불가)' : i.open ? `남은 일 ${i.open}건` : '게시 요청만 남음'}</span>
+          <span className="note">{i.lifecycle === 'QUARANTINED' ? 'AI 검사 중' : i.lifecycle === 'BLOCKED' ? '차단됨 (게시 불가)' : i.source_mismatch ? '출처 확인 대기 (게시 요청 불가)' : i.open ? `남은 일 ${i.open}건` : '게시 요청만 남음'}</span>
           {i.own && i.lifecycle === 'IN_REVIEW' && <Link className="btn" href={`/review?id=${encodeURIComponent(i.doc_id)}`} prefetch={false}>검토 화면에서 게시 요청</Link>}
         </li>
       ))}</ul>

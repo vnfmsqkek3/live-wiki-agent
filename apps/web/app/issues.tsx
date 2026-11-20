@@ -20,7 +20,7 @@ function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Iss
           const p = pageOf(it.finding_id, it.page);
           return (
             <li key={it.finding_id} className={`fix ${it.risk === '높음' ? 'sev-HIGH' : ''}`}>
-              <p className="fix-head">{p ? `${p}쪽 · ` : ''}{plain(it.where)} <span className={it.risk === '높음' ? 'danger-text' : 'note'}>· 위험도 {it.risk}</span></p>
+              <p className="fix-head">{p && !it.where.startsWith(`${p}쪽`) ? `${p}쪽 · ` : ''}{plain(it.where)} <span className={it.risk === '높음' ? 'danger-text' : 'note'}>· 위험도 {it.risk}</span></p>
               <p><strong>무엇이</strong> {plain(it.problem)}</p>
               <p><strong>왜</strong> {plain(it.reason)}</p>
               <p><strong>고치는 방법</strong> {plain(it.fix)}</p>

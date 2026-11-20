@@ -32,27 +32,22 @@ const KIND: Record<Mark['kind'], string> = {
 
 /** Native modal: browser focus trap / Escape, explicit return focus and scroll restoration. */
 function DetailPopup({ title, children, open, onClose }: { title: string; children: ReactNode; open: boolean; onClose: () => void }) {
+  // 비모달 (총괄·엔드유저 11/20 U4): 창이 열려 있어도 결재 의견·승인·반려를 키보드·화면 낭독기로 쓸 수 있게. Esc로 닫는다
   const ref = useRef<HTMLDialogElement>(null);
   const heading = useId();
+  const close = useRef(onClose); close.current = onClose; // 부모가 매번 새 함수를 넘겨도 창을 다시 열지 않게
   useEffect(() => {
     if (!open) return;
     const dialog = ref.current!;
     const trigger = document.activeElement as HTMLElement | null;
-    const overflow = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    dialog.showModal();
-    return () => { dialog.close(); document.body.style.overflow = overflow; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+    dialog.show();
+    dialog.querySelector<HTMLElement>('.popup-header button')?.focus();
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; // 초점이 창 밖에 있어도 Esc로 닫힘 (QA nit)
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('keydown', esc); dialog.close(); if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
   }, [open]);
-  // 바깥(배경)을 누르면 닫고, 그 자리에 있던 버튼·링크를 그대로 누른다 (엔드유저 11/20: 창을 연 채 [승인]을 눌러도 반응 없음)
-  const outside = (e: React.MouseEvent<HTMLDialogElement>) => {
-    const b = ref.current!.getBoundingClientRect();
-    if (e.target !== ref.current || (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom)) return;
-    ref.current!.close(); onClose();
-    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('button, a') as HTMLElement | null;
-    setTimeout(() => el?.click(), 0); // 닫힘이 반영된 뒤 누른다 (같은 카드를 다시 열 때 상태가 꼬이지 않게)
-  };
-  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onClick={outside} onCancel={(e) => { e.preventDefault(); onClose(); }}>
-    <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" autoFocus onClick={onClose}>닫기</button></div>
+  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading}>
+    <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" onClick={onClose}>닫기</button></div>
     {open && children}
   </dialog>;
 }
@@ -691,7 +686,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
             </nav>); })()}
           </div>
           <aside className="page-checks" aria-label="한눈에 보기"><h3 className="section">한눈에 보기</h3>{docMeta}<h4 className="aside-sub">이 쪽</h4>
-            <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd></dl>
+            <dl className="meta-grid"><dt>현재 쪽</dt><dd>{p + 1} / {d.pages.length}</dd><dt>고칠 곳</dt><dd>{numbered.length}곳</dd><dt>참고</dt><dd>{notes.length}건</dd>{reviewFindings(d).length > 0 && <><dt>확인 필요</dt><dd className="danger-text">{reviewFindings(d).length}건</dd></>}</dl>
           </aside>          </div>
           )}
         </section>
@@ -743,7 +738,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         <DetailCard title="검증 정보"><section aria-labelledby="verify-h">
           <h3 className="section" id="verify-h">검증 정보</h3>
           <dl className="meta-grid">
-            <dt>검증한 사람</dt><dd>{d.verification.approved_by ?? '아직 승인 전'}</dd>
+            <dt>검증한 사람</dt><dd>{d.authority_status === 'REJECTED' ? '반려됨' : d.verification.approved_by ?? '아직 승인 전'}</dd>
             <dt>검증 시각</dt><dd>{d.verification.approved_at ? new Date(d.verification.approved_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' }) : '-'}</dd>
             {d.verification.approval_reason && <><dt>승인 의견</dt><dd>{d.verification.approval_reason}</dd></>}
             <dt>검증 방법</dt><dd>{d.verification.method}</dd>
