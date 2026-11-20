@@ -99,7 +99,7 @@ test("fetchOfficialLaw: 행정규칙 외국환거래규정 제9-5조제1항 원�
 test("externalLawRefs: 지시어·일반 명칭은 법령 아님, 호 목록은 조문에 포함 (PR #75 데이터QA·백엔드 11/20)", async () => {
   const { externalLawRefs } = await import("./browser.ts");
   const none = { lawIdByName: async () => undefined } as unknown as Parameters<typeof externalLawRefs>[1];
-  for (const t of ["(시행령 제5조)", "(본규정 제3조)", "규정 제5조에 따라", "(동법 제3조)", "(같은법 제3조)", "(이 규정 제3조)"]) assert.deepEqual(await externalLawRefs(t, none), [], t);
+  for (const t of ["(시행령 제5조)", "(본규정 제3조)", "규정 제5조에 따라", "(동법 제3조)", "(같은법 제3조)", "(이 규정 제3조)", "(당행규정 제3조)"]) assert.deepEqual(await externalLawRefs(t, none), [], t);
   assert.deepEqual(await externalLawRefs("(이자제한법 제2조제1항)", none), [{ law_name: "이자제한법", clause: "제2조제1항", clauses: ["제2조제1항"] }]);
   assert.deepEqual(await externalLawRefs("(외국환거래규정 제9-9조제1항)\n(제9-4조제1항)\n(제9-9조제1항제8호·제9호)", none),
     [{ law_name: "외국환거래규정", clause: "제9-9조제1항", clauses: ["제9-9조제1항", "제9-4조제1항", "제9-9조제1항제8호·제9호"] }]);
