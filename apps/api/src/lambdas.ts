@@ -39,6 +39,8 @@ export interface LambdaDeps {
   purge?(prefix: string): Promise<number>;
   /** 마스킹 페이지 (Finding 쪽 번호 찾기) */
   maskedPages?(d: DocumentRecord): Promise<{ page: number; text: string }[]>;
+  /** ImageDescribe 가 masked/segments/{쪽}.json figures[].people 에 남긴 그림별 판정 (NONE|PRESENT|UNSURE). 없으면 그림 개인정보 확인을 풀지 않는다 */
+  figurePeople?(doc_id: string, page_index: number): Promise<string[] | undefined>;
 }
 
 /** 단계 6·7·8 의존성. 6은 work/(원본 등급)을 읽고, 7·8은 masked/만 읽는다 (8은 모델 호출 Role, 원본 읽기 거부) */
@@ -128,7 +130,7 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
     await deps.putBytes(`${doc_id}/masked/view/${n}.png`, png, 'image/png');
     if (!fig) continue;
     await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, png, 'image/png');
-    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
+    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 }, details: { boxes: boxes.length } });
   }
   return out;
 }
@@ -374,6 +376,22 @@ export function makeFileStructureCheck(deps: LambdaDeps) {
   };
 }
 
+/** PII_IMAGE_REVIEW 해제 조건(모두 만족): 아직 열림 · 가림 0곳(details.boxes===0) · 그 쪽 figures 1개 이상 · 전부 people='NONE'.
+ *  ImageDescribe 실패·꺼짐·UNSURE·읽기 실패는 그대로 둬 사람이 확인한다. 지우지 않고 시스템 확인으로 남겨 기록이 보인다 */
+export async function releaseFigureChecks(d: DocumentRecord, deps: Pick<LambdaDeps, 'figurePeople'>): Promise<{ doc: DocumentRecord; pages: number[] }> {
+  if (!deps.figurePeople) return { doc: d, pages: [] };
+  const pages: number[] = [];
+  const findings = await Promise.all(d.findings.map(async (f) => {
+    const n = /^page:(\d+)$/.exec(f.evidence_ref)?.[1];
+    if (f.code !== 'PII_IMAGE_REVIEW' || f.acknowledged || f.details?.['boxes'] !== 0 || n === undefined) return f;
+    const people = await deps.figurePeople!(d.doc_id, Number(n)).catch(() => undefined);
+    if (!people?.length || !people.every((x) => x === 'NONE')) return f;
+    pages.push(Number(n) + 1);
+    return { ...f, acknowledged: { by: 'system:image-describe', at: now(), reason: '그림 분석: 얼굴·서명·도장·신분증 등 없음, 글자 개인정보 가림 0곳' } };
+  }));
+  return { doc: { ...d, findings }, pages: pages.sort((a, b) => a - b) };
+}
+
 /** 단계 9. Registry 대조는 let522mj Registry 연동 전까지 미등록으로 처리 (REGULATION이면 REVIEW_REQUIRED) */
 export function makeTrustGate(deps: LambdaDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
@@ -425,7 +443,10 @@ export function makeTrustGate(deps: LambdaDeps) {
       ...(reg.law_name ? { law_name: reg.law_name } : {}), ...(reg.effective_to ? { effective_to: reg.effective_to } : {}), ...(reg.registry_doc_no ? { registry_doc_no: reg.registry_doc_no } : {}),
     } : {};
     if (deps.maskedPages && findings.some((f) => f.location?.excerpt && !f.location.page)) findings = withPages(findings, await deps.maskedPages(d));
-    await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
+    // 그림 개인정보 확인: 가림 0곳 + 그 쪽 그림 전부 '없음 확실'이면 시스템이 확인 처리 (fail-closed, 총괄 승인 11/20)
+    const fig = await releaseFigureChecks(d, deps);
+    if (fig.pages.length) await deps.store.audit({ at: now(), actor: 'system:trust-gate', action: 'FIGURE_PII_CHECKED', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id, detail: { pages: fig.pages } });
+    await deps.store.putDoc({ ...addFindings(fig.doc, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
     // 주장 저장: 실패해도 검증 결과(문서 기록)는 남는다. 쪽은 마스킹본에서 문장 앞부분으로 찾는다
     const kv = extra.knowhow_validation;
     if (kv && deps.saveClaims) {

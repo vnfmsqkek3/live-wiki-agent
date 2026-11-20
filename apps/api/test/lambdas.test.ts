@@ -490,3 +490,16 @@ test('TrustGate MANUAL(총괄 결정 A 11/20): 외부 법령 대조만 → 외�
   u.deps.knowhow = { ...t.deps.knowhow, external: { findLaws: async () => { throw new Error('x'); }, fetchLaw: async () => null } };
   assert.equal((await makeTrustGate(u.deps)(u.input)).status, before);
 });
+
+test('그림 개인정보 확인 해제(fail-closed, 총괄 승인 11/20): 가림 0곳 + 그 쪽 그림 전부 NONE 일 때만 시스템 확인, 나머지는 유지', async () => {
+  const { releaseFigureChecks } = await import('../src/lambdas.ts');
+  const f = (page: number, boxes?: number) => ({ finding_id: `f${page}`, step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: 'm', evidence_ref: `page:${page}`, ...(boxes === undefined ? {} : { details: { boxes } }) });
+  const d = { doc_id: 'doc_X', findings: [f(0, 0), f(1, 0), f(2, 2), f(3, 0), f(4), f(5, 0)] } as never;
+  const people: Record<number, string[] | undefined> = { 0: ['NONE', 'NONE'], 1: ['NONE', 'UNSURE'], 2: ['NONE'], 3: [], 4: ['NONE'] };
+  const r = await releaseFigureChecks(d, { figurePeople: async (_id, p) => { if (p === 5) throw new Error('NoSuchKey'); return people[p]; } });
+  assert.deepEqual(r.pages, [1], '0쪽만: 1쪽 UNSURE, 2쪽 가림 있음, 3쪽 그림 없음, 4쪽 OCR 없음(boxes 없음), 5쪽 읽기 실패');
+  const acked = r.doc.findings.filter((x) => x.acknowledged).map((x) => x.finding_id);
+  assert.deepEqual(acked, ['f0']);
+  assert.equal(r.doc.findings[0]!.acknowledged!.by, 'system:image-describe');
+  assert.deepEqual((await releaseFigureChecks(d, {})).pages, [], 'figurePeople 없으면(ImageDescribe 미연결) 해제 없음');
+});
