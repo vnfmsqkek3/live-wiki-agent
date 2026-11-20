@@ -42,7 +42,11 @@ locals {
   acct      = data.aws_caller_identity.me.account_id
   discovery = "https://cognito-idp.${local.region}.amazonaws.com/${var.cognito_user_pool_id}/.well-known/openid-configuration"
   # Gateway 에는 MCP Tool 정의 필드만 (진행 문구 progress 등 확장 필드 제외, let522mj 요청)
-  schemas = { for k, v in var.targets : k => jsonencode([for t in jsondecode(v.tools_json) : { name = t.name, description = t.description, inputSchema = t.inputSchema }]) }
+  schemas = merge(
+    { for k, v in var.targets : k => jsonencode([for t in jsondecode(v.tools_json) : { name = t.name, description = t.description, inputSchema = t.inputSchema }]) },
+    # 비인가 게시 거부 시험용 (docs/05 4장, P1). 실행 Tool 아님: Policy forbid 로 모두 거부, 통과해도 approval Lambda 가 unknown tool
+    { probe = jsonencode([{ name = "publish_wiki_probe", description = "TEST ONLY: 게시 시도 probe. Policy 로 항상 거부된다", inputSchema = { type = "object", properties = { doc_id = { type = "string" } } } }]) },
+  )
 }
 
 # ---------- Tool 스키마 ----------
@@ -144,6 +148,47 @@ resource "aws_bedrockagentcore_gateway_target" "t" {
     }
   }
   depends_on = [aws_iam_role_policy.gateway]
+}
+
+resource "aws_bedrockagentcore_gateway_target" "probe" {
+  gateway_identifier = aws_bedrockagentcore_gateway.user.gateway_id
+  name               = "probe"
+  description        = "비인가 게시 거부 시험 (publish_wiki_probe)"
+  credential_provider_configuration {
+    gateway_iam_role {}
+  }
+  target_configuration {
+    mcp {
+      lambda {
+        lambda_arn = var.targets["approval"].lambda_arn
+        tool_schema {
+          s3 { uri = "s3://${var.schema_bucket.name}/${aws_s3_object.schema["probe"].key}" }
+        }
+      }
+    }
+  }
+  depends_on = [aws_iam_role_policy.gateway]
+}
+
+# user_tools permit 에 probe 가 없어 기본 거부지만, permit 이 넓어져도 막히도록 명시 forbid (forbid 가 항상 이긴다)
+resource "aws_bedrockagentcore_policy" "deny_probe" {
+  name             = "${replace(var.n.prefix, "-", "_")}_deny_publish_probe${replace(var.n.suffix, "-", "_")}"
+  description      = "publish_wiki_probe 는 누구도 호출 불가 (데모 06 Policy 경로)"
+  policy_engine_id = aws_bedrockagentcore_policy_engine.user.policy_engine_id
+  validation_mode  = "FAIL_ON_ANY_FINDINGS"
+  lifecycle { create_before_destroy = true }
+  definition {
+    cedar {
+      statement = <<-CEDAR
+        forbid(
+          principal,
+          action in AgentCore::Action::"probe",
+          resource == AgentCore::Gateway::"${aws_bedrockagentcore_gateway.user.gateway_arn}"
+        );
+      CEDAR
+    }
+  }
+  depends_on = [aws_bedrockagentcore_gateway_target.probe]
 }
 
 resource "aws_bedrockagentcore_policy" "user_tools" {
