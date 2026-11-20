@@ -17,6 +17,8 @@
 | [데이터QA팀](데이터QA팀.md) | `data-qa` | `tests/evaluations/cases/` | 데이터엔지니어팀 |
 | [엔드유저팀](엔드유저팀.md) | `enduser` | 없음 (배포된 사이트만 사용) | — |
 
+- 예외 (총괄팀 결정 11/20): `apps/api/src/steps/{pii,injection,classify,trust-gate,knowhow}.ts` 5개 파일은 AI엔지니어팀도 수정한다. 리뷰는 백엔드팀. 백엔드팀은 이 파일을 고치기 전에 AI엔지니어팀에 알린다.
+- `docs/`는 초안이다 (사용자 결정 11/20). 실제로 해 보다가 비효율적이거나 바뀌어야 할 부분을 찾은 팀은 `docs/`의 해당 문서를 직접 고친다. 같은 PR에 코드와 함께 넣고, 문서 끝 또는 `interfaces.md` 변경 이력에 한 줄(날짜·팀·이유)을 남긴다. 영향받는 팀에 Orca로 알린다. 예외: `docs/02`(완료 판정·데모·정량 기준)는 총괄팀 리뷰를 받는다.
 - 소유하지 않은 경로는 고치지 않는다. 고칠 일이 있으면 Owner 팀에 Orca로 요청한다 (2장).
 - `package-lock.json`은 수정한 팀이 책임진다. 충돌이 나면 `npm install`로 다시 만든다.
 - `docs/interfaces.md` 섹션 Owner는 위 표의 경로 Owner를 따른다. 변경하면 영향받는 팀에 Orca로 알린다.
@@ -65,5 +67,6 @@ orca terminal list --include-visual-layouts --json   # tab title이 팀명인 te
 
 - 팀 브랜치는 `team/{slug}`이다. 각 팀은 자기 Orca worktree에서 작업한다. 엔드유저팀은 코드를 바꾸지 않으므로 총괄팀 worktree를 같이 써도 된다.
 - 코드는 PR → 리뷰(1장 표) → CI 통과 → main 병합 순서를 따른다. 리뷰 요청도 Orca 메시지로 한다.
+- 모든 팀이 같은 GitHub 계정이라 Approve가 안 된다. 리뷰 팀은 PR에 `[리뷰 승인] {팀명}` 코멘트를 남기고 작성 팀에 Orca로 회신한다. 이 둘이 있으면 리뷰 1팀으로 인정한다 (총괄팀 결정 11/20).
 - `checkout -B`, `reset --hard`, force push를 쓰지 않는다. push한 브랜치는 rebase하지 않는다.
 - 커밋 메시지 형식: `[{slug}] {영역}: {요약}`.

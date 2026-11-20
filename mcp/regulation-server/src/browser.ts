@@ -51,7 +51,7 @@ const DEICTIC = /^(?:동|같은|본|이|당|당행|본행|위|해당|상기)?\s*
 const LAW_NAME_END = /(?<!방)법$|법률$|시행령$|(?<![요명])령$|규칙$|규정$/u; // 규정: 외국환거래규정 같은 행정규칙(고시). 내부 규정은 저장소에 있어 빠짐
 // 법령명 없이 줄 첫머리·여는 괄호 바로 뒤에 온 조문 "(제9-5조제3항)" → 본문에서 바로 앞에 나온 법령의 조문 (문장 가운데 "제5조에 따라"는 대상 아님)
 const BARE_CLAUSE = new RegExp(String.raw`(?:^|(?<=[(（]))\s*(${CLAUSE})`, "gmu");
-export interface ExternalLawRef { law_name: string; /** 첫 조문 (하위 호환) */ clause?: string; /** 본문 인용 조문 전부, 나온 순서·중복 제거, 항 단위 (11/20) */ clauses: string[] }
+export interface ExternalLawRef { law_name: string; /** 첫 조문 (하위 호환) */ clause?: string; /** 본문 인용 조문 전부, 나온 순서·중복 제거, 호 목록은 호마다 (11/20) */ clauses: string[] }
 /** 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것)과 인용 조문 (법령 최대 max개, 법령당 조문 최대 10개) */
 export async function externalLawRefs(text: string, store: ClauseStore, max = 5): Promise<ExternalLawRef[]> {
   const named: { at: number; end: number; name: string; clause?: string }[] = [];
@@ -73,8 +73,11 @@ export async function externalLawRefs(text: string, store: ClauseStore, max = 5)
   const seen = new Map<string, string[]>();
   for (const r of refs) {
     const list = seen.get(r.name) ?? [];
+    // "제9-9조제1항제8호·제9호" → 호마다 나눔 (clausePath·fetch_official_law가 해석 가능한 표기만, AI팀 요청 11/20)
     const c = r.clause?.replace(/\s+/gu, "");
-    if (c && !list.includes(c) && list.length < 10) list.push(c);
+    const [head, ...items] = c ? c.split(/[·,]/u) : [];
+    const base = head?.replace(/제\d+호(?:의\d+)?$/u, "");
+    for (const x of head ? [head, ...items.map((i) => base + i)] : []) if (!list.includes(x) && list.length < 10) list.push(x);
     seen.set(r.name, list);
   }
   const out: ExternalLawRef[] = [];

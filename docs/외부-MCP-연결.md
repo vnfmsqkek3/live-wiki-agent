@@ -4,7 +4,7 @@ MCP 서버 이름은 `hanaeum-wiki-mcp` 로 통일합니다(다른 위키 MCP �
 
 다른 챗봇·문서 생성 앱이 위키의 검색·근거·규정·정리본을 MCP 도구로 쓰는 방법입니다. 계약은 `docs/interfaces.md` 11장.
 
-## 1. 접속 정보 (prod — 사용자 결정 11/20: prod 단일 환경)
+## 1. 접속 정보 (prod, 11/20부터 dev 없음)
 | 항목 | 값을 얻는 곳 |
 |---|---|
 | MCP 엔드포인트 | SSM `/hanaeum-mvp/prod/USER_GATEWAY_URL` |
@@ -39,4 +39,4 @@ search_wiki, retrieve_evidence, search_legal_clause, get_clause, get_official_po
 - 받은 글은 개인정보가 가려진 정리본입니다. 근거 인용은 `quotable=true` 인 조각만 쓰세요.
 - 호출은 감사 기록에 남습니다.
 
-> 변경 11/20 backend: dev → prod 접속 정보. 보안 테스트 `tests/security/mcp-external.test.ts`.
+> 변경 11/20 backend: 보안 테스트 `tests/security/mcp-external.test.ts`.

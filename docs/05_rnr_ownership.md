@@ -36,7 +36,8 @@
 | `mcp/approval-server/`, `mcp/privacy-server/` | dhxorb96 | yoyo0704 | |
 | `mcp/gateway-interceptor/` | dhxorb96 | yoyo0704 | Gateway REQUEST interceptor (`__actor` 주입) |
 | `services/auth-triggers/` | yoyo0704 | dhxorb96 | Cognito Pre Token V2 (access token `dept`) |
-| `tests/e2e/`, `tests/security/` | dhxorb96 | yoyo0704 | |
+| `tests/e2e/` | 프론트엔드QA팀 | 프론트엔드팀 | 11/20 역할별 팀 체제 (`role/README.md` 1장 우선) |
+| `tests/security/` | 백엔드팀 | 인프라팀 | 〃 |
 | `docs/interfaces.md` | 섹션별 Owner | 나머지 2명 | |
 
 리뷰 규칙: 리뷰어 1명 승인 + CI 통과 후 main 병합 (`06` 2장).
@@ -85,16 +86,21 @@
 
 | 항목 | 측정 Owner | 데이터 제공 |
 |---|---|---|
-| 정상 등록 5 / 위조 차단 5 / Injection 5 | dhxorb96 | let522mj |
-| 노하우 충돌 4/5 | dhxorb96 | let522mj |
-| 법령 구조 파싱 95% | let522mj | let522mj |
-| 정확 조문 검색 19/20 | let522mj | let522mj |
-| 삭제 조항 오인용 0 | let522mj | let522mj |
-| 변경 영향 탐지 5/5 | let522mj | let522mj |
-| 승인 전 KB 가시성 0건 | let522mj | dhxorb96 (미승인 문서 생성) |
-| 비인가 게시 5건 거부 | dhxorb96 | yoyo0704 (Policy) |
-| 근거 인용 19/20, UNVERIFIED 오판 0 | dhxorb96 (답변 단계) | let522mj (정답) |
-| 전체 결과표 집계 | yoyo0704 (평가 실행기) | 전원 |
+| 정상 등록 5 / 위조 차단 5 / Injection 5 | AI엔지니어팀 (화면 측 확인 프론트엔드QA팀 `tests/e2e/qa-demo.mjs` Q1~Q3) | 데이터엔지니어팀 |
+| 노하우 충돌 4/5 | AI엔지니어팀 | 데이터엔지니어팀 |
+| 법령 구조 파싱 95% | 데이터QA팀 | 데이터엔지니어팀 |
+| 정확 조문 검색 19/20 | 데이터QA팀 | 데이터엔지니어팀 |
+| 삭제 조항 오인용 0 | 데이터QA팀 | 데이터엔지니어팀 |
+| 변경 영향 탐지 5/5 | 데이터QA팀 (오프라인 그래프, prod 실그래프는 게시 문서만) | 데이터엔지니어팀 |
+| 승인 전 KB 가시성 0건 | 데이터QA팀 (prod 실 KB) | 데이터엔지니어팀 (`seed-prod.sh` 차단 기대 묶음) |
+| 비인가 게시 5건 거부 | 백엔드팀 (`tests/security/api-security.test.ts`, 화면 측 프론트엔드QA팀 Q4) | 인프라팀 (Policy) |
+| 근거 인용 19/20, UNVERIFIED 오판 0 | AI엔지니어팀 (답변 단계) | 데이터QA팀 (정답 `tests/evaluations/cases/`) |
+| 전체 결과표 집계 | 총괄팀 (`docs/02` 4장 기입) | 데이터QA팀·프론트엔드QA팀·인프라팀 (평가 실행기) |
+
+- `02` 4장 외 보안 항목: 외부 MCP 비인가 도구 거부는 백엔드팀이 `tests/security/mcp-external.test.ts`로 측정한다.
+- 11/20 데이터QA팀: 역할별 팀 체제에 맞춰 담당을 팀명으로 바꿈 (`role/*.md` 남은 일 기준).
+- 평가 기준일은 2026-12-16 고정 (합성 개정본 v2 시행일 2026-12-01 이후 시나리오, 총괄팀 결정 11/20). 결과표에 기준일을 함께 적는다.
+- 측정 환경은 prod 단일 (사용자 결정 11/20). 근거 인용 실측은 데모 업로드 문서 F-002 게시 후.
 
 ## 6. 일정 (일 단위 완료 조건)
 
