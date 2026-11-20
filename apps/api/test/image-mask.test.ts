@@ -88,3 +88,28 @@ test('piiBoxes: IP·사용자명은 칠하지 않는다 (사용자 결정 11/17 
   const g = async () => ({ text: '', entities: [{ type: 'USERNAME', match: 'SINDORICOH' }, { type: 'IP_ADDRESS', match: '10.20.30.41' }] });
   assert.deepEqual(await piiBoxes(page as never, g), []);
 });
+
+test('그림 쪽: OCR 이 그림으로 못 본 쪽도 PageRender graphics=true(선 그림 서명·외곽선 명함)면 그림 쪽 → 확인 + ImageDescribe 입력 (총괄 지시 11/20)', async () => {
+  const { memoryStore } = await import('../src/store.ts');
+  const store = memoryStore();
+  const doc_id = 'doc_gfx';
+  const now = new Date().toISOString();
+  await store.putDoc({ doc_id, version: 1, owner: 'u', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'QUARANTINED', authority_status: 'UNVERIFIED', freshness: 'CURRENT', findings: [], created_at: now, updated_at: now } as never);
+  const blk = { text: '본문', bbox: [0, 0, 10, 10] };
+  const objs = new Map<string, unknown>([
+    [`${doc_id}/work/segments/0000.json`, { doc_id, page_index: 0, text: '본문' }],
+    [`${doc_id}/work/segments/0001.json`, { doc_id, page_index: 1, text: '본문' }],
+    [`${doc_id}/work/pages/ocr_targets.json`, { pages: [{ page_index: 0, reason: 'all', graphics: true }, { page_index: 1, reason: 'all', graphics: false }] }],
+    [`${doc_id}/work/ocr/result.json`, { pages: [0, 1].map((page_index) => ({ page_index, width: 10, height: 10, blocks: [blk], figures: [] })) }],
+  ]);
+  const put: string[] = [];
+  const png = (await import('pngjs')).PNG;
+  const img = png.sync.write(new png({ width: 10, height: 10 }));
+  const scan = makePiiScan({
+    store, listKeys: async (pre) => [...objs.keys()].filter((k) => k.startsWith(pre)), getJson: async <T>(k: string) => { if (!objs.has(k)) throw new Error('nf'); return objs.get(k) as T; },
+    putJson: async (k, v) => { objs.set(k, v); }, getBytes: async () => new Uint8Array(img), putBytes: async (k) => { put.push(k); },
+  });
+  const r = await scan({ doc_id, workflow_id: 'wf' } as never);
+  assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0000.png`], 'graphics 쪽만 그림 분석 입력');
+  assert.deepEqual(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').map((f) => f.evidence_ref), ['page:0']);
+});

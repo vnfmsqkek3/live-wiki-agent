@@ -106,11 +106,13 @@ export function makePiiScan(deps: SegmentDeps) {
  *  얼굴·서명 같은 이미지 개인정보는 글자로 판정할 수 없어 페이지 단위 PII_IMAGE_REVIEW(사람 확인). OCR이 없는 페이지는 이미지를 만들지 않는다 */
 async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Finding[]> {
   if (!deps.getBytes || !deps.putBytes) return [];
-  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
+  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean; graphics?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
   const ocr = await deps.getJson<{ pages: (OcrPage & { figures?: { label: string }[] })[] }>(`${doc_id}/work/ocr/result.json`).catch(() => undefined);
   // 그림 쪽 기준 (사용자 결정 11/17, 비전 중복 줄이기): OCR 쪽에 figures 키가 있으면 사진·그림·차트·도장 영역이 있는 쪽만.
   // 없으면(이전 OCR) has_images || reason==='image'. 글자·표만 있는 쪽은 masked/pages를 만들지 않아 ImageDescribe가 빠진다
-  const isFigurePage = (p: { page_index: number; reason: string; has_images?: boolean }) => {
+  // + PageRender 의 graphics(래스터 이미지 또는 곡선 8개 이상: 선 그림 서명·외곽선 명함, 총괄 지시 11/20) — OCR 이 그림으로 못 본 쪽도 그림 쪽
+  const isFigurePage = (p: { page_index: number; reason: string; has_images?: boolean; graphics?: boolean }) => {
+    if (p.graphics === true) return true;
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
     return o && Array.isArray(o.figures) ? o.figures.length > 0 : !!p.has_images || p.reason === 'image';
   };

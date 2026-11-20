@@ -835,3 +835,19 @@ test('평가 화면 denials: Gateway Policy 거부도 API 거부와 함께 시�
   t.deps.gatewayDenials = async () => { throw new Error('AccessDenied'); };
   assert.deepEqual((await get()).denials.map((d) => d.source), ['API']);
 });
+
+test('반려 사유: 작성자 review·문서보관함 상세에 rejection_reason(개인정보 가림), 결재함 검토 대기에 source_mismatch (엔드유저·프론트 11/20)', async () => {
+  const t = setup();
+  const { doc_id, approval_id } = await submitted(t);
+  assert.equal((await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: '근거 조문 확인 필요 900101-1234568' })).status, 200);
+  const rv = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/review`)).json()) as { rejection_reason: string };
+  assert.match(rv.rejection_reason, /^근거 조문 확인 필요/);
+  assert.ok(!rv.rejection_reason.includes('1234568'), '개인정보 가림');
+  const lib = (await (await t.call('author', 'GET', `/v1/library/${doc_id}`)).json()) as { rejection_reason: string };
+  assert.equal(lib.rejection_reason, rv.rejection_reason);
+  const { doc_id: d2 } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const x = (await t.store.getDoc(d2))!;
+  await t.store.putDoc({ ...x, lifecycle: 'IN_REVIEW', findings: [{ finding_id: 'r1', step: 'TRUST_GATE', severity: 'HIGH', code: 'REGISTRY_MISMATCH', message: 'm', evidence_ref: 'e' }] } as never);
+  const ir = (await (await t.call('approver', 'GET', '/v1/admin/in-review')).json()) as { items: { doc_id: string; source_mismatch: boolean }[] };
+  assert.equal(ir.items.find((i) => i.doc_id === d2)!.source_mismatch, true);
+});
