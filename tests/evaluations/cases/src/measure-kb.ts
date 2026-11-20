@@ -56,12 +56,12 @@ export async function measureLive(d: LiveDeps) {
     clause.total++; if (ok) clause.correct++; else clause.fails.push(`${c.id}: ${r.search_status} ${r.provision_id ?? ""}`);
   }
   // 근거 검색 Recall@5 + 금지 근거(삭제·과거·위조) 반환 여부
-  const cite = { total: 0, hit: 0, forbidden: [] as string[] };
+  const cite = { total: 0, hit: 0, forbidden: [] as string[], misses: [] as string[] };
   for (const c of jsonl<CiteCase>("citation.jsonl")) {
     const r = await d.search.search_wiki({ query: c.question, as_of: c.as_of, top_k: 5 }, USER);
     const ids = r.items.map((x) => x.provision_id);
     cite.total++;
-    if (c.expected_provision_ids.some((p) => ids.includes(p))) cite.hit++;
+    if (c.expected_provision_ids.some((p) => ids.includes(p))) cite.hit++; else cite.misses.push(`${c.id}: ${r.search_status} [${ids.join(", ")}]`);
     if ((c.forbidden_provision_ids ?? []).some((p) => ids.includes(p))) cite.forbidden.push(c.id);
   }
   // 삭제 조항 오인용: 사용자 검색 결과에 DELETED 조문이 현행으로 나오면 오인용
@@ -120,4 +120,5 @@ if (import.meta.main) {
   console.log(`| 근거 인용 (근거 검색 Recall@5) | 19/20 | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | ${r.cite.hit >= 19 && !r.cite.forbidden.length ? "통과" : "미달"} |`);
   console.log(`| 검색 실패 판정 (UNVERIFIED를 부재로 단정) | 0 | 단정 ${r.unverified.asserted.length}, 무관 근거 ${r.unverified.spurious.length} (UNVERIFIED ${r.unverified.ok}/${r.unverified.total}) ${[...r.unverified.asserted, ...r.unverified.spurious].join(",")} | ${r.unverified.asserted.length === 0 && r.unverified.spurious.length === 0 ? "통과" : "미달"} |`);
   for (const f of r.clause.fails) console.log("  조문 실패", f);
+  for (const f of r.cite.misses) console.log("  인용 미적중", f);
 }
