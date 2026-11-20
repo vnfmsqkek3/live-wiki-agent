@@ -130,6 +130,14 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (/\/v1\/documents\/.+\/submit/.test(path)) return { approval_id: 'apr_MOCK' };
   if (path === '/v1/guides') return MOCK_GUIDE;
   if (path === '/v1/feedback') return { ok: true };
+  // 규정 변경 영향 (SYNTHETIC): 제14조제1항 개정 → K-002 직접 영향
+  if (path === '/v1/admin/impact/laws') return { items: [{ law_name: '기업여신 심사규정', versions: 2 }] };
+  if (path.startsWith('/v1/admin/impact?')) return { old_revision: '2026-11-01', new_revision: '2026-12-01',
+    changes: [{ path: 'ARTICLE:14/PARAGRAPH:1', kind: 'MODIFIED', old_text: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', new_text: '담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하고 실사 보고서를 승인 전에 작성하여야 한다.' }],
+    impacted: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'DIRECT', risk: 'HIGH', evidence: [{ cited_provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', evidence_span: '실사 보고서는 나중에 작성해도 된다', change: { path: 'ARTICLE:14/PARAGRAPH:1', kind: 'MODIFIED', old_text: '', new_text: '' } }] }] };
+  if (path === '/v1/admin/impact/draft') return { items: [
+    { id: 'cr_MOCK1', doc_id: (body as { doc_id: string }).doc_id, path: 'ARTICLE:14/PARAGRAPH:1', before: '실사 보고서는 나중에 작성해도 된다.', after: '실사 보고서는 승인 전에 작성한다 (기업여신 심사규정 제14조제1항, 2026-12-01 개정).', verdict: 'APPROPRIATE', ai_reason: '개정 조문이 실사 보고서를 승인 전에 작성하도록 정했습니다.' },
+    { id: 'cr_MOCK2', doc_id: (body as { doc_id: string }).doc_id, path: 'ARTICLE:14/PARAGRAPH:1', before: '1억원 이하는 감정평가서만으로 처리한다.', after: null, verdict: 'UNKNOWN', ai_reason: '금액 기준 예외가 개정 조문과 어떻게 맞물리는지 판단할 수 없습니다.' }] };
   throw new ApiError(404, `mock 없음: ${method} ${path}`);
 }
 
