@@ -47,11 +47,11 @@ test("externalLawRefs: [ ]·『』 괄호도 법령명으로, 바로 뒤 조문 
   const s = fixtureClauseStore();
   const t = "수집 시 [개인정보 보호법]제15조제1항에 따라 동의를 받는다. 『신용정보의 이용 및 보호에 관한 법률』 제 32 조 참고. [첨부 1] 서식, [개인정보 보호법]";
   assert.deepEqual(await externalLawRefs(t, s), [
-    { law_name: "개인정보 보호법", clause: "제15조제1항" },
-    { law_name: "신용정보의 이용 및 보호에 관한 법률", clause: "제32조" },
+    { law_name: "개인정보 보호법", clause: "제15조제1항", clauses: ["제15조제1항"] },
+    { law_name: "신용정보의 이용 및 보호에 관한 법률", clause: "제32조", clauses: ["제32조"] },
   ]);  // 대괄호 소제목은 조문 표기가 없으면 법령 아님, "방법·요령·명령"은 법령명 아님 (PR #47 리뷰)
   assert.deepEqual(await externalLawRefs("[신청 방법] 1. 접수 [작성 요령] [업무 지시 명령] [보안 규칙] [은행법] 참고 [처리방법]제3조", s), []);
-  assert.deepEqual(await externalLawRefs("「은행법」 참고", s), [{ law_name: "은행법" }]);
+  assert.deepEqual(await externalLawRefs("「은행법」 참고", s), [{ law_name: "은행법", clauses: [] }]);
 });
 
 test("externalLawRefs: 괄호 없는 행정규칙명 + 가지번호 조문 (사용자 문서 11/20 '(외국환거래규정 제9-5\n조제1항)')", async () => {
@@ -59,10 +59,10 @@ test("externalLawRefs: 괄호 없는 행정규칙명 + 가지번호 조문 (사�
   const s = fixtureClauseStore();
   const t = "신고해요. (외국환거래규정 제9-5\n조제1항)\n서류를 받아요. (제9-5조제3항)\n외국환거래법 제18조제1항에 따라 … 근거하여 은행법 제5조 … (하나은행 기업여신 심사규정 제12조) (업무 규정)";
   assert.deepEqual(await externalLawRefs(t, s), [
-    { law_name: "외국환거래규정", clause: "제9-5조제1항" },
-    { law_name: "외국환거래법", clause: "제18조제1항" },
+    { law_name: "외국환거래규정", clause: "제9-5조제1항", clauses: ["제9-5조제1항", "제9-5조제3항"] },  // 법령명 없는 "(제9-5조제3항)"은 앞 법령
+    { law_name: "외국환거래법", clause: "제18조제1항", clauses: ["제18조제1항"] },
   ]);  // 앞 낱말과 이어진 "은행법"·내부 규정·조문 없는 괄호는 제외
-  assert.deepEqual(await externalLawRefs("「외국환거래규정」 제9-9조의2 참고", s), [{ law_name: "외국환거래규정", clause: "제9-9조의2" }]);
+  assert.deepEqual(await externalLawRefs("「외국환거래규정」 제9-9조의2 참고", s), [{ law_name: "외국환거래규정", clause: "제9-9조의2", clauses: ["제9-9조의2"] }]);
 });
 
 test("externalLawRefs: 사용자 문서 fixture(M-002·M-003·변형본) → manifest expected_external_laws", async () => {
@@ -94,6 +94,15 @@ test("fetchOfficialLaw: 행정규칙 외국환거래규정 제9-5조제1항 원�
   assert.equal(r.clause?.path, "ARTICLE:9-5/PARAGRAPH:1");
   assert.match(r.clause?.text ?? "", /지정거래외국환은행에 신고/u);
   assert.equal(r.parse_issues, 0);
+});
+
+test("externalLawRefs: 지시어·일반 명칭은 법령 아님, 호 목록은 조문에 포함 (PR #75 데이터QA·백엔드 11/20)", async () => {
+  const { externalLawRefs } = await import("./browser.ts");
+  const none = { lawIdByName: async () => undefined } as unknown as Parameters<typeof externalLawRefs>[1];
+  for (const t of ["(시행령 제5조)", "(본규정 제3조)", "규정 제5조에 따라", "(동법 제3조)", "(같은법 제3조)", "(이 규정 제3조)"]) assert.deepEqual(await externalLawRefs(t, none), [], t);
+  assert.deepEqual(await externalLawRefs("(이자제한법 제2조제1항)", none), [{ law_name: "이자제한법", clause: "제2조제1항", clauses: ["제2조제1항"] }]);
+  assert.deepEqual(await externalLawRefs("(외국환거래규정 제9-9조제1항)\n(제9-4조제1항)\n(제9-9조제1항제8호·제9호)", none),
+    [{ law_name: "외국환거래규정", clause: "제9-9조제1항", clauses: ["제9-9조제1항", "제9-4조제1항", "제9-9조제1항제8호·제9호"] }]);
 });
 
 test("cachedFetcher: 1일 안에 같은 법령은 Browser 재실행 없이 캐시, 지나면 다시 조회", async () => {
