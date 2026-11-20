@@ -74,7 +74,7 @@ export default function EvalsPage() {
               <ul className="ledger">{r.denials.map((d) => (
                 <li className="entry" key={d.trace_id + d.at}>
                   <span className="run-status bad">거부</span>
-                  <h3 className="doc-title">{WHO(d.role)} 계정의 {WHAT(d.tool)} 시도를 권한이 없어 거부함</h3>
+                  <h3 className="doc-title">{/owner/i.test(d.reason) ? `본인 문서가 아니어서 ${WHAT(d.tool)} 시도를 거부함` : `${WHO(d.role)} 계정의 ${WHAT(d.tool)} 시도를 권한이 없어 거부함`}</h3>
                   <p className="meta">{at(d.at)} · 역할 {roleText(d.role).replace(/,/g, '·')}</p>
                   <details><summary className="note">기술 정보</summary><p className="meta">{d.tool} · {d.reason} · Trace {d.trace_id}</p></details>
                 </li>
