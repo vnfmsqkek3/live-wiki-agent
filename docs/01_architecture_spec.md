@@ -313,6 +313,7 @@ AgentCore Runtime → Observability / Evaluations
 ```
 
 - 영향받은 미수정 문서는 `REVALIDATION_REQUIRED`로 표시하거나 고위험 검색에서 제외한다.
+- 구현 (11/20 backend): 영향 분석 `GET /v1/admin/impact`(graph trace_impact) → 결재자 `POST /v1/admin/impact/draft`가 영향 문장마다 AI 초안(AI팀 `steps/impact-draft.ts`)을 '위키 수정 요청'으로만 저장하고 문서를 `REVIEW_REQUIRED`로 → 결재함 [반영] → 새 버전 → AI 검사 → 사람 승인. 고칠 것이 없으면 `POST /v1/documents/{id}/freshness/confirm`(변경 없이 유효, 같은 개정판으로 재표시 안 함). 자동 수정·게시 없음. 계약은 `interfaces.md` 7장
 - 예시: 가상 여신 규정 제12조 승인 기준 5억 → 3억. 이 조항을 인용한 체크리스트 2개와 FAQ 1개를 찾는다. FAQ는 적용 대상이 불명확하므로 자동 수정하지 않고 검토 요청한다.
 
 ---
@@ -632,8 +633,10 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 | POST | `/v1/approvals/{id}/decision` | approve/reject (human only) |
 | GET | `/v1/search?q=&tags=` | ACL-filtered reranked results |
 | POST | `/v1/guides` | cited synthesis job |
-| POST | `/v1/policies/{id}/impact` | clause-level impact analysis |
-| GET | `/v1/admin/observability` | sanitized metrics |
+| POST | `/v1/admin/impact/draft` | 변경 영향 수정 초안 (원안 `/v1/policies/{id}/impact` 대체, 11/20) |
+| GET | `/v1/admin/runs` · `/v1/admin/evaluations` | 실행 기록·평가 결과·거부 기록 (원안 `/v1/admin/observability` 대체, 11/20) |
+
+> 실제 API 전체 목록은 `interfaces.md` 7장 (11/20 backend: 이 표는 원안 요약).
 
 > 팀 결정(기본값): 승인 API는 범위로 나눈다. 일반 문서(노하우·매뉴얼·규정 게시) 승인은 `/v1/approvals/{id}/decision`, 법령 수집(ingestion) 파싱 결과 검토는 `/v1/legal/reviews`.
 
