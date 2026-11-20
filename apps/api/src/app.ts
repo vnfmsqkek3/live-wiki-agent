@@ -930,11 +930,15 @@ export function createApp(deps: Deps) {
       try { return { result: deps.officialLaw ? await deps.officialLaw({ law_name, ...(clause ? { clause } : {}) }, c.get('token')) : null }; }
       catch (e) { return { result: null, error: (e as Error).name }; }
     };
-    const items = await Promise.all(laws.map(async (g) => {
-      const clauses = g.clauses.length ? await Promise.all(g.clauses.map(async (x) => ({ ...x, ...(await fetch(g.law_name, x.clause)) }))) : [];
-      const first = clauses[0] ?? await fetch(g.law_name);
-      return { law_name: g.law_name, ...(clauses[0] ? { clause: clauses[0].clause } : {}), ...first, clauses };
-    }));
+    // Browser 세션 폭증 방지 (인프라 리뷰 11/20): 법령 3개씩, 법령마다 첫 조문을 먼저 받아 페이지 캐시를 채운 뒤 나머지 조문을 병렬로
+    const one = async (g: (typeof laws)[number]) => {
+      const [c0, ...more] = g.clauses;
+      const first = await fetch(g.law_name, c0?.clause);
+      const rest = await Promise.all(more.map(async (x) => ({ ...x, ...(await fetch(g.law_name, x.clause)) })));
+      return { law_name: g.law_name, ...(c0 ? { clause: c0.clause } : {}), ...first, clauses: c0 ? [{ ...c0, ...first }, ...rest] : [] };
+    };
+    const items: Awaited<ReturnType<typeof one>>[] = [];
+    for (let i = 0; i < laws.length; i += 3) items.push(...await Promise.all(laws.slice(i, i + 3).map(one)));
     return c.json({ items });
   });
 
