@@ -10,6 +10,7 @@ import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/l
 import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
+import { currentRevisions } from './steps/freshness.ts';
 import {
   ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, EditBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
@@ -92,6 +93,8 @@ export interface Deps {
   composeClarify?(prompt: string): Promise<{ edits: { n: number; ok: boolean; no_change?: boolean; after: string; reason?: string }[] }>;
   /** 위키 수정 요청 판단 (Haiku) */
   judgeChange?(prompt: string): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
+  /** Change Impact 수정 초안 (AI팀 steps/impact-draft.ts: impactPrompt → 모델 → checkImpactDraft). 없으면 UNKNOWN 으로만 저장 */
+  draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
 
@@ -143,7 +146,8 @@ export function createApp(deps: Deps) {
     const e = err instanceof ApiError ? err : new ApiError('INTERNAL', 'internal error');
     if (!(err instanceof ApiError)) console.error(JSON.stringify({ trace_id, err: String(err?.name) })); // 메시지에 원문이 섞일 수 있어 이름만
     if (e.status === 403 && c.get('actor'))
-      await store.audit({ at: new Date().toISOString(), actor: c.get('actor').sub, action: `${c.req.method} ${c.req.routePath}`, resource: c.req.path, result: 'DENIED', trace_id });
+      // detail: 관리 '평가' 화면 거부 목록용 역할·사유 (원문·토큰 없음)
+      await store.audit({ at: new Date().toISOString(), actor: c.get('actor').sub, action: `${c.req.method} ${c.req.routePath}`, resource: c.req.path, result: 'DENIED', trace_id, detail: { roles: c.get('actor').groups, reason: e.message.slice(0, 200) } });
     return c.json({ error: { code: e.code, message: e.message, trace_id } }, e.status);
   });
 
@@ -666,6 +670,92 @@ export function createApp(deps: Deps) {
     if (!deps.traceImpact) throw new ApiError('NOT_FOUND', '영향 분석 도구가 연결되지 않았습니다');
     try { return c.json(await deps.traceImpact({ law }, c.get('token'))); }
     catch (e) { throw new ApiError('NOT_FOUND', (e as Error).name === 'ToolError' ? '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다' : '영향 분석 도구 호출에 실패했습니다'); }
+  });
+
+  // 관리 > Agent 평가 (docs/02 6장 화면 08, 프론트엔드팀 요청 11/20): 최근 평가 결과 + 비인가 호출 거부 기록.
+  // 평가 결과는 실행기가 감사 기록에 남긴 마지막 EVALUATION_RUN (detail.items·failures). 없으면 run_at=null
+  app.get('/v1/admin/evaluations', async (c) => {
+    need(c, APPROVERS);
+    if (!store.listAudit) return c.json({ run_at: null, items: [], failures: [], denials: [] });
+    const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
+    const [run] = await store.listAudit({ since: ago(30), action: 'EVALUATION_RUN', limit: 1 });
+    const denied = await store.listAudit({ since: ago(7), result: 'DENIED', limit: 50 });
+    const arr = (v: unknown) => (Array.isArray(v) ? v as Record<string, unknown>[] : []);
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    const num = (v: unknown) => (typeof v === 'number' ? v : 0);
+    return c.json({
+      run_at: run?.at ?? null,
+      items: arr(run?.detail?.items).map((i) => ({ key: str(i.key), label: str(i.label), target: str(i.target), passed: num(i.passed), total: num(i.total), pass: i.pass === true })),
+      failures: arr(run?.detail?.failures).slice(0, 100).map((f) => ({ key: str(f.key), case_id: str(f.case_id), reason: str(f.reason).slice(0, 300) })),
+      // 거부 기록에는 사용자 식별값(sub)을 내보내지 않는다. 역할만
+      denials: denied.map((e) => ({ at: e.at, role: (Array.isArray(e.detail?.roles) ? (e.detail!.roles as string[]) : []).join(','), tool: e.action, reason: str(e.detail?.reason), trace_id: e.trace_id })),
+      trace_url: 'https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core',
+    });
+  });
+
+  // 변경 영향 → 수정 초안 (docs/02 데모 04, AI팀 계약 합의 11/20). 서버가 trace_impact 를 다시 불러 영향 근거를 확인한다(클라이언트 근거 불신).
+  // 초안은 위키 수정 요청(OPEN)으로만 저장 → 결재함 [반영] → 새 버전 → AI 검사 → 사람 승인. 자동 수정·게시 없음
+  app.post('/v1/admin/impact/draft', async (c) => {
+    const a = need(c, ['REG_APPROVER']);
+    const b = (await c.req.json().catch(() => ({}))) as { law?: unknown; doc_id?: unknown };
+    const law = String(b.law ?? '').trim(), doc_id = String(b.doc_id ?? '');
+    if (!law || law.length > 200 || !/^doc_[0-9A-Z]{26}$/.test(doc_id)) throw new ApiError('VALIDATION', 'law(1~200자)·doc_id 필요');
+    if (!deps.traceImpact) throw new ApiError('NOT_FOUND', '영향 분석 도구가 연결되지 않았습니다');
+    type Ev = { cited_provision_id: string; evidence_span: string; change: { path: string; kind: string; old_text: string; new_text: string } };
+    const r = await deps.traceImpact({ law }, c.get('token')).catch(() => { throw new ApiError('NOT_FOUND', '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다'); }) as { law_id?: string; impacted?: { doc_id: string; evidence?: Ev[] }[] };
+    const hit = r.impacted?.find((i) => i.doc_id === doc_id);
+    const d = await store.getDoc(doc_id);
+    if (!hit || !d || d.lifecycle !== 'PUBLISHED' || !canRead(a, d.acl_groups)) throw new ApiError('NOT_FOUND', '이 규정 개정의 영향 문서가 아닙니다');
+    const text = await editText(doc_id);
+    const at = new Date().toISOString();
+    const open = (d.change_requests ?? []).filter((x) => x.status === 'OPEN' && x.source === 'IMPACT');
+    const out: ChangeRequest[] = [];
+    const made: ChangeRequest[] = [];
+    for (const ev of (hit.evidence ?? []).slice(0, 3)) {
+      const span = ev.evidence_span.trim().slice(0, 500);
+      const before = text.includes(span) ? span : looseFind(text, span);
+      const dup = open.find((x) => x.before === (before ?? span) && x.path === ev.change.path);
+      if (dup) { out.push(dup); continue; }
+      const i = before ? text.indexOf(before) : -1;
+      const j = before && deps.draftImpact ? await deps.draftImpact({ before, old_clause: ev.change.old_text, new_clause: ev.change.new_text, path: ev.change.path, kind: ev.change.kind,
+        context: text.slice(Math.max(0, i - 1500), i + before.length + 1500) }).catch(() => undefined) : undefined;
+      // 마지막 방어: AI팀 checkImpactDraft 를 거친 값이어도 PII·무변경이면 버린다
+      const after = j?.verdict === 'APPROPRIATE' && j.after?.trim() && j.after.trim() !== before && !detectPii(j.after).length ? j.after.trim() : undefined;
+      const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: 'system:impact', at, before: before ?? span,
+        request: mask(`근거 조문 개정(${ev.change.path}, ${ev.change.kind}): ${ev.change.old_text.slice(0, 200)} → ${ev.change.new_text.slice(0, 200)}`, detectPii(ev.change.new_text + ev.change.old_text)),
+        verdict: !before ? 'UNKNOWN' : j ? (j.verdict === 'APPROPRIATE' && !after ? 'UNKNOWN' : j.verdict) : 'UNKNOWN', ...(after ? { after } : {}),
+        ai_reason: !before ? '본문에서 근거 문장을 찾지 못했습니다' : j?.reason?.slice(0, 300) ?? 'AI 초안을 받지 못했습니다',
+        status: 'OPEN', source: 'IMPACT', law, path: ev.change.path, requested_by: a.sub };
+      out.push(cr); made.push(cr);
+    }
+    if (!out.length) throw new ApiError('NOT_FOUND', '영향 근거가 없습니다');
+    const cur = (await store.getDoc(doc_id))!;
+    const provisions = [...new Set((hit.evidence ?? []).map((e) => e.cited_provision_id))];
+    await store.putDoc({ ...cur, change_requests: [...(cur.change_requests ?? []), ...made].slice(-50),
+      // 영향 문서는 재검토 표시 (trace_impact recommended_freshness). 이미 표시됐으면 이유를 덮지 않는다
+      ...(cur.freshness === 'CURRENT' ? { freshness: 'REVIEW_REQUIRED' as const, freshness_reason: { law_id: r.law_id ?? law, law_name: law, cited_revision: '', current_revision: '', effective_from: '', provisions, at } } : {}), updated_at: at });
+    if (made.length) await audit(c, 'IMPACT_DRAFT', doc_id);
+    return c.json({ items: out.map((x) => ({ id: x.id, doc_id, before: x.before, after: x.after ?? null, verdict: x.verdict, ai_reason: x.ai_reason, path: x.path })) }, made.length ? 201 : 200);
+  });
+
+  // 재검토 문서 '변경 없이 유효' (Change Impact 재승인 흐름): 결재자가 개정 조문과 대조해 고칠 것이 없다고 확인 → CURRENT.
+  // 사람만 한다. 같은 개정판으로는 다시 표시하지 않고, 열린 영향 초안은 이 사유로 닫는다. 본문은 바꾸지 않는다
+  app.post('/v1/documents/:id/freshness/confirm', async (c) => {
+    const a = need(c, ['REG_APPROVER']);
+    const raw = String(((await c.req.json().catch(() => ({}))) as { reason?: unknown }).reason ?? '').trim().slice(0, 300);
+    if (!raw) throw new ApiError('VALIDATION', '유효하다고 본 이유를 적어 주세요');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.lifecycle !== 'PUBLISHED' || d.freshness !== 'REVIEW_REQUIRED') throw new ApiError('CONFLICT', '재검토 중인 게시 문서가 아닙니다');
+    if (d.owner === a.sub && !hasRole(a, ['PLATFORM_OPERATOR'])) throw new ApiError('FORBIDDEN', 'self confirmation is not allowed'); // 자기 결재와 같은 규칙 (11/18)
+    const reason = mask(raw, detectPii(raw)); const at = new Date().toISOString();
+    const law_id = d.freshness_reason?.law_id ?? '';
+    // 확인 기준 개정판: 지금 시행 중인 게시본 (재검토 이유에 없으면 문서 목록에서)
+    const revision = d.freshness_reason?.current_revision || currentRevisions(await store.listDocs()).get(law_id)?.revision_id || '';
+    await store.putDoc({ ...d, freshness_reason: undefined, freshness: 'CURRENT', updated_at: at,
+      freshness_confirmed: [...(d.freshness_confirmed ?? []), { law_id, revision, by: a.sub, at, reason }].slice(-20),
+      change_requests: (d.change_requests ?? []).map((r) => (r.status === 'OPEN' && r.source === 'IMPACT' ? { ...r, status: 'REJECTED' as const, decided_by: a.sub, decided_at: at, decision_reason: `변경 없이 유효: ${reason}` } : r)) });
+    await audit(c, 'FRESHNESS_CONFIRMED', d.doc_id);
+    return c.json({ doc_id: d.doc_id, freshness: 'CURRENT', law_id, revision });
   });
 
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----

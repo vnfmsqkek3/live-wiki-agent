@@ -214,8 +214,11 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `GET /v1/admin/runs` · `/runs/{workflow_id}` | 결재자 | Agent 실행 기록(시작·소요·멈춘 단계), 단계별 상태 |
 | `GET /v1/admin/impact/laws` · `/impact?law=` | REG_APPROVER | 규정 변경 영향(사용자 Gateway `graph___trace_impact`) |
 | `GET /v1/library/{id}` 추가 필드 | 권한 내 | `pages[].figures[{k,url}]`(잘라낸 그림 presigned), `suggestions[]`(참조 확인 참고 주소) |
+| `POST /v1/admin/impact/draft` | REG_APPROVER | 변경 영향 수정 초안 `{law, doc_id}` → `{items:[{id, doc_id, before, after\|null, verdict, ai_reason, path}]}` (201 새로 만듦 / 200 같은 문장 OPEN 초안 재사용). 서버가 `graph___trace_impact`를 다시 불러 영향 문서·근거를 확인(없으면 404), 근거 최대 3건마다 AI 초안(`steps/impact-draft.ts` AI팀, `checkImpactDraft` 통과분만) → 위키 수정 요청(`source:'IMPACT'`, `law`, `path`, status OPEN)으로만 저장, 문서 `freshness` CURRENT→REVIEW_REQUIRED. 근거 문장을 본문에서 못 찾으면 그 항목만 UNKNOWN·after null. 이후 결재함 [반영] → 새 버전 → AI 검사 → 사람 승인 (자동 게시 없음, 11/20 AI팀·총괄 합의) |
+| `POST /v1/documents/{id}/freshness/confirm` | REG_APPROVER (본인 문서 금지, 관리자 예외) | 재검토(`freshness=REVIEW_REQUIRED`) 게시 문서를 '변경 없이 유효'로 `{reason}`(필수, PII 마스킹) → `{doc_id, freshness:'CURRENT', law_id, revision}`. 본문·버전 그대로, `freshness_confirmed[]`에 기록해 같은 개정판으로는 다시 표시 안 함, 열린 영향 초안(source IMPACT)은 이 사유로 REJECTED. 게시 문서가 아니거나 재검토 중이 아니면 409 |
 | `GET /v1/admin/knowledge-debt` | 결재자 | 지식 상태 (`knowledge_debt` 뷰, 10.2) |
 | `POST /v1/feedback` | USER+ | `{ doc_id, stars, useful }` 사용자당 문서 1건 (덮어쓰기) |
+| `GET /v1/admin/evaluations` | 결재자 | Agent 평가 화면: `{run_at\|null, items[{key,label,target,passed,total,pass}], failures[{key,case_id,reason}], denials[{at,role,tool,reason,trace_id}], trace_url}`. 평가 결과는 30일 안의 마지막 감사 기록 `action=EVALUATION_RUN`(actor `system:evaluations`, `detail.items·failures`, key는 `tests/evaluations/cases/sets.json`)을 그대로 쓴다. denials는 7일 안의 API 403 감사 기록 최대 50건(역할만, sub 없음). Gateway interceptor 거부는 아직 미포함 (11/20) |
 
 공통 오류: `{ error: { code, message, trace_id } }`, 401/403/404/409(CONFLICT)/422.
 
@@ -358,4 +361,7 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-18 | let522mj | 3(Finding, SegmentBuild) | SegmentBuild `LOW_OCR_CONFIDENCE`(MEDIUM) finding 제거. 95% 미만 쪽은 ImageDescribe가 Vision으로 다시 읽음 (사용자 결정 11/18 17시, yoyo0704 전달). `NO_TEXT`(HIGH)·구조 경고와 segments의 `avg_confidence`·`low_confidence`는 유지 |
 | 2026-11-19 | let522mj | 3(Finding, SegmentBuild·GraphUpsert)·regulation-server | GraphUpsert(규정): 파싱 이슈가 있어도 승인된 게시라 조문 저장소·그래프에 적재하고 이슈 finding은 안내로 남김(`status=REVIEW_REQUIRED`, 게시는 계속). 구조 이슈(`STRUCTURE_ISSUES`: 번호 역행·중복·소속 없는 문장·빈 조문)면 `parse_ok=false`, 노하우 주장 재검토 표시를 생략하고 `CLAIM_REVIEW_SKIPPED`(LOW). 인용 이슈만이면 `parse_ok=true`. `putLaw`는 같은 버전 재적재 시 새 결과에 없는 조문 항목을 지움. `parse_reviewed` 입력 제거(설정하는 곳 없음). SegmentBuild 구조 안내를 번호 역행 외 모든 파싱 이슈로 확대(`STRUCTURE_{코드}`, 번호 역행은 `STRUCTURE_NUMBERING` 유지, 부칙 제외·최대 5건). `get_clause`: 현행 버전이 `parse_ok=false`면 과거 버전에만 있는 조문도 HISTORICAL 대신 UNVERIFIED (yoyo0704 11/19: 이슈가 있으면 KB엔 게시되고 조문 저장소·그래프엔 없는 규정이 생김) |
 | 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |
+| 2026-11-20 | backend | 7(Backend API) | `POST /v1/documents/{id}/freshness/confirm` 추가 (Change Impact 재승인: 변경 없이 유효). 문서 `freshness_confirmed[]` |
+| 2026-11-20 | backend | 7(Backend API) | `POST /v1/admin/impact/draft` 추가 (Change Impact 수정 초안, AI팀 계약 합의·총괄 승인). 위키 수정 요청에 `source`·`law`·`path`·`requested_by` |
+| 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` 추가 (프론트엔드팀 요청, 화면 08). 평가 실행기는 결과를 감사 기록 `EVALUATION_RUN`으로 남긴다. API 403 감사 기록 `detail`에 `roles`·`reason` 추가 |
 | 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
