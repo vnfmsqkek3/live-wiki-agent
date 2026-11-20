@@ -9,6 +9,7 @@ import type { DocState, DocStates } from "./search.ts";
 import { createHash } from "node:crypto";
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 import { buildFilter, inCategory, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
+import type { RetrievalFilter } from "@aws-sdk/client-bedrock-agent-runtime";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const H = (c: string) => "sha256:" + c.repeat(64);
@@ -392,4 +393,23 @@ test("related 통합 (PR #46 리뷰): 핵심어 없는 조각·그림 설명(인
   assert.ok(r.related?.length, "핵심어 있는 조각은 남음");
   assert.ok(r.related!.every((x) => x.provision_id !== "K-001#fig9"), "그림 설명은 관련 문서로 안 나감");
   assert.ok(r.related!.every((x) => /여신심사위원회|본부|개인정보/u.test(`${x.title} ${x.snippet}`.replace(/\s+/gu, ""))));
+});
+
+test("search_wiki: 삭제된 항이 질의에 맞으면 같은 조 현행 항을 근거로 (데이터QA CT-04 11/20), 삭제 항은 내보내지 않음", async () => {
+  const { retriever, states } = setup();
+  // prod 실측 재현: 현행만 찾으면 제15조제1항 0.289(근거 기준 미달=weak), 이력 포함이면 삭제된 F-001 제15조제2항 0.785
+  const current = (f?: RetrievalFilter) => JSON.stringify(f ?? {}).includes("effective_to");
+  const stub = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => (current(f) ? { ...h, weak: true } : h)) };
+  const t = searchTools({ retriever: stub, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15" }, user) as unknown as { search_status: string; items: { provision_id: string; replaces?: string }[]; related?: { provision_id: string }[] };
+  assert.equal(r.search_status, "FOUND");
+  assert.ok(r.items.length > 0 && r.items.every((x) => x.provision_id.startsWith("SYN-LOAN-001@2026-12-01/ARTICLE:15")), JSON.stringify(r.items.map((x) => x.provision_id)));
+  assert.ok(r.items.some((x) => x.provision_id === "SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:1"));
+  assert.equal(r.items[0]!.replaces, "SYN-LOAN-001@2026-11-01/ARTICLE:15/PARAGRAPH:2");
+  assert.ok(![...r.items, ...(r.related ?? [])].some((x) => x.provision_id.startsWith("SYN-LOAN-001@2026-11-01")), "삭제·과거 항은 근거·참고 어디에도 없음");
+  // 이력 포함 검색에서도 근거 기준 미달(옛 항도 질의와 무관)이면 보충하지 않음: 근거 없음 그대로
+  const allWeak = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => ({ ...h, weak: true })) };
+  const t2 = searchTools({ retriever: allWeak, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r2 = await t2.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15" }, user) as unknown as { search_status: string; items: unknown[] };
+  assert.equal(r2.search_status, "UNVERIFIED"); assert.equal(r2.items.length, 0);
 });

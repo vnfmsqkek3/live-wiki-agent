@@ -25,7 +25,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZon
 const REL: Record<LibraryCard['related'][number]['relation'], string> = { CITES: '근거로 인용한 규정', CITED_BY: '이 규정을 근거로 쓴 문서', CONFLICTS: '충돌', SIMILAR: '내용이 비슷함' };
 const TYPE_NAME = { REGULATION: '규정', KNOWHOW: '실무 노하우', MANUAL: '매뉴얼' } as const;
 const KIND: Record<Mark['kind'], string> = {
-  CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨',
+  CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨', BASIS_MISMATCH: '근거와 다름',
   REGISTRY_MISMATCH: '공식 원본과 다름', PII_UNCERTAIN: '개인정보 확인 필요', INJECTION: '의심스러운 지시문',
   CONFIRMED: '근거 확인됨', SUPPLEMENT: '실무 보완(참고)',
 };
@@ -43,7 +43,15 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
     dialog.showModal();
     return () => { dialog.close(); document.body.style.overflow = overflow; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
   }, [open]);
-  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onCancel={(e) => { e.preventDefault(); onClose(); }}>
+  // 바깥(배경)을 누르면 닫고, 그 자리에 있던 버튼·링크를 그대로 누른다 (엔드유저 11/20: 창을 연 채 [승인]을 눌러도 반응 없음)
+  const outside = (e: React.MouseEvent<HTMLDialogElement>) => {
+    const b = ref.current!.getBoundingClientRect();
+    if (e.target !== ref.current || (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom)) return;
+    ref.current!.close(); onClose();
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('button, a') as HTMLElement | null;
+    setTimeout(() => el?.click(), 0); // 닫힘이 반영된 뒤 누른다 (같은 카드를 다시 열 때 상태가 꼬이지 않게)
+  };
+  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onClick={outside} onCancel={(e) => { e.preventDefault(); onClose(); }}>
     <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" autoFocus onClick={onClose}>닫기</button></div>
     {open && children}
   </dialog>;
@@ -182,7 +190,8 @@ function List() {
 
 /** 확인이 필요한 건의 세 칸: 원본 내용 · 근거 내용 · 근거를 바탕으로 한 수정 내용 (사용자 요청 11/17) */
 function Trio({ m }: { m: Mark }) {
-  const revision = m.revision ?? (m.kind === 'INSUFFICIENT' ? '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.' : '수정 필요 없음');
+  // INSUFFICIENT: 근거 조문이 없으면 판단 불가, 있으면 그 조문만으로는 판단 부족 (AI팀 요청 11/20). BASIS_MISMATCH는 revision=null, 안내문은 fix (데이터 PR #103)
+  const revision = m.revision ?? (m.kind === 'BASIS_MISMATCH' ? m.fix ?? '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.' : m.kind !== 'INSUFFICIENT' ? '수정 필요 없음' : m.basis ? '근거 조문만으로는 AI가 판단하지 못했습니다. 담당 부서에 확인해 주세요.' : '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.');
   return (
     <dl className="trio">
       <dt>원본 내용</dt><dd>{m.original ?? <span className="note">(올린 문서에 없음)</span>}</dd>
@@ -196,7 +205,8 @@ function Trio({ m }: { m: Mark }) {
 function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; on?: boolean; onEdit?: (text: string, to?: string) => void; body?: string; docId?: string; locked?: string }) {
   // 카드 안에서 바로 고친다 (사용자 요청 11/19: 업로드 뒤 질문 페이지처럼 [수정] → 입력칸). 문장이 본문에 그대로 있을 때만, 없으면 편집기로
   const inline = !!(onEdit && docId && m.original && body?.includes(m.original));
-  const ai = !!(m.revision && m.revision !== m.original);
+  // BASIS_MISMATCH의 revision은 안내문이지 고친 문장이 아니므로 [적용] 대상에서 뺀다 (데이터QA 11/20: 적용하면 본문이 안내문으로 바뀜)
+  const ai = !!(m.revision && m.revision !== m.original && m.kind !== 'BASIS_MISMATCH');
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -232,7 +242,7 @@ function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; o
       {inline && draft === null && <div className="actions"><button type="button" className="btn solid" onClick={() => setDraft(m.original!)}>수정</button></div>}
       {inline && draft !== null && <div className="fix-edit">
         {ai ? <div className="clarify-sugg"><span className="src-badge">AI 추천</span><span>{m.revision}</span><button type="button" className={`btn${draft === m.revision ? ' solid' : ''}`} aria-pressed={draft === m.revision} onClick={() => setDraft(m.revision!)}>적용</button></div>
-          : <p className="note">AI 추천 없음: 근거 조문을 찾지 못해 AI가 고칠 문장을 만들지 않았습니다. 직접 고치거나, 맞는 내용이면 해당 없음으로 두세요.</p>}
+          : <p className="note">AI 추천 없음: {m.kind === 'BASIS_MISMATCH' ? '근거로 든 조항과 내용이 달라 AI가 고칠 문장을 만들지 않았습니다. 근거 조항을 확인해 직접 고치세요.' : '근거 조문을 찾지 못해 AI가 고칠 문장을 만들지 않았습니다. 직접 고치거나, 맞는 내용이면 해당 없음으로 두세요.'}</p>}
         <label className="lbl" htmlFor={`fix-in-${n ?? 'd'}`}>직접 입력</label>
         <textarea id={`fix-in-${n ?? 'd'}`} className="field" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} />
         {draft.trim() && draft.trim() !== m.original && <ol className="diff-lines" aria-label="고치기 전·후"><li className="del"><span className="num">전</span><del>{m.original}</del></li><li className="add"><span className="num">후</span><ins>{draft.trim()}</ins></li></ol>}
@@ -328,10 +338,10 @@ function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n:
 }
 
 /** 결재 대상 하단 결재 버튼. 출처 불일치는 반려만 */
-function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: string }) {
+function Decide({ r, docId, onDone }: { r: NonNullable<LibraryDoc['review']>; docId: string; onDone: (msg: string) => void }) {
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState(false);
-  const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) setDone(true); };
+  const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) { setDone(true); onDone(x.msg); } };
   const [opinion, setOpinion] = useState('');
   if (!r.source_mismatch && !r.approval_id) return null;
   return (
@@ -536,6 +546,7 @@ function ClarifyApply({ d, canEdit, onApply }: { d: LibraryDoc; canEdit: boolean
 
 function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
+  const [decided, setDecided] = useState(''); // 결재 직후 문서를 다시 불러와 단계 표시를 바꾼다 (엔드유저 11/20)
   const [err, setErr] = useState('');
   // ?page=N(1부터): 검색·가이드 썸네일에서 온 경우 그 쪽부터
   const [p, setP] = useState(() => (typeof window === 'undefined' ? 0 : Math.max(0, (Number(new URLSearchParams(window.location.search).get('page')) || 1) - 1)));
@@ -575,7 +586,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           .catch(() => {});
       })
       .catch((e: ApiError) => setErr(e.status === 404 ? '문서를 찾을 수 없거나 볼 권한이 없습니다.' : e.message));
-  }, [id]);
+  }, [id, decided]);
   if (err) return <><p className="error" role="alert">{err}</p>{from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함으로 돌아가기</Link>}</>;
   if (!d) return <p className="note">불러오는 중입니다.</p>;
   const page = d.pages[p];
@@ -770,7 +781,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       )}
       {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} /></DetailCard>}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
-      </div></CardBoundary>{d.review && <Decide r={d.review} docId={d.doc_id} />}
+      </div></CardBoundary>{decided ? <p className="notice" role="status">{decided}</p> : d.review && <Decide r={d.review} docId={d.doc_id} onDone={setDecided} />}
 
 <DeleteDoc d={d} /></div></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
