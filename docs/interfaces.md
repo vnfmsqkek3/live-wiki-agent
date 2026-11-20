@@ -36,24 +36,24 @@
 
 ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
 
-## 3. S3 레이아웃 (Owner yoyo0704)
+## 3. S3 레이아웃 (Owner infra)
 
 | 버킷 | 키 | 읽기 권한 |
 |---|---|---|
-| `hanaeum-mvp-s3-quarantine[-닉네임]` | `{doc_id}/original.{ext}` | 단계 Lambda (모델 호출 Role 제외) |
+| `hanaeum-mvp-s3-quarantine` | `{doc_id}/original.{ext}` | 단계 Lambda (모델 호출 Role 제외) |
 | | `{doc_id}/work/{document.pdf, text_layer.json, pages/, ocr/, segments/}` | 동일 (원본 등급). `document.pdf` = ConvertToPdf 결과 |
 | | `{doc_id}/masked/segments/{n}.json` | 모델 호출 Role 허용 |
 | | `{doc_id}/masked/summaries/{n}.json`, `{doc_id}/masked/summary.json` (PageSummarize, 쪽별 요약·메타데이터) | 모델 호출 Role·API |
-| `hanaeum-mvp-s3-published[-닉네임]` | `{legal\|knowledge}/{doc_id}/{file}` + `{file}.metadata.json` | KB 데이터 소스, search Tool |
-| `hanaeum-mvp-s3-artifact[-닉네임]` | `kb-intermediate/`, `evaluations/` | 해당 Lambda |
-| `hanaeum-mvp-s3-log[-닉네임]` | 접근 로그 | 운영 |
+| `hanaeum-mvp-s3-published` | `{legal\|knowledge}/{doc_id}/{file}` + `{file}.metadata.json` | KB 데이터 소스, search Tool |
+| `hanaeum-mvp-s3-artifact` | `kb-intermediate/`, `evaluations/` | 해당 Lambda |
+| `hanaeum-mvp-s3-log` | 접근 로그 | 운영 |
 
-## 4. 환경변수 (Owner yoyo0704)
+## 4. 환경변수 (Owner infra)
 
 | 이름 | 예 | 사용처 |
 |---|---|---|
 | `AWS_REGION` | `us-east-1` | 전체 |
-| `HANAEUM_ENV` | `dev-yoyo0704` / `prod` | 리소스 이름 접미사 결정 |
+| `HANAEUM_ENV` | `prod` | SSM 경로 `/hanaeum-mvp/{env}/`. 11/20부터 prod 단일 환경 (`scripts/setup-env.sh` 기본값) |
 | `TABLE_DOCUMENTS` 등 `TABLE_*` | `hanaeum-mvp-ddb-documents` | API·Lambda. 7종: DOCUMENTS, REGULATIONS, FINDINGS, APPROVALS, FEEDBACK, AUDIT_EVENTS, WORKFLOWS |
 | `BUCKET_QUARANTINE`, `BUCKET_PUBLISHED`, `BUCKET_ARTIFACT` | | |
 | `KB_ID`, `KB_DS_LEGAL_ID`, `KB_DS_KNOWLEDGE_ID` | | let522mj 코드 |
@@ -65,7 +65,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | | API·Web. access token claim: `sub`, `cognito:groups`, `dept`(Pre Token V2) |
 | `OCR_ENDPOINT_NAME` | | OCR 단계 |
 
-값은 Terraform output → SSM Parameter Store `/hanaeum-mvp/{env}/{name}` → 각 런타임이 읽음. `.env.example`에 이름만 둔다. 공유 dev는 `env=dev`(리소스 접미사 `-dev`).
+값은 Terraform output → SSM Parameter Store `/hanaeum-mvp/{env}/{name}` → 각 런타임이 읽음. `.env.example`에 이름만 둔다. prod 단일 환경(사용자 결정 11/20, 계정 566533524321): 리소스 접미사 없음, `env=prod`. dev·개인 dev는 만들지 않는다.
 
 | 인프라 규칙 | 내용 |
 |---|---|
@@ -246,7 +246,7 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | AWS SDK v3 (`@aws-sdk/client-*`, `lib-dynamodb`) | 3.1169.0 | let522mj |
 | `@smithy/signature-v4` / `@aws-crypto/sha256-js` (Neptune SigV4) | 5.7.5 / 5.2.0 | let522mj |
 | TypeScript / ESLint / Vitest | typescript 6.0.3 (typescript-eslint가 7.x 미지원), eslint 10.15.0, typescript-eslint 8.72.2, vitest 5.1.0 | yoyo0704 |
-| Bedrock 모델 inference profile ID (Haiku/Sonnet/Opus 5.5, Titan V2, Cohere Rerank 3.5) | **5.5 미허용으로 임시 대체**: `us.anthropic.claude-haiku-4-5-20251001-v1:0` / `us.anthropic.claude-sonnet-4-6` / `us.anthropic.claude-opus-4-6-v1`, `amazon.titan-embed-text-v2:0`, `cohere.rerank-v3-5:0` (트러블슈팅 11/16) | yoyo0704 |
+| Bedrock 모델 inference profile ID (Haiku/Sonnet/Opus 5.5, Titan V2, Cohere Rerank 3.5) | **5.5 미허용으로 임시 대체**: `us.anthropic.claude-haiku-4-5-20251001-v1:0` / `us.anthropic.claude-sonnet-4-6` / `us.anthropic.claude-opus-4-6-v1`, `amazon.titan-embed-text-v2:0`, `cohere.rerank-v3-5:0` (트러블슈팅 11/16. prod 계정 566533524321에서 11/20 재확인: Haiku·Sonnet 5.5 Converse 거부) | infra |
 
 ## 9. 신원 전달 (Owner dhxorb96, M0 실험으로 확정)
 
@@ -368,3 +368,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` 추가 (프론트엔드팀 요청, 화면 08). 평가 실행기는 결과를 감사 기록 `EVALUATION_RUN`으로 남긴다. API 403 감사 기록 `detail`에 `roles`·`reason` 추가 |
 | 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
 | 2026-11-20 | data | 1(조문 ID)·2(Finding)·regulation-server | 가지번호 `제n-m조` = `ARTICLE:n-m`(parser·clausePath). 외부 법령 인식에 괄호 없는 한 낱말 법령명·`…규정` 추가, 행정규칙 `/행정규칙/` URL·고시 번호 해석. Finding `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_EXTERNAL_SKIPPED` (AI팀 요청, 사용자 결정 11/20 외부 법령 대조). 사용자 문서 fixture M-002·M-003·MX-002·MX-003 (manifest `user_documents`) |
+| 2026-11-20 | infra | 3·4·8 | prod 단일 환경(사용자 결정 11/20): 버킷 `[-닉네임]` 접미사 삭제, `HANAEUM_ENV=prod`, 공유 dev 문구 삭제. 모델 5.5 미허용 재확인(566533524321). 섹션 Owner yoyo0704 → infra |
