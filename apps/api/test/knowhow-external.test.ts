@@ -31,6 +31,8 @@ test('외부 조문과 다르면 MEDIUM KNOWHOW_EXTERNAL_MISMATCH + 수정 제�
   assert.ok(d.judged[0]!.some((c) => c.external && c.label.includes('외부·미검증')), '판정에 외부 조문이 들어가야 함');
   const f = r.findings.find((x) => x.code === 'KNOWHOW_EXTERNAL_MISMATCH')!;
   assert.equal(f.severity, 'MEDIUM');
+  assert.equal(f.step, 'EXTERNAL_LAW_CHECK', '노하우 검증과 따로 묶음');
+  assert.equal(f.user_message!.match(/미검증/g)?.length, 1, '(외부·미검증) 중복 없음');
   assert.match(f.fix_hint!, /5만불/);
   assert.equal(r.validation.verdict, 'SUPPORTED'); // 외부 불일치는 차단·보류 사유 아님
   assert.equal(r.gate, 'PASS');

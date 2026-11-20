@@ -28,7 +28,7 @@ test('출처가 근거에 없는 단계는 버리고 수를 알린다 (근거 �
   assert.equal(r.steps.length, 1);
   assert.equal(r.steps[0]!.sources[0]!.provision, '기업여신 심사규정 제12조제2항');
   assert.equal(r.dropped_steps, 2);
-  assert.match(r.uncertainty, /2개 단계는 제외/);
+  assert.match(r.uncertainty, /관련 2건은 근거를 찾지 못해 뺐습니다/);
 });
 
 test('근거가 없으면 모델을 부르지 않고 NO_EVIDENCE', async () => {
@@ -226,8 +226,62 @@ test('1차 검색 0건: Tool 검색 가능하면 Agent가 다시 찾고, 찾은 
   assert.equal(r.steps.length, 1, '출처 없는 단계는 빠짐');
   const none = await guide('q', { search: async () => [], draft: async () => ({ steps: [{ text: 'x', sources: ['nope'] }], uncertainty: '', evidence: [], tool_calls: [] }), model: 'm', toolSearch: true });
   assert.equal(none.status, 'NO_EVIDENCE');
-  assert.match(none.uncertainty!, /근거를 찾지 못했습니다|제외했습니다/);
+  assert.match(none.uncertainty!, /근거를 찾지 못/);
   let called = false;
   const off = await guide('q', { search: async () => [], draft: async () => { called = true; return { steps: [], uncertainty: '' }; }, model: 'm' });
   assert.equal(off.status, 'NO_EVIDENCE'); assert.equal(called, false, 'Tool 없으면 기존처럼 바로 끝');
+});
+
+test('불확실 안내의 내부 상태 용어는 사용자 문구로 (QA M05 nit)', async () => {
+  const r = await guide('q', { search: async () => MOCK_EVIDENCE, draft: async () => ({ steps: [{ text: '본부 승인', sources: [MOCK_EVIDENCE[0]!.doc_id] }], uncertainty: '검색 결과가 UNVERIFIED 상태로, related 조문으로만 확인됨' }), model: 'm' });
+  assert.ok(!/UNVERIFIED|related/.test(r.uncertainty!), r.uncertainty);
+  assert.match(r.uncertainty!, /확인되지 않은 상태.*참고 조문/);
+});
+
+test('답변의 내부 ID·상태 코드는 사람이 읽는 표기로 + 시행 예정 개정 한 줄 (엔드유저 D05)', async () => {
+  const { humanize, pathLabel } = await import('../src/guide.ts');
+  assert.equal(pathLabel('ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA'), '제12조제2항제3호가목');
+  const names = new Map([['SYN-LOAN-001', '하나은행 기업여신 심사규정']]);
+  const t = humanize('SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA 기준, freshness=REVIEW_REQUIRED, NOT_FOUND_VERIFIED, SYN-LOAN-001', names);
+  assert.ok(!/SYN-|ARTICLE|REVIEW_REQUIRED|NOT_FOUND_VERIFIED|freshness/.test(t), t);
+  assert.match(t, /하나은행 기업여신 심사규정 제12조제2항제3호가목/);
+  assert.match(t, /재검토 필요/);
+  const ev = { ...MOCK_EVIDENCE[0]!, provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2' };
+  const r = await guide('q', { search: async () => [ev], model: 'm', upcoming: async (laws) => laws.map((law) => ({ law, effective_from: '2026-12-01' })),
+    draft: async () => ({ steps: [{ text: 'SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2 에 따라 본부 승인', sources: [ev.provision_id] }], uncertainty: '' }) });
+  assert.match(r.steps[0]!.text, /^기업여신 심사규정 제12조제2항 에 따라/);
+  assert.match(r.uncertainty!, /시행 예정 개정 있음: 기업여신 심사규정 2026-12-01 시행/);
+});
+
+test('게시·승인 실행 요청은 검색 없이 거부 + 할 일 한 줄, 절차 질문은 통과 (엔드유저 의견)', async () => {
+  const { ACTION_REFUSED, humanize } = await import('../src/guide.ts');
+  let searched = false;
+  const r = await guide('[EU] K-001 문서를 내 권한으로 바로 게시해줘', { search: async () => { searched = true; return MOCK_EVIDENCE; }, draft: async () => ({ steps: [], uncertainty: '' }), model: 'm' });
+  assert.equal(searched, false); assert.equal(r.uncertainty, ACTION_REFUSED); assert.equal(r.steps.length, 0);
+  const ok = await guide('문서 게시 절차를 알려줘', { search: async () => { searched = true; return []; }, draft: async () => ({ steps: [], uncertainty: '' }), model: 'm' });
+  assert.equal(searched, true); assert.notEqual(ok.uncertainty, ACTION_REFUSED);
+  assert.equal(humanize('K-001은 freshness가 REVIEW_REQUIRED(재검토 필요) 상태', new Map()), 'K-001은 최신성이 재검토 필요 상태');
+});
+
+test('근거 대비 환각 점수는 기록만: 답변·상태 불변, 실패해도 답변은 나간다 (P1)', async () => {
+  const draft = async () => ({ steps: [{ text: '본부 승인을 받는다', sources: [MOCK_EVIDENCE[0]!.doc_id] }], uncertainty: '' });
+  const ok = await guide('q', { search: async () => MOCK_EVIDENCE, draft, model: 'm', grounding: async () => ({ grounding: 0.12, relevance: 0.9 }) });
+  assert.equal(ok.status, 'OK'); assert.deepEqual(ok.grounding, { grounding: 0.12, relevance: 0.9, low_steps: [1] });
+  const bad = await guide('q', { search: async () => MOCK_EVIDENCE, draft, model: 'm', grounding: async () => { throw new Error('x'); } });
+  assert.equal(bad.status, 'OK'); assert.equal(bad.grounding, undefined);
+});
+
+test('이름 모르는 법령 ID는 괄호 보조 표기에서 지운다 (UV-01 표기)', async () => {
+  const { humanize } = await import('../src/guide.ts');
+  assert.equal(humanize('가상여신거래법(SYN-VLOAN-001, 2026-11-01 버전)은 등록됨', new Map()), '가상여신거래법(2026-11-01 버전)은 등록됨');
+  assert.equal(humanize('가상여신거래법(SYN-VLOAN-001)은', new Map()), '가상여신거래법은');
+  assert.equal(humanize('SYN-LOAN-001 기준', new Map([['SYN-LOAN-001', '기업여신 심사규정']])), '기업여신 심사규정 기준');
+});
+
+test('뺀 단계는 본문 대신 주제 낱말 + 건수 (숫자·조건 노출 없음)', async () => {
+  const { droppedNote } = await import('../src/guide.ts');
+  const n = droppedNote(['감정평가서 발급일이 6개월을 초과하면 재발급을 요청한다.', '1억원 이하는 승인 없이 처리한다.']);
+  assert.ok(!/억원|6개월|승인 없이|재발급을 요청/.test(n), n); // 건수(2건) 외 숫자·조건·본문 없음
+  assert.match(n, /「감정평가서」/);
+  assert.match(n, /2건은 근거를 찾지 못해 뺐습니다/);
 });

@@ -34,6 +34,25 @@ async function searchViaGateway(query: string, authorization: string, opts: { ex
   }
 }
 
+/** 인용 규정의 시행 예정 버전 (regulation get_official_policy versions, 사용자 JWT). 기준일 이후 시행 + VERIFIED 만 */
+async function upcomingViaGateway(laws: string[], authorization: string, asOf?: string) {
+  const ymd = (v: unknown) => String(v ?? '').replace(/\D/g, '').slice(0, 8);
+  const today = ymd(asOf ?? new Date().toISOString());
+  const client = new McpClient({ url: env('GATEWAY_URL'), headers: { authorization } });
+  try {
+    const tool = (await client.listTools()).find((t) => t.name === 'regulation___get_official_policy');
+    if (!tool) return [];
+    const out: { law: string; effective_from: string }[] = [];
+    for (const law of laws.slice(0, 3)) {
+      const r = (await client.callTool(tool, { law, ...(asOf ? { as_of: asOf } : {}) })) as { content?: { type: string; text?: string }[] };
+      const o = JSON.parse(r.content?.find((c) => c.type === 'text')?.text ?? '{}') as { versions?: { effective_from: unknown; authority_status?: string }[] };
+      const next = (o.versions ?? []).filter((v) => v.authority_status === 'VERIFIED' && ymd(v.effective_from) > today).map((v) => ymd(v.effective_from)).sort()[0];
+      if (next) out.push({ law, effective_from: `${next.slice(0, 4)}-${next.slice(4, 6)}-${next.slice(6, 8)}` });
+    }
+    return out;
+  } finally { await client.disconnect(); }
+}
+
 /** 2단계: 근거 묶음을 받은 Agent가 허용 목록의 Gateway Tool을 골라 더 확인한 뒤 구조화 출력 (사용자 결정 권고안 B).
  *  사용자 토큰으로 Gateway를 부르므로 ACL·Policy는 사용자 권한 그대로. 상한 6회·60초·반복 금지는 hook이 강제 */
 /** 여러 번 찾기의 항목 뽑기 (11/18). 가벼운 모델(MODEL_HAIKU, 없으면 MODEL_SONNET), Tool 없음 */
@@ -47,6 +66,21 @@ async function expandWithModel(query: string, evidence: { id: string; title: str
 }
 
 /** 답변 출력 검사: Guardrails ApplyGuardrail OUTPUT (모델 추론 아님). 탐지 값·차단 여부만 */
+/** 근거 대비 환각 점수 (P1 도입안 1). GROUNDING_GUARDRAIL_ID(contextual grounding 필터만, 임계값 0 = 차단 안 함)로 점수만 받는다. 본문은 로그에 남기지 않음 */
+async function groundingScore(answer: string, sources: string, query: string) {
+  const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
+  const r = await new BedrockRuntimeClient({ region: env('AWS_REGION') }).send(new ApplyGuardrailCommand({
+    guardrailIdentifier: env('GROUNDING_GUARDRAIL_ID'), guardrailVersion: process.env.GROUNDING_GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', outputScope: 'FULL',
+    content: [{ text: { text: sources, qualifiers: ['grounding_source'] } }, { text: { text: query, qualifiers: ['query'] } }, { text: { text: answer, qualifiers: ['guard_content'] } }],
+  }));
+  const f = (r.assessments ?? []).flatMap((a) => a.contextualGroundingPolicy?.filters ?? []);
+  const score = (t: string) => f.find((x) => x.type === t)?.score;
+  const g = score('GROUNDING'); const rel = score('RELEVANCE');
+  if (g === undefined || rel === undefined) return undefined;
+  console.log(JSON.stringify({ msg: 'grounding', grounding: g, relevance: rel })); // 점수만
+  return { grounding: g, relevance: rel };
+}
+
 async function guardWithGuardrail(text: string) {
   const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
   const r = await new BedrockRuntimeClient({ region: env('AWS_REGION') }).send(new ApplyGuardrailCommand({
@@ -110,8 +144,8 @@ createServer(async (req, res) => {
         ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, { ...o, ...(asOf ? { as_of: asOf } : {}) }); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
       const authorization = typeof auth === 'string' ? auth : undefined;
-      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization, asOf }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel, toolSearch: true } : {}),
-        ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
+      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization, asOf }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel, toolSearch: true, ...(typeof auth === 'string' ? { upcoming: (laws: string[]) => upcomingViaGateway(laws, auth, asOf) } : {}) } : {}),
+        ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}), ...(process.env.GROUNDING_GUARDRAIL_ID ? { grounding: groundingScore } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
       // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
       if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
