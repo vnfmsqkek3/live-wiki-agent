@@ -6,6 +6,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { detectPii } from '@hanaeum/pii';
+import { EXTERNAL_TOOLS } from '../../mcp/gateway-interceptor/src/index.ts';
 
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`missing env ${k} (ssm-env.sh 먼저)`); return v; };
 const aws = (...args: string[]) => execFileSync('aws', [...args, '--output', 'json'], { encoding: 'utf8' });
@@ -28,8 +29,8 @@ async function mcp(method: string, params: Record<string, unknown> = {}, tok: st
 const call = (name: string, args: Record<string, unknown>) => mcp('tools/call', { name, arguments: args });
 /** Tool 결과 본문 (Lambda 반환 JSON). 인터셉터 거부는 JSON-RPC error */
 const out = (b: Awaited<ReturnType<typeof mcp>>['body']) => { try { return JSON.parse(b.result?.content?.[0]?.text ?? '{}') as Record<string, unknown>; } catch { return {}; } };
-// 거부 = 결과 없이 JSON-RPC 오류. 인터셉터(forbidden·unauthenticated) 또는 그 앞의 Gateway JWT 검사(insufficient_scope 등)
-const denied = (b: Awaited<ReturnType<typeof mcp>>['body']) => !b.result && /forbidden|unauthenticated|insufficient_scope|unauthorized|invalid_token/i.test(b.error?.message ?? '');
+// 거부 = 결과 없이 JSON-RPC 오류. 인터셉터(forbidden·unauthenticated), Gateway JWT 검사(insufficient_scope 등), Cedar 정책(-32002 Policy evaluation denied)
+const denied = (b: Awaited<ReturnType<typeof mcp>>['body']) => !b.result && /forbidden|unauthenticated|insufficient_scope|unauthorized|invalid_token|Policy evaluation denied/i.test(b.error?.message ?? '');
 
 function sql(q: string) {
   const r = JSON.parse(aws('rds-data', 'execute-statement', '--resource-arn', env('DB_CLUSTER_ARN'), '--secret-arn', env('DB_SECRET_ARN'), '--database', env('DB_NAME'), '--sql', q)) as { records?: { stringValue?: string }[][] };
@@ -66,6 +67,8 @@ test('읽기 도구만 허용: search_wiki·get_wiki_document 는 결과, 쓰기
   // 게시·규정 승인 도구는 Gateway 에 아예 없다 (사람만 Backend API 로)
   const tl = (await mcp('tools/list')).body.result?.tools?.map((t) => t.name) ?? [];
   assert.ok(!tl.some((n) => /publish|approve/.test(n)), tl.join(','));
+  // Cedar forbid(외부 클라이언트는 읽기 11개 외 거부, P1 11/20)가 걸리면 도구 목록도 11개만. EXPECT_EXTERNAL_POLICY=1 일 때 검사
+  if (process.env.EXPECT_EXTERNAL_POLICY === '1') assert.deepEqual(tl.map((n) => n.split('___').pop()).sort(), [...EXTERNAL_TOOLS].sort(), tl.join(','));
 });
 
 test('ACL: 공개 게시 문서만. 미게시·부서 ACL 문서는 NOT_FOUND, 위조 __actor 도 무시', async () => {

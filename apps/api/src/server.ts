@@ -12,6 +12,7 @@ import type { DocumentRecord } from './contracts.ts';
 import type { Mark, Page } from './library.ts';
 import { searchVia, type SearchWiki } from './search.ts';
 import { figureKeys, putOriginalOnly, deleteWorkflow, presignGet, env, explanation, pageSummary, structuredPages, headObject, userTool, invokeAgent, invokeAgentStream, pageImage, pageImageList, pages, presignPut, resume, startWorkflow, storeFromEnv, workflowFailure, workflowRuns, workflowSteps, presignView, viewPageList } from './aws.ts';
+import { gatewayDenialsReader } from './gateway-denials.ts';
 
 // 문서보관함 밑줄: let522mj buildMarks (PR #8). 패키지에 없으면 밑줄 없이 동작
 type BuildMarks = (pages: string[], src: Record<string, unknown>, store: unknown) => Promise<Mark[]>;
@@ -75,8 +76,9 @@ const app = createApp({
   externalLaws: findExternalLaws,
   judgeChange: async (prompt: string) => (await structured<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>('HAIKU', CHANGE_SYSTEM, prompt, 'submit_judgement', CHANGE_SCHEMA as unknown as Record<string, unknown>)).value,
   // 변경 영향 수정 초안 (AI팀 impact-draft.ts): 모델 출력은 checkImpactDraft 를 거쳐서만 저장
+  ...(process.env.GATEWAY_LOG_GROUP ? { gatewayDenials: gatewayDenialsReader(process.env.GATEWAY_LOG_GROUP) } : {}),
   draftImpact: async (i) => {
-    const change = { path: i.path, kind: i.kind as ImpactChange['kind'], old_text: i.old_clause, new_text: i.new_clause };
+    const change = { path: i.path, kind: i.kind as ImpactChange['kind'], old_text: i.old_clause, new_text: i.new_clause, ...(i.law_name ? { law_name: i.law_name } : {}) };
     const j = await structured<{ verdict?: string; after?: string; reason?: string }>('HAIKU', IMPACT_SYSTEM, impactPrompt({ before: i.before, change, context: i.context }), 'submit_draft', IMPACT_SCHEMA as unknown as Record<string, unknown>).catch(() => undefined);
     return checkImpactDraft(i.before, j?.value, change);
   },
