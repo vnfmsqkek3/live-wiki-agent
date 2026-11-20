@@ -317,7 +317,7 @@ function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n:
   return (
     <section aria-labelledby="why-h" className="notice" style={{ display: 'block' }}>
       <h3 className="section" id="why-h" style={{ marginTop: 0 }}>확인이 필요한 이유 <span className="danger-text">{total}건</span>{refs.length > 0 && <span className="note"> · 참고 {refs.length}건</span>}</h3>
-      {r && <p className="note">{r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : d.authority_status === 'REJECTED' ? '승인자가 반려한 문서입니다. 작성자가 고쳐 다시 올리면 결재함에 다시 옵니다.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>} {/* 반려도 lifecycle은 BLOCKED (QA 11/20 MX-002) */}
+      {r && <p className="note">{d.authority_status === 'REJECTED' ? '승인자가 반려한 문서입니다. 작성자가 고쳐 다시 올리면 결재함에 다시 옵니다.' : r.source_mismatch ? '공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처를 확인한 뒤 반려하거나 작성자에게 정정을 요청하세요.' : REVIEW_STATE[r.lifecycle] ?? ''}</p>} {/* 반려도 lifecycle은 BLOCKED (QA 11/20 MX-002) */}
       {total === 0 && <p className="note">{refs.length ? '게시를 막는 문제는 없습니다. 아래 참고를 확인하세요.' : '자동 검사에서 찾은 문제가 없습니다. 본문을 읽고 판단하세요.'}</p>}
       <ul className="fixes">
         {located.map(({ pi, n, m }) => (
