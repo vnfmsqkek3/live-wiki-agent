@@ -231,3 +231,9 @@ test('1차 검색 0건: Tool 검색 가능하면 Agent가 다시 찾고, 찾은 
   const off = await guide('q', { search: async () => [], draft: async () => { called = true; return { steps: [], uncertainty: '' }; }, model: 'm' });
   assert.equal(off.status, 'NO_EVIDENCE'); assert.equal(called, false, 'Tool 없으면 기존처럼 바로 끝');
 });
+
+test('불확실 안내의 내부 상태 용어는 사용자 문구로 (QA M05 nit)', async () => {
+  const r = await guide('q', { search: async () => MOCK_EVIDENCE, draft: async () => ({ steps: [{ text: '본부 승인', sources: [MOCK_EVIDENCE[0]!.doc_id] }], uncertainty: '검색 결과가 UNVERIFIED 상태로, related 조문으로만 확인됨' }), model: 'm' });
+  assert.ok(!/UNVERIFIED|related/.test(r.uncertainty!), r.uncertainty);
+  assert.match(r.uncertainty!, /확인되지 않은 상태.*참고 조문/);
+});

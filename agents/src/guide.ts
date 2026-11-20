@@ -177,6 +177,7 @@ const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나
 - 질문 대상이 여러 종류(제조사·모델)이고 갈래(운영체제·버전 등)에 따라 절차가 다르면 sections 로 쓴다: ① '○○ 목록' 섹션(근거 표의 위치·제조사·모델 등을 항목마다 한 단계로) ② '설치 방법 안내' 섹션(note 에 "운영체제와 모델에 따라 방법이 다릅니다" 같은 갈래 안내, 단계 없음) ③ <items> 의 조합마다 한 섹션(제목 예: 'macOS에서 삼성 프린터 연결', 단계는 번호 순서대로 세세하게). 근거에 절차가 없는 조합도 섹션을 만들고 note 에 '매뉴얼에 해당 절차 없음', 단계는 비운다. 이때 steps 는 빈 배열.
 - 간단하게 쓴다(사용자 요구 11/18): 질문에 조건(운영체제·제조사·층 등)이 있으면 그 조건의 섹션만 쓴다. 섹션당 단계는 최대 5개로 합친다. 같은 일을 하는 다른 경로가 있으면 문서가 기준으로 삼는 한 경로만 쓴다. 사용자의 실제 값(표의 IP·모델명 등)은 단계 문장 안에 바로 넣는다. 화면 캡처 속 예시 값과 드문 경우·수동 방법은 단계에서 빼고 fallback 에 "안 될 때: …" 한 줄로. 질문 범위 밖의 불확실(묻지 않은 제조사의 빈 칸 등)은 쓰지 않는다. 단계 문장에 '(그림 기준 · N쪽)'을 쓰지 않는다(출처는 화면이 섹션 끝에 한 번 붙인다).
 - 질문한 예외·우대·가산이 근거에 없고, 같은 주제의 조문(상한·금지·기준)은 찾았으면 그 조문을 출처로 '조문은 ○○만 정한다'는 단계를 쓰고, 예외가 없다는 점은 '근거에서 확인되지 않음'으로 uncertainty 에 적는다(근거 없이 '없다'고 단정하지 않는다). 과거 시점 질문은 조문 조회 Tool에 그 날짜를 as_of 로 넣어 그 시점 조문을 확인한다.
+- uncertainty·단계 문장에 내부 상태 코드(UNVERIFIED·VERIFIED·related·search_status·provision_id 등)를 쓰지 않는다. '확인되지 않음', '참고 조문'처럼 사용자 말로 쓴다.
 - 근거 표의 칸이 비어 있으면 추측하지 말고 '원본 표에 기재 없음'이라고 쓰고, 표에 사유(예: 임원 전용)가 있으면 함께 적는다. 외부 공식 법령(fetch_official_law)은 참고로만 쓰고 uncertainty에 '외부 법령 참고(미검증)'라고 적는다.`;
 export { SYSTEM as GUIDE_SYSTEM };
 
@@ -273,7 +274,10 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   // 불확실 안내의 근거 ID(doc_…#s2·조문 ID)는 문서 이름으로 (11/18 dev 시험: 내부 ID 가 그대로 보임)
   const named = (t: string) => pool.reduce((x, e) => [evidenceKey(e), e.doc_id].reduce((y, k) => (k ? y.split(k).join(`「${e.title}」`) : y), x), t).replace(/「([^」]+)」\s*\(\s*「\1」\s*\)/g, '「$1」').replace(/(?:노하우|매뉴얼|규정)\s*\(\s*(「[^」]+」)\s*\)/g, '$1')
     // 내부 구간 표시(#s1)·상태 코드(freshness=…)는 사람에게 보이지 않게 (11/18 prod 시험)
-    .replace(/(」)\s*#s\d+(?:\s*,\s*#s\d+)*/g, '$1').replace(/\(\s*#s\d+(?:\s*,\s*#s\d+)*\s*\)/g, '').replace(/freshness\s*=\s*REVIEW_REQUIRED\s*/g, '');
+    .replace(/(」)\s*#s\d+(?:\s*,\s*#s\d+)*/g, '$1').replace(/\(\s*#s\d+(?:\s*,\s*#s\d+)*\s*\)/g, '').replace(/freshness\s*=\s*REVIEW_REQUIRED\s*/g, '')
+    // 내부 상태 용어 → 사용자 문구 (QA M05 nit 11/20: '검색 결과가 UNVERIFIED 상태로, related 조문으로만 확인됨')
+    .replace(/\b(?:search_status\s*=\s*)?UNVERIFIED\b(?:\s*상태)?/g, '확인되지 않은 상태').replace(/\b(?:authority_status\s*=\s*)?VERIFIED\b/g, '검증됨')
+    .replace(/\brelated\s*조문/gi, '참고 조문').replace(/\b(?:HISTORICAL|SUPERSEDED)\b/g, '과거 버전');
   draft.uncertainty = named(draft.uncertainty ?? '');
   const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
