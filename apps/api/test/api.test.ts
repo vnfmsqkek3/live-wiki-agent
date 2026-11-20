@@ -799,3 +799,12 @@ test('검증 정보: 매뉴얼도 외부 법령 대조 결과가 있으면 그 �
   assert.deepEqual(v.basis.map((b) => [b.result, b.statement]), [['외부 법령과 다름(확인 필요)', '60일 이내 신고']]);
   assert.match(verification({ document_type: 'MANUAL', findings: [] } as never).method, /규정 대조 대상이 아닌/);
 });
+
+test('문서보관함 상세(승인자): 작성자가 그대로 사용한 사유가 review.findings 에 ack_reason 으로 (엔드유저 11/20)', async () => {
+  const t = setup();
+  const { doc_id } = await submitted(t);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, findings: [{ finding_id: 'k1', step: 'KNOWHOW_VALIDATION', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'p', acknowledged: { by: 'author', at: 't', reason: '본부 예외 승인' } }] as never });
+  const r = (await (await t.call('approver', 'GET', `/v1/library/${doc_id}`)).json()) as { review: { findings: { ack_reason?: string }[] } };
+  assert.equal(r.review.findings[0]!.ack_reason, '본부 예외 승인');
+});
