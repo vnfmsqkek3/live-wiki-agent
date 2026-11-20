@@ -5,7 +5,7 @@ E2E·통합 시나리오 (Owner dhxorb96). 문서 처리 검증은 AgentCore 오
 ## qa-demo 점검표 (데모 01~06 + 정량 화면 확인)
 
 `QA_BASE=https://<prod CloudFront> QA_SCRIPT=qa-demo.mjs tests/e2e/qa-run.sh`. 결과는 `$QA_OUT/qa-demo-result.json`과 스크린샷. 샘플은 `tests/evaluations/cases/sets.json`을 읽는다.
-`QA_PART=demo`는 데모 문서 6건만 올린다. prod가 데모 환경이므로 기본은 아무것도 게시하지 않는다: Q1은 결재함 승인 버튼까지 보고, 끝에 이 실행이 게시 요청한 `[SYNTHETIC] QA …` 문서를 admin이 모두 반려한다(BLOCKED, 검색 제외). 실제 승인·게시까지 보려면 `QA_APPROVE=1`(총괄팀 승인 필요, M04 F-002 업로드도 이때만). 실행 전 총괄팀 승인.
+`QA_PART=demo`는 데모 문서 6건만 올린다. prod가 데모 환경이므로 기본은 아무것도 게시하지 않는다: Q1은 결재함 승인 버튼까지 보고, 끝에 이 실행이 게시 요청한 `[SYNTHETIC] QA …` 문서를 approver(규정 승인자)가 모두 반려한다(BLOCKED, 검색 제외). 실제 승인·게시까지 보려면 `QA_APPROVE=1`(총괄팀 승인 필요, M04 F-002 업로드도 이때만). 실행 전 총괄팀 승인.
 
 | ID | 기준 (`docs/02`) | 통과 |
 |---|---|---|
