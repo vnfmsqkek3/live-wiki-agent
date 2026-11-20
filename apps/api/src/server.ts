@@ -1,5 +1,6 @@
 // API 실행 진입점 (ECS Fargate / 로컬). 값은 환경변수(SSM)로만 받는다.
 import { CHANGE_SCHEMA, CHANGE_SYSTEM } from './steps/change-request.ts';
+import { checkImpactDraft, IMPACT_SCHEMA, IMPACT_SYSTEM, impactPrompt, type ImpactChange } from './steps/impact-draft.ts';
 import { db } from '@hanaeum/db';
 import { serve } from '@hono/node-server';
 import { createApp } from './app.ts';
@@ -88,6 +89,12 @@ const app = createApp({
   structuredPages,
   externalLaws,
   judgeChange: async (prompt: string) => (await structured<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>('HAIKU', CHANGE_SYSTEM, prompt, 'submit_judgement', CHANGE_SCHEMA as unknown as Record<string, unknown>)).value,
+  // 변경 영향 수정 초안 (AI팀 impact-draft.ts): 모델 출력은 checkImpactDraft 를 거쳐서만 저장
+  draftImpact: async (i) => {
+    const change = { path: i.path, kind: i.kind as ImpactChange['kind'], old_text: i.old_clause, new_text: i.new_clause };
+    const j = await structured<{ verdict?: string; after?: string; reason?: string }>('HAIKU', IMPACT_SYSTEM, impactPrompt({ before: i.before, change, context: i.context }), 'submit_draft', IMPACT_SCHEMA as unknown as Record<string, unknown>).catch(() => undefined);
+    return checkImpactDraft(i.before, j?.value, change);
+  },
   composeClarify: async (prompt: string) => (await structured<{ edits: { n: number; ok: boolean; no_change?: boolean; after: string; reason?: string }[] }>('HAIKU', COMPOSE_SYSTEM, prompt, 'submit_edits', COMPOSE_SCHEMA as unknown as Record<string, unknown>)).value,
   ...(process.env.USER_GATEWAY_URL ? { officialLaw: (a: { law_name: string; clause?: string }, t: string) => userTool('regulation___fetch_official_law', a, t) } : {}),
   search: searchVia(await searchWiki()),

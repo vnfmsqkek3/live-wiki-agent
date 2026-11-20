@@ -4,7 +4,7 @@
 import { db as connect, fromDocumentRow, toDocumentRow, toFindingRow, UPSERT_DOCUMENT_SQL, type Db, type Params } from '@hanaeum/db';
 import type { ApprovalRecord, DocumentRecord, DraftRecord, Finding } from './contracts.ts';
 import { ApiError } from './errors.ts';
-import type { Store } from './store.ts';
+import type { AuditEvent, Store } from './store.ts';
 
 /** null 열은 키를 만들지 않는다 (DynamoDB 때와 같은 모양) */
 const compact = <T>(row: Record<string, unknown>): T => Object.fromEntries(Object.entries(row).filter(([, v]) => v !== null && v !== undefined)) as T;
@@ -105,6 +105,12 @@ export function postgresStore(d: Db = connect()): PostgresStore {
     async audit(e) {
       // 감사 기록은 추가만 (테이블 트리거가 수정·삭제를 막는다)
       await q('INSERT INTO audit_events (at, actor, action, resource, result, trace_id, detail) VALUES (:at::timestamptz, :actor, :action, :resource, :result, :trace_id, :detail::jsonb)', { ...e, detail: e.detail ? JSON.stringify(e.detail) : null });
+    },
+    async listAudit(a) {
+      const rows = await q(`SELECT to_char(at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS at, actor, action, resource, result, trace_id, detail::text AS detail FROM audit_events
+        WHERE at >= :since::timestamptz AND (:result = '' OR result = :result) AND (:action = '' OR action = :action) ORDER BY at DESC LIMIT :limit`,
+      { since: a.since, result: a.result ?? '', action: a.action ?? '', limit: a.limit });
+      return rows.map((r) => compact<AuditEvent>({ ...r, detail: r.detail ? JSON.parse(r.detail as string) : null }));
     },
   };
 }

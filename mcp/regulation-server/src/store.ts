@@ -1,5 +1,5 @@
 // 조문 구조화 저장소 (Structured Store, docs/01 7.1·8.4: 원본 구조·버전의 기준. KB는 파생 인덱스)
-// DynamoDB 키 제안 (yoyo0704 합의 대상, 요청기록 참조): Regulations 테이블
+// DynamoDB 키 (11/20 확정, GSI 없음, docs/interfaces.md 5장): Regulations 테이블
 //   pk = LAW#{law_id}  sk = REV#{revision_id}                → RevisionRecord
 //   pk = LAW#{law_id}  sk = REV#{revision_id}#P#{rel_path}   → Provision
 //   pk = LAWNAMES      sk = LAW#{law_id}                     → 법령명 목록

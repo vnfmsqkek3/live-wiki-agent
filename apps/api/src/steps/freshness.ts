@@ -33,7 +33,8 @@ export function staleKnowhow(docs: DocumentRecord[], today = ymd(new Date()), la
     const changed = cited.filter((pid) => {
       const { law, rev } = lawRev(pid);
       const now = cur.get(law);
-      return now && (!lawIds || lawIds.includes(law)) && now.revision_id !== rev;
+      return now && (!lawIds || lawIds.includes(law)) && now.revision_id !== rev
+        && !d.freshness_confirmed?.some((x) => x.law_id === law && x.revision === now.revision_id); // 결재자가 이 개정판 기준으로 유효 확인함
     });
     if (!changed.length) continue;
     const { law, rev } = lawRev(changed[0]!);

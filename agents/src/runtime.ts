@@ -46,6 +46,20 @@ async function expandWithModel(query: string, evidence: { id: string; title: str
   return r.structuredOutput as z.infer<typeof ExpandOut>;
 }
 
+/** 답변 출력 검사: Guardrails ApplyGuardrail OUTPUT (모델 추론 아님). 탐지 값·차단 여부만 */
+async function guardWithGuardrail(text: string) {
+  const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
+  const r = await new BedrockRuntimeClient({ region: env('AWS_REGION') }).send(new ApplyGuardrailCommand({
+    guardrailIdentifier: env('GUARDRAIL_ID'), guardrailVersion: process.env.GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', content: [{ text: { text } }],
+  }));
+  const hits = (r.assessments ?? []).flatMap((a) => [...(a.sensitiveInformationPolicy?.piiEntities ?? []), ...(a.sensitiveInformationPolicy?.regexes ?? [])]);
+  // 차단: 어느 정책이든 BLOCKED (지금 guardrail 은 PII 정책뿐. content·topic·word 정책을 붙여도 여기서 잡힌다).
+  // r.action 은 ANONYMIZE 에도 GUARDRAIL_INTERVENED 라 쓰지 않는다
+  const others = (r.assessments ?? []).flatMap((a) => [...(a.contentPolicy?.filters ?? []), ...(a.topicPolicy?.topics ?? []),
+    ...(a.wordPolicy?.customWords ?? []), ...(a.wordPolicy?.managedWordLists ?? [])]);
+  return { blocked: [...hits, ...others].some((e) => e.action === 'BLOCKED'), matches: [...new Set(hits.map((e) => e.match ?? '').filter(Boolean))] };
+}
+
 async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void }) {
   const model = new BedrockModel({ region: env('AWS_REGION'), modelId: env('MODEL_SONNET'), maxTokens: 8192 });
   const client = process.env.GATEWAY_URL && ctx.authorization
@@ -92,7 +106,8 @@ createServer(async (req, res) => {
         ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, o); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
       const authorization = typeof auth === 'string' ? auth : undefined;
-      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}) };
+      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}),
+        ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
       // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
       if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
