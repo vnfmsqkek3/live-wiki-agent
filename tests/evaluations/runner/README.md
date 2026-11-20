@@ -4,4 +4,7 @@
 set -a; . ./.env.local; set +a          # HANAEUM_ENV=prod, prod 계정
 node tests/evaluations/runner/src/run.ts            # 측정 + 저장
 node tests/evaluations/runner/src/run.ts --dry-run  # 측정만 (S3·감사 기록 없음)
+node tests/evaluations/runner/src/run.ts --extra extra.json  # 다른 팀 측정값을 같은 실행에 합쳐 저장
 ```
+
+`--extra`: 실행기가 직접 못 재는 항목(정상 등록·위조·Injection·노하우 충돌·비인가 게시). `[{"key","label","target","passed","total","measured_by","measured_at"}]`, `pass` 생략 시 `passed === total`.

@@ -3,6 +3,7 @@
 // ponytail: Golden 질의별 AgentCore Trace 수집은 아직 없음(측정 스크립트가 도구를 직접 부름). Evaluations 연결(P1) 때 trace_id 를 채운다
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
+import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parse, type Failure, type Item } from "./parse.ts";
 
@@ -19,7 +20,13 @@ const offline = parse(run("measure.ts"), "offline");
 const live = offlineOnly ? { items: [] as Item[], failures: [] as Failure[] } : parse(run("measure-kb.ts"), "live");
 // 같은 항목은 실환경 결과가 기준 (오프라인은 실환경이 없는 항목만: 파싱·영향)
 const liveKeys = new Set(live.items.map((i) => i.key));
-const items = [...offline.items.filter((i) => !liveKeys.has(i.key)), ...live.items];
+// --extra <json>: 실행기가 직접 못 재는 다른 팀 측정값 [{key,label,target,passed,total,measured_by,measured_at}] (정상 등록·위조·Injection·충돌·비인가 게시)
+const xi = process.argv.indexOf("--extra");
+const extra: Item[] = xi < 0 ? [] : (JSON.parse(readFileSync(process.argv[xi + 1]!, "utf8")) as (Item & { measured_by?: string; measured_at?: string })[]).map((e) => {
+  if (!e.key || !e.label || !Number.isInteger(e.passed) || !Number.isInteger(e.total) || e.total < 1) throw new Error(`--extra 항목 형식: ${JSON.stringify(e)}`);
+  return { key: e.key, label: e.label, target: e.target, passed: e.passed, total: e.total, pass: e.pass ?? e.passed === e.total };
+});
+const items = [...offline.items.filter((i) => !liveKeys.has(i.key)), ...live.items, ...extra];
 const failures = [...offline.failures.filter((f) => !liveKeys.has(f.key)), ...live.failures].slice(0, 100);
 const at = new Date().toISOString(), trace_id = randomUUID();
 
