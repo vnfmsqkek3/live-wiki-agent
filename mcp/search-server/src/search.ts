@@ -366,7 +366,7 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
       if (!st || st.lifecycle !== "PUBLISHED" || st.authority_status === "REJECTED" || !st.acl_groups.some((g) => keys.includes(g))) throw notFound();
       const pub = await deps.published?.get(doc_id, st.document_type);
       // 본문 자체의 해시로 확인 (사이드카보다 본문이 먼저 써지는 게시 도중에도 버전이 섞이지 않게, PR #45 리뷰)
-      if (!pub || sha256(pub.content) !== st.published_content_hash) throw notFound();
+      if (!pub || sha256(pub.content) !== st.published_content_hash?.replace(/^sha256:/, "")) throw notFound(); // DB 는 Promote 형식 "sha256:<hex>" (prod 11/20 I8)
       // 폐지·시행 전·대체된 문서는 검색과 같이 기본 제외 (include_history면 historical 표시로)
       const asOf = asOfYmd(args), now = current(st, pub.meta, asOf);
       if (!now && args["include_history"] !== true) throw notFound();
