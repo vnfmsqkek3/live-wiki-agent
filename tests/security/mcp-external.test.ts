@@ -42,7 +42,8 @@ before(async () => {
     body: new URLSearchParams({ grant_type: 'client_credentials', scope: s.scope }) });
   token = ((await r.json()) as { access_token?: string }).access_token ?? '';
   assert.ok(token, '외부 클라이언트 토큰');
-  docs.public = process.env.DOC_PUBLIC ?? sql("SELECT doc_id FROM documents WHERE lifecycle='PUBLISHED' AND freshness<>'SUPERSEDED' AND 'ALL'=ANY(acl_groups) ORDER BY updated_at DESC LIMIT 1");
+  // 시행 전 개정본(effective_from 미래)은 오늘 기준 조회에서 NOT_FOUND 가 정상 → 시행 중인 문서만
+  docs.public = process.env.DOC_PUBLIC ?? sql("SELECT doc_id FROM documents WHERE lifecycle='PUBLISHED' AND freshness<>'SUPERSEDED' AND 'ALL'=ANY(acl_groups) AND coalesce(attrs->>'effective_from','') <= to_char(now(),'YYYY-MM-DD') ORDER BY updated_at DESC LIMIT 1");
   docs.unpublished = process.env.DOC_UNPUBLISHED ?? sql("SELECT doc_id FROM documents WHERE lifecycle IN ('IN_REVIEW','PENDING_APPROVAL','QUARANTINED') ORDER BY updated_at DESC LIMIT 1");
   docs.dept = process.env.DOC_DEPT ?? sql("SELECT doc_id FROM documents WHERE lifecycle='PUBLISHED' AND NOT ('ALL'=ANY(acl_groups)) ORDER BY updated_at DESC LIMIT 1");
 });
@@ -90,5 +91,6 @@ test('응답에 원문 PII 없음: 검색·정리본에 주민등록번호·카�
     (await call('search___search_wiki', { query: '고객 주민등록번호 계좌' })).raw,
     ...(docs.public ? [(await call('search___get_wiki_document', { doc_id: docs.public })).raw] : []),
   ];
-  for (const b of bodies) assert.deepEqual(detectPii(b.replace(/\\n/g, '\n')).map((x) => x.type), [], '원문 PII 형식');
+  // 검색 score 실수의 소수부(16자리)가 카드 형식에 걸린다 → 점수 숫자는 빼고 본다
+  for (const b of bodies) assert.deepEqual(detectPii(b.replace(/\\n/g, '\n').replace(/\\?"score\\?":[\d.e-]+/g, '')).map((x) => x.type), [], '원문 PII 형식');
 });

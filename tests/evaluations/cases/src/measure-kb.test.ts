@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { chunkKnowledge } from "@hanaeum/kb-chunker";
 import { buildEnv } from "./measure.ts";
-import { measureLive, measureVisibility, measureUnverified, fingerprints } from "./measure-kb.ts";
+import { measureLive, measureVisibility, measureUnverified, fingerprints, measureImpactLive } from "./measure-kb.ts";
 
 test("고유 문장 추출: 차단 대상 텍스트 문서 전부(20건)에 게시 대상과 겹치지 않는 문장이 있음", () => {
   const m = JSON.parse(readFileSync(new URL("../../../fixtures/golden/manifest.json", import.meta.url), "utf8")) as { documents: { document_id: string; file: string; expected_kb_visibility: unknown }[] };
@@ -38,4 +38,28 @@ test("검색 실패 판정: 조문 미확인·버전 미보유·미등록 법령
   const env = buildEnv();
   const r = await measureUnverified(env.search, false); // 관련도 판정 케이스(실제 Rerank 필요)는 실환경에서
   assert.deepEqual([r.ok, r.total, r.asserted, r.spurious], [3, 3, [], []]);
+});
+
+test("변경 영향 실그래프: 제목([SYNTHETIC] 접두)으로 fixture ID 매핑, 미게시 기대(K-003)는 분모 제외, 오탐 집계", async () => {
+  const T: Record<string, string[]> = {
+    "SYN-LOAN-001": ["[SYNTHETIC] 부동산 담보평가 실무 노하우", "[SYNTHETIC] 소액 부동산 담보대출 빠른 처리 팁"],
+    "SYN-DEP-001": ["[SYNTHETIC] 예금 수신 실무 메모 1"], "SYN-FX-001": [], "SYN-CARD-001": ["[SYNTHETIC] 신용카드 발급 실무 메모 3"], "SYN-RISK-001": [],
+  };
+  const r = await measureImpactLive(async (a) => ({ impacted: (T[a.law] ?? []).map((title, i) => ({ doc_id: `doc_${i}`, title })) }));
+  assert.deepEqual(r.excluded, ["K-003"]);
+  assert.equal(r.expected, 4);
+  assert.equal(r.detected, 3); // G-KREV-02 누락
+  assert.deepEqual(r.falsePos, ["K-002"]);
+});
+
+test("변경 영향 실그래프 + 시드 매핑: 매핑에 없는 데모 문서(K-001)는 분모 제외, doc_id 역매핑 우선", async () => {
+  const seed = { "G-KREV-01": "doc_A", "G-KREV-02": "doc_B", "G-KREV-03": "doc_C", "G-KREV-04": "doc_D", "K-002": "doc_E", "K-003": "doc_F" };
+  const T: Record<string, { doc_id: string; title: string }[]> = {
+    "SYN-DEP-001": [{ doc_id: "doc_A", title: "제목이 바뀌어도" }], "SYN-FX-001": [{ doc_id: "doc_B", title: "" }], "SYN-CARD-001": [{ doc_id: "doc_C", title: "" }],
+  };
+  const r = await measureImpactLive(async (a) => ({ impacted: T[a.law] ?? [] }), seed);
+  assert.deepEqual(r.excluded.sort(), ["K-001", "K-003"]);
+  assert.equal(r.expected, 3);
+  assert.equal(r.detected, 3);
+  assert.deepEqual(r.falsePos, []);
 });
