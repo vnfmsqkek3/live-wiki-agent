@@ -441,3 +441,16 @@ test('allocate: 같은 문장·종류에서 겹치는 질문은 짧은 쪽 하�
   ] as never);
   assert.deepEqual(out.map((c) => c.item).sort(), ['관련 부서', '담당자']);
 });
+
+test('외부 법령 조문 전부(데이터팀 합의 11/20): externalLawRefs 법령당 clauses[] → 조문마다 편 뒤 조·항 묶음, 호는 sub', async () => {
+  const { flatRefs } = await import('../src/law-refs.ts');
+  const { groupLaws } = await import('../src/steps/external-laws.ts');
+  const L = '외국환거래규정';
+  // 데이터팀 실측 (tests/fixtures/documents M-002·M-003)
+  const m2 = groupLaws(flatRefs([{ law_name: L, clause: '제9-5조제1항', clauses: ['제9-5조제1항', '제9-5조제3항', '제9-5조제2항'] }]));
+  assert.deepEqual(m2, [{ law_name: L, clauses: [{ clause: '제9-5조제1항' }, { clause: '제9-5조제3항' }, { clause: '제9-5조제2항' }] }]);
+  const m3 = groupLaws(flatRefs([{ law_name: L, clause: '제9-9조제1항', clauses: ['제9-9조제1항', '제9-4조제1항', '제9-9조제1항제8호·제9호'] }]));
+  assert.deepEqual(m3, [{ law_name: L, clauses: [{ clause: '제9-9조제1항', sub: ['제8호', '제9호'] }, { clause: '제9-4조제1항' }] }]);
+  // 옛 모양(clause 하나)·조문 없는 언급도 그대로
+  assert.deepEqual(groupLaws(flatRefs([{ law_name: '전자금융거래법' }, { law_name: '은행법', clause: '제5조' }])), [{ law_name: '전자금융거래법', clauses: [] }, { law_name: '은행법', clauses: [{ clause: '제5조' }] }]);
+});
