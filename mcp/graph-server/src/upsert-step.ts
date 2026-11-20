@@ -109,7 +109,11 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
       doc_id: input.doc_id, content_hash: prev?.content_hash || input.content_hash, ...(prev?.pdf_content_hash ? { pdf_content_hash: prev.pdf_content_hash } : {}),
       acl_groups: input.acl_groups, parse_ok: !broken,
     };
-    if (clauses.putLaw) await clauses.putLaw(rec, law);
+    // Trusted Registry 원본이 있는 버전(pdf_content_hash = 공식 원본 파일)은 조문 원문도 Registry 것을 지킨다.
+    // 게시본은 OCR·그림 정리본이 섞인 마스킹 본문이라 덮어쓰면 '공식 원본'이 띄어쓰기·마침표가 틀린 글이 되고,
+    // 같은 규정을 다른 형식(HWPX)으로 올리면 공식 원본과 다르다고 격리된다 (prod 11/20 엔드유저 D01)
+    const official = prev?.pdf_content_hash ? await clauses.provisions(law.law_id, law.revision_id) : undefined;
+    if (clauses.putLaw) await clauses.putLaw(rec, official?.length ? { ...law, provisions: official } : law);
     // 새 VERIFIED 버전이 시행되면 겹치는 이전 버전의 종료일을 닫는다 (이전 버전이 현행으로 남지 않게)
     if (rec.authority_status === "VERIFIED" && clauses.closeRevision) {
       for (const r of await clauses.revisions(law.law_id)) {
