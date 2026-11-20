@@ -27,10 +27,10 @@ module "stack" {
   protect_data      = false # 사용자 결정 11/18: 시험 단계라 데이터 날아가도 됨, destroy→재배포 시험
   owner             = "team"
   # 사용자 결정 11/18 21시: dev 폐기, prod 단일 환경. 팀원 배포 요청은 여기 커밋을 올려 바로 apply (11/18 dev 끝까지 시험 36/36 통과 커밋)
-  lambda_refs               = { yoyo0704 = "6117594", dhxorb96 = "6117594", let522mj = "6117594" }
+  lambda_refs               = { yoyo0704 = "140ca60", dhxorb96 = "140ca60", let522mj = "140ca60" }
   ocr_source_ref            = "620108a"
-  webapp_source_ref         = "6117594" # 웹·API (ECS·CloudFront)
-  agents_source_ref         = "6117594" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
+  webapp_source_ref         = "140ca60" # 웹·API (ECS·CloudFront)
+  agents_source_ref         = "140ca60" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
   enable_transaction_search = true      # 계정 단위 자원 (dev destroy 11/18 23:22 뒤 prod 가 보유)
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
