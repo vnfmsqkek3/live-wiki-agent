@@ -10,7 +10,7 @@ interface Failure { key: string; case_id: string; reason: string }
 interface Denial { at: string; role: string; tool: string; reason: string; trace_id: string }
 interface Evals { run_at: string | null; items: Metric[]; failures: Failure[]; denials: Denial[]; trace_url?: string }
 
-// ponytail: GET /v1/admin/evaluations 가 생기기 전까지 쓰는 화면 확인용 예시. 404면 이 값을 'mock' 표시와 함께 보여 준다
+// ponytail: 평가 실행 기록(EVALUATION_RUN)이 생기기 전까지 쓰는 화면 확인용 예시. API 404면 전체, run_at=null이면 평가 결과·실패 사례만 'mock' 표시와 함께 보여 준다 (거부 기록은 실제 값)
 const MOCK_EVALS: Evals = {
   run_at: null,
   items: [
@@ -31,7 +31,9 @@ export default function EvalsPage() {
   const [mock, setMock] = useState(false);
   const [err, setErr] = useState('');
   useEffect(() => {
-    api<Evals>('GET', '/v1/admin/evaluations').then(setR).catch((e: ApiError) => {
+    api<Evals>('GET', '/v1/admin/evaluations').then((x) => {
+      if (x.run_at === null) { setR({ ...x, items: MOCK_EVALS.items, failures: MOCK_EVALS.failures }); setMock(true); } else setR(x);
+    }).catch((e: ApiError) => {
       if (e.status === 404) { setR(MOCK_EVALS); setMock(true); return; }
       setErr(e.status === 403 ? '결재 권한이 있는 계정만 볼 수 있습니다.' : e.message); setR(null);
     });
@@ -39,7 +41,7 @@ export default function EvalsPage() {
   return (
     <>
       <PageHeader title="Agent 평가" description="합성 평가 세트로 잰 검색·인용·보안 결과와, 권한 없는 게시 시도를 거부한 기록입니다." action={<Link className="btn" href="/admin">관리로 돌아가기</Link>} />
-      {mock && <p className="notice" role="status">mock: 평가 결과 API가 아직 없어 예시 값을 보여 줍니다. 실제 측정 결과가 아닙니다.</p>}
+      {mock && <p className="notice" role="status">mock: 아직 평가 실행 기록이 없어 평가 결과·실패 사례는 예시 값입니다. 실제 측정 결과가 아닙니다.</p>}
       {err && <p className="error" role="alert">{err}</p>}
       {!r && !err && <p className="note">불러오는 중입니다.</p>}
       {r && (
