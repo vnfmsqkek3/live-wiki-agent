@@ -69,3 +69,15 @@ test('외부 대조가 없으면(deps.external 없음) 기존과 같다', async 
   assert.ok(!r.findings.some((x) => x.code.startsWith('KNOWHOW_EXTERNAL')));
   assert.equal(r.validation.external, undefined);
 });
+
+test('MANUAL용 validateExternal: 외부 불일치만 내고 내부 판정·NO_BASIS는 없다', async () => {
+  const { validateExternal } = await import('../src/steps/knowhow.ts');
+  const bad = deps([{ statement: '6개월 안에 사후보고', provision_id: EXT_ID, relation: 'CONFLICTS', reason: '기한 3개월', quote: '외국환은행의 장에게 신고하여야 한다' }], { external: ext() });
+  const r = await validateExternal('본문', { ...bad, external: ext() });
+  assert.deepEqual(r.findings.map((f) => f.code), ['KNOWHOW_EXTERNAL_MISMATCH']);
+  assert.match(r.findings[0]!.fix_hint!, /5만불/);
+  const ok = await validateExternal('본문', { ...deps([{ statement: 'x', provision_id: EXT_ID, relation: 'SUPPORTS', reason: '같음', quote: '미화 5만불을 초과하는 경우' }]), external: ext() });
+  assert.equal(ok.findings.length, 0);
+  const none = await validateExternal('본문', { ...deps([]), external: ext({ findLaws: async () => [] }) });
+  assert.equal(none.findings.length, 0, '외부 법령 인용이 없으면 아무것도 안 낸다');
+});

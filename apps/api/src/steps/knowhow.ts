@@ -107,9 +107,7 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
   for (const cl of await deps.searchClauses(maskedText))
     if (cl.status === 'ACTIVE' && !clauses.some((c) => c.provision_id === cl.provision_id)) clauses.push(cl);
   const ext = deps.external ? await externalClauses(maskedText, deps.external) : { clauses: [], skipped: [] };
-  const skippedFindings = ext.skipped.length ? [fnd('LOW', 'KNOWHOW_EXTERNAL_SKIPPED', `외부 법령 대조 생략: ${ext.skipped.join(' / ')}`.slice(0, 300), 'external', {
-    user_message: '본문이 인용한 외부 법령 원문을 확인하지 못해 그 부분은 대조하지 않았습니다. 승인자가 직접 확인합니다.',
-  })] : [];
+  const skippedFindings = externalSkipped(ext.skipped);
 
   if (clauses.length === 0 && ext.clauses.length === 0) {
     const validation: KnowhowValidation = { verdict: 'INSUFFICIENT', items: [], outdated, checked_at };
@@ -155,12 +153,7 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
       fix_hint: '현행 조문 기준으로 내용을 고친 뒤 다시 올려 주세요. 문서보관함의 밑줄에 현행 조문 원문이 있습니다.',
     }));
   // 외부 법령 불일치: 미검증 근거라 차단·잠금 없이 사람 확인 (MEDIUM, submit.ts 잠금 코드 아님)
-  for (const j of externalItems.filter((x) => x.relation === 'CONFLICTS'))
-    findings.push(fnd('MEDIUM', 'KNOWHOW_EXTERNAL_MISMATCH', `외부·미검증 근거 ${j.label}와 다름: ${j.reason}`.slice(0, 300), j.provision_id, {
-      location: { excerpt: j.statement.slice(0, 120) },
-      user_message: `"${j.statement.slice(0, 60)}" 문장이 ${j.label} 원문과 다릅니다(외부·미검증 근거): ${j.reason}`.slice(0, 300),
-      fix_hint: (j.suggestion ? `확인 후 이렇게 고쳐 주세요: "${j.suggestion}"` : `외부 원문을 확인해 고쳐 주세요. 원문: "${j.quote}"`).slice(0, 300),
-    }));
+  findings.push(...externalMismatch(externalItems));
   // 실무 보완은 규정과 어긋나지 않으므로 '근거 있음'으로 본다 (게시 보류 사유 아님). 외부(미검증) 근거는 넣지 않는다
   const supported = internal.some((j) => j.relation === 'SUPPORTS' || j.relation === 'SUPPLEMENTS');
 
@@ -176,6 +169,36 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
     gate: verdict === 'SUPPORTED' ? 'PASS' : 'REVIEW_REQUIRED',
     ...(verdict === 'OUTDATED' || verdict === 'CONFLICT' ? { freshness: 'REVIEW_REQUIRED' as const } : {}),
   };
+}
+
+const externalSkipped = (skipped: string[]): Finding[] => (skipped.length ? [fnd('LOW', 'KNOWHOW_EXTERNAL_SKIPPED', `외부 법령 대조 생략: ${skipped.join(' / ')}`.slice(0, 300), 'external', {
+  user_message: '본문이 인용한 외부 법령 원문을 확인하지 못해 그 부분은 대조하지 않았습니다. 승인자가 직접 확인합니다.',
+})] : []);
+// 외부 법령 불일치: 미검증 근거라 차단·잠금 없이 사람 확인 (MEDIUM, submit.ts 잠금 코드 아님)
+const externalMismatch = (items: (Judgement & { label: string })[]): Finding[] => items.filter((j) => j.relation === 'CONFLICTS').map((j) =>
+  fnd('MEDIUM', 'KNOWHOW_EXTERNAL_MISMATCH', `외부·미검증 근거 ${j.label}와 다름: ${j.reason}`.slice(0, 300), j.provision_id, {
+    location: { excerpt: j.statement.slice(0, 120) },
+    user_message: `"${j.statement.slice(0, 60)}" 문장이 ${j.label} 원문과 다릅니다(외부·미검증 근거): ${j.reason}`.slice(0, 300),
+    fix_hint: (j.suggestion ? `확인 후 이렇게 고쳐 주세요: "${j.suggestion}"` : `외부 원문을 확인해 고쳐 주세요. 원문: "${j.quote}"`).slice(0, 300),
+  }));
+
+/** 매뉴얼(MANUAL)용: 외부 법령 대조만 (총괄 결정 11/20 A). 내부 규정 판정·NO_BASIS 없음 → 기존 매뉴얼에 새 경고 없음. gate 는 바꾸지 않는다 */
+export async function validateExternal(maskedText: string, deps: Pick<KnowhowDeps, 'judge' | 'suggest'> & { external: ExternalLawDeps }): Promise<{ findings: Finding[]; external: (Judgement & { label: string; verified_quote: boolean })[] }> {
+  const ext = await externalClauses(maskedText, deps.external);
+  if (!ext.clauses.length) return { findings: externalSkipped(ext.skipped), external: [] };
+  const byId = new Map(ext.clauses.map((c) => [c.provision_id, c]));
+  const { items } = await deps.judge(maskedText, ext.clauses);
+  const checked = items.filter((j) => byId.has(j.provision_id)).map((j) => {
+    const cl = byId.get(j.provision_id)!;
+    const verified_quote = !!j.quote && norm(cl.text).includes(norm(j.quote));
+    return { ...j, relation: (verified_quote || j.relation === 'UNRELATED' ? j.relation : 'INSUFFICIENT') as Relation, label: cl.label, verified_quote };
+  });
+  const fixable = checked.filter((j) => j.verified_quote && j.relation === 'CONFLICTS');
+  if (deps.suggest && fixable.length) {
+    const out = await deps.suggest(fixable.map((j) => ({ statement: j.statement, quote: j.quote, label: j.label, relation: j.relation }))).catch(() => []);
+    fixable.forEach((j, i) => { const s = out[i]?.trim(); if (s) j.suggestion = s.slice(0, 300); });
+  }
+  return { findings: [...externalSkipped(ext.skipped), ...externalMismatch(checked)], external: checked };
 }
 
 function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {
