@@ -76,7 +76,8 @@ function ReviewView() {
   if (!r) return <p className="note">분석 결과를 불러오는 중입니다.</p>;
 
   const changed = type && type !== r.classification?.document_type;
-  const blocked = r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED';
+  const rejected = r.authority_status === 'REJECTED'; // 사람 반려도 lifecycle은 BLOCKED (엔드유저 11/20)
+  const blocked = !rejected && (r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED');
   // 공식 원본과 다른 규정은 출처 확인 전까지 게시 요청 불가 (서버 submit 409, 엔드유저 D02 11/20)
   const held = r.findings.some((f) => f.code === 'REGISTRY_MISMATCH' && f.severity === 'HIGH');
   const checks = r.findings.filter((f) => isCheck(f.code));
@@ -150,7 +151,7 @@ function ReviewView() {
           <li className={blocked || r.lifecycle === 'QUARANTINED' ? '' : r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : 'done'}>고칠 것·확인{open.length > 0 && <b className="num"> {open.length}</b>}</li>
           <li className={submitted || r.lifecycle === 'PENDING_APPROVAL' ? 'now' : ''}>게시 요청</li>
         </ol>
-        <button className="btn solid" onClick={submit} disabled={blocked || held || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{held ? '출처 확인 대기' : open.length ? `남은 일 ${open.length}건` : '검토 마치고 게시 요청'}</button>
+        <button className="btn solid" onClick={submit} disabled={blocked || rejected || held || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{held ? '출처 확인 대기' : open.length ? `남은 일 ${open.length}건` : '검토 마치고 게시 요청'}</button>
         <p aria-live="polite" className="note submit-msg">{msg}</p>
         {/* 왜 게시 요청이 안 되는지 바로 보이게 (사용자 지적 11/18: 다 고쳤다고 생각했는데 막힘) */}
         {r.lifecycle === 'IN_REVIEW' && open.length > 0 && <ul className="note blockers" aria-label="게시 요청을 막는 항목">
@@ -168,6 +169,7 @@ function ReviewView() {
         ))}{r.version.count > 30 && <li className="note">외 {r.version.count - 30}곳</li>}</ol>}
       </section>}
       {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
+      {rejected && <p className="error">승인자가 반려했습니다{r.rejection_reason ? `: ${r.rejection_reason}` : '.'} 내용을 고친 파일을 새로 올리면 다시 검사와 결재를 받습니다.</p>}
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {held && <p className="error">공식 원본과 내용이 다른 조문이 있어 게시 요청이 보류됐습니다. 관리자가 출처를 확인한 뒤 진행됩니다.</p>}
       {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); setMsg('다시 분석을 시작했습니다. 잠시 뒤 화면이 바뀝니다.'); setTimeout(() => location.reload(), 4000); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}

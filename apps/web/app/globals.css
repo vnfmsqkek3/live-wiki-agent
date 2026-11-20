@@ -566,7 +566,7 @@ h1, h2, h3, h4, .title, .section, .doc-title, .num { color:var(--navy-900); }
 .detail-cards { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,220px),1fr)); gap:16px; }
 .detail-card { min-height:96px; padding:24px; border:1px solid var(--line); border-radius:8px; background:#fff; color:var(--navy-900); font:inherit; font-weight:600; text-align:left; cursor:pointer; }
 .detail-card:hover { border-color:var(--green-700); background:var(--green-050); }
-.detail-popup { width:min(800px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); box-sizing:border-box; padding:24px; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--ink-700); overflow:auto; overscroll-behavior:contain; }
+.detail-popup { position:fixed; inset:0; margin:auto; z-index:50; height:fit-content; box-shadow:0 12px 40px rgb(10 28 54 / 25%); width:min(800px,calc(100vw - 32px)); max-height:calc(100dvh - 48px); box-sizing:border-box; padding:24px; border:1px solid var(--line); border-radius:12px; background:#fff; color:var(--ink-700); overflow:auto; overscroll-behavior:contain; }
 .detail-popup::backdrop { background:rgb(10 28 54 / 45%); }
 .popup-header { display:flex; align-items:center; justify-content:space-between; gap:16px; margin-bottom:24px; }
 .popup-header h2 { margin:0; font-size:22px; color:var(--navy-900); }
