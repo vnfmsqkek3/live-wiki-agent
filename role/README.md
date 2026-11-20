@@ -17,6 +17,7 @@
 | [데이터QA팀](데이터QA팀.md) | `data-qa` | `tests/evaluations/cases/` | 데이터엔지니어팀 |
 | [엔드유저팀](엔드유저팀.md) | `enduser` | 없음 (배포된 사이트만 사용) | — |
 
+- 예외 (총괄팀 결정 11/20): `apps/api/src/steps/{pii,injection,classify,trust-gate,knowhow}.ts` 5개 파일은 AI엔지니어팀도 수정한다. 리뷰는 백엔드팀. 백엔드팀은 이 파일을 고치기 전에 AI엔지니어팀에 알린다.
 - 소유하지 않은 경로는 고치지 않는다. 고칠 일이 있으면 Owner 팀에 Orca로 요청한다 (2장).
 - `package-lock.json`은 수정한 팀이 책임진다. 충돌이 나면 `npm install`로 다시 만든다.
 - `docs/interfaces.md` 섹션 Owner는 위 표의 경로 Owner를 따른다. 변경하면 영향받는 팀에 Orca로 알린다.
