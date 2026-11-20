@@ -54,10 +54,10 @@ function GuideView() {
             <p style={{ margin: 0, whiteSpace: 'pre-line' }}><GText s={g.uncertainty} /></p>
             {/게시|승인/.test(g.uncertainty) && <p className="note" style={{ marginBottom: 0 }}>가이드는 문서를 게시하거나 승인할 수 없습니다. 본인 문서는 등록 &gt; 검토 화면에서 [검토 마치고 게시 요청]을 누르면 승인자에게 갑니다.</p>}
           </div> : <p className="notice" style={{ color: 'var(--ink)' }}>
-            검증된 문서 {docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.
+            {docs.length ? `검증된 문서 ${docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.` : '근거가 되는 승인 문서를 찾지 못해 가이드를 만들지 않았습니다. 질문을 바꾸거나 담당 부서에 문의하세요.'}
           </p>}
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}
-          {g.status === 'NO_EVIDENCE' ? g.uncertainty && !docs.length ? null : <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
+          {g.status === 'NO_EVIDENCE' ? !docs.length ? null : <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
             <>{(g.sections?.length ? g.sections : [{ title: '', note: '', steps: g.steps, fallback: '', source_note: '' }]).map((sec, k) => { const list = sec.steps; const brief = !!g.sections?.length; return (
               <section key={k} className="guide-section" aria-label={sec.title || '가이드'}>
                 {sec.title && <h2 className="section"><GText s={sec.title} /></h2>}
