@@ -1,4 +1,5 @@
 'use client';
+import { roleText } from './roles';
 // API·인증 클라이언트. NEXT_PUBLIC_API_URL이 정의되지 않으면 합성 mock으로 동작한다 (11/17 공유 dev 연동 전).
 // 버튼 노출은 편의일 뿐 권한은 서버가 강제한다 (01 §3.1).
 
@@ -63,7 +64,7 @@ export async function api<T>(method: string, path: string, body?: unknown): Prom
   }).catch((e: Error) => { throw new ApiError(0, e.name === 'TimeoutError' ? '응답이 늦어 중단했습니다. 다시 시도해 주세요.' : '서버에 연결하지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요.'); });
   const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
   if (r.status === 401) expired();
-  if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
+  if (!r.ok) throw new ApiError(r.status, roleText(j.error?.message ?? `HTTP ${r.status}`));
   return j as T;
 }
 
@@ -269,7 +270,7 @@ export interface ExternalLaw { law_name: string; clause?: string; error?: string
 /** 결재 대상 문서를 관리자가 열었을 때 (GET /v1/library/:id). 쪽 본문이 없으면 findings로 이유를 보여 준다 */
 export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
-  findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number }[];
+  findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number; ack_reason?: string; excerpt?: string }[];
 }
 export interface Claim { claim_id: string; seq: number; statement: string; page: number | null; provision_id: string | null; label: string | null; relation: string; reason: string; quote: string | null; verified: boolean; status: string; on_provision: { supports: number; conflicts: number; unclear: number } | null }
 export interface LibraryDoc extends LibraryCard {
