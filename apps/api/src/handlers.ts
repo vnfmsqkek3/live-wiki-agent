@@ -25,6 +25,8 @@ const maskedPages = async (d: { doc_id: string }) => {
   return (await Promise.all(keys.map((k) => getJson<{ page_index: number; text: string }>(k)))).map((x) => ({ page: x.page_index, text: x.text })).sort((a, b) => a.page - b.page);
 };
 const maskedText = async (d: { doc_id: string }) => (await maskedPages(d)).map((x) => x.text).join('\n');
+const figurePeople = async (doc_id: string, page: number) =>
+  (await getJson<{ figures?: { people?: string }[] }>(`${doc_id}/masked/segments/${String(page).padStart(4, '0')}.json`)).figures?.map((f) => f.people ?? '');
 
 /** Trusted Registry 대조 (let522mj @hanaeum/regulation-server registryMatch, PR #4). 없으면 대조 생략 → REGULATION은 REVIEW_REQUIRED */
 const registry: LambdaDeps['registry'] = process.env.TABLE_REGULATIONS
@@ -76,7 +78,7 @@ const knowhow: LambdaDeps['knowhow'] = e.TABLE_REGULATIONS && e.KB_ID
   : undefined;
 
 const deps: LambdaDeps = {
-  store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, knowhow, purge: purgePrefix,
+  store, headObject, getObjectBytes, startWorkflow, registry, maskedText, maskedPages, figurePeople, knowhow, purge: purgePrefix,
   ...(process.env.GOV_STORE === 'postgres' ? { saveClaims: async (doc_id: string, items: import('./steps/knowhow.ts').KnowhowValidation['items'], pageOf: (s: string) => number | null, revisedTo?: (pid: string) => Promise<string | undefined>) => {
     const [{ db }, c] = await Promise.all([import('@hanaeum/db'), import('./claims.ts')]);
     return c.saveClaims(db().tx, doc_id, items, pageOf, revisedTo);
