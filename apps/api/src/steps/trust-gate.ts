@@ -83,14 +83,14 @@ export function diffClauses(official?: Record<string, string>, uploaded?: Record
   const ids = new Set([...Object.keys(official), ...Object.keys(uploaded)]);
   return [...ids].filter((k) => !(k in official) || !(k in uploaded) || squash(official[k]) !== squash(uploaded[k])).sort();
 }
-/** 형식만 다름: 양쪽 조문이 1개 이상이고 diffClauses 가 비었고, 조문 밖 글자(제목·머리말 등, Registry 와 비교 못 함)가 적을 때만.
- *  조문 밖 글자 수를 모르면 적용 안 함(fail-closed). 부칙·별표는 파서가 조문으로 뽑아 위에서 비교된다 (AI 리뷰 #139).
+/** 형식만 다름: 양쪽 조문이 1개 이상이고 diffClauses 가 비었고, 조문 밖 글자(제목·머리말 등, Registry 와 비교 못 함)가 고정 상한 이하일 때만.
+ *  조문 밖 글자 수를 모르면 적용 안 함(fail-closed). 부칙·별표는 파서가 조문으로 뽑아 위에서 비교된다 (AI·인프라 리뷰 #139·#140).
+ *  상한은 문서 크기에 비례하지 않는다(큰 규정의 3% = 수천 자 무대조 통과 방지). 넘으면 #139 이전처럼 REGISTRY_MISMATCH → 사람 확인.
  *  ponytail: 조문 밖은 길이 상한만 — 같은 길이로 바꾼 머리말은 못 잡음. Registry 가 조문 밖 해시를 갖게 되면 그것으로 대조 */
-const formatOnly = (official?: Record<string, string>, uploaded?: Record<string, string>, otherChars?: number) => {
-  if (!official || !uploaded || otherChars === undefined || !Object.keys(official).length || !Object.keys(uploaded).length) return false;
-  const clauseChars = Object.values(uploaded).reduce((n, t) => n + squash(t).length, 0);
-  return otherChars <= Math.max(200, clauseChars * 0.03) && diffClauses(official, uploaded).length === 0;
-};
+export const OTHER_CHARS_MAX = 200;
+const formatOnly = (official?: Record<string, string>, uploaded?: Record<string, string>, otherChars?: number) =>
+  !!official && !!uploaded && otherChars !== undefined && otherChars <= OTHER_CHARS_MAX
+  && Object.keys(official).length > 0 && Object.keys(uploaded).length > 0 && diffClauses(official, uploaded).length === 0;
 
 function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {
   return { finding_id: newId.fnd(), step: 'TRUST_GATE', severity, code, message, evidence_ref, ...extra };
