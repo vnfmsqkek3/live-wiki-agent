@@ -51,3 +51,15 @@ test("변경 영향 실그래프: 제목([SYNTHETIC] 접두)으로 fixture ID �
   assert.equal(r.detected, 3); // G-KREV-02 누락
   assert.deepEqual(r.falsePos, ["K-002"]);
 });
+
+test("변경 영향 실그래프 + 시드 매핑: 매핑에 없는 데모 문서(K-001)는 분모 제외, doc_id 역매핑 우선", async () => {
+  const seed = { "G-KREV-01": "doc_A", "G-KREV-02": "doc_B", "G-KREV-03": "doc_C", "G-KREV-04": "doc_D", "K-002": "doc_E", "K-003": "doc_F" };
+  const T: Record<string, { doc_id: string; title: string }[]> = {
+    "SYN-DEP-001": [{ doc_id: "doc_A", title: "제목이 바뀌어도" }], "SYN-FX-001": [{ doc_id: "doc_B", title: "" }], "SYN-CARD-001": [{ doc_id: "doc_C", title: "" }],
+  };
+  const r = await measureImpactLive(async (a) => ({ impacted: T[a.law] ?? [] }), seed);
+  assert.deepEqual(r.excluded.sort(), ["K-001", "K-003"]);
+  assert.equal(r.expected, 3);
+  assert.equal(r.detected, 3);
+  assert.deepEqual(r.falsePos, []);
+});

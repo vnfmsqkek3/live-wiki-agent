@@ -1,5 +1,5 @@
 // 실환경(KB·DynamoDB) 정량 측정 — docs/02 4장 중 let522mj 담당분. 오프라인 measure.ts와 같은 케이스를 실 KB로 다시 잰다.
-// 실행 (prod 시드 후): node tests/evaluations/cases/src/measure-kb.ts
+// 실행 (prod 시드 후): [SEED_IDS=…/seed-doc-ids.json] node tests/evaluations/cases/src/measure-kb.ts
 //   환경: AWS_PROFILE·AWS_REGION (.env.local). KB_ID 등은 SSM /hanaeum-mvp/prod/* 에서 읽는다 (11/20 dev 폐지, prod 단일 환경)
 // 측정 함수는 의존성을 주입받으므로 오프라인 테스트(메모리 KB)로 검출 로직을 먼저 검증한다.
 import { readFileSync } from "node:fs";
@@ -73,8 +73,9 @@ export async function measureLive(d: LiveDeps) {
   return { clause, cite, deletionMis, unverified: await measureUnverified(d.search, true), visibility: await measureVisibility(d.raw) };
 }
 
-/** 변경 영향 실그래프: prod doc_id는 업로드마다 바뀌므로 제목(시드 "[SYNTHETIC] " + front matter title)으로 fixture ID에 매핑.
- *  기대 문서 중 manifest상 게시되지 않는 문서(K-003 등 차단 묶음)는 실그래프에 없으므로 분모에서 뺀다 */
+/** 변경 영향 실그래프: prod doc_id는 업로드마다 바뀌므로 시드 매핑(seed-doc-ids.json {fixture: doc_id}) 역매핑으로 fixture ID를 찾는다.
+ *  매핑에 없으면 제목(시드 "[SYNTHETIC] " + front matter title)으로. 분모 = 기대 문서 중 manifest상 게시 대상이면서 시드 매핑에 있는 것
+ *  (K-003 등 차단 묶음, K-001 같은 데모 업로드 문서는 실그래프에 없으므로 excluded) */
 export function titleToFixture(): Map<string, string> {
   const m = new Map<string, string>();
   for (const d of docs) {
@@ -85,14 +86,15 @@ export function titleToFixture(): Map<string, string> {
   return m;
 }
 type ImpactSet = { law_id: string; old_revision: string; new_revision: string; expected_impacted: string[]; expected_not_impacted?: string[] };
-export async function measureImpactLive(trace: (a: { law: string; old_revision: string; new_revision: string }) => Promise<{ impacted: { doc_id: string; title: string }[] }>) {
+export async function measureImpactLive(trace: (a: { law: string; old_revision: string; new_revision: string }) => Promise<{ impacted: { doc_id: string; title: string }[] }>, seed?: Record<string, string>) {
   const byTitle = titleToFixture();
-  const published = new Set(docs.filter((d) => d.expected_kb_visibility !== false).map((d) => d.document_id));
+  const byDocId = new Map(Object.entries(seed ?? {}).map(([f, id]) => [id, f]));
+  const published = new Set(docs.filter((d) => d.expected_kb_visibility !== false && (!seed || d.document_id in seed)).map((d) => d.document_id));
   const sets = (JSON.parse(read(new URL("sets.json", CASES))) as { impact: ImpactSet[] }).impact;
   const out = { expected: 0, detected: 0, falsePos: [] as string[], excluded: [] as string[], rows: [] as string[] };
   for (const s of sets) {
     const r = await trace({ law: s.law_id, old_revision: s.old_revision, new_revision: s.new_revision });
-    const got = r.impacted.map((i) => byTitle.get(squash(i.title.replace(/^\[SYNTHETIC\]\s*/u, ""))) ?? `?${i.title}`);
+    const got = r.impacted.map((i) => byDocId.get(i.doc_id) ?? byTitle.get(squash(i.title.replace(/^\[SYNTHETIC\]\s*/u, ""))) ?? `?${i.title}`);
     const exp = s.expected_impacted.filter((d) => published.has(d));
     out.excluded.push(...s.expected_impacted.filter((d) => !published.has(d)));
     out.expected += exp.length;
@@ -145,7 +147,9 @@ if (import.meta.main) {
   const r = await measureLive({ raw: new BedrockRetriever(kb), search });
   // trace_impact는 AUTHOR·REG_APPROVER 전용. 그래프는 Neptune(VPC)이라 배포된 graph Lambda로 호출
   const trace = invoke("hanaeum-mvp-lambda-mcp-graph", "graph___trace_impact");
-  const im = await measureImpactLive((a) => trace(a, { sub: "eval-author", groups: ["AUTHOR"], dept: "여신" }) as never);
+  // SEED_IDS=seed-doc-ids.json (데이터팀 시드 매핑, git 미추적). 없으면 manifest 기준 분모 + 제목 매핑
+  const seed = process.env["SEED_IDS"] ? JSON.parse(readFileSync(process.env["SEED_IDS"], "utf8")) as Record<string, string> : undefined;
+  const im = await measureImpactLive((a) => trace(a, { sub: "eval-author", groups: ["AUTHOR"], dept: "여신" }) as never, seed);
   console.log(`| 항목 | 목표 | 실환경 (KB ${kb}, 기준일 ${EVAL_TODAY}) | 판정 |`);
   console.log("|---|---|---|---|");
   console.log(`| 정확 조문 검색 | 19/20 | ${r.clause.correct}/${r.clause.total} | ${r.clause.correct >= 19 ? "통과" : "미달"} |`);
