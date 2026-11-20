@@ -68,6 +68,10 @@
 | Git·CI | `docs/06`. public 저장소이므로 secret·실데이터 커밋 금지. main은 PR + 리뷰 1팀(`role/README.md` 1장) + CI 통과. 리뷰 요청과 병합 알림도 Orca로 한다 |
 | 공통문서 | `공통문서/`는 읽기 전용, Git 미업로드. `docs/`의 md를 먼저 본다 |
 
+## 컨텍스트 압축
+
+길어지면 스스로 `/compact`. 그 전에 `role/.state/{slug}.md`에 끝낸 일·다음 일·대기 중 요청을 기록하고, 압축 뒤 `role/README.md` → `role/{팀명}.md` → `role/.state/{slug}.md` → `orca orchestration check` 순서로 다시 시작한다 (`role/README.md` 2장).
+
 ## QA (`docs/06` 4장)
 
 - 로컬 → PR → 일일 통합(18:00) → 릴리스(11/21·11/22 전체) 단계로 범위를 넓힌다.

@@ -63,6 +63,14 @@ orca terminal list --include-visual-layouts --json   # tab title이 팀명인 te
 | 세션이 바뀌어도 남아야 할 문제·해결 | `트러블슈팅.md` | 코드와 함께 PR |
 | 역할·소유 경로·남은 일 | `role/{팀명}.md` | 총괄팀만 수정 |
 
+### 컨텍스트 압축 (`/compact`)
+
+컨텍스트가 길어지면 효율과 결과 품질이 떨어진다. 각 팀은 스스로 판단해 `/compact`를 실행한다 (사용자 지시 11/20). 기준: 큰 작업 단위가 끝났을 때, 또는 대화가 길어져 앞 내용을 다시 찾기 어려울 때.
+
+1. 압축 전에 `role/.state/{slug}.md`를 갱신한다: 끝낸 작업(PR·커밋·증빙), 진행 중인 작업과 다음 단계, 기다리는 요청·회신(상대 팀·message id), 받은 결정, 팀 명부.
+2. `/compact`를 실행한다.
+3. 압축 뒤 가장 먼저 `role/README.md` → `role/{팀명}.md` → `role/.state/{slug}.md`를 읽고, `orca orchestration check`로 새 메시지를 확인한 다음 이어서 한다.
+
 ## 4. Git
 
 - 팀 브랜치는 `team/{slug}`이다. 각 팀은 자기 Orca worktree에서 작업한다. 엔드유저팀은 코드를 바꾸지 않으므로 총괄팀 worktree를 같이 써도 된다.
