@@ -156,7 +156,7 @@ function ReviewView() {
         {r.lifecycle === 'IN_REVIEW' && open.length > 0 && <ul className="note blockers" aria-label="게시 요청을 막는 항목">
           {fixOpen.map((f) => <li key={f.finding_id}><a href={`#fx-${f.finding_id}`}>고칠 것: {f.excerpt.slice(0, 40)}…</a></li>)}
           {clarifyOpen.map((c) => <li key={c.finding_id}>확인 필요: {c.question.slice(0, 40)}…</li>)}
-          {reviewOpen.map((x) => <li key={x.finding_id}>개인정보 확인: {x.message.slice(0, 40)}…</li>)}
+          {reviewOpen.length > 0 && <li><a href="#review-items">개인정보 확인 {reviewOpen.length}건</a></li>}
         </ul>}
       </div>
       <div className="layout-a review-layout"><div className="primary">
