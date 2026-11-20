@@ -170,6 +170,7 @@ module "user" {
   model_sonnet          = var.models["MODEL_SONNET"]
   model_haiku           = var.models["MODEL_HAIKU"]
   guardrail             = { id = aws_bedrock_guardrail.pii.guardrail_id, version = aws_bedrock_guardrail_version.pii.version, arn = aws_bedrock_guardrail.pii.guardrail_arn }
+  grounding_guardrail   = { id = aws_bedrock_guardrail.grounding.guardrail_id, version = aws_bedrock_guardrail_version.grounding.version, arn = aws_bedrock_guardrail.grounding.guardrail_arn }
   extra_allowed_clients = [module.cognito.mcp_external_client_id]
   create_runtime        = local.agents_ref != null
   image_tag             = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null

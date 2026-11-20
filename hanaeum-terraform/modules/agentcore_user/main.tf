@@ -29,6 +29,8 @@ variable "model_sonnet" { type = string }
 variable "model_haiku" { type = string } # 가이드 여러 번 찾기 항목 뽑기 (11/18)
 # 가이드 출력 PII 검사 (AI팀 PR #69). env 와 ApplyGuardrail IAM 은 함께 있어야 한다: env 만 있으면 가이드 전부 실패(fail-closed)
 variable "guardrail" { type = object({ id = string, version = string, arn = string }) }
+# 답변 근거 일치 점수 기록 (차단 없음, AI P1 11/20). 한국어 GROUNDING 의미 있음(정답 0.99·조작 0.03, AI 로컬 실측)
+variable "grounding_guardrail" { type = object({ id = string, version = string, arn = string }) }
 variable "extra_allowed_clients" {
   type    = list(string)
   default = [] # 외부 MCP 연결 client_credentials 클라이언트 (11/18)
@@ -281,7 +283,7 @@ resource "aws_iam_role_policy" "runtime" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${local.region}:${local.acct}:inference-profile/*"] },
-      { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = var.guardrail.arn },
+      { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = [var.guardrail.arn, var.grounding_guardrail.arn] },
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
       { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], Resource = aws_ecr_repository.guide.arn },
       { Effect = "Allow", Action = ["kms:Decrypt"], Resource = var.kms_key_arn },
@@ -310,12 +312,14 @@ resource "aws_bedrockagentcore_agent_runtime" "guide" {
   # 사용자 토큰을 Runtime 코드까지 전달 → 같은 토큰으로 Gateway 호출
   request_header_configuration { request_header_allowlist = ["Authorization"] }
   environment_variables = {
-    GATEWAY_URL       = aws_bedrockagentcore_gateway.user.gateway_url
-    MODEL_SONNET      = var.model_sonnet
-    MODEL_HAIKU       = var.model_haiku
-    AWS_REGION        = local.region
-    GUARDRAIL_ID      = var.guardrail.id
-    GUARDRAIL_VERSION = var.guardrail.version
+    GATEWAY_URL                 = aws_bedrockagentcore_gateway.user.gateway_url
+    MODEL_SONNET                = var.model_sonnet
+    MODEL_HAIKU                 = var.model_haiku
+    AWS_REGION                  = local.region
+    GUARDRAIL_ID                = var.guardrail.id
+    GUARDRAIL_VERSION           = var.guardrail.version
+    GROUNDING_GUARDRAIL_ID      = var.grounding_guardrail.id
+    GROUNDING_GUARDRAIL_VERSION = var.grounding_guardrail.version
   }
   depends_on = [aws_iam_role_policy.runtime, aws_bedrockagentcore_policy.user_tools]
 }
@@ -328,8 +332,9 @@ output "runtime_arn_pattern" { value = "arn:aws:bedrock-agentcore:${local.region
 
 # ---------- 관측: 사용자 Gateway APPLICATION_LOGS·TRACES (11/20 P1: Policy 거부가 어디에도 안 남음 → 평가 화면 denials·데모 06 거부 Trace) ----------
 resource "aws_cloudwatch_log_group" "gateway" {
-  name              = "/aws/vendedlogs/bedrock-agentcore/${var.n.prefix}-gw-user${var.n.suffix}"
-  retention_in_days = 30
+  name = "/aws/vendedlogs/bedrock-agentcore/${var.n.prefix}-gw-user${var.n.suffix}"
+  # 7일: requestBody 에 Tool 인자 원문·sub 가 남음 → 사용자 결정 11/20 '조건부 유지'(7일·KMS·읽기는 API 역할·인프라만)
+  retention_in_days = 7
   kms_key_id        = var.kms_key_arn
 }
 
