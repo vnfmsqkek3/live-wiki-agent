@@ -26,7 +26,7 @@ const deps = {
   },
 };
 
-const num = (s: string) => s.match(/\d+(?:[.,]\d+)?/g) ?? [];
+const num = (s: string): string[] => s.match(/\d+(?:[.,]\d+)?/g) ?? [];
 let missed = 0; let fp = 0;
 for (const id of (process.env.ONLY?.split(',') ?? ['M-002', 'M-003', 'MX-002', 'MX-003'])) {
   const doc = manifest.user_documents.find((d) => d.document_id === id)!;
