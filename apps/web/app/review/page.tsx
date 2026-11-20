@@ -7,7 +7,7 @@ import { ReviewItems } from '../review-items';
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, dateLine, getSession, type Finding, type Fix, type Review } from '../lib/api';
+import { api, ApiError, dateLine, getSession, isCheck, type Finding, type Fix, type Review } from '../lib/api';
 import { can } from '../lib/roles';
 import { WikiEditor } from '../wiki-editor';
 import { RefSuggestions, withReference } from '../ref-suggestions';
@@ -79,7 +79,8 @@ function ReviewView() {
   const blocked = r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED';
   // 공식 원본과 다른 규정은 출처 확인 전까지 게시 요청 불가 (서버 submit 409, 엔드유저 D02 11/20)
   const held = r.findings.some((f) => f.code === 'REGISTRY_MISMATCH' && f.severity === 'HIGH');
-  const uncertain = r.findings.filter((f) => f.severity !== 'LOW').length;
+  const checks = r.findings.filter((f) => isCheck(f.code));
+  const uncertain = r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code)).length;
   const clarifyOpen = (r.clarify ?? []).filter((c) => c.blocking && c.status === 'OPEN');
   const reviewOpen = (r.reviews ?? []).filter((x) => !x.acknowledged);
   const fixOpen = (r.fixes ?? []).filter((f) => !f.acknowledged);
@@ -173,15 +174,26 @@ function ReviewView() {
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
       {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={cur ?? r.text} canFix={canFix}
         onDismissed={(fid, reason) => setR((x) => x && { ...x, clarify: x.clarify!.map((c) => (c.finding_id === fid ? { ...c, status: 'DISMISSED', dismiss_reason: reason, blocking: false } : c)) })} />}
+      {checks.length > 0 && <section aria-labelledby="chk-h" className="fix-list">
+        <h2 className="section" id="chk-h">근거 확인이 필요한 문장 {checks.length}건 <span className="note">확인 필요 · 승인자에게도 보입니다</span></h2>
+        <ol className="fixes">{checks.map((f) => (
+          <li key={f.finding_id} className="fix sev-MEDIUM">
+            {f.location?.excerpt && <blockquote className="basis"><p>{f.location.excerpt}</p></blockquote>}
+            <p>{f.user_message ?? f.message}</p>
+            {f.fix_hint && <p><strong>수정 제안</strong> {f.fix_hint.replace(/^확인 후 이렇게 고쳐 주세요:\s*/, '')}</p>}
+          </li>
+        ))}</ol>
+        {canFix && <div className="actions"><button type="button" className="btn" onClick={() => setEditInit(r.text!)}>본문 고치기</button></div>}
+      </section>}
       {r.lifecycle === 'IN_REVIEW' && !held && (
         <section aria-labelledby="fix-h" className="fix-list">
           {/* 다른 할 일(확인 필요·개인정보 확인)이 있으면 '고칠 것이 없습니다'를 크게 쓰지 않는다 (11/18 dev 시험) */}
-          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">규정과 어긋난 문장은 없습니다.</p>}
+          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : checks.length ? `확인 필요 ${checks.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">{checks.length ? '게시를 막는 문장은 없습니다.' : '규정과 어긋난 문장은 없습니다.'}</p>}
           {/* 확인할 내용이 남아 있으면 '검토할 게 없다'로 읽히지 않게 (11/18 사용자 보고) */}
           {/* 확인할 내용(게시를 막지 않음)은 여기서 바로 무엇인지·할 일을 보여 준다 (사용자 지적 11/18: 자세히에서 입력칸을 찾았다) */}
-          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>규정과 어긋난 문장은 없습니다. 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
-            <ul>{r.findings.filter((f) => f.severity !== 'LOW').map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
-          {!open.length && uncertain === 0 && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
+          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>{checks.length ? '게시를 막는 문장은 없습니다.' : '규정과 어긋난 문장은 없습니다.'} 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
+            <ul>{r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code)).map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
+          {!open.length && uncertain === 0 && !checks.length && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
           <ol className="fixes">{(r.fixes ?? []).map((f) => (
             <li key={f.finding_id} id={`fx-${f.finding_id}`} className={`fix${f.acknowledged ? ' done' : ''}`}>
               <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && (f.code === 'KNOWHOW_CONFLICT' ? ` · 그대로 사용(${f.ack_reason ?? ''}) — 승인자가 판단` : ' · 의도한 삭제로 확인함')}</p>
@@ -205,9 +217,9 @@ function ReviewView() {
         </section>
       )}
       <RefSuggestions items={r.suggestions ?? []} onInsert={canFix ? (sg) => setEditInit(withReference(r.text!, sg)) : undefined} />
+      <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       <details className="more"><summary>자세히: 검사별 결과</summary>
       <IssueList docId={r.doc_id} />
-      <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       {!blocked && !held && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 
 
