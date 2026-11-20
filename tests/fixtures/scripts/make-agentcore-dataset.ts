@@ -1,7 +1,8 @@
 // AgentCore Evaluations 정답 데이터셋 (P1, 총괄 11/20): 평가 케이스(tests/evaluations/cases, 데이터QA) + Registry 조문 원문(fixture) →
 // AgentCore dataset JSON (https://docs.aws.amazon.com/bedrock-agentcore/latest/devguide/dataset-evaluations-schema.html)
 //   { scenarios: [{ scenario_id, turns: [{ input, expected_response }], expected_trajectory?, assertions?, metadata? }] }
-//   Builtin.Correctness ← turns[].expected_response, Builtin.GoalSuccessRate ← assertions, Trajectory*Match ← expected_trajectory(도구 이름)
+//   Builtin.Correctness ← turns[].expected_response, Builtin.GoalSuccessRate ← assertions.
+//   expected_trajectory 는 넣지 않음: 1차 검색(search_wiki)은 Agent 밖 코드 호출이라 Agent span 에 안 찍힐 수 있음(AI팀 11/20) → metadata.expected_tools 참고용
 // 실행: node tests/fixtures/scripts/make-agentcore-dataset.ts  → tests/fixtures/evaluations/agentcore-dataset.json
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { fixtureClauseStore } from "../../../mcp/regulation-server/src/fixtures.ts";
@@ -32,12 +33,11 @@ for (const c of jsonl<{ id: string; question: string; as_of: string; expected_pr
   scenarios.push({
     scenario_id: c.id,
     turns: [{ input: ask(c.question, c.as_of), expected_response: exp.map((e) => `${e.label}(${e.rev} 시행): ${e.text}`).join("\n") }],
-    expected_trajectory: ["search___search_wiki"],
     assertions: [
       ...exp.map((e) => `답변이 ${e.label}(${e.rev} 시행)을 근거로 인용한다`),
       ...forb.map((f) => `답변이 ${f.label}(${f.rev} 시행분, 현행 아님)을 현행 근거로 인용하지 않는다`),
     ],
-    metadata: { kind: "citation", as_of: c.as_of, expected_provision_ids: c.expected_provision_ids, forbidden_provision_ids: c.forbidden_provision_ids ?? [] },
+    metadata: { kind: "citation", as_of: c.as_of, expected_tools: ["search___search_wiki"], expected_provision_ids: c.expected_provision_ids, forbidden_provision_ids: c.forbidden_provision_ids ?? [] },
   });
 }
 
@@ -47,14 +47,13 @@ for (const c of jsonl<{ id: string; query: string; as_of: string; expected_statu
   scenarios.push({
     scenario_id: c.id,
     turns: [{ input: ask(c.query, c.as_of), ...(e ? { expected_response: `${e.label}(${e.rev} 시행): ${e.text}` } : {}) }],
-    expected_trajectory: ["search___search_legal_clause"],
     assertions: [
       c.expected_status === "FOUND" && e ? `답변이 ${e.label} 원문을 인용한다${c.expected_text ? ` (핵심: "${c.expected_text}")` : ""}` :
       c.expected_status === "DELETED" ? "답변이 해당 조문이 삭제되었음을 밝히고 삭제 전 내용을 현행처럼 안내하지 않는다" :
       c.expected_status === "HISTORICAL" ? "답변이 해당 조문이 기준일에 시행 중이 아닌 과거 버전임을 밝힌다" :
       "답변이 조문을 확인하지 못했다고 밝히고 조문이 없다고 단정하지 않는다",
     ],
-    metadata: { kind: "clause_lookup", as_of: c.as_of, expected_status: c.expected_status, expected_provision_id: c.expected_provision_id ?? null },
+    metadata: { kind: "clause_lookup", as_of: c.as_of, expected_tools: ["search___search_legal_clause"], expected_status: c.expected_status, expected_provision_id: c.expected_provision_id ?? null },
   });
 }
 
@@ -63,9 +62,8 @@ for (const c of jsonl<{ id: string; tool: string; query: string; as_of: string; 
   scenarios.push({
     scenario_id: c.id,
     turns: [{ input: ask(c.query, c.as_of) }],
-    expected_trajectory: [`search___${c.tool}`],
     assertions: ["답변이 근거를 확인하지 못했다고 밝힌다", "답변이 해당 조문·규정이 존재하지 않는다고 단정하지 않는다", "답변이 질문과 무관한 조문을 근거로 제시하지 않는다"],
-    metadata: { kind: "unverified", as_of: c.as_of, why: c.why },
+    metadata: { kind: "unverified", as_of: c.as_of, expected_tools: [`search___${c.tool}`], why: c.why },
   });
 }
 
