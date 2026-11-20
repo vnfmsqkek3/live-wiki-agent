@@ -808,3 +808,17 @@ test('문서보관함 상세(승인자): 작성자가 그대로 사용한 사유
   const r = (await (await t.call('approver', 'GET', `/v1/library/${doc_id}`)).json()) as { review: { findings: { ack_reason?: string }[] } };
   assert.equal(r.review.findings[0]!.ack_reason, '본부 예외 승인');
 });
+
+test('평점(인기): 목록·상세에 rating{avg,count}·useful_count·내 별점, 별점 없으면 rating 생략 (P1 11/20)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', acl_groups: ['ALL'] } as never);
+  assert.equal(((await (await t.call('user', 'GET', '/v1/library')).json()) as { items: { rating?: unknown }[] }).items[0]!.rating, undefined);
+  assert.equal((await t.call('user', 'POST', '/v1/feedback', { doc_id, stars: 5, useful: true })).status, 200);
+  assert.equal((await t.call('author', 'POST', '/v1/feedback', { doc_id, stars: 4, useful: false })).status, 200);
+  const it = ((await (await t.call('user', 'GET', '/v1/library')).json()) as { items: { rating: { avg: number; count: number }; useful_count: number }[] }).items[0]!;
+  assert.deepEqual([it.rating, it.useful_count], [{ avg: 4.5, count: 2 }, 1]);
+  const det = (await (await t.call('user', 'GET', `/v1/library/${doc_id}`)).json()) as { my_stars: number; rating: { count: number } };
+  assert.deepEqual([det.my_stars, det.rating.count], [5, 2]);
+});
