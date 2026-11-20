@@ -466,7 +466,7 @@ test('PiiScan: 비밀값은 쪽마다가 아니라 문서당 한 건 + 쪽 목�
 });
 
 test('TrustGate 형식만 다름(총괄 결정 11/20): 공백·줄바꿈만 다르면 VERIFIED + LOW FORMAT_ONLY_DIFF, 숫자 하나·누락 조문이면 그대로 HIGH', () => {
-  const run = (clauses: Record<string, string>) => trustGate({ doc: { classification: cls('REGULATION'), content_hash: 'X', findings: [] }, claimed: { law_id: 'SYN-LOAN-001', clauses }, registry: reg });
+  const run = (clauses: Record<string, string>) => trustGate({ doc: { classification: cls('REGULATION'), content_hash: 'X', findings: [] }, claimed: { law_id: 'SYN-LOAN-001', clauses, other_chars: 30 }, registry: reg });
   const fmt = run({ 'ARTICLE:7': '3 억원\n이상', 'ARTICLE:8': ' x ' });
   assert.deepEqual([fmt.result, fmt.authority_status, fmt.findings.map((f) => [f.severity, f.code])], ['PASS', 'VERIFIED', [['LOW', 'FORMAT_ONLY_DIFF']]]);
   for (const c of [{ 'ARTICLE:7': '3억원 이하', 'ARTICLE:8': 'x' }, { 'ARTICLE:7': '3억원 이상' }, { 'ARTICLE:7': '3억원 이상', 'ARTICLE:8': 'x', 'ARTICLE:9': 'y' }] as Record<string, string>[]) {
@@ -474,4 +474,11 @@ test('TrustGate 형식만 다름(총괄 결정 11/20): 공백·줄바꿈만 다�
     assert.deepEqual([r.authority_status, r.findings[0]!.code, r.findings[0]!.severity], ['UNVERIFIED', 'REGISTRY_MISMATCH', 'HIGH'], JSON.stringify(c));
   }
   assert.equal(run({}).findings[0]!.code, 'REGISTRY_MISMATCH', '조문을 못 뽑았으면 형식만 다름으로 보지 않음');
+});
+
+test('TrustGate 형식만 다름: 조문 밖 글자가 많거나 모르면 적용 안 함(조문 밖 위조 방지, AI 리뷰 #139)', () => {
+  const run = (other_chars?: number) => trustGate({ doc: { classification: cls('REGULATION'), content_hash: 'X', findings: [] }, claimed: { law_id: 'SYN-LOAN-001', clauses: { 'ARTICLE:7': '3억원 이상', 'ARTICLE:8': 'x' }, ...(other_chars === undefined ? {} : { other_chars }) }, registry: reg });
+  assert.equal(run(200).authority_status, 'VERIFIED');
+  assert.deepEqual([run(201).authority_status, run(201).findings[0]!.code], ['UNVERIFIED', 'REGISTRY_MISMATCH']);
+  assert.equal(run().findings[0]!.code, 'REGISTRY_MISMATCH', '조문 밖 글자 수를 모르면 fail-closed');
 });

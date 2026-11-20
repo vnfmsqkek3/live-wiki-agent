@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
-import { trustGate, type RegistryEntry } from './steps/trust-gate.ts';
+import { squash, trustGate, type RegistryEntry } from './steps/trust-gate.ts';
 import { validateExternal, validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
@@ -401,9 +401,15 @@ export function makeTrustGate(deps: LambdaDeps) {
     // Registry 대조: 해시가 기준본과 같으면 그 개정본. 아니면 REGULATION으로 분류된 문서만 본문 머리말로 주장 개정본을 찾는다
     // (노하우 머리말의 규정명 언급을 '공식 규정 주장'으로 오인하지 않기 위해)
     let match = deps.registry && d.content_hash ? await deps.registry(d.content_hash) : {};
-    if (deps.registry && !match.registry && d.classification?.document_type === 'REGULATION' && deps.maskedText)
-      match = await deps.registry(d.content_hash ?? '', await deps.maskedText(d));
-    const g = trustGate({ doc: d, claimed: match.claimed, registry: match.registry });
+    let otherChars: number | undefined;
+    if (deps.registry && !match.registry && d.classification?.document_type === 'REGULATION' && deps.maskedText) {
+      const text = await deps.maskedText(d);
+      match = await deps.registry(d.content_hash ?? '', text);
+      // 형식만 다름 판정용: 조문 밖 글자 수 (Registry 와 비교할 수 없는 부분이 작을 때만 인정)
+      const cl = match.claimed?.clauses;
+      if (cl) otherChars = Math.max(0, squash(text).length - Object.values(cl).reduce((n, t) => n + squash(t).length, 0));
+    }
+    const g = trustGate({ doc: d, claimed: match.claimed && { ...match.claimed, ...(otherChars !== undefined ? { other_chars: otherChars } : {}) }, registry: match.registry });
     const reg = g.authority_status === 'VERIFIED' && match.registry ? match.registry : undefined;
     let result = g.result;
     let findings = g.findings;
