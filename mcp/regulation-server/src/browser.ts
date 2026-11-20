@@ -95,7 +95,8 @@ export const CACHE_MS = 24 * 3600 * 1000;
 export function cachedFetcher(inner: LawPageFetcher, cache: LawPageCache, now = () => new Date()): LawPageFetcher {
   return {
     async fetch(lawName) {
-      const hit = await cache.get(lawName);
+      // 캐시 읽기 실패도 캐시 없음으로 (조회는 Browser 로 계속, 데이터QA 리뷰 #110)
+      const hit = await cache.get(lawName).catch((e: Error) => { console.warn(JSON.stringify({ msg: "법령 원문 캐시 읽기 실패", law: lawName, error: e.name })); return undefined; });
       if (hit && now().getTime() - Date.parse(hit.fetched_at) < CACHE_MS) return { url: hit.url, header: hit.header, body: hit.body, fetched_at: hit.fetched_at, from_cache: true };
       const page = await inner.fetch(lawName);
       const fetched_at = now().toISOString();
