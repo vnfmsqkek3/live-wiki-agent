@@ -34,6 +34,7 @@
 
 외부 법령 대조 Finding (11/20, 노하우 검증, AI엔지니어팀 구현): `KNOWHOW_EXTERNAL_MISMATCH`(MEDIUM, 외부·미검증 근거(국가법령정보센터 공식본)와 불일치, 게시 차단·잠금 아님, `fix_hint`에 수정 제안), `KNOWHOW_EXTERNAL_SKIPPED`(LOW, 외부 조회 실패·60초 초과·지시문 의심으로 대조 생략). 외부 법령 인식은 `externalLawRefs`(괄호 표기 + 줄 첫머리·여는 괄호 뒤 한 낱말 법령명, `…규정`·가지번호 `제9-5조` 포함), 행정규칙(`…규정·고시·훈령·예규·지침`)은 law.go.kr `/행정규칙/` 경로. 가지번호 `제n-m조`는 `제n조의m`과 같은 `ARTICLE:n-m`, `제n-m조의k`는 `ARTICLE:n-m-k`.
 
+형식만 다름 Finding (11/20, 총괄 결정, 백엔드): `FORMAT_ONLY_DIFF`(LOW) — 규정 파일 해시는 Registry와 다르지만 공백·줄바꿈만 제거하면 조문 전부 일치하고 추가·누락이 없을 때. `authority_status=VERIFIED`. 글자·숫자가 하나라도 다르면 `REGISTRY_MISMATCH`(HIGH). 조문 비교(`diffClauses`)도 공백·줄바꿈 무시.
 근거 불일치 Finding (11/20, 사용자 피드백, AI엔지니어팀): `KNOWHOW_BASIS_MISMATCH`(MEDIUM, 문서가 그 문장에서 든 조문과 내용이 다름, 게시 차단·잠금 아님, `fix_hint` '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.'). `knowhow_validation.items[].basis`(모델 판정이 INSUFFICIENT·UNRELATED일 때만): `CITED` 문서가 그 문장·줄에서 그 조 번호를 듦 → 근거와 다름 / `NONE` 검색으로 붙은 조문 → 화면에 근거로 표시하지 않음. 없으면 기존과 같음.
 
 ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
@@ -382,3 +383,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-20 | backend | 7(Backend API) | 평점(인기, 신뢰성과 분리, P1): `GET /v1/library`·`/v1/library/{id}`·`/v1/search` 문서 항목에 `rating`{avg(소수 1자리), count}(별점 0건이면 생략)·`useful_count`(0이면 생략), 상세에 `my_stars`(없으면 null). feedback 집계. 통지: 프론트 |
 | 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` denials에 Gateway 거부(AgentCore Policy) 합침: 사용자 Gateway vended logs(`GATEWAY_LOG_GROUP`)의 'Policy evaluation denied request' + 같은 trace_id 요청 이벤트에서 tool·역할만(인자·sub 버림). 항목에 `source`('API'|'GATEWAY'), 시간 역순 최대 50. 로그 읽기 실패 시 API 거부만. `POST /v1/admin/impact/draft` 초안 생성에 개정 규정 `law_name` 전달(AI팀 초안 인용에 규정 이름). 통지: 프론트·데이터QA·AI |
 | 2026-11-20 | backend | 2(Finding)·단계 9 | 그림 개인정보 확인 fail-closed 해제(총괄 승인): PiiScan `PII_IMAGE_REVIEW`에 `details.boxes`(글자 개인정보 가림 수). TrustGate가 boxes=0 이고 `masked/segments/{쪽}.json` `figures[].people` 이 1개 이상·전부 `NONE`이면 `acknowledged{by:'system:image-describe'}`로 확인 처리 + 감사 `FIGURE_PII_CHECKED`. UNSURE·없음·읽기 실패·ImageDescribe 꺼짐이면 유지. ImageDescribe(인프라)가 `figures[].people` 기록. 통지: AI·인프라 |
+| 2026-11-20 | backend | 2(Finding)·단계 9 | `FORMAT_ONLY_DIFF`(LOW) 추가, `diffClauses` 공백·줄바꿈 무시(HWPX·OCR 띄어쓰기 오탐 D01). docs/01 5.1 한 줄. 통지: AI·데이터(marks.ts 같은 기준)·프론트 |
