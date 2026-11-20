@@ -6,8 +6,8 @@ import { aws, prodToken } from './prod-auth.ts';
 import type { Evidence, GuideResult } from '../src/guide.ts';
 
 const token = prodToken('user');
-const arn = process.env.GUIDE_RUNTIME_ARN ?? aws(['bedrock-agentcore-control', 'list-agent-runtimes', '--query', "agentRuntimes[?agentRuntimeName=='hanaeum_mvp_rt_guide'].agentRuntimeArn | [0]"]);
-const url = `https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`;
+const arn = process.env.GUIDE_URL ? '' : process.env.GUIDE_RUNTIME_ARN ?? aws(['bedrock-agentcore-control', 'list-agent-runtimes', '--query', "agentRuntimes[?agentRuntimeName=='hanaeum_mvp_rt_guide'].agentRuntimeArn | [0]"]);
+const url = process.env.GUIDE_URL ?? `https://bedrock-agentcore.us-east-1.amazonaws.com/runtimes/${encodeURIComponent(arn)}/invocations?qualifier=DEFAULT`;
 
 async function ask(prompt: string, as_of: string): Promise<GuideResult> {
   const r = await fetch(url, { method: 'POST', body: JSON.stringify({ prompt, as_of }), headers: {

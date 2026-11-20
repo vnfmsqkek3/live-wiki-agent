@@ -110,7 +110,7 @@ createServer(async (req, res) => {
         ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, { ...o, ...(asOf ? { as_of: asOf } : {}) }); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
       const authorization = typeof auth === 'string' ? auth : undefined;
-      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization, asOf }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}),
+      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization, asOf }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel, toolSearch: true } : {}),
         ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
       // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
       if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {

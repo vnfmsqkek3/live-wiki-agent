@@ -185,7 +185,8 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
 }
 
 const externalSkipped = (skipped: string[]): Finding[] => (skipped.length ? [fnd('LOW', 'KNOWHOW_EXTERNAL_SKIPPED', `외부 법령 대조 생략: ${skipped.join(' / ')}`.slice(0, 300), 'external', {
-  user_message: '본문이 인용한 외부 법령 원문을 확인하지 못해 그 부분은 대조하지 않았습니다. 승인자가 직접 확인합니다.',
+  // *_SKIPPED(LOW) = 처리한 것이 아니라 '확인하지 못한 것'. 화면은 '자동으로 처리한 내용'과 따로 묶는다 (엔드유저 의견 11/20)
+  user_message: '확인하지 못함: 본문이 인용한 외부 법령 원문을 가져오지 못해 그 부분은 대조하지 않았습니다. 승인자가 직접 확인해 주세요.',
 })] : []);
 // 외부 법령 불일치: 미검증 근거라 차단·잠금 없이 사람 확인 (MEDIUM, submit.ts 잠금 코드 아님)
 const externalMismatch = (items: (Judgement & { label: string })[]): Finding[] => items.filter((j) => j.relation === 'CONFLICTS').map((j) =>

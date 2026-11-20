@@ -62,7 +62,7 @@ export async function piiScan(
     masked.push({ page: s.page, text });
   }
   if (guardrailSkipped)
-    findings.push(fnd('LOW', 'GUARDRAIL_SKIPPED', 'Guardrails 미설정 → 정규식 단계만 수행', 'config'));
+    findings.push(fnd('LOW', 'GUARDRAIL_SKIPPED', 'Guardrails 미설정 → 정규식 단계만 수행', 'config', { user_message: '확인하지 못함: 개인정보 2차 검사(Guardrails)를 하지 못해 정규식 검사만 했습니다. 승인자가 직접 확인해 주세요.' }));
   const status = findings.some((x) => x.severity === 'MEDIUM' || x.severity === 'HIGH') ? 'REVIEW_REQUIRED' : 'OK';
   return { status, findings, masked };
 }
