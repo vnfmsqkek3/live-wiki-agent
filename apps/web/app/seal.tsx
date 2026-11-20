@@ -73,6 +73,11 @@ export function Seal({ i, size = 'mini', stampedNow = false, who }: { i: Doc; si
   );
 }
 
+/** 인기(평점)는 결재란(신뢰성)과 따로 보인다 (docs/02 P1 '인기와 신뢰성 분리') */
+export function Popularity({ r }: { r?: { avg: number; count: number } }) {
+  return r ? <span className="meta">평점 <span className="num">{r.avg.toFixed(1)}</span> · {r.count}명</span> : null;
+}
+
 export function FreshnessFlag({ freshness }: { freshness: SearchItem['freshness'] }) {
   if (freshness === 'SUPERSEDED') return <span className="flag"><Icon name="alert" />개정·폐지되어 현행이 아닌 판</span>;
   return freshness === 'REVIEW_REQUIRED' ? <span className="flag"><Icon name="alert" />근거 규정이 바뀌어 재검토 중</span> : null;
