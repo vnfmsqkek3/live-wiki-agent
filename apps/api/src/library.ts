@@ -117,7 +117,12 @@ export function verification(d: DocumentRecord, approval?: { approver_sub?: stri
     for (const j of kv?.items ?? []) if (j.relation !== 'UNRELATED') basis.push({ what: '근거 조문', label: j.label, result: `${REL[j.relation] ?? j.relation}${j.verified_quote ? '' : ' (인용 원문 확인 안 됨)'}`, statement: j.statement, ...(j.reason ? { reason: j.reason } : {}), relation: j.relation, ...(j.quote ? { quote: j.quote } : {}) });
     for (const o of kv?.outdated ?? []) basis.push({ what: '개정 전 인용', label: o.label, result: '현행 조문으로 재검토 필요' });
   } else {
-    method = '규정 대조 대상이 아닌 문서(매뉴얼 등): 자동 보안·개인정보 검사 후 사람 승인';
+    // 매뉴얼도 본문이 인용한 외부 법령은 원문과 대조한다 (MANUAL 외부 대조 #81). 결과(다름·생략)가 있으면 그 사실을 보인다 (MX-002 11/20)
+    const ext = d.findings.filter((f) => f.code === 'KNOWHOW_EXTERNAL_MISMATCH' || f.code === 'KNOWHOW_EXTERNAL_SKIPPED');
+    method = ext.length ? '본문이 인용한 외부 법령을 국가법령정보센터 원문과 대조(참고, 미검증) + 자동 보안·개인정보 검사 후 사람 승인'
+      : '규정 대조 대상이 아닌 문서(매뉴얼 등): 자동 보안·개인정보 검사 후 사람 승인';
+    for (const f of ext) basis.push({ what: '외부 법령', label: '본문이 인용한 외부 법령', result: f.code === 'KNOWHOW_EXTERNAL_MISMATCH' ? '외부 법령과 다름(확인 필요)' : '원문을 가져오지 못해 대조 못 함',
+      ...(f.location?.excerpt ? { statement: f.location.excerpt } : {}), reason: f.user_message ?? f.message });
   }
   return {
     method, basis,

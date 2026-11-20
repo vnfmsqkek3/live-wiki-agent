@@ -56,7 +56,7 @@ export function blockedReasons(findings: { severity: string; code: string; step:
 
 const STEP_LABEL: Record<string, string> = Object.fromEntries([...INGEST_STEPS, ['Promote', '게시'], ['KbIngest', '검색 색인'], ['GraphUpsert', '관계 그래프'], ['Finalize', '마무리'],
   ['TYPE_DETECTION', '형식 확인'], ['MALWARE', '악성코드 검사'], ['FILE_STRUCTURE', '파일 구조 검사'], ['OCR', '문자 인식'], ['PII_SCAN', '개인정보 가림'], ['INJECTION_SCAN', '지시문 검사'],
-  ['CLASSIFY', '분류·요약'], ['TRUST_GATE', '출처·근거 검증'], ['KNOWHOW_VALIDATION', '노하우 검증'], ['IMAGE_DESCRIBE', '그림 분석'], ['TEXT_LAYER', '텍스트 추출'], ['SEGMENT', '본문 정리']]);
+  ['CLASSIFY', '분류·요약'], ['TRUST_GATE', '출처·근거 검증'], ['KNOWHOW_VALIDATION', '근거 대조'], ['EXTERNAL_LAW_CHECK', '외부 법령 대조'], ['IMAGE_DESCRIBE', '그림 분석'], ['TEXT_LAYER', '텍스트 추출'], ['SEGMENT', '본문 정리']]);
 
 export interface Issue { finding_id?: string; step: string; step_label: string; severity: string; code: string; user_message: string; fix_hint?: string; location?: { page?: number; bbox?: number[][]; excerpt?: string } }
 
