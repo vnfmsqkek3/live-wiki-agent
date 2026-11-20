@@ -9,7 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { ConfirmCurrent } from '../confirm-current';
 import { isAdmin } from '../lib/roles';
-import { api, ApiError, getSession, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
+import { api, ApiError, getSession, isCheck, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { CardBoundary } from '../card-boundary';
@@ -166,7 +166,7 @@ function List() {
         <PaginatedList label="문서보관함" className="ledger card-grid library-grid">
           {items.map((d) => (
             <li className="entry" key={d.doc_id}>
-              <Seal i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
+              <Seal i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link></h3>
               <FreshnessFlag freshness={d.freshness} />
               <dl>
@@ -283,7 +283,7 @@ function ExternalLaws({ id }: { id: string }) {
                   {c.error || !c.result ? <p className="note">원문 조회 실패. 잠시 뒤 다시 열어 보세요.</p> : (
                     <>
                       {c.result.clause?.text ? <blockquote className="basis"><p>{c.result.clause.text}</p></blockquote> : <p className="note">{c.clause ? '요청한 조문을 찾지 못했습니다.' : '본문이 조문을 특정하지 않았습니다. 원문 보기에서 확인하세요.'}</p>}
-                      <p className="meta">출처 {c.result.source} · 조회 {new Date(c.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{c.result.from_cache ? ' (1일 보관본)' : ''} · <a href={c.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
+                      <p className="meta">출처 {c.result.source.replace(/\s*\(AgentCore Browser\)/, '')} · 조회 {new Date(c.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{c.result.from_cache ? ' (1일 보관본)' : ''} · <a href={c.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
                     </>
                   )}
                 </li>
@@ -303,11 +303,15 @@ const REVIEW_STATE: Record<string, string> = {
   IN_REVIEW: '작성자 검토 중인 문서입니다.',
 };
 
+/** 쪽 밑줄(marks)이 있으면 review.findings는 근거 불일치만 따로 보인다 (밑줄로 안 그려짐, 총괄 11/20 MX-002) */
+const reviewFindings = (d: LibraryDoc) => !d.review ? [] : d.pages.length ? d.review.findings.filter((f) => isCheck(f.code)) : d.review.findings;
+
 /** 결재 대상: 맨 위에 '확인이 필요한 이유'. 누르면 그 쪽·밑줄로 이동 */
 function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n: number) => void; onInsert?: (s: RefSuggestion) => void }) {
   const r = d.review;
   const located = r ? d.pages.flatMap((pg, pi) => pg.marks.filter((m) => m.severity !== 'LOW').map((m, k) => ({ pi, n: k + 1, m }))) : [];
-  const total = located.length + (r ? d.doc_marks.length : 0) + (r && !d.pages.length ? r.findings.length : 0);
+  const fs = r ? reviewFindings(d) : [];
+  const total = located.length + (r ? d.doc_marks.length : 0) + fs.length;
   const refs = d.suggestions ?? []; // 참조 확인(웹 참고 주소): 게시는 막지 않는 참고 묶음 (사용자 요청 11/18)
   return (
     <section aria-labelledby="why-h" className="notice" style={{ display: 'block' }}>
@@ -324,11 +328,11 @@ function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n:
         {d.doc_marks.map((m, i) => (
           <li key={`d${i}`} className="fix sev-HIGH"><p className="fix-head">{m.label ?? KIND[m.kind]} (위치 못 찾음)</p>{m.original !== undefined || m.revision !== undefined ? <Trio m={m} /> : <p style={{ margin: 0 }}>{m.reason}</p>}</li>
         ))}
-        {r && !d.pages.length && r.findings.map((f, i) => (
+        {fs.map((f, i) => (
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
-            <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : '확인 필요'}</p>
+            <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : isCheck(f.code) ? '근거 확인 필요' : '확인 필요'}</p>
             <p style={{ margin: 0 }}>{f.message}</p>
-            {f.fix_hint && <p style={{ margin: 0 }}><strong>고치는 방법</strong> {f.fix_hint}</p>}
+            {f.fix_hint && <p style={{ margin: 0 }}><strong>{isCheck(f.code) ? '수정 제안' : '고치는 방법'}</strong> {isCheck(f.code) ? f.fix_hint.replace(/^확인 후 이렇게 고쳐 주세요:\s*/, '') : f.fix_hint}</p>}
           </li>
         ))}
       </ul>
@@ -602,7 +606,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const nth = (n: number) => d.pages.findIndex((pg) => pg.page === n) + 1;
   const range = (g: { pages: number[] }) => { const a = g.pages.map(nth).filter((x) => x > 0); return a.length > 1 ? `${Math.min(...a)}~${Math.max(...a)}` : `${a[0] ?? 1}`; };
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
-  const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + (d.pages.length ? 0 : d.review.findings.length) : 0) + (d.suggestions?.length ?? 0);
+  const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + reviewFindings(d).length : 0) + (d.suggestions?.length ?? 0);
   const canWikiEdit = d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION'; // 대체된 옛 판은 최신 버전에서 고친다
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
@@ -629,7 +633,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
     <>
       <PageHeader title={d.title} description="본문과 근거를 확인하고 필요한 조치를 진행하세요." action={back} />
       <header className="document-header">
-      <Seal size="full" i={{ authority_status: d.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
+      <Seal size="full" i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
       <FreshnessFlag freshness={d.freshness} /><p className="note">{d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={() => setPrinting(true)} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
       </header>

@@ -54,11 +54,13 @@ export class ApiError extends Error {
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (MOCK) return mock(method, path, body) as T;
   const s = getSession();
+  // 응답이 오지 않는 요청이 화면을 '찾는 중'에 묶어 두지 않게 45초에서 끊는다 (인프라 11/20: 서버 3초 응답인데 화면 60초 고정, 재현 안 됨)
   const r = await fetch(`${API}${path}`, {
     method,
     headers: { 'content-type': 'application/json', ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    signal: AbortSignal.timeout(45_000),
+  }).catch((e: Error) => { throw new ApiError(0, e.name === 'TimeoutError' ? '응답이 늦어 중단했습니다. 다시 시도해 주세요.' : '서버에 연결하지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요.'); });
   const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
   if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
@@ -173,7 +175,9 @@ function mockProgress(): Progress {
 export interface DocDate { kind: string; date: string; page: number }
 /** PageSummarize 쪽 메타데이터 (masked/summary.json) */
 export interface PageMeta { summary: string; keywords?: string[]; clause_refs?: string[]; clause_groups?: { law: string | null; clauses: string[] }[]; page_type?: string }
-export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string }
+export interface Finding { finding_id: string; step: string; severity: 'LOW' | 'MEDIUM' | 'HIGH'; code: string; message: string; evidence_ref: string; user_message?: string; fix_hint?: string; location?: { page?: number; excerpt?: string } }
+/** 게시를 막지 않지만 사람이 확인할 근거 문제 (EXTERNAL·BASIS_MISMATCH, OUTDATED_CITATION, NO_BASIS — 백엔드 checks 계약·AI 11/20, MX-002) */
+export const isCheck = (code: string) => /(_EXTERNAL_MISMATCH|_BASIS_MISMATCH|OUTDATED_CITATION|NO_BASIS)$/.test(code);
 export interface Fix { finding_id: string; code: string; message: string; excerpt: string; suggestion: string | null; fix_hint: string | null; acknowledged: boolean; ack_reason?: string | null }
 export interface Review {
   fixes?: Fix[]; reviews?: import('../review-items').ReviewItem[]; clarify?: import('../clarify').ClarifyItem[]; text?: string; source?: 'UPLOAD' | 'WIKI_EDIT'; suggestions?: import('../ref-suggestions').RefSuggestion[];
@@ -210,6 +214,7 @@ const MOCK_REVIEW: Review = {
   },
   findings: [
     { finding_id: 'f1', step: 'PII_SCAN', severity: 'LOW', code: 'PII_MASKED_PHONE', message: '전화번호 2건 가림', evidence_ref: 'page:1' },
+    { finding_id: 'fx1', step: 'KNOWHOW_VALIDATION', severity: 'MEDIUM', code: 'KNOWHOW_EXTERNAL_MISMATCH', message: '"주채무계열 소속 기업이면 여신최다은행" 문장이 외국환거래규정 제9-5조제1항(외부·미검증) 원문과 다릅니다: 원문은 주채권은행에 신고하도록 정합니다.', evidence_ref: 'EXT:외국환거래규정/제9-5조제1항', fix_hint: '확인 후 이렇게 고쳐 주세요: "주채무계열 소속 기업이면 주채권은행이다."', location: { page: 1, excerpt: '주채무계열 소속 기업이면 여신최다은행' } },
     { finding_id: 'f2', step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', message: '계좌번호 1건 가림 (그중 1건은 개인정보인지 확인 필요)', evidence_ref: 'page:2' },
     { finding_id: 'f3', step: 'OCR', severity: 'MEDIUM', code: 'OCR_LOW_CONFIDENCE', message: '인식 신뢰도가 낮은 페이지 (평균 0.86)', evidence_ref: 'page:3' },
   ],
