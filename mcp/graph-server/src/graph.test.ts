@@ -156,6 +156,16 @@ test("단계 13 입력 구성: 공통 입력만으로 Documents·게시본을 �
   assert.equal(inp.document_type, "KNOWHOW");
 });
 
+test("단계 13 입력: 시행일 없는 노하우는 게시일 기준으로 인용 해석 (미래 개정본 F-002@2026-12-01이 Registry에 있어도 현행 조문, prod 11/20)", async () => {
+  const { MemoryObjectStore, MemoryRecords } = await import("@hanaeum/legal-etl");
+  const { buildUpsertInput } = await import("./index.ts");
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  r.documents.set("K-001", { doc_id: "K-001", version: 1, title: "부동산 담보평가 실무 노하우", document_type: "KNOWHOW", authority_status: "UNVERIFIED", dept: "여신", acl_groups: ["ALL"], published_at: "2026-11-20T04:00:00Z" } as never);
+  await s.put("pub", "knowledge/K-001/content.txt", read("documents/K-001.md"));
+  const inp = await buildUpsertInput({ workflow_id: "wf_x", doc_id: "K-001", version: 1, bucket: "q", prefix: "", actor: { sub: "s", groups: [] } }, r, s, fixtureClauseStore(), "pub");
+  assert.deepEqual(inp.citations!.map((c) => c.provision_id).sort(), frontCites("documents/K-001.md").sort());
+});
+
 test("삭제 흐름(interfaces 6.0): DELETED만 그래프에서 지움, 아니면 NotDeleted, 분류 전 문서는 할 일 없이 OK", async () => {
   const { graph } = await loaded();
   const has = () => [...graph.nodes.values()].some((x) => x.props["doc_id"] === "K-001");
