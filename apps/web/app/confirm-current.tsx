@@ -16,7 +16,7 @@ export function ConfirmCurrent({ docId, onDone }: { docId: string; onDone?: () =
       setDone(true); onDone?.();
     } catch (e) {
       const x = e as ApiError;
-      setMsg(x.status === 403 ? '규정 결재자만 확인할 수 있고, 본인이 올린 문서는 확인할 수 없습니다.' : x.status === 409 ? '이미 현행으로 바뀌었거나 재검토 대상이 아닙니다. 새로고침해 주세요.' : x.message);
+      setMsg(x.status === 403 ? '권한이 없습니다. 규정 결재자 계정이어야 하고, 본인이 올린 문서는 운영자 계정만 확인할 수 있습니다.' : x.status === 409 ? '이미 현행으로 바뀌었거나 재검토 대상이 아닙니다. 새로고침해 주세요.' : x.message);
     }
     setBusy(false);
   }
