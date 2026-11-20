@@ -464,3 +464,14 @@ test('PiiScan: 비밀값은 쪽마다가 아니라 문서당 한 건 + 쪽 목�
   assert.match(s[0]!.user_message!, /1·3·6쪽에 .* 비밀값 3건/);
   assert.ok(r.masked.every((m) => m.text.includes('[비밀값]')), '가림은 쪽마다 그대로');
 });
+
+test('TrustGate 형식만 다름(총괄 결정 11/20): 공백·줄바꿈만 다르면 VERIFIED + LOW FORMAT_ONLY_DIFF, 숫자 하나·누락 조문이면 그대로 HIGH', () => {
+  const run = (clauses: Record<string, string>) => trustGate({ doc: { classification: cls('REGULATION'), content_hash: 'X', findings: [] }, claimed: { law_id: 'SYN-LOAN-001', clauses }, registry: reg });
+  const fmt = run({ 'ARTICLE:7': '3 억원\n이상', 'ARTICLE:8': ' x ' });
+  assert.deepEqual([fmt.result, fmt.authority_status, fmt.findings.map((f) => [f.severity, f.code])], ['PASS', 'VERIFIED', [['LOW', 'FORMAT_ONLY_DIFF']]]);
+  for (const c of [{ 'ARTICLE:7': '3억원 이하', 'ARTICLE:8': 'x' }, { 'ARTICLE:7': '3억원 이상' }, { 'ARTICLE:7': '3억원 이상', 'ARTICLE:8': 'x', 'ARTICLE:9': 'y' }] as Record<string, string>[]) {
+    const r = run(c);
+    assert.deepEqual([r.authority_status, r.findings[0]!.code, r.findings[0]!.severity], ['UNVERIFIED', 'REGISTRY_MISMATCH', 'HIGH'], JSON.stringify(c));
+  }
+  assert.equal(run({}).findings[0]!.code, 'REGISTRY_MISMATCH', '조문을 못 뽑았으면 형식만 다름으로 보지 않음');
+});
