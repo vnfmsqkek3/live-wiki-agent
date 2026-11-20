@@ -77,7 +77,15 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 - REGULATION은 `law_id`·`revision_id` 필수. `content_hash` = 게시 본문(마스킹본)의 `sha256:{hex}`.
 - v0.2 선택: `business_path[]`(최대 3, Classify 업무 경로)·`tags[]`(최대 8). 빈 값이면 키 생략. 청크 메타데이터에 그대로 복사되며 search_wiki `business`·`tags` 필터(`listContains`)와 결과 필드로 쓴다.
 - 그림 묘사(13항 13번): masked segment의 `figures[{kind,description,overlay_text?,intent?}]` → 게시 본문 끝에 `⟦그림 p{page}⟧ …` 줄(`figureLine`) → 청크는 별도(`provision_id={doc_id}#fig{n}`, `has_figure: true`, `original_text: ""`), 검색 결과 `quotable: false`. 그림 묘사는 원문이 아니므로 근거 인용 금지.
-- Regulations 테이블 추가 키(let522mj): `REGHASH#{sha256}`/`REV` → Registry 해시 → 개정본, `WEBLAW#{법령명}`/`LATEST` → Browser 조회 캐시(1일).
+- Regulations 테이블 키 (조문 구조화 저장소, 11/20 확정, data). **GSI 없음**: 모든 조회가 `pk` 일치 + `sk` 접두사(`begins_with`)라 기본 키로 충분하다.
+
+| pk | sk | 값 |
+|---|---|---|
+| `LAW#{law_id}` | `REV#{revision_id}` | 개정본 (effective_from·to, authority_status, content_hash, parse_ok 등) |
+| `LAW#{law_id}` | `REV#{revision_id}#P#{rel_path}` | 조문 (과거 버전 조회 = 같은 pk의 다른 `REV#`) |
+| `LAWNAMES` | `LAW#{law_id}` | 법령명 목록 (이름 → law_id) |
+| `REGHASH#{sha256:hex}` | `REV` | Registry 해시 → 개정본 |
+| `WEBLAW#{법령명}` | `LATEST` | Browser 조회 캐시 (1일) |
 - 청크 메타데이터(Chunker가 추가): `provision_id, provision_path, provision_status, parent_id, source_page, original_text`.
 - `original_text`는 인용용 원문. 임베딩 입력(contentBody)은 문맥 헤더 + 본문인 `augmented_search_text`이며 인용에 쓰지 않는다.
 - 위치: `published/{legal|knowledge}/{doc_id}/content.txt` + `content.txt.metadata.json`.
@@ -356,3 +364,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/documents/{id}/freshness/confirm` 추가 (Change Impact 재승인: 변경 없이 유효). 문서 `freshness_confirmed[]` |
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/admin/impact/draft` 추가 (Change Impact 수정 초안, AI팀 계약 합의·총괄 승인). 위키 수정 요청에 `source`·`law`·`path`·`requested_by` |
 | 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` 추가 (프론트엔드팀 요청, 화면 08). 평가 실행기는 결과를 감사 기록 `EVALUATION_RUN`으로 남긴다. API 403 감사 기록 `detail`에 `roles`·`reason` 추가 |
+| 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
