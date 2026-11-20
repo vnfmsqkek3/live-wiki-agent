@@ -131,7 +131,7 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     const w = at(pages, it.statement);
     // 수정 내용: 모델이 근거 조문에 맞게 고쳐 쓴 문장(suggestion) 우선. 없으면 충돌=근거 조문 문구, 실무 보완=권장 표현, 근거 확인됨=수정 없음
     // 실무 보완은 모델 수정문을 쓰지 않는다 (모델이 의무를 '권장'으로 낮추는 등 내용을 바꿈 — dhxorb96 실측 11/17). suggestion은 충돌에만 옴
-    const revision = kind === "CONFIRMED" ? null : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : kind === "CONFLICT" ? it.suggestion ?? it.quote : kind === "BASIS_MISMATCH" ? MISMATCH : null;
+    const revision = kind === "CONFIRMED" ? null : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : kind === "CONFLICT" ? it.suggestion ?? it.quote : null; // 근거와 다름: 고쳐 쓸 문장이 없음(안내문은 fix 에만, 웹 [적용]이 본문을 안내문으로 바꾸지 않게)
     marks.push({
       ...w, kind, label: MARK_LABEL[kind],
       severity: kind === "CONFLICT" ? "HIGH" : kind === "INSUFFICIENT" || kind === "BASIS_MISMATCH" ? "MEDIUM" : "LOW", reason: it.reason,

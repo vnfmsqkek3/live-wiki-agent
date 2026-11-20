@@ -145,7 +145,7 @@ test("근거 표시(사용자 피드백 11/20): 든 적 없는 조문(basis=NONE
     const [m] = await buildMarks(pages, { knowhow: { items: [item("비대면 계좌 개설은 2가지 이상 인증 수단을 사용한다.", rel, "CITED")], outdated: [] } }, s);
     assert.equal(m!.kind, "BASIS_MISMATCH"); assert.equal(m!.label, "근거와 다름"); assert.equal(m!.severity, "MEDIUM");
     assert.equal(m!.basis?.provision_id, pid);
-    assert.equal(m!.fix, "근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요."); assert.equal(m!.revision, m!.fix);
+    assert.equal(m!.fix, "근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요."); assert.equal(m!.revision, null, "수정 문장 없음: 웹 [적용]으로 본문이 안내문이 되지 않게");
   }
   // basis 없는 기존 항목은 그대로 (확인 필요 + 근거 조문)
   const [old] = await buildMarks(pages, { knowhow: { items: [item("처리 결과를 고객에게 안내한다.", "INSUFFICIENT")], outdated: [] } }, s);
