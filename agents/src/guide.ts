@@ -109,6 +109,25 @@ export interface GuideDeps {
   expand?(query: string, evidence: { id: string; title: string; text: string }[]): Promise<string[] | { items: string[]; variants?: string[] }>;
   /** 스트리밍 진행 문구 (사용자 확인 13항 10·11번). 원문·근거 본문은 보내지 않는다 */
   progress?(text: string): void;
+  /** 답변 출력 검사 (Bedrock Guardrails ApplyGuardrail OUTPUT). 정규식 마스킹 뒤 2차. 탐지 값과 차단 여부 */
+  guard?(text: string): Promise<{ blocked: boolean; matches: string[] }>;
+}
+
+export const GUARD_BLOCKED = '답변에 표시할 수 없는 내용이 있어 보여드리지 않습니다. 담당 부서에 문의하세요.';
+/** 사람에게 보이는 답변 문장 전부를 한 번에 검사하고, 탐지 값은 가린다. 차단이면 답변을 버린다 */
+export async function guardOutput(r: GuideResult, guard: NonNullable<GuideDeps['guard']>): Promise<GuideResult> {
+  const secs = r.sections ?? [];
+  const texts = [...r.steps.map((s) => s.text), ...secs.flatMap((s) => [s.title, s.note, s.fallback ?? '', s.source_note ?? '']), r.uncertainty];
+  const g = await guard(texts.filter(Boolean).join('\n'));
+  if (g.blocked) { const { sections: _s, ...rest } = r; return { ...rest, status: 'NO_EVIDENCE', steps: [], dropped_steps: r.steps.length, uncertainty: GUARD_BLOCKED, guard: 'BLOCKED' }; }
+  if (!g.matches.length) return r;
+  // ponytail: 탐지 값 문자열 치환. 짧은 값(PIN 등)이 다른 숫자 일부와 겹치면 함께 가려진다 — 과마스킹 쪽으로 틀린다
+  const c = (t: string) => g.matches.reduce((x, m) => x.split(m).join('[민감정보]'), t);
+  const st = (s: GuideResult['steps'][number]) => ({ ...s, text: c(s.text) });
+  return {
+    ...r, steps: r.steps.map(st), uncertainty: c(r.uncertainty), guard: 'MASKED',
+    ...(r.sections ? { sections: secs.map((s) => ({ ...s, title: c(s.title), note: c(s.note), steps: s.steps.map(st), ...(s.fallback ? { fallback: c(s.fallback) } : {}), ...(s.source_note ? { source_note: c(s.source_note) } : {}) })) } : {}),
+  };
 }
 
 /** 진행 문구. 검색 문구는 search Tool 정의(tools.json progress, let522mj)가 있으면 그것으로 바꾼다 */
@@ -131,6 +150,8 @@ export interface GuideResult {
   uncertainty: string;
   /** Agent가 고른 Tool 호출 기록 (권고안 B) */
   tool_calls?: ToolCall[];
+  /** Guardrails 출력 검사 결과. 없으면 검사 안 함(GUARDRAIL_ID 미설정) 또는 탐지 없음 */
+  guard?: 'MASKED' | 'BLOCKED';
 }
 
 const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나은행 자료 아님) 업무 가이드 작성자다.
@@ -243,7 +264,8 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   draft.uncertainty = named(draft.uncertainty ?? '');
   const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
-  return { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)), tool_calls: draft.tool_calls ?? [] };
+  const out: GuideResult = { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)), tool_calls: draft.tool_calls ?? [] };
+  return deps.guard ? guardOutput(out, deps.guard) : out;
 }
 
 /** Gateway 연결 전 mock 근거 (하나은행 가상 데이터) */
