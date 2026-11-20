@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { z } from 'zod';
 import { AfterToolCallEvent, Agent, BedrockModel, BeforeToolCallEvent, McpClient } from '@strands-agents/sdk';
-import { ALLOWED_TOOLS, GUIDE_SYSTEM, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, citableFrom, guide, toolBudget, type Evidence, type ToolCall } from './guide.ts';
+import { ALLOWED_TOOLS, AS_OF_RE, GUIDE_SYSTEM, withAsOf, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, citableFrom, guide, toolBudget, type Evidence, type ToolCall } from './guide.ts';
 
 const env = (k: string) => {
   const v = process.env[k];
@@ -18,13 +18,13 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 /** Gateway search Tool 호출. 사용자 JWT를 그대로 전달 → interceptor가 __actor 주입 → Tool이 ACL 강제 */
-async function searchViaGateway(query: string, authorization: string, opts: { expand?: 'section' } = {}): Promise<Evidence[]> {
+async function searchViaGateway(query: string, authorization: string, opts: { expand?: 'section'; as_of?: string } = {}): Promise<Evidence[]> {
   const client = new McpClient({ url: env('GATEWAY_URL'), headers: { authorization } });
   try {
     const name = process.env.SEARCH_TOOL ?? 'search___search_wiki';
     const tool = (await client.listTools()).find((t) => t.name === name);
     if (!tool) throw new Error(`tool not found: ${name}`);
-    const r = (await client.callTool(tool, { query, top_k: 5, ...(opts.expand ? { expand: opts.expand } : {}) })) as { content?: { type: string; text?: string }[] };
+    const r = (await client.callTool(tool, { query, top_k: 5, ...(opts.expand ? { expand: opts.expand } : {}), ...(opts.as_of ? { as_of: opts.as_of } : {}) })) as { content?: { type: string; text?: string }[] };
     const text = r.content?.find((c) => c.type === 'text')?.text ?? '{}';
     // expand:"section" (let522mj PR #43): 걸린 장(최대 2)의 조각을 쪽 순서로 더 준다. 장 조각을 앞에(절차가 이어지도록)
     const out = JSON.parse(text) as { items?: Evidence[]; expanded?: { items?: Evidence[] }[] };
@@ -60,7 +60,7 @@ async function guardWithGuardrail(text: string) {
   return { blocked: [...hits, ...others].some((e) => e.action === 'BLOCKED'), matches: [...new Set(hits.map((e) => e.match ?? '').filter(Boolean))] };
 }
 
-async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void }) {
+async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void; asOf?: string }) {
   const model = new BedrockModel({ region: env('AWS_REGION'), modelId: env('MODEL_SONNET'), maxTokens: 8192 });
   const client = process.env.GATEWAY_URL && ctx.authorization
     ? new McpClient({ url: env('GATEWAY_URL'), headers: { authorization: ctx.authorization }, toolFilters: { allowed: [...ALLOWED_TOOLS] } })
@@ -74,6 +74,7 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
     if (!ev.toolUse.name.includes('___')) return; // SDK 내부 Tool(structured_output)은 기록·진행 문구 없음
     const why = budget.check(ev.toolUse.name, ev.toolUse.input);
     if (why) { ev.cancel = why; return; }
+    ev.toolUse.input = withAsOf(ev.toolUse.name, ev.toolUse.input, ctx.asOf) as typeof ev.toolUse.input;
     started.set(ev.toolUse.toolUseId, Date.now());
     ctx.progress?.(TOOL_PROGRESS[ev.toolUse.name.split('___').pop() ?? ''] ?? '관련 정보를 확인하는 중입니다');
   });
@@ -101,12 +102,15 @@ createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/invocations') {
       const b = await readJson(req);
       if (typeof b.prompt !== 'string' || !b.prompt.trim() || b.prompt.length > 1000) return send(400, { error: 'prompt: 1~1000자' });
+      // as_of: 평가 기준일 고정용(선택). 없으면 Tool이 오늘로 판단
+      if (b.as_of !== undefined && (typeof b.as_of !== 'string' || !AS_OF_RE.test(b.as_of))) return send(400, { error: 'as_of: YYYY-MM-DD' });
+      const asOf = b.as_of as string | undefined;
       const auth = req.headers['authorization'];
       const search = process.env.GATEWAY_URL
-        ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, o); }
+        ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, { ...o, ...(asOf ? { as_of: asOf } : {}) }); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
       const authorization = typeof auth === 'string' ? auth : undefined;
-      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}),
+      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization, asOf }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}),
         ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
       // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
       if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {
@@ -115,7 +119,7 @@ createServer(async (req, res) => {
         // CloudFront는 60초 동안 바이트가 없으면 끊는다 → 15초마다 SSE 주석 (yoyo0704)
         const ping = setInterval(() => res.write(': ping\n\n'), 15_000);
         const progress = (text: string) => ev('progress', { text });
-        try { ev('result', await guide(b.prompt, { ...deps, draft: (p: string) => draftWithModel(p, { authorization, progress }), progress })); }
+        try { ev('result', await guide(b.prompt, { ...deps, draft: (p: string) => draftWithModel(p, { authorization, progress, asOf }), progress })); }
         catch (e) { console.error(JSON.stringify({ err: (e as Error).name })); ev('error', { message: '가이드를 만들지 못했습니다' }); }
         finally { clearInterval(ping); }
         return res.end();

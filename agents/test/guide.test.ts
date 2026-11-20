@@ -207,3 +207,11 @@ test('Guardrails 출력 검사: 탐지 값은 가리고, 차단이면 답변을 
   assert.ok(!JSON.stringify(blocked.steps).includes('hunter2'));
   await assert.rejects(guide('접속 방법', { ...deps(draft), guard: async () => { throw new Error('guardrail down'); } }));
 });
+
+test('withAsOf: 기준일을 받는 Tool에 as_of가 없을 때만 채운다', async () => {
+  const { withAsOf } = await import('../src/guide.ts');
+  assert.deepEqual(withAsOf('search___search_wiki', { query: 'q' }, '2026-12-15'), { query: 'q', as_of: '2026-12-15' });
+  assert.deepEqual(withAsOf('regulation___get_clause', { law: 'l', as_of: '2025-01-01' }, '2026-12-15'), { law: 'l', as_of: '2025-01-01' }, '모델이 정한 기준일은 그대로');
+  assert.deepEqual(withAsOf('regulation___resolve_reference', { provision_id: 'p' }, '2026-12-15'), { provision_id: 'p' }, 'as_of 없는 Tool은 그대로');
+  assert.deepEqual(withAsOf('search___search_wiki', { query: 'q' }), { query: 'q' }, '기준일 미지정이면 그대로');
+});
