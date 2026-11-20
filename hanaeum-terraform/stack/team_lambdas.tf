@@ -10,12 +10,13 @@ variable "team_lambdas" {
 
 locals {
   # 구성 요소별 S3 접두사 (해당 ref 가 없으면 그 구성 요소 Lambda 는 team_lambdas 에 넣지 않는다)
-  dz     = "${try(local.lb.prefix["dhxorb96"], "missing")}/dhxorb96-handlers.zip"
-  lz     = try(local.lb.prefix["let522mj"], "missing")
-  dp     = try(local.lb.prefix["dhxorb96"], "missing")
-  t      = module.ddb.tables
-  b      = module.s3.buckets
-  kb_arn = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
+  dz                = "${try(local.lb.prefix["dhxorb96"], "missing")}/dhxorb96-handlers.zip"
+  lz                = try(local.lb.prefix["let522mj"], "missing")
+  dp                = try(local.lb.prefix["dhxorb96"], "missing")
+  t                 = module.ddb.tables
+  b                 = module.s3.buckets
+  mcp_regulation_fn = "${local.n.prefix}-lambda-mcp-regulation${local.n.suffix}"
+  kb_arn            = "arn:aws:bedrock:${var.region}:${data.aws_caller_identity.me.account_id}:knowledge-base/${module.kb.kb_id}"
 
   d_env = {
     TABLE_DOCUMENTS    = local.t["documents"].name
@@ -104,6 +105,7 @@ locals {
       env = merge(local.d_env, {
         TABLE_REGULATIONS = local.t["regulations"].name, KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"]
         MODEL_SONNET      = var.models["MODEL_SONNET"], MODEL_HAIKU = var.models["MODEL_HAIKU"]
+        MCP_REGULATION_FN = local.mcp_regulation_fn # 외부 법령 대조 (AI #76, 백엔드 요청 11/20). 없으면 대조만 생략
       })
       statements = [
         { Effect = "Allow", Action = ["dynamodb:GetItem", "dynamodb:PutItem", "dynamodb:BatchGetItem"], Resource = local.t["documents"].arn },
@@ -113,6 +115,7 @@ locals {
         { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
         { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
         { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+        { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:${var.region}:${local.acct}:function:${local.mcp_regulation_fn}" },
       ]
     }
     wait-for-approval = { zip = local.dz, handler = "handlers.waitForApproval", env = local.d_env, memory = 256, timeout = 30, model_caller = false, statements = local.d_statements }
@@ -123,6 +126,7 @@ locals {
       env = merge(local.d_env, {
         TABLE_REGULATIONS = local.t["regulations"].name, KB_ID = module.kb.kb_id, MODEL_RERANK = var.models["MODEL_RERANK"]
         MODEL_SONNET      = var.models["MODEL_SONNET"], MODEL_HAIKU = var.models["MODEL_HAIKU"]
+        MCP_REGULATION_FN = local.mcp_regulation_fn # 외부 법령 대조 (AI #76, 백엔드 요청 11/20). 없으면 대조만 생략
       })
       statements = concat(local.d_statements, local.purge, [
         { Effect = "Allow", Action = ["dynamodb:Scan"], Resource = local.t["documents"].arn },
@@ -131,6 +135,7 @@ locals {
         { Effect = "Allow", Action = ["bedrock:Retrieve"], Resource = local.kb_arn },
         { Effect = "Allow", Action = ["bedrock:Rerank"], Resource = "*" },
         { Effect = "Allow", Action = ["bedrock:InvokeModel"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${var.region}:${local.acct}:inference-profile/*"] },
+        { Effect = "Allow", Action = ["lambda:InvokeFunction"], Resource = "arn:aws:lambda:${var.region}:${local.acct}:function:${local.mcp_regulation_fn}" },
       ])
     }
     # 일 1회: 시행일이 된 개정판의 근거 노하우를 재검토 대상으로 (EventBridge Scheduler, freshness.tf)
