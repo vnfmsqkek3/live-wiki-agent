@@ -25,7 +25,7 @@ const day = (iso: string) => new Date(iso).toLocaleDateString('sv-SE', { timeZon
 const REL: Record<LibraryCard['related'][number]['relation'], string> = { CITES: '근거로 인용한 규정', CITED_BY: '이 규정을 근거로 쓴 문서', CONFLICTS: '충돌', SIMILAR: '내용이 비슷함' };
 const TYPE_NAME = { REGULATION: '규정', KNOWHOW: '실무 노하우', MANUAL: '매뉴얼' } as const;
 const KIND: Record<Mark['kind'], string> = {
-  CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨',
+  CONFLICT: '규정과 충돌', OUTDATED: '개정 전 규정 인용', INSUFFICIENT: '근거 확인 안 됨', BASIS_MISMATCH: '근거와 다름',
   REGISTRY_MISMATCH: '공식 원본과 다름', PII_UNCERTAIN: '개인정보 확인 필요', INJECTION: '의심스러운 지시문',
   CONFIRMED: '근거 확인됨', SUPPLEMENT: '실무 보완(참고)',
 };
@@ -182,7 +182,8 @@ function List() {
 
 /** 확인이 필요한 건의 세 칸: 원본 내용 · 근거 내용 · 근거를 바탕으로 한 수정 내용 (사용자 요청 11/17) */
 function Trio({ m }: { m: Mark }) {
-  const revision = m.revision ?? (m.kind === 'INSUFFICIENT' ? '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.' : '수정 필요 없음');
+  // INSUFFICIENT: 근거 조문이 없으면 판단 불가, 있으면 그 조문만으로는 판단 부족 (AI팀 요청 11/20). BASIS_MISMATCH는 서버 revision 그대로
+  const revision = m.revision ?? (m.kind !== 'INSUFFICIENT' ? '수정 필요 없음' : m.basis ? '근거 조문만으로는 AI가 판단하지 못했습니다. 담당 부서에 확인해 주세요.' : '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.');
   return (
     <dl className="trio">
       <dt>원본 내용</dt><dd>{m.original ?? <span className="note">(올린 문서에 없음)</span>}</dd>
