@@ -65,10 +65,10 @@ orca terminal list --include-visual-layouts --json   # tab title이 팀명인 te
 
 ### 컨텍스트 압축 (`/compact`)
 
-컨텍스트가 길어지면 효율과 결과 품질이 떨어진다. 각 팀은 스스로 판단해 `/compact`를 실행한다 (사용자 지시 11/20). 기준: 큰 작업 단위가 끝났을 때, 또는 대화가 길어져 앞 내용을 다시 찾기 어려울 때.
+컨텍스트가 길어지면 효율과 결과 품질이 떨어진다. 각 팀은 스스로 압축 시점을 판단한다 (사용자 지시 11/20).
 
 1. 압축 전에 `role/.state/{slug}.md`를 갱신한다: 끝낸 작업(PR·커밋·증빙), 진행 중인 작업과 다음 단계, 기다리는 요청·회신(상대 팀·message id), 받은 결정, 팀 명부.
-2. `/compact`를 실행한다.
+2. 총괄팀에 `[compact 준비] {팀명}`(type 없음)을 보낸다. `/compact`는 사용자 입력 명령이라 에이전트가 직접 실행할 수 없으므로, 총괄팀이 그 팀 터미널이 대기 상태이고 실행 중인 shell이 없을 때 `orca terminal send`로 `/compact`를 입력한다 (사용자 결정 11/20). 기준: 상태줄 `ctx` 60% 이상이거나 큰 작업 단위가 끝났을 때.
 3. 압축 뒤 가장 먼저 `role/README.md` → `role/{팀명}.md` → `role/.state/{slug}.md`를 읽고, `orca orchestration check`로 새 메시지를 확인한 다음 이어서 한다.
 
 ## 4. Git
