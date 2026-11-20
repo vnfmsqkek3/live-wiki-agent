@@ -5,11 +5,11 @@ E2E·통합 시나리오 (Owner dhxorb96). 문서 처리 검증은 AgentCore 오
 ## qa-demo 점검표 (데모 01~06 + 정량 화면 확인)
 
 `QA_BASE=https://<prod CloudFront> QA_SCRIPT=qa-demo.mjs tests/e2e/qa-run.sh`. 결과는 `$QA_OUT/qa-demo-result.json`과 스크린샷. 샘플은 `tests/evaluations/cases/sets.json`을 읽는다.
-`QA_PART=demo`는 데모 문서 6건만 올리고, `QA_APPROVE=0`은 정상 문서를 승인하지 않는다. prod가 데모 환경이므로 실행 전에 총괄팀·인프라팀에 알린다. 올린 `[SYNTHETIC] QA` 문서는 끝에 doc_id를 출력하니 그것으로 정리한다.
+`QA_PART=demo`는 데모 문서 6건만 올린다. prod가 데모 환경이므로 기본은 아무것도 게시하지 않는다: Q1은 결재함 승인 버튼까지 보고, 끝에 이 실행이 게시 요청한 `[SYNTHETIC] QA …` 문서를 admin이 모두 반려한다(BLOCKED, 검색 제외). 실제 승인·게시까지 보려면 `QA_APPROVE=1`(총괄팀 승인 필요, M04 F-002 업로드도 이때만). 실행 전 총괄팀 승인.
 
 | ID | 기준 (`docs/02`) | 통과 |
 |---|---|---|
-| Q1 {id} | 4장 정상 등록 5 | 분석 통과 → 게시 요청 성공 → 결재함에 승인 버튼 → 승인 후 10분 안에 PUBLISHED |
+| Q1 {id} | 4장 정상 등록 5 | 분석 통과 → 게시 요청 성공 → 결재함에 승인 버튼 (`QA_APPROVE=1`이면 승인 후 10분 안에 PUBLISHED까지) |
 | Q2 {id} | 4장 위조 차단 5 | 분석 차단·게시 요청 거부·결재함 반려만 중 하나, user 검색에 안 보임. 결재함에 승인 가능으로 올라오면 PART |
 | Q3 {id} | 4장 Injection 5 | Q2와 같음 (KB 유입 0) |
 | Q4 | 4장 비인가 게시 5 | user 세션의 결재 결정 요청 5회가 모두 403, user가 `/admin`을 열면 '볼 수 없는 화면' |

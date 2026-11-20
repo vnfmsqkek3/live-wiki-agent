@@ -1,6 +1,7 @@
 // 데모 01~06(docs/02 5.1) + 정량 화면 확인(docs/02 4장) QA. 헤드리스 Chrome(CDP)으로 배포 사이트를 실제 조작한다.
 //   set -a; . ./.env.local; set +a; QA_BASE=https://<cloudfront> QA_SCRIPT=qa-demo.mjs tests/e2e/qa-run.sh
-// env: QA_BASE(필수), QA_OUT, QA_CDP, QA_PART=all|demo (demo = 데모 문서 6건만), QA_APPROVE=0 (정상 문서 승인 생략)
+// env: QA_BASE(필수), QA_OUT, QA_CDP, QA_PART=all|demo (demo = 데모 문서 6건만), QA_APPROVE=1 (정상 문서 실제 승인·게시, 기본 끔)
+// prod=데모 환경(11/20): 기본은 아무것도 게시하지 않는다. '승인 가능'(결재함 승인 버튼)까지만 보고, 끝에 이 실행이 게시 요청한 QA 문서를 admin이 모두 반려(BLOCKED, 검색 제외)
 // 입력: stdin JSON {"user":"…","admin":"…"} (비밀번호, 출력 금지). 샘플 목록은 tests/evaluations/cases/sets.json (단일 원본)
 // 점검표 ID는 tests/e2e/README.md 'qa-demo 점검표'. 올린 [SYNTHETIC] QA 문서는 정리하지 않는다 (hanaeum-qa.md 보고 절차대로 정리)
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -9,7 +10,7 @@ import { resolve } from 'node:path';
 const BASE = process.env.QA_BASE;
 if (!BASE) { console.error('QA_BASE 가 필요합니다 (배포 CloudFront URL)'); process.exit(2); }
 const OUT = process.env.QA_OUT ?? './qa-out';
-const APPROVE = process.env.QA_APPROVE !== '0';
+const APPROVE = process.env.QA_APPROVE === '1';
 const sets = JSON.parse(readFileSync('tests/evaluations/cases/sets.json', 'utf8'));
 const DEMO = { normal: ['F-001', 'K-001'], forged: ['F-003'], attack: ['A-001'], conflict: ['K-002'] };
 const S = process.env.QA_PART === 'demo' ? DEMO
@@ -253,8 +254,14 @@ const evalScreen = await ev("[...document.querySelectorAll('a')].some((a) => /�
 const q4 = results.find((r) => r.id === 'Q4')?.ok === true;
 check('M06', q4 && runs.n > 0 && runs.trace && evalScreen ? true : q4 ? 'partial' : false, `비인가 거부 ${q4} · 실행 기록 ${runs.n}건 · Trace 링크 ${runs.trace} · 평가 결과 화면 ${evalScreen ? '있음' : '없음(docs/02 허용 경로: 자체 평가 결과표)'}`, await shot('M06-runs'));
 
+// 정리: 이 실행이 게시 요청했고 승인하지 않은 QA 문서는 admin이 반려 → 결재함·검색에 남지 않음
+await login('admin');
+const cleanup = {};
+for (const [sid, d] of Object.entries(docs)) if (d.approval_id && !d.approved) cleanup[sid] = (await api(`/v1/approvals/${d.approval_id}/decision`, 'POST', { decision: 'REJECT', reason: 'QA 자동 점검 정리' })).status;
+console.log(`정리(반려): ${JSON.stringify(cleanup)}`);
+
 writeFileSync(`${OUT}/qa-demo-result.json`, JSON.stringify({
-  base: BASE, at: new Date().toISOString(), part: process.env.QA_PART ?? 'all', approve: APPROVE, results,
+  base: BASE, at: new Date().toISOString(), part: process.env.QA_PART ?? 'all', approve: APPROVE, results, cleanup,
   docs: Object.fromEntries(Object.entries(docs).map(([k, d]) => [k, { title: d.title, doc_id: d.docId, lifecycle: d.lifecycle, final: d.final, submit: d.submit, admin: d.admin }])),
   page_errors: [...new Set(errors)].slice(0, 20), api_errors: net.filter((n) => n.status >= 400 && !n.url.includes('/decision')).map((n) => `${n.status} ${new URL(n.url).pathname}`),
 }, null, 2));
