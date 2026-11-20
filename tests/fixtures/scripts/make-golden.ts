@@ -18,33 +18,33 @@ const HEAD = "SYNTHETIC — 하나은행(가상 데이터) 가상 내부 규정.
 interface Domain {
   code: string; name: string; dept: string; topic: string;
   terms: [string, string][];
-  a5: { title: string; pre: string; v1: string; v2: string; post: string; exc: string };
+  a5: { title: string; pre: string; v1: string; v2: string; post: string; exc: string; then?: string };
   a6: { title: string; items: [string, string, string]; p2: string };
-  a7: { title: string; text: string };
-  a72: { title: string; text: string };
+  a7: { title: string; text: string; then?: string };
+  a72: { title: string; text: string; then?: string }; // then: 노하우 2번 문장 (같은 조문 내용에 맞게, 사용자 피드백 11/20)
   revised?: boolean; // v2 개정 대상
 }
 const D: Domain[] = [
   { code: "DEP", name: "수신업무 처리규정", dept: "수신", topic: "예금 수신", terms: [["실명확인", "거래자의 실지명의를 확인하는 절차"], ["휴면예금", "5년 이상 거래가 없는 예금"]],
-    a5: { title: "고액 현금 인출", pre: "1회", v1: "1천만원", v2: "5백만원", post: " 이상 현금 인출 시 책임자 승인을 받아야 한다", exc: "자동화기기 인출은 별도 한도를 따른다" },
+    a5: { title: "고액 현금 인출", pre: "1회", v1: "1천만원", v2: "5백만원", post: " 이상 현금 인출 시 책임자 승인을 받아야 한다", exc: "자동화기기 인출은 별도 한도를 따른다", then: "기준 이상 인출이면 책임자 승인을 받은 뒤 지급한다." },
     a6: { title: "계좌 개설 확인", items: ["실명확인증표 원본", "거래 목적 확인서", "금융거래 한도 계좌 여부"], p2: "확인 기록은 10년간 보관한다" },
-    a7: { title: "휴면예금 안내", text: "휴면예금은 연 1회 이상 고객에게 안내하여야 한다." }, a72: { title: "비대면 개설", text: "비대면 계좌 개설은 2가지 이상 인증 수단을 사용한다." }, revised: true },
+    a7: { title: "휴면예금 안내", text: "휴면예금은 연 1회 이상 고객에게 안내하여야 한다." }, a72: { title: "비대면 개설", text: "비대면 계좌 개설은 2가지 이상 인증 수단을 사용한다.", then: "인증 수단이 1가지만 확인되면 비대면 개설을 진행하지 않는다." }, revised: true },
   { code: "FX", name: "외국환업무 취급규정", dept: "외환", topic: "외국환", terms: [["해외송금", "국외로 자금을 지급하는 거래"], ["거래외국환은행", "고객이 지정한 외국환 거래 영업점"]],
-    a5: { title: "증빙 없는 송금 한도", pre: "건당", v1: "미화 5천달러", v2: "미화 3천달러", post: "를 초과하는 해외송금은 증빙서류를 받아야 한다", exc: "유학생 송금은 연간 한도 내에서 증빙을 생략할 수 있다" },
+    a5: { title: "증빙 없는 송금 한도", pre: "건당", v1: "미화 5천달러", v2: "미화 3천달러", post: "를 초과하는 해외송금은 증빙서류를 받아야 한다", exc: "유학생 송금은 연간 한도 내에서 증빙을 생략할 수 있다", then: "기준을 넘는 송금은 증빙서류를 받은 뒤 처리한다." },
     a6: { title: "송금 확인 사항", items: ["수취인 실명", "송금 사유", "제재 대상 해당 여부"], p2: "제재 대상 조회 결과는 5년간 보관한다" },
     a7: { title: "환율 적용", text: "환율은 거래 시점의 고시 환율을 적용한다." }, a72: { title: "예외 송금", text: "긴급 송금은 사후 증빙 제출을 조건으로 처리할 수 있다." }, revised: true },
   { code: "CARD", name: "신용카드 발급규정", dept: "카드", topic: "신용카드 발급", terms: [["결제능력", "카드대금을 갚을 수 있는 소득 수준"], ["이용한도", "카드로 사용할 수 있는 최대 금액"]],
-    a5: { title: "발급 연령", pre: "만", v1: "19세", v2: "20세", post: " 이상인 자에게만 신용카드를 발급한다", exc: "가족카드는 본인 회원 동의로 발급할 수 있다" },
+    a5: { title: "발급 연령", pre: "만", v1: "19세", v2: "20세", post: " 이상인 자에게만 신용카드를 발급한다", exc: "가족카드는 본인 회원 동의로 발급할 수 있다", then: "기준 연령 미만이면 신용카드 발급 신청을 받지 않는다." },
     a6: { title: "발급 심사", items: ["소득 증빙", "신용점수", "기존 카드 연체 여부"], p2: "심사 결과는 3년간 보관한다" },
-    a7: { title: "한도 조정", text: "이용한도는 6개월마다 재산정한다." }, a72: { title: "모바일 발급", text: "모바일 단독 카드는 실물 카드 없이 발급할 수 있다." }, revised: true },
+    a7: { title: "한도 조정", text: "이용한도는 6개월마다 재산정한다." }, a72: { title: "모바일 발급", text: "모바일 단독 카드는 실물 카드 없이 발급할 수 있다.", then: "모바일 단독 카드를 발급할 때는 실물 카드 배송 절차를 생략한다." }, revised: true },
   { code: "RISK", name: "신용리스크 관리규정", dept: "리스크", topic: "신용리스크", terms: [["동일인", "본인과 특수관계인을 합한 차주"], ["익스포저", "여신·보증 등 신용위험 노출 금액"]],
     a5: { title: "동일인 한도", pre: "동일인 익스포저는 자기자본의", v1: "20%", v2: "15%", post: "를 초과할 수 없다", exc: "정부 보증 여신은 한도 산정에서 제외한다" },
     a6: { title: "한도 점검", items: ["동일인 합산 익스포저", "업종 집중도", "담보 회수율"], p2: "점검 결과는 매월 리스크관리위원회에 보고한다" },
-    a7: { title: "스트레스 테스트", text: "스트레스 테스트는 분기마다 실시한다." }, a72: { title: "조기경보", text: "조기경보 대상 차주는 월 1회 재평가한다." }, revised: true },
+    a7: { title: "스트레스 테스트", text: "스트레스 테스트는 분기마다 실시한다.", then: "분기마다 스트레스 테스트 실시 일정을 업무 달력에 등록한다." }, a72: { title: "조기경보", text: "조기경보 대상 차주는 월 1회 재평가한다." }, revised: true },
   { code: "IC", name: "내부통제 기준", dept: "준법", topic: "내부통제", terms: [["준법감시인", "내부통제 준수 여부를 점검하는 책임자"], ["자점감사", "영업점 자체 점검"]],
     a5: { title: "자점감사 주기", pre: "영업점은", v1: "분기", v2: "분기", post: "마다 자점감사를 실시하여야 한다", exc: "신설 영업점은 개점 후 1년간 월 단위로 실시한다" },
     a6: { title: "점검 항목", items: ["시재금 실사", "중요 증서 관리", "전산 권한 현황"], p2: "점검 결과는 준법감시인에게 보고한다" },
-    a7: { title: "명령휴가", text: "사고 위험 직무 담당자는 연 1회 5영업일 이상 명령휴가를 사용한다." }, a72: { title: "내부고발", text: "내부고발자의 신원은 공개하지 아니한다." } },
+    a7: { title: "명령휴가", text: "사고 위험 직무 담당자는 연 1회 5영업일 이상 명령휴가를 사용한다." }, a72: { title: "내부고발", text: "내부고발자의 신원은 공개하지 아니한다.", then: "내부고발 접수 기록에는 고발자 이름 대신 접수 번호만 남긴다." } },
   { code: "PRIV", name: "개인정보 보호규정", dept: "정보보호", topic: "개인정보 처리", terms: [["개인정보", "살아 있는 개인을 알아볼 수 있는 정보"], ["가명처리", "추가 정보 없이 특정 개인을 알아볼 수 없게 처리하는 것"]],
     a5: { title: "보유 기간", pre: "거래 종료 후 개인정보는", v1: "5년", v2: "5년", post: "이 지나면 지체 없이 파기한다", exc: "법령에 별도 보존 기간이 있으면 그에 따른다" },
     a6: { title: "제3자 제공", items: ["제공받는 자", "제공 목적", "제공 항목"], p2: "제공 내역은 3년간 기록한다" },
@@ -52,7 +52,7 @@ const D: Domain[] = [
   { code: "ITSEC", name: "전산보안 관리규정", dept: "IT", topic: "전산 보안", terms: [["중요 단말", "고객정보를 처리하는 업무용 단말"], ["망분리", "업무망과 인터넷망을 분리하는 조치"]],
     a5: { title: "비밀번호 변경", pre: "시스템 비밀번호는", v1: "90일", v2: "90일", post: "마다 변경하여야 한다", exc: "다중 인증을 적용한 계정은 180일로 할 수 있다" },
     a6: { title: "외부 반출", items: ["반출 승인서", "암호화 여부", "반입 확인"], p2: "반출 기록은 1년간 보관한다" },
-    a7: { title: "보안 패치", text: "긴급 보안 패치는 공지 후 7일 이내 적용한다." }, a72: { title: "원격 접속", text: "원격 접속은 승인된 단말에서만 허용한다." } },
+    a7: { title: "보안 패치", text: "긴급 보안 패치는 공지 후 7일 이내 적용한다." }, a72: { title: "원격 접속", text: "원격 접속은 승인된 단말에서만 허용한다.", then: "승인 목록에 없는 단말의 원격 접속 요청은 거절한다." } },
   { code: "TRUST", name: "신탁업무 운용규정", dept: "신탁", topic: "신탁 운용", terms: [["위탁자", "신탁을 설정하는 자"], ["수익자", "신탁 이익을 받는 자"]],
     a5: { title: "단일 종목 편입 한도", pre: "단일 종목 편입 비율은 신탁재산의", v1: "10%", v2: "10%", post: "를 넘을 수 없다", exc: "국공채는 편입 한도를 적용하지 아니한다" },
     a6: { title: "운용 보고", items: ["운용 내역", "수익률", "보수 내역"], p2: "운용 보고서는 분기마다 위탁자에게 제공한다" },
@@ -60,7 +60,7 @@ const D: Domain[] = [
   { code: "FUND", name: "펀드 판매규정", dept: "자산관리", topic: "펀드 판매", terms: [["적합성", "투자자 성향에 맞는 상품인지 여부"], ["녹취", "판매 과정의 음성 기록"]],
     a5: { title: "고령 투자자 숙려", pre: "만 65세 이상 투자자에게 고위험 상품을 판매하면", v1: "2영업일", v2: "2영업일", post: "의 숙려기간을 부여하여야 한다", exc: "투자자가 서면으로 포기하면 숙려기간을 생략할 수 있다" },
     a6: { title: "판매 절차", items: ["투자성향 진단", "설명서 교부", "판매 녹취"], p2: "녹취 파일은 10년간 보관한다" },
-    a7: { title: "판매 보수", text: "판매 보수는 설명서에 기재된 비율을 초과하지 않는다." }, a72: { title: "철회", text: "청약 후 7일 이내 철회를 허용한다." } },
+    a7: { title: "판매 보수", text: "판매 보수는 설명서에 기재된 비율을 초과하지 않는다." }, a72: { title: "철회", text: "청약 후 7일 이내 철회를 허용한다.", then: "철회 요청을 받으면 청약일로부터 7일 이내인지 먼저 확인한다." } },
   { code: "AML", name: "자금세탁방지 업무규정", dept: "준법", topic: "자금세탁방지", terms: [["고객확인", "고객의 신원과 거래 목적을 확인하는 절차"], ["의심거래", "자금세탁이 의심되는 거래"]],
     a5: { title: "고액 현금 보고", pre: "1거래일 동안", v1: "1천만원", v2: "1천만원", post: " 이상 현금 거래는 보고 대상으로 등록한다", exc: "금융회사 간 거래는 보고 대상에서 제외한다" },
     a6: { title: "강화된 고객확인", items: ["자금 원천", "거래 목적", "실제 소유자"], p2: "고객확인 기록은 5년간 보관한다" },
@@ -68,7 +68,7 @@ const D: Domain[] = [
   { code: "CS", name: "민원 처리규정", dept: "소비자보호", topic: "민원 처리", terms: [["민원", "고객의 불만 및 개선 요구"], ["재민원", "같은 내용으로 다시 제기된 민원"]],
     a5: { title: "처리 기한", pre: "민원은 접수일로부터", v1: "14일", v2: "14일", post: " 이내 처리하여야 한다", exc: "복잡한 민원은 고객에게 알리고 1회 연장할 수 있다" },
     a6: { title: "민원 기록", items: ["접수 경로", "처리 결과", "고객 회신 내역"], p2: "민원 기록은 3년간 보관한다" },
-    a7: { title: "재민원 관리", text: "재민원은 소비자보호부서가 직접 처리한다." }, a72: { title: "만족도 조사", text: "민원 처리 후 만족도 조사를 실시할 수 있다." } },
+    a7: { title: "재민원 관리", text: "재민원은 소비자보호부서가 직접 처리한다." }, a72: { title: "만족도 조사", text: "민원 처리 후 만족도 조사를 실시할 수 있다.", then: "만족도 조사는 민원 처리가 끝난 뒤에만 실시한다." } },
   { code: "HR", name: "직원 겸직 관리규정", dept: "인사", topic: "직원 겸직", terms: [["겸직", "은행 외 영리 업무에 종사하는 것"], ["이해관계", "직무와 관련된 사적 이익"]],
     a5: { title: "겸직 승인", pre: "직원이 겸직하려면", v1: "30일", v2: "30일", post: " 전에 인사부서 승인을 받아야 한다", exc: "비영리 단체 무보수 활동은 신고로 갈음한다" },
     a6: { title: "신고 사항", items: ["겸직 기관", "업무 내용", "보수 여부"], p2: "신고 내역은 퇴직 후 3년간 보관한다" },
@@ -144,8 +144,8 @@ revised.forEach((d, i) => {
   const impacted = i < 3; // 마지막 1건은 변경 없는 제7조만 인용 → 영향 없음(대조군)
   const cite = impacted ? pid(d, 1, "ARTICLE:5/PARAGRAPH:1") : pid(d, 1, "ARTICLE:7");
   const body = impacted
-    ? `## 절차\n1. ${d.name} 제5조제1항의 ${d.a5.title} 기준(${d.a5.v1})을 먼저 확인한다.\n2. 확인 결과를 업무일지에 남긴다.`
-    : `## 절차\n1. ${d.name} 제7조에 따라 ${d.a7.text}\n2. 담당자 교육 자료에 반영한다.`;
+    ? `## 절차\n1. ${d.name} 제5조제1항의 ${d.a5.title} 기준(${d.a5.v1})을 먼저 확인한다.\n2. ${d.a5.then!}`
+    : `## 절차\n1. ${d.name} 제7조에 따라 ${d.a7.text}\n2. ${d.a7.then!}`;
   const kfile = write(`${kid}.md`, knowhow(kid, `${d.topic} 실무 메모 ${i + 1}`, d.dept, [cite], body, impacted ? "개정 영향 대상" : "개정 영향 없음(대조군)"));
   entries.push({ document_id: kid, category: "개정·삭제", file: kfile, document_type: "KNOWHOW", dept: d.dept, acl_groups: ["ALL"],
     expected_trust_gate: "PASS", expected_status: "VERIFIED", expected_conflict: false, related_regulation: lawId(d), related_clause: cite, expected_kb_visibility: true,
@@ -160,7 +160,7 @@ for (let i = 0; i < 13; i++) {
   const cite = useA6 ? pid(d, 1, "ARTICLE:6/PARAGRAPH:1") : pid(d, 1, "ARTICLE:7-2");
   const body = useA6
     ? `## 적용 조건\n- ${d.topic} 업무 담당자\n\n## 절차\n1. ${d.name} 제6조제1항의 확인 사항(${d.a6.items.join(", ")})을 체크리스트로 만든다.\n2. 빠진 항목이 있으면 처리를 보류한다.`
-    : `## 적용 조건\n- ${d.topic} 업무 담당자\n\n## 절차\n1. ${d.name} 제7조의2에 따라 ${d.a72.text}\n2. 처리 결과를 고객에게 안내한다.`;
+    : `## 적용 조건\n- ${d.topic} 업무 담당자\n\n## 절차\n1. ${d.name} 제7조의2에 따라 ${d.a72.text}\n2. ${d.a72.then!}`;
   const file = write(`${id}.md`, knowhow(id, `${d.topic} 체크 포인트 ${i + 1}`, d.dept, [cite], body, "정상 노하우"));
   entries.push({ document_id: id, category: "정상 노하우", file, document_type: "KNOWHOW", dept: d.dept, acl_groups: ["ALL"],
     expected_trust_gate: "PASS", expected_status: "VERIFIED", expected_conflict: false, related_regulation: lawId(d), related_clause: cite, expected_kb_visibility: true, cites: [cite], test_scenario: "근거 부합 검증" });

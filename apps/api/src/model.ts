@@ -18,7 +18,8 @@ export async function structured<T>(tier: ModelTier, system: string, user: strin
     modelId: model,
     system: [{ text: `${system}\n결과는 반드시 ${name} 도구로 제출한다.` }],
     messages: [{ role: 'user' as const, content: [{ text: user }] }] as Message[],
-    inferenceConfig: { maxTokens: 4096 },
+    // 판정 흔들림 줄이기 (총괄 11/20): temperature 0. 5.5·Fable 은 거부하므로 그때만 뺀다
+    inferenceConfig: { maxTokens: 4096, ...(/-5-5|fable-5/.test(model) ? {} : { temperature: 0 }) },
     toolConfig: { tools: [{ toolSpec: { name, description: '결과를 이 형식으로 제출', inputSchema: { json: schema } as ToolInputSchema.JsonMember } }], toolChoice: forced ? { tool: { name } } : { auto: {} } },
   };
   let r = await br().send(new ConverseCommand(req));

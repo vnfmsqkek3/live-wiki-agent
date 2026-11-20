@@ -27,6 +27,8 @@ variable "image_tag" {
 }
 variable "model_sonnet" { type = string }
 variable "model_haiku" { type = string } # 가이드 여러 번 찾기 항목 뽑기 (11/18)
+# 가이드 출력 PII 검사 (AI팀 PR #69). env 와 ApplyGuardrail IAM 은 함께 있어야 한다: env 만 있으면 가이드 전부 실패(fail-closed)
+variable "guardrail" { type = object({ id = string, version = string, arn = string }) }
 variable "extra_allowed_clients" {
   type    = list(string)
   default = [] # 외부 MCP 연결 client_credentials 클라이언트 (11/18)
@@ -204,6 +206,7 @@ resource "aws_iam_role_policy" "runtime" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${local.region}:${local.acct}:inference-profile/*"] },
+      { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = var.guardrail.arn },
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
       { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], Resource = aws_ecr_repository.guide.arn },
       { Effect = "Allow", Action = ["kms:Decrypt"], Resource = var.kms_key_arn },
@@ -232,10 +235,12 @@ resource "aws_bedrockagentcore_agent_runtime" "guide" {
   # 사용자 토큰을 Runtime 코드까지 전달 → 같은 토큰으로 Gateway 호출
   request_header_configuration { request_header_allowlist = ["Authorization"] }
   environment_variables = {
-    GATEWAY_URL  = aws_bedrockagentcore_gateway.user.gateway_url
-    MODEL_SONNET = var.model_sonnet
-    MODEL_HAIKU  = var.model_haiku
-    AWS_REGION   = local.region
+    GATEWAY_URL       = aws_bedrockagentcore_gateway.user.gateway_url
+    MODEL_SONNET      = var.model_sonnet
+    MODEL_HAIKU       = var.model_haiku
+    AWS_REGION        = local.region
+    GUARDRAIL_ID      = var.guardrail.id
+    GUARDRAIL_VERSION = var.guardrail.version
   }
   depends_on = [aws_iam_role_policy.runtime, aws_bedrockagentcore_policy.user_tools]
 }

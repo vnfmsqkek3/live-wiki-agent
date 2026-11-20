@@ -1,0 +1,8 @@
+{
+  "name": "@hanaeum/eval-runner",
+  "private": true,
+  "type": "module",
+  "description": "평가 실행기 (Owner infra): 측정 스크립트 실행 → 결과표 → S3 evaluations/ + 감사 EVALUATION_RUN",
+  "dependencies": { "@hanaeum/db": "*" },
+  "scripts": { "eval": "node src/run.ts", "test": "node --test \"src/**/*.test.ts\"" }
+}
