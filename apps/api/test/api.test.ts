@@ -680,7 +680,8 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   const ev = (span: string, kind = 'MODIFIED') => ({ cited_provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12', evidence_span: span, change: { path: 'ARTICLE:12', kind, old_text: '한도는 5억 원', new_text: '한도는 3억 원' } });
   const tokens: string[] = [];
   t.deps.traceImpact = async (a, tok) => { tokens.push(tok); return { law_id: 'SYN-LOAN-001', impacted: [{ doc_id, evidence: [ev('1. 여신 한도는 5억 원 이하로 심사한다.'), ev('본문에 없는 문장입니다')] }] }; };
-  const seen: { old_clause: string; new_clause: string }[] = [];
+  await t.store.putDoc({ ...d, doc_id: 'doc_01M7MEH5136HE3JJ68AD8M0REG', law_id: 'SYN-LOAN-001', law_name: '하나은행 기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED' } as never);
+  const seen: { old_clause: string; new_clause: string; law_name?: string }[] = [];
   t.deps.draftImpact = async (i) => { seen.push(i); return { verdict: 'APPROPRIATE', after: '1. 여신 한도는 3억 원 이하로 심사한다.', reason: '조문 한도 변경' }; };
   const body = { law: '기업여신 심사규정', doc_id };
 
@@ -693,7 +694,7 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   assert.deepEqual([r.items[0]!.verdict, r.items[0]!.after], ['APPROPRIATE', '1. 여신 한도는 3억 원 이하로 심사한다.']);
   assert.deepEqual([r.items[1]!.verdict, r.items[1]!.after, r.items[1]!.ai_reason], ['UNKNOWN', null, '본문에서 근거 문장을 찾지 못했습니다']);
   assert.equal(seen.length, 1, '찾지 못한 근거는 모델을 부르지 않음');
-  assert.deepEqual([seen[0]!.old_clause, seen[0]!.new_clause], ['한도는 5억 원', '한도는 3억 원']);
+  assert.deepEqual([seen[0]!.old_clause, seen[0]!.new_clause, seen[0]!.law_name], ['한도는 5억 원', '한도는 3억 원', '하나은행 기업여신 심사규정'], '초안 인용에 붙일 규정 이름');
   assert.equal(tokens[0], 'approver', '사용자 토큰으로 trace_impact');
 
   // 문서는 그대로(게시 유지) + 재검토 표시. 다시 눌러도 새로 만들지 않음
@@ -821,4 +822,16 @@ test('평점(인기): 목록·상세에 rating{avg,count}·useful_count·내 별
   assert.deepEqual([it.rating, it.useful_count], [{ avg: 4.5, count: 2 }, 1]);
   const det = (await (await t.call('user', 'GET', `/v1/library/${doc_id}`)).json()) as { my_stars: number; rating: { count: number } };
   assert.deepEqual([det.my_stars, det.rating.count], [5, 2]);
+});
+
+test('평가 화면 denials: Gateway Policy 거부도 API 거부와 함께 시간순, 로그 읽기 실패해도 API 거부는 보임 (P1 11/20)', async () => {
+  const t = setup();
+  assert.equal((await t.call('user', 'GET', '/v1/admin/evaluations')).status, 403);
+  t.deps.gatewayDenials = async () => [{ at: '2099-01-01T00:00:00.000Z', role: 'USER', tool: 'probe___publish_wiki_probe', reason: 'Policy evaluation denied', trace_id: 'tr-1' }];
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const get = async () => (await (await app.request('/v1/admin/evaluations', { headers: { authorization: 'Bearer approver' } })).json()) as { denials: { tool: string; source: string }[] };
+  const r = await get();
+  assert.deepEqual(r.denials.map((d) => [d.source, d.tool]), [['GATEWAY', 'probe___publish_wiki_probe'], ['API', 'GET /v1/admin/evaluations']]);
+  t.deps.gatewayDenials = async () => { throw new Error('AccessDenied'); };
+  assert.deepEqual((await get()).denials.map((d) => d.source), ['API']);
 });
