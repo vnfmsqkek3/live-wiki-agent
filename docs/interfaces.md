@@ -77,7 +77,15 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 - REGULATION은 `law_id`·`revision_id` 필수. `content_hash` = 게시 본문(마스킹본)의 `sha256:{hex}`.
 - v0.2 선택: `business_path[]`(최대 3, Classify 업무 경로)·`tags[]`(최대 8). 빈 값이면 키 생략. 청크 메타데이터에 그대로 복사되며 search_wiki `business`·`tags` 필터(`listContains`)와 결과 필드로 쓴다.
 - 그림 묘사(13항 13번): masked segment의 `figures[{kind,description,overlay_text?,intent?}]` → 게시 본문 끝에 `⟦그림 p{page}⟧ …` 줄(`figureLine`) → 청크는 별도(`provision_id={doc_id}#fig{n}`, `has_figure: true`, `original_text: ""`), 검색 결과 `quotable: false`. 그림 묘사는 원문이 아니므로 근거 인용 금지.
-- Regulations 테이블 추가 키(let522mj): `REGHASH#{sha256}`/`REV` → Registry 해시 → 개정본, `WEBLAW#{법령명}`/`LATEST` → Browser 조회 캐시(1일).
+- Regulations 테이블 키 (조문 구조화 저장소, 11/20 확정, data). **GSI 없음**: 모든 조회가 `pk` 일치 + `sk` 접두사(`begins_with`)라 기본 키로 충분하다.
+
+| pk | sk | 값 |
+|---|---|---|
+| `LAW#{law_id}` | `REV#{revision_id}` | 개정본 (effective_from·to, authority_status, content_hash, parse_ok 등) |
+| `LAW#{law_id}` | `REV#{revision_id}#P#{rel_path}` | 조문 (과거 버전 조회 = 같은 pk의 다른 `REV#`) |
+| `LAWNAMES` | `LAW#{law_id}` | 법령명 목록 (이름 → law_id) |
+| `REGHASH#{sha256:hex}` | `REV` | Registry 해시 → 개정본 |
+| `WEBLAW#{법령명}` | `LATEST` | Browser 조회 캐시 (1일) |
 - 청크 메타데이터(Chunker가 추가): `provision_id, provision_path, provision_status, parent_id, source_page, original_text`.
 - `original_text`는 인용용 원문. 임베딩 입력(contentBody)은 문맥 헤더 + 본문인 `augmented_search_text`이며 인용에 쓰지 않는다.
 - 위치: `published/{legal|knowledge}/{doc_id}/content.txt` + `content.txt.metadata.json`.
@@ -350,3 +358,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-18 | let522mj | 3(Finding, SegmentBuild) | SegmentBuild `LOW_OCR_CONFIDENCE`(MEDIUM) finding 제거. 95% 미만 쪽은 ImageDescribe가 Vision으로 다시 읽음 (사용자 결정 11/18 17시, yoyo0704 전달). `NO_TEXT`(HIGH)·구조 경고와 segments의 `avg_confidence`·`low_confidence`는 유지 |
 | 2026-11-19 | let522mj | 3(Finding, SegmentBuild·GraphUpsert)·regulation-server | GraphUpsert(규정): 파싱 이슈가 있어도 승인된 게시라 조문 저장소·그래프에 적재하고 이슈 finding은 안내로 남김(`status=REVIEW_REQUIRED`, 게시는 계속). 구조 이슈(`STRUCTURE_ISSUES`: 번호 역행·중복·소속 없는 문장·빈 조문)면 `parse_ok=false`, 노하우 주장 재검토 표시를 생략하고 `CLAIM_REVIEW_SKIPPED`(LOW). 인용 이슈만이면 `parse_ok=true`. `putLaw`는 같은 버전 재적재 시 새 결과에 없는 조문 항목을 지움. `parse_reviewed` 입력 제거(설정하는 곳 없음). SegmentBuild 구조 안내를 번호 역행 외 모든 파싱 이슈로 확대(`STRUCTURE_{코드}`, 번호 역행은 `STRUCTURE_NUMBERING` 유지, 부칙 제외·최대 5건). `get_clause`: 현행 버전이 `parse_ok=false`면 과거 버전에만 있는 조문도 HISTORICAL 대신 UNVERIFIED (yoyo0704 11/19: 이슈가 있으면 KB엔 게시되고 조문 저장소·그래프엔 없는 규정이 생김) |
 | 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |
+| 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
