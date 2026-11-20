@@ -5,6 +5,7 @@
 //   pk = LAWNAMES      sk = LAW#{law_id}                     → 법령명 목록
 //   pk = REGHASH#{sha256:hex}  sk = REV                      → {law_id, revision_id} (Registry 해시 → 개정본)
 // 테이블 키 스키마 pk/sk(S)는 yoyo0704 배포본 (interfaces.md 4장). 키 값은 Owner인 let522mj가 정함
+import { gunzipSync, gzipSync } from "node:zlib";
 import { DynamoDBClient } from "@aws-sdk/client-dynamodb";
 import { DynamoDBDocumentClient, QueryCommand, BatchWriteCommand, UpdateCommand, GetCommand, PutCommand } from "@aws-sdk/lib-dynamodb";
 import type { AuthorityStatus, ParsedLaw, Provision } from "@hanaeum/schemas";
@@ -59,17 +60,21 @@ export class MemoryClauseStore implements ClauseStore {
   async revisionByHash(h: string) { return h ? this.revs.find((r) => r.content_hash === h || r.pdf_content_hash === h) : undefined; }
 }
 
-/** Browser 조회 결과 캐시: Regulations 테이블 pk=WEBLAW#{법령명} sk=LATEST (본문 수십 KB, 항목 한도 400KB 안) */
+/** Browser 조회 결과 캐시: Regulations 테이블 pk=WEBLAW#{법령명} sk=LATEST. 본문은 gzip(body_gz): 외국환거래규정 본문이 항목 한도 400KB 초과 (prod 11/20) */
 export class DynamoLawPageCache {
   private readonly db: DynamoDBDocumentClient;
   private readonly table: string;
   constructor(table: string, client = new DynamoDBClient({})) { this.table = table; this.db = DynamoDBDocumentClient.from(client); }
   async get(lawName: string) {
     const r = await this.db.send(new GetCommand({ TableName: this.table, Key: { pk: `WEBLAW#${lawName}`, sk: "LATEST" } }));
-    return r.Item as { url: string; header: string; body: string; fetched_at: string } | undefined;
+    const it = r.Item as { url: string; header: string; body?: string; body_gz?: Uint8Array; fetched_at: string } | undefined;
+    if (!it) return undefined;
+    const { body_gz, ...rest } = it;
+    return { ...rest, body: body_gz ? gunzipSync(body_gz).toString("utf8") : it.body ?? "" };
   }
   async put(lawName: string, page: { url: string; header: string; body: string }, fetched_at: string) {
-    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `WEBLAW#${lawName}`, sk: "LATEST", ...page, fetched_at } }));
+    const { body, ...rest } = page;
+    await this.db.send(new PutCommand({ TableName: this.table, Item: { pk: `WEBLAW#${lawName}`, sk: "LATEST", ...rest, body_gz: gzipSync(body), fetched_at } }));
   }
 }
 

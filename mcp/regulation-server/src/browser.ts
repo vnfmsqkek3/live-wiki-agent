@@ -99,7 +99,9 @@ export function cachedFetcher(inner: LawPageFetcher, cache: LawPageCache, now = 
       if (hit && now().getTime() - Date.parse(hit.fetched_at) < CACHE_MS) return { url: hit.url, header: hit.header, body: hit.body, fetched_at: hit.fetched_at, from_cache: true };
       const page = await inner.fetch(lawName);
       const fetched_at = now().toISOString();
-      await cache.put(lawName, { url: page.url, header: page.header, body: page.body }, fetched_at);
+      // 캐시 저장 실패(항목 크기·스로틀링)는 조회 실패가 아니다: 가져온 원문은 그대로 돌려준다 (prod 11/20 전 조문 '원문 조회 실패')
+      await cache.put(lawName, { url: page.url, header: page.header, body: page.body }, fetched_at)
+        .catch((e: Error) => console.warn(JSON.stringify({ msg: "법령 원문 캐시 저장 실패", law: lawName, error: e.name, chars: page.body.length })));
       return { ...page, fetched_at, from_cache: false };
     },
   };
