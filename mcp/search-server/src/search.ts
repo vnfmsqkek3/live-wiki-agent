@@ -161,6 +161,8 @@ export interface Result {
   search_status: "FOUND" | "HISTORICAL" | "DELETED";
   /** 근거 기준 미달, 참고용 (related에만 들어감) */
   weak?: boolean;
+  /** 삭제·개정된 옛 항이 질의에 맞아 근거로 올린 같은 조의 현행 항: 옛 항 ID (본문은 내보내지 않음, 데이터QA CT-04 11/20) */
+  replaces?: string;
   /** 이 결과의 점수를 낸 질의 (재구성 질의 중 하나). 화면 "이 검색어로 찾았습니다"·평가 재현용 */
   matched_query?: string;
   // 추가 정보
@@ -340,11 +342,21 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
       dropped += before - kept.length;
     }
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
-    const top = kept.filter((r) => !r.weak).slice(0, k);
+    let top = kept.filter((r) => !r.weak).slice(0, k);
+    // 근거 없음인데 지금은 삭제·개정된 옛 항이 질의에 맞으면(예: "A등급 LTV 가산" ↔ 삭제된 제15조제2항) 같은 조의 현행 항을 근거로 올린다.
+    // 옛 항 자체는 근거로 내보내지 않는다(현행 아님). 현행 항은 이미 관련(weak)으로 찾은 것만 → 새 근거를 만들지 않음. ponytail: 근거 없음일 때만 이력 검색 1회 추가
+    if (!top.length && !o.includeHistory && kept.some((r) => r.weak)) {
+      const ho = { ...o, includeHistory: true };
+      const hh = await deps.retriever.retrieve(cleanQuery(q.text), buildFilter(actor, ho));
+      const old = revalidate(hh, await deps.states.get([...new Set(hh.map((h) => String(h.metadata["doc_id"])))]), actor, ho).kept.find((r) => !r.weak && r.historical);
+      const article = (pid: string) => `${pid.split("@")[0]}/${pid.split("/")[1]}`; // SYN-LOAN-001/ARTICLE:15
+      if (old) top = kept.filter((r) => r.weak && r.historical !== true && article(r.provision_id) === article(old.provision_id)).slice(0, k)
+        .map((r) => { const y: Result = { ...r, replaces: old.provision_id }; delete y.weak; return y; });
+    }
     // 관련 가능 문서는 질의 핵심어가 조각(제목·본문·분류)에 하나라도 있고, 인용 가능한 조각일 때만 (그림 설명만으로는 만들지 않음).
     // 점수 하한을 올리지 않는 이유: 11/17 실측 관련 질의 1위 0.13~0.26 → 0.20이면 진짜 관련 문서도 숨음 (yoyo0704 실측 11/18, 과천 그림 설명이 "개인정보"에 걸림)
     const terms = queryTerms(`${rw?.core ?? ""} ${rw?.alternates.join(" ") ?? ""} ${cleanQuery(q.text)}`);
-    const related = kept.filter((r) => r.weak && r.quotable && hasTerm(`${r.title} ${r.snippet} ${r.category_path ?? ""} ${r.path_label}`, terms)).slice(0, k);
+    const related = kept.filter((r) => r.weak && !top.some((t) => t.provision_id === r.provision_id) && r.quotable && hasTerm(`${r.title} ${r.snippet} ${r.category_path ?? ""} ${r.path_label}`, terms)).slice(0, k);
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
     const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
     return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
