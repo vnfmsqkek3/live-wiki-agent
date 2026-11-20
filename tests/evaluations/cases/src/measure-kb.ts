@@ -113,11 +113,12 @@ interface UvCase { id: string; tool: "search_legal_clause" | "search_wiki"; quer
 export async function measureUnverified(search: LiveDeps["search"], live: boolean) {
   const out = { total: 0, ok: 0, asserted: [] as string[], spurious: [] as string[] };
   for (const c of jsonl<UvCase>("unverified.jsonl").filter((x) => live || !x.live_only)) {
-    const r = await (search[c.tool] as (a: Record<string, unknown>, u: typeof USER) => Promise<{ search_status: string }>)({ query: c.query, as_of: c.as_of }, USER);
+    const r = await (search[c.tool] as (a: Record<string, unknown>, u: typeof USER) => Promise<{ search_status: string; items?: { doc_id?: string; provision_id?: string; title?: string }[] }>)({ query: c.query, as_of: c.as_of }, USER);
     out.total++;
     if (r.search_status === "UNVERIFIED") out.ok++;
     else if (r.search_status === "NOT_FOUND_VERIFIED") out.asserted.push(c.id);
-    else out.spurious.push(`${c.id}:${r.search_status}`);
+    // 무관 근거는 어떤 문서인지 남긴다 (prod 11/20 UV-05 간헐 FOUND: QA 업로드 문서 추정, 재현 안 됨)
+    else out.spurious.push(`${c.id}:${r.search_status}${r.items?.[0] ? `[${r.items[0].provision_id ?? r.items[0].doc_id} ${r.items[0].title ?? ""}]` : ""}`);
   }
   return out;
 }
