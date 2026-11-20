@@ -3,7 +3,7 @@
 // 실행: QA_PW=… QA_BASE=https://<웹 주소> QA_CLIENT=<Cognito 웹 클라이언트 id> node tests/e2e/qa-prod-flow.mjs [저장소 루트] > 결과.log
 // 항목 id 는 members/dhxorb96/qa/20261118_prod시험_체크리스트.md 의 '자동' 표와 같다
 import { readFileSync, writeFileSync } from 'node:fs';
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const P = process.argv[2] ?? '.';
 const IN = `${P}/tests/e2e/inputs`;
 const results = [];

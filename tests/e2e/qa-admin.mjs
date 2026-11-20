@@ -1,7 +1,7 @@
 // 결재함 → 문서 상세 QA (A1~A3, let522mj 요청 1056). 입력·실행은 qa-flow.mjs와 같다: QA_SCRIPT=qa-admin.mjs tests/e2e/qa-run.sh
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const OUT = process.env.QA_OUT ?? './qa-out';
 
 const pw = JSON.parse(readFileSync(0, 'utf8'));
