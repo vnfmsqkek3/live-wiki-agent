@@ -1,6 +1,6 @@
 'use client';
 import { PaginatedList } from './paginated-list';
-// 01 사용자 홈: 검색이 주 동작. 아래는 최근 게시된 문서(실제 게시 기록). 조회수 집계가 없으므로 '많이 본' 표현은 쓰지 않는다
+// 01 사용자 홈: 검색이 주 동작. 아래는 태그와 추천 Wiki(근거 확인·현행 우선, 그다음 최근 변경). 조회수 집계가 없으므로 '많이 본' 표현은 쓰지 않는다
 import Link from 'next/link';
 import { Icon } from './icons';
 import { useRouter } from 'next/navigation';
@@ -38,6 +38,12 @@ export default function Home() {
   }, []);
   const isAuthor = !!s; // 규칙 1: 로그인한 누구나 올리고 고친다
   const STATE: Record<string, string> = { QUARANTINED: '분석 중', IN_REVIEW: '게시 요청 전', PENDING_APPROVAL: '승인 대기·게시 중', BLOCKED: '차단·반려', DELETED: '폐기' };
+  // 추천 = 근거 확인(VERIFIED)·현행 문서 먼저, 그다음 최근 변경. 평점·인기와 섞지 않는다 (docs/02 P1 '인기와 신뢰성 분리')
+  const rank = (i: LibraryCard) => (i.authority_status === 'VERIFIED' ? 0 : 2) + (i.freshness === 'CURRENT' ? 0 : 1);
+  const recommended = [...items].sort((a, b) => rank(a) - rank(b) || b.updated_at.localeCompare(a.updated_at));
+  // 태그는 AI가 붙인 자유 문구라 필터가 아닌 검색어로 쓴다 (search API 주석). ponytail: 게시 문서 태그 빈도 상위 8개
+  const tags = Object.entries(items.flatMap((i) => i.tags).reduce<Record<string, number>>((m, t) => ({ ...m, [t]: (m[t] ?? 0) + 1 }), {}))
+    .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t);
   const go = (query: string) => router.push(`/search?q=${encodeURIComponent(query)}`);
   return (
     <div className="home-layout">
@@ -69,15 +75,20 @@ export default function Home() {
         </div>}
       </section>}
       {fail && <p className="error" role="alert">문서 목록을 불러오지 못했습니다. 잠시 뒤 새로고침해 주세요.</p>}
+      {tags.length > 0 && <section aria-labelledby="tags-title">
+        <h2 className="section" id="tags-title">자주 쓰는 태그</h2>
+        <div className="actions" role="group" aria-label="태그로 검색">{tags.map((t) => <button key={t} type="button" className="btn chip-btn chip" onClick={() => go(t)}>#{t}</button>)}</div>
+      </section>}
       {items.length > 0 && <section className="home-recent" aria-labelledby="recent-title">
-        <div className="section-heading"><h2 className="section" id="recent-title">최근 게시된 문서</h2><Link href="/library">문서보관함 전체 보기 <Icon name="arrow" /></Link></div>
-        <PaginatedList label="최근 게시된 문서" pageSize={3} className="ledger card-grid">
-          {items.map((i) => <li className="entry" key={i.doc_id}>
+        <div className="section-heading"><h2 className="section" id="recent-title">추천 Wiki</h2><Link href="/library">문서보관함 전체 보기 <Icon name="arrow" /></Link></div>
+        <PaginatedList label="추천 Wiki" pageSize={3} className="ledger card-grid">
+          {recommended.map((i) => <li className="entry" key={i.doc_id}>
             <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
             <h3 className="doc-title"><Link className="card-link" prefetch={false} href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
             <div className="meta">{i.business_path.join(' › ') || '업무 미분류'} · 변경 <span className="num">{i.updated_at.slice(0, 10)}</span></div>
             <FreshnessFlag freshness={i.freshness} />
             {i.summary && <p className="note card-summary">{i.summary}</p>}
+            {i.tags.length > 0 && <p className="meta">{i.tags.slice(0, 3).map((t) => `#${t}`).join(' ')}</p>}
           </li>)}
         </PaginatedList>
       </section>}
