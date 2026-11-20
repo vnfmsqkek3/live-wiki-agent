@@ -32,3 +32,31 @@ resource "aws_bedrock_guardrail_version" "pii" {
     create_before_destroy = true
   }
 }
+
+# 근거 대비 환각 점수 기록용 (AI팀 요청 11/20, P1 도입안 1). threshold 0 = 차단 없음, GROUNDING·RELEVANCE 점수만.
+# ponytail: tier·cross-region 설정은 콘텐츠·주제 정책용이라 넣지 않음. 한국어 점수가 의미 없으면(AI 로컬 확인) 가이드 env 를 붙이지 않는다
+resource "aws_bedrock_guardrail" "grounding" {
+  name                      = "${local.n.prefix}-gr-grounding${local.n.suffix}"
+  description               = "가이드 답변 근거 일치 점수 기록 (차단 없음)"
+  blocked_input_messaging   = "처리할 수 없는 요청입니다."
+  blocked_outputs_messaging = "표시할 수 없는 답변입니다."
+  contextual_grounding_policy_config {
+    filters_config {
+      type      = "GROUNDING"
+      threshold = 0
+    }
+    filters_config {
+      type      = "RELEVANCE"
+      threshold = 0
+    }
+  }
+}
+
+resource "aws_bedrock_guardrail_version" "grounding" {
+  guardrail_arn = aws_bedrock_guardrail.grounding.guardrail_arn
+  description   = "grounding 점수 v1"
+  lifecycle {
+    replace_triggered_by  = [aws_bedrock_guardrail.grounding]
+    create_before_destroy = true
+  }
+}
