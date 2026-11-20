@@ -113,7 +113,9 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
       doc_id: input.doc_id, content_hash: prev?.content_hash || input.content_hash, ...(prev?.pdf_content_hash ? { pdf_content_hash: prev.pdf_content_hash } : {}),
       acl_groups: input.acl_groups, parse_ok: official?.length ? prev!.parse_ok : !broken, // 원문을 지키면 구조 판정도 Registry 것 (데이터QA #117)
     };
-    if (clauses.putLaw) await clauses.putLaw(rec, official?.length ? { ...law, provisions: official } : law);
+    // 저장·그래프·개정 비교 모두 같은 조문 집합 (Registry 원문이 있으면 그것)
+    const kept = official?.length ? { ...law, provisions: official } : law;
+    if (clauses.putLaw) await clauses.putLaw(rec, kept);
     // 새 VERIFIED 버전이 시행되면 겹치는 이전 버전의 종료일을 닫는다 (이전 버전이 현행으로 남지 않게)
     if (rec.authority_status === "VERIFIED" && clauses.closeRevision) {
       for (const r of await clauses.revisions(law.law_id)) {
@@ -122,13 +124,13 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
         }
       }
     }
-    await graph.upsert(lawGraph(law, { doc_id: input.doc_id, effective_from: input.effective_from, effective_to: input.effective_to, previous_revision_id: input.law.previous_revision_id }));
+    await graph.upsert(lawGraph(kept, { doc_id: input.doc_id, effective_from: input.effective_from, effective_to: input.effective_to, previous_revision_id: input.law.previous_revision_id }));
     // 개정본이면 바뀐 조문에 근거를 둔 노하우 주장을 재검토로 (사용자 결정 11/17 얇은 주장 단위, 요청기록 20261117-2300)
     // 구조가 일부만 해석된 버전과 비교하면 못 읽은 조문이 '삭제'로 보여 노하우를 잘못 재검토로 돌린다 → 이슈가 있으면 생략하고 알림
-    if (rec.authority_status === "VERIFIED" && broken) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_SKIPPED", message: `${law.law_id}@${law.revision_id}`, evidence_ref: `${law.law_id}@${law.revision_id}`,
+    if (rec.authority_status === "VERIFIED" && !rec.parse_ok) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_SKIPPED", message: `${law.law_id}@${law.revision_id}`, evidence_ref: `${law.law_id}@${law.revision_id}`,
       user_message: "조문 구조를 다 해석하지 못해, 이번 개정으로 바뀐 조문에 근거를 둔 노하우의 재검토 표시를 하지 않았습니다.", fix_hint: "원본을 고쳐 같은 버전으로 다시 올리면 재검토 표시가 실행됩니다. 그전까지 관련 노하우는 사람이 확인해 주세요." });
     else if (rec.authority_status === "VERIFIED") {
-      const { held } = await markRevisedClaims({ ...law, effective_from: input.effective_from }, clauses, claims);
+      const { held } = await markRevisedClaims({ ...kept, effective_from: input.effective_from }, clauses, claims);
       // 대량 변경 보류: 게시는 계속하고, 노하우 재검토 표시는 사람이 확인하도록 알림
       for (const h of held ?? []) findings.push({ finding_id: newId("fnd"), step: "GraphUpsert", severity: "LOW", code: "CLAIM_REVIEW_HELD", message: h, evidence_ref: h,
         user_message: `이전 버전(${h})과 비교해 조문 절반 넘게 바뀐 것으로 나와, 관련 노하우 주장의 재검토 표시를 자동으로 하지 않았습니다.`, fix_hint: "개정 내용이 실제로 이렇게 많은지 확인하고, 본문 인식 문제라면 원본을 다시 올려 주세요." });
