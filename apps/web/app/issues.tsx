@@ -66,7 +66,9 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
   // 항목별 확인 대상(개인정보·비밀값 MEDIUM)은 검토 화면 위쪽 '개인정보 확인'에서 처리하므로 여기서 뺀다 (Fable 권고 11/18)
   const REVIEW = new Set(['PII_IMAGE_REVIEW', 'PII_IN_FIGURE', 'PII_GUARDRAIL', 'SECRET_MASKED']);
   const shown = d.items.filter((i) => i.severity !== 'LOW' && !(i.severity === 'MEDIUM' && REVIEW.has(i.code)));
-  const info = d.items.filter((i) => i.severity === 'LOW');
+  // LOW 중 *_SKIPPED는 처리한 것이 아니라 확인하지 못한 것 (AI 규칙, 엔드유저 U2 11/20)
+  const skipped = d.items.filter((i) => i.severity === 'LOW' && i.code.endsWith('_SKIPPED'));
+  const info = d.items.filter((i) => i.severity === 'LOW' && !i.code.endsWith('_SKIPPED'));
   return (
     <section aria-labelledby="issues-h" className="issues">
       <h2 className="section" id="issues-h"><Icon name="alert" /> 확인할 내용 {shown.length > 0 && <span className="danger-text">{shown.length}건</span>}</h2>
@@ -89,6 +91,10 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
         ))}
       </ul>
       {open !== null && openAt === null && <PageView docId={docId} page={open} items={d.items.filter((i) => i.location?.page === open)} onClose={() => setOpen(null)} />}
+      {skipped.length > 0 && <>
+        <p className="note" style={{ marginTop: 12 }}>확인하지 못한 내용 {skipped.length}건 (승인자가 직접 확인)</p>
+        <ul className="fixes">{skipped.map((i, n) => <li key={n} className="fix"><p style={{ margin: 0 }}>{i.user_message}</p></li>)}</ul>
+      </>}
       {info.length > 0 && (
         <details style={{ marginTop: 12 }}>
           <summary className="note">자동으로 처리한 내용 {info.length}건</summary>

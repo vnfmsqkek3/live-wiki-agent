@@ -127,7 +127,7 @@ function ReviewView() {
       await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true);
       // 결재 권한이 있으면 바로 결재함으로 (사용자 지적 11/18). 아니면 안내만
       if (can(getSession()?.groups, '/admin')) { setMsg('게시를 요청했습니다. 결재함으로 이동합니다.'); setTimeout(() => { location.href = '/admin'; }, 800); }
-      else setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.');
+      else setMsg('게시를 요청했습니다. 승인자가 결재하면 검색에 나타납니다.');
     }
     catch (e) { setMsg((e as ApiError).message || '지금 상태에서는 게시를 요청할 수 없습니다.'); }
   }
@@ -297,7 +297,7 @@ function ReviewView() {
             <strong>{TYPES.find(([v]) => v === r.classification!.document_type)?.[1]}</strong>
           </p>
         ) : <p style={{ margin: 0 }}>AI가 종류를 정하지 못했습니다. 직접 골라 주세요.</p>}
-        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale}</p>}
+        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale.replace(/\b(REGULATION|KNOWHOW|MANUAL)\b/g, (k) => TYPES.find(([v]) => v === k)![1])}</p>}
         <label className="lbl" htmlFor="ty">바꿀 종류</label>
         <select id="ty" className="field" value={type} onChange={(e) => setType(e.target.value)} disabled={submitted}>
           <option value="" disabled>선택</option>
