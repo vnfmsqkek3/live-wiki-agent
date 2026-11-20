@@ -222,7 +222,7 @@ check('M02', m02.every(([, v]) => v) ? true : 'partial', m02.map(([k, v]) => `${
 const k1 = docs['K-001']?.review ?? '', k2 = docs['K-002'];
 const m03 = [
   ['K-001 관련 규정 표시', /근거 규정과 맞습니다|근거 확인됨|실무 보완/.test(k1)],
-  ['K-002 충돌 표시', /규정과 충돌하는 내용이 있습니다|규정과 어긋[남난]/.test(k2.review ?? '')],
+  ['K-002 충돌 표시', /규정과 충돌하는 내용이 있습니다|규정과 어긋남|규정과 어긋난 문장(?!은 없습니다)/.test(k2.review ?? '')],
   ['K-002 게시 보류', !k2.submit?.ok || k2.admin === 'reject-only'],
 ];
 check('M03', m03.every(([, v]) => v) ? true : 'partial', m03.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '), k2.reviewShot);
