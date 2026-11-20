@@ -91,6 +91,8 @@ Ground Truth 필드 예: `document_id`, `document_type`, `expected_status`, `exp
 
 합성 테스트 세트에 대한 제안 합격 기준이며 실제 측정 성과가 아니다.
 
+> 11/20: '(공유 dev 11/17)' 값은 폐지된 환경 기준이다. prod(566533524321) 재측정 값으로 바꾼다. 측정 기준일은 2026-12-16(합성 v2 시행 후 시나리오). 측정 담당은 `05` 5장.
+
 | 항목 | 목표 | 측정 결과 |
 |---|---|---|
 | 정상 문서 등록 | 지정 정상 샘플 5건 모두 승인 가능 | |
@@ -159,7 +161,7 @@ Ground Truth 필드 예: `document_id`, `document_type`, `expected_status`, `exp
 - [ ] 거부 Trace 확인
 - [ ] Evaluations 대시보드에서 검색·인용·보안 평가 결과 확인
 
-데모에 필요한 계정: 일반 사용자, 작성자, 규정 승인자 (역할 정의는 `01_architecture_spec.md` 3장).
+데모에 필요한 계정: `user`(일반 사용자 = 작성자: 업로드·게시 요청·검색), `admin`(업로드·게시 요청도 가능 + 승인·반려·관리). 별도 규정 승인자 계정은 두지 않는다 (사용자 결정 11/20). admin(PLATFORM_OPERATOR)은 자기 문서도 승인할 수 있고 감사에 SELF_APPROVAL로 남는다 (사용자 결정 11/18). 데모는 user 업로드 → admin 승인. 역할 정의는 `01_architecture_spec.md` 3장.
 
 ---
 
