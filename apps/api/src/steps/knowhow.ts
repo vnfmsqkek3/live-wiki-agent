@@ -184,17 +184,19 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
   };
 }
 
-const externalSkipped = (skipped: string[]): Finding[] => (skipped.length ? [fnd('LOW', 'KNOWHOW_EXTERNAL_SKIPPED', `외부 법령 대조 생략: ${skipped.join(' / ')}`.slice(0, 300), 'external', {
+const externalSkipped = (skipped: string[]): Finding[] => (skipped.length ? [extStep(fnd('LOW', 'KNOWHOW_EXTERNAL_SKIPPED', `외부 법령 대조 생략: ${skipped.join(' / ')}`.slice(0, 300), 'external', {
   // *_SKIPPED(LOW) = 처리한 것이 아니라 '확인하지 못한 것'. 화면은 '자동으로 처리한 내용'과 따로 묶는다 (엔드유저 의견 11/20)
   user_message: '확인하지 못함: 본문이 인용한 외부 법령 원문을 가져오지 못해 그 부분은 대조하지 않았습니다. 승인자가 직접 확인해 주세요.',
-})] : []);
+}))] : []);
 // 외부 법령 불일치: 미검증 근거라 차단·잠금 없이 사람 확인 (MEDIUM, submit.ts 잠금 코드 아님)
 const externalMismatch = (items: (Judgement & { label: string })[]): Finding[] => items.filter((j) => j.relation === 'CONFLICTS').map((j) =>
-  fnd('MEDIUM', 'KNOWHOW_EXTERNAL_MISMATCH', `외부·미검증 근거 ${j.label}와 다름: ${j.reason}`.slice(0, 300), j.provision_id, {
+  extStep(fnd('MEDIUM', 'KNOWHOW_EXTERNAL_MISMATCH', `외부·미검증 근거 ${j.label}와 다름: ${j.reason}`.slice(0, 300), j.provision_id, {
     location: { excerpt: j.statement.slice(0, 120) },
-    user_message: `"${j.statement.slice(0, 60)}" 문장이 ${j.label} 원문과 다릅니다(외부·미검증 근거): ${j.reason}`.slice(0, 300),
+    user_message: `"${j.statement.slice(0, 60)}" 문장이 ${j.label.replace(/\s*\(외부·미검증\)$/, '')} 원문(국가법령정보센터, 미검증)과 다릅니다: ${j.reason}`.slice(0, 300),
     fix_hint: (j.suggestion ? `확인 후 이렇게 고쳐 주세요: "${j.suggestion}"` : `외부 원문을 확인해 고쳐 주세요. 원문: "${j.quote}"`).slice(0, 300),
-  }));
+  })));
+/** 외부 법령 대조 결과는 노하우 검증과 따로 묶는다 (매뉴얼에도 나옴, 11/20 MX-002 화면 미표시) */
+const extStep = (f: Finding): Finding => ({ ...f, step: 'EXTERNAL_LAW_CHECK' });
 
 /** 매뉴얼(MANUAL)용: 외부 법령 대조만 (총괄 결정 11/20 A). 내부 규정 판정·NO_BASIS 없음 → 기존 매뉴얼에 새 경고 없음. gate 는 바꾸지 않는다 */
 export async function validateExternal(maskedText: string, deps: Pick<KnowhowDeps, 'judge' | 'suggest'> & { external: ExternalLawDeps }): Promise<{ findings: Finding[]; external: (Judgement & { label: string; verified_quote: boolean })[] }> {
