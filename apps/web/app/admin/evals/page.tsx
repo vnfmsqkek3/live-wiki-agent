@@ -51,7 +51,7 @@ export default function EvalsPage() {
             <div className="doc-table"><table>
               <tbody><tr><th scope="col">항목</th><th scope="col">기준</th><th scope="col">결과</th><th scope="col">판정</th></tr>{r.items.map((m) => (
                 <tr key={m.key}><th scope="row">{m.label}</th><td>{m.target}</td><td className="num">{m.passed}/{m.total}</td>
-                  <td><span className={`run-status ${m.pass ? 'ok' : 'bad'}`}>{m.pass ? '합격' : '미달'}</span></td></tr>
+                  <td>{mock ? <span className="run-status wait">예시</span> : <span className={`run-status ${m.pass ? 'ok' : 'bad'}`}>{m.pass ? '합격' : '미달'}</span>}</td></tr>
               ))}</tbody>
             </table></div>
           </section>

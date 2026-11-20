@@ -21,18 +21,18 @@ function DraftButton({ law, docId }: { law: string; docId: string }) {
   async function make() {
     setBusy(true); setMsg('');
     try { setItems((await api<{ items: Draft[] }>('POST', '/v1/admin/impact/draft', { law, doc_id: docId })).items); }
-    catch (e) { const x = e as ApiError; setMsg(x.status === 404 ? '이 문서는 이번 개정의 영향 대상이 아닙니다.' : x.status === 403 ? '규정 결재자 계정만 초안을 만들 수 있습니다.' : x.message); }
+    catch (e) { const x = e as ApiError; setMsg(x.status === 404 ? '초안을 만들 수 없습니다. 이번 개정의 영향 대상이 아니거나 초안 기능이 아직 서버에 배포되지 않았습니다.' : x.status === 403 ? '규정 결재자 계정만 초안을 만들 수 있습니다.' : x.message); }
     setBusy(false);
   }
   if (!items) return <><button type="button" className="btn" disabled={busy} onClick={make}>{busy ? 'AI가 초안을 만드는 중' : '수정 초안 만들기'}</button>{msg && <p className="error" role="alert">{msg}</p>}</>;
   return (
     <div className="fix-list" role="region" aria-label="수정 초안">
-      <p className="notice" role="status">초안 {items.length}건을 결재함 위키 수정 요청에 올렸습니다. 자동으로 게시되지 않으며, 결재자가 반영하고 승인해야 바뀝니다.</p>
+      <p className="notice" role="status">초안 {items.length}건이 결재함 위키 수정 요청에 있습니다 (이미 만든 초안이면 그 초안을 보여 줍니다). 자동으로 게시되지 않으며, 결재자가 반영하고 승인해야 바뀝니다.</p>
       <ol className="fixes">{items.map((d) => (
         <li key={d.id} className="fix">
           <p className="fix-head">{clause(d.path)} 기준</p>
           <p><del>{d.before}</del></p>
-          {d.after ? <p><ins>{d.after}</ins></p> : <p className="danger-text">초안 없음 (사람 작성 필요)</p>}
+          {d.after ? <p><ins>{d.after}</ins></p> : <p className="danger-text">초안 없음 (사람 작성 필요). 결재함에서 직접 쓰거나 문서에서 직접 고치세요.</p>}
           <p className="note">AI 의견: {d.ai_reason}</p>
         </li>
       ))}</ol>

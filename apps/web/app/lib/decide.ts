@@ -5,7 +5,7 @@ export async function decideApproval(id: string, decision: 'APPROVE' | 'REJECT' 
   if (!reason.trim()) return { msg: decision === 'APPROVE' ? '결재 의견을 한 줄 적거나 고르세요.' : decision === 'REVALIDATE' ? '다시 검증할 이유를 적어 주세요.' : '반려 사유를 적어 주세요.' };
   try {
     const r = await api<{ status: 'APPROVED' | 'REJECTED' }>('POST', `/v1/approvals/${id}/decision`, { decision, reason });
-    return { status: r.status, msg: decision === 'REVALIDATE' ? '재검증을 요청했습니다. 문서가 작성자 검토 단계로 돌아가 AI 검사를 다시 거칩니다.' : r.status === 'APPROVED' ? '승인했습니다. 색인이 끝나면 검색에 나타납니다.' : '반려했습니다. 작성자에게 사유가 전달됩니다.' };
+    return { status: r.status, msg: decision === 'REVALIDATE' ? '재검증을 요청했습니다. 게시하지 않고 문서를 작성자 검토 단계로 돌려보냈습니다. 작성자가 고쳐 다시 게시를 요청하면 결재함에 다시 옵니다.' : r.status === 'APPROVED' ? '승인했습니다. 색인이 끝나면 검색에 나타납니다.' : '반려했습니다. 작성자에게 사유가 전달됩니다.' };
   } catch (e) {
     const x = e as ApiError;
     return { msg: x.message.startsWith('unclassified') ? x.message.replace(/^unclassified: /, '') : x.status === 409 ? '검토 이후 파일이 바뀌었거나 이미 처리된 결재입니다. 새로고침해 주세요.' : x.status === 403 ? '본인이 올린 문서는 관리자만 승인할 수 있습니다.' : x.message };
