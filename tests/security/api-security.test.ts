@@ -10,8 +10,8 @@ const API = process.env.API ?? 'http://localhost:8080';
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`missing env ${k} (ssm-env.sh 먼저)`); return v; };
 const aws = (...args: string[]) => execFileSync('aws', [...args, '--output', 'json'], { encoding: 'utf8' });
 
-// prod 데모 계정 (사용자 확인 11/20: 일반 사용자 = 작성자). user=USER·AUTHOR, approver=REG_APPROVER 등, admin=PLATFORM_OPERATOR 포함 전부
-type Who = 'user' | 'approver' | 'admin';
+// prod 데모 계정 2개 (사용자 결정 11/20): user = 일반 사용자·작성자(USER·AUTHOR), admin = 승인·관리(REG_APPROVER·PLATFORM_OPERATOR 등)
+type Who = 'user' | 'admin';
 const tokens = {} as Record<Who, string>;
 const subOf = (t: string) => JSON.parse(Buffer.from(t.split('.')[1]!, 'base64url').toString()).sub as string;
 
@@ -72,7 +72,7 @@ const auditSince = (since: string) =>
 
 before(() => {
   const secret = JSON.parse(JSON.parse(aws('secretsmanager', 'get-secret-value', '--secret-id', process.env.DEMO_USERS_SECRET ?? 'hanaeum-mvp/demo-users', '--query', 'SecretString')));
-  for (const who of ['user', 'approver', 'admin'] as Who[]) {
+  for (const who of ['user', 'admin'] as Who[]) {
     const v = secret[who];
     const pw = typeof v === 'string' ? v : v.password;
     tokens[who] = JSON.parse(aws('cognito-idp', 'initiate-auth', '--client-id', env('COGNITO_CLIENT_ID'), '--auth-flow', 'USER_PASSWORD_AUTH',
@@ -82,7 +82,7 @@ before(() => {
 
 test('인증: 토큰 없음·위조 서명·다른 풀 토큰은 401', async () => {
   assert.equal((await call(null, 'GET', '/v1/approvals')).status, 401);
-  const [h, p] = tokens.approver.split('.');
+  const [h, p] = tokens.admin.split('.');
   assert.equal((await call(null, 'GET', '/v1/approvals', undefined, `${h}.${p}.AAAA`)).status, 401);
   const forged = Buffer.from(JSON.stringify({ sub: 'x', 'cognito:groups': ['REG_APPROVER'] })).toString('base64url');
   assert.equal((await call(null, 'GET', '/v1/approvals', undefined, `${h}.${forged}.AAAA`)).status, 401);
@@ -96,17 +96,17 @@ test('비인가 게시 5건: 승인 역할 없는 user(작성자)의 결정 요�
   await new Promise((r) => setTimeout(r, 1000));
   const total = deniedCount(subOf(tokens.user), since);
   assert.equal(total, 5);
-  const list = await call('approver', 'GET', '/v1/approvals?status=PENDING');
+  const list = await call('admin', 'GET', '/v1/approvals?status=PENDING');
   assert.ok((list.json.items as { approval_id: string }[]).some((a) => a.approval_id === approval_id), '거부 후에도 PENDING 유지');
 });
 
 test('승인 재사용·중복 결정: 두 번째 결정은 409', async () => {
   const { approval_id } = await submitted();
-  const ok = await call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: '근거 확인' });
+  const ok = await call('admin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: '근거 확인' });
   assert.equal(ok.status, 200);
   assert.equal(ok.json.workflow_resumed, true, '실제 SFN 재개');
-  assert.equal((await call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'again' })).status, 409);
-  assert.equal((await call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: 'flip' })).status, 409);
+  assert.equal((await call('admin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'APPROVE', reason: 'again' })).status, 409);
+  assert.equal((await call('admin', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: 'flip' })).status, 409);
 });
 
 test('검사 후 변경: 남은 presigned URL로 파일을 바꾸면 승인 거부(409), 반려는 가능', async () => {
@@ -116,24 +116,24 @@ test('검사 후 변경: 남은 presigned URL로 파일을 바꾸면 승인 거�
   tampered[tampered.length - 2] ^= 0x01; // 끝부분 1바이트만 변경 (길이 동일)
   const put = await fetch(d.url, { method: 'PUT', body: tampered });
   assert.equal(put.status, 200, '같은 URL 재업로드 (URL 유효시간 300초 내)');
-  assert.equal((await call('approver', 'POST', `/v1/approvals/${d.approval_id}/decision`, { decision: 'APPROVE', reason: 'x' })).status, 409);
-  assert.equal((await call('approver', 'POST', `/v1/approvals/${d.approval_id}/decision`, { decision: 'REJECT', reason: '검사 후 변경' })).status, 200);
+  assert.equal((await call('admin', 'POST', `/v1/approvals/${d.approval_id}/decision`, { decision: 'APPROVE', reason: 'x' })).status, 409);
+  assert.equal((await call('admin', 'POST', `/v1/approvals/${d.approval_id}/decision`, { decision: 'REJECT', reason: '검사 후 변경' })).status, 200);
 });
 
-test('ACL: 미게시 문서는 올린 사람·결재자 외 모든 조회 경로에서 숨김 (approver가 올린 문서를 user가 조회)', async () => {
-  const { doc_id } = await reviewedDoc('approver');
+test('ACL: 미게시 문서는 올린 사람·결재자 외 모든 조회 경로에서 숨김 (admin이 올린 문서를 user가 조회)', async () => {
+  const { doc_id } = await reviewedDoc('admin');
   assert.equal((await call('user', 'GET', `/v1/documents/${doc_id}`)).status, 404);
   assert.equal((await call('user', 'GET', `/v1/documents/${doc_id}/review`)).status, 403);
   assert.equal((await call('user', 'POST', '/v1/feedback', { doc_id, useful: true })).status, 404);
   assert.equal((await call('user', 'GET', '/v1/approvals?status=PENDING')).status, 403);
-  const g = await call('approver', 'GET', `/v1/documents/${doc_id}`);
+  const g = await call('admin', 'GET', `/v1/documents/${doc_id}`);
   assert.equal(g.status, 200);
   assert.equal(g.json.task_token, undefined, 'task token 비노출');
 });
 
 test('IDOR: 바디의 사용자 식별값은 무시 (작성자 본인 확인은 토큰 기준)', async () => {
   const { doc_id } = await reviewedDoc();
-  const r = await call('approver', 'POST', `/v1/documents/${doc_id}/submit`, { owner: subOf(tokens.user), author_sub: subOf(tokens.user) });
+  const r = await call('admin', 'POST', `/v1/documents/${doc_id}/submit`, { owner: subOf(tokens.user), author_sub: subOf(tokens.user) });
   assert.equal(r.status, 403);
 });
 
