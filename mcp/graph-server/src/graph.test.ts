@@ -286,3 +286,20 @@ test("인용 후보 추출: 대괄호 규정명 '[하나은행 기업여신 심�
   assert.ok(got.some((id) => /ARTICLE:12$/u.test(id)), got.join());
   const t0 = Date.now(); await extractCitations("가 ".repeat(50000), store, 20261115); assert.ok(Date.now() - t0 < 1000, "선형에 가까운 시간");
 });
+
+test("규정 게시: Trusted Registry 원본 버전은 조문 원문을 게시본(OCR·그림 정리본)으로 덮어쓰지 않음 (prod 11/20 엔드유저 D01)", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const law0 = { law_id: LAW.law_id, law_name: LAW.law_name, revision_id: "2026-11-01" };
+  const official = parseLaw(read("documents/F-001.txt"), { ...law0, effective_from: 20261101 });
+  clauses.put({ ...law0, effective_from: 20261101, effective_to: 99991231, authority_status: "VERIFIED", doc_id: "F-001", content_hash: "sha256:registry-text", pdf_content_hash: "sha256:registry-pdf", acl_groups: ["ALL"], parse_ok: true }, official);
+  // 게시본: OCR 띄어쓰기 손실 + 그림 정리본이 붙은 마스킹 본문
+  const ocr = read("documents/F-001.txt").replace("사업자등록증 사본", "사업자등록증사본").replace("시행한다.", "시행한다. ⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 표지");
+  const putLaw = async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l);
+  await graphUpsertStep({ ...base, doc_id: "doc_pub", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20261101, effective_to: 99991231,
+    content: ocr, content_hash: "sha256:published-content", law: { ...LAW, revision_id: "2026-11-01" } }, graph, Object.assign(clauses, { putLaw }));
+  const after = (await clauses.provisions(LAW.law_id, "2026-11-01"))!;
+  assert.deepEqual(after.map((p) => p.normalized_text), official.provisions.map((p) => p.normalized_text), "Registry 원문 유지");
+  assert.equal((await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!.parse_ok, true, "구조 판정도 Registry 것");
+  assert.equal((await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!.doc_id, "doc_pub", "게시 문서 연결은 갱신");
+});
