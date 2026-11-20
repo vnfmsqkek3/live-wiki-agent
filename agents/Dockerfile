@@ -10,4 +10,5 @@ COPY packages/pii ./node_modules/@hanaeum/pii
 COPY agents/src ./src
 USER node
 EXPOSE 8080
-CMD ["node", "src/runtime.ts"]
+# ADOT 계측 등록 → Strands Agent·Tool·모델 span을 AgentCore Observability(aws/spans)로 (Runtime 기본 OTEL env 사용, 11/20 span 미수집 수정)
+CMD ["node", "--require", "@aws/aws-distro-opentelemetry-node-autoinstrumentation/register", "src/runtime.ts"]

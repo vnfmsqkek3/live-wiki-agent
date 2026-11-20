@@ -13,9 +13,10 @@
     "@aws-sdk/client-bedrock-runtime": "3.1169.0",
     "@aws-sdk/client-dynamodb": "3.1169.0",
     "@aws-sdk/credential-provider-node": "3.972.97",
+    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "0.14.0",
+    "@hanaeum/pii": "*",
     "@smithy/signature-v4": "5.7.5",
     "@strands-agents/sdk": "1.25.0",
-    "zod": "4.6.7",
-    "@hanaeum/pii": "*"
+    "zod": "4.6.7"
   }
 }
