@@ -304,7 +304,7 @@ const REVIEW_STATE: Record<string, string> = {
 };
 
 /** 쪽 밑줄(marks)이 있으면 review.findings는 근거 불일치만 따로 보인다 (밑줄로 안 그려짐, 총괄 11/20 MX-002) */
-const reviewFindings = (d: LibraryDoc) => !d.review ? [] : d.pages.length ? d.review.findings.filter((f) => isCheck(f.code)) : d.review.findings;
+const reviewFindings = (d: LibraryDoc) => !d.review ? [] : d.pages.length ? d.review.findings.filter((f) => isCheck(f.code) || f.ack_reason) : d.review.findings;
 
 /** 결재 대상: 맨 위에 '확인이 필요한 이유'. 누르면 그 쪽·밑줄로 이동 */
 function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n: number) => void; onInsert?: (s: RefSuggestion) => void }) {
@@ -332,6 +332,7 @@ function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n:
           <li key={`f${i}`} className={`fix${f.severity === 'HIGH' ? ' sev-HIGH' : ''}`}>
             <p className="fix-head">{f.page ? `${f.page}쪽 · ` : ''}{f.severity === 'HIGH' ? '차단 사유' : isCheck(f.code) ? '근거 확인 필요' : '확인 필요'}</p>
             <p style={{ margin: 0 }}>{f.message}</p>
+            {f.ack_reason && <p style={{ margin: 0 }}><strong>작성자 '그대로 사용' 사유</strong> {f.ack_reason}</p>}
             {f.fix_hint && <p style={{ margin: 0 }}><strong>{isCheck(f.code) ? '수정 제안' : '고치는 방법'}</strong> {isCheck(f.code) ? f.fix_hint.replace(/^확인 후 이렇게 고쳐 주세요:\s*/, '') : f.fix_hint}</p>}
           </li>
         ))}

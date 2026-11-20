@@ -269,7 +269,7 @@ export interface ExternalLaw { law_name: string; clause?: string; error?: string
 /** 결재 대상 문서를 관리자가 열었을 때 (GET /v1/library/:id). 쪽 본문이 없으면 findings로 이유를 보여 준다 */
 export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
-  findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number }[];
+  findings: { severity: 'HIGH' | 'MEDIUM'; code: string; step: string; message: string; fix_hint?: string; page?: number; ack_reason?: string; excerpt?: string }[];
 }
 export interface Claim { claim_id: string; seq: number; statement: string; page: number | null; provision_id: string | null; label: string | null; relation: string; reason: string; quote: string | null; verified: boolean; status: string; on_provision: { supports: number; conflicts: number; unclear: number } | null }
 export interface LibraryDoc extends LibraryCard {

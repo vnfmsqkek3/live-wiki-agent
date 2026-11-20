@@ -80,7 +80,10 @@ function ReviewView() {
   // 공식 원본과 다른 규정은 출처 확인 전까지 게시 요청 불가 (서버 submit 409, 엔드유저 D02 11/20)
   const held = r.findings.some((f) => f.code === 'REGISTRY_MISMATCH' && f.severity === 'HIGH');
   const checks = r.findings.filter((f) => isCheck(f.code));
-  const uncertain = r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code)).length;
+  const kept = (r.fixes ?? []).filter((f) => f.acknowledged && f.code === 'KNOWHOW_CONFLICT'); // '그대로 사용'한 충돌 (엔드유저 11/20 K-002)
+  const fixIds = new Set((r.fixes ?? []).map((f) => f.finding_id));
+  const none = kept.length ? `규정과 어긋난 문장 ${kept.length}건은 그대로 사용(승인자 판단).` : checks.length ? '게시를 막는 문장은 없습니다.' : '규정과 어긋난 문장은 없습니다.';
+  const uncertain = r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code) && !fixIds.has(f.finding_id)).length;
   const clarifyOpen = (r.clarify ?? []).filter((c) => c.blocking && c.status === 'OPEN');
   const reviewOpen = (r.reviews ?? []).filter((x) => !x.acknowledged);
   const fixOpen = (r.fixes ?? []).filter((f) => !f.acknowledged);
@@ -188,12 +191,12 @@ function ReviewView() {
       {r.lifecycle === 'IN_REVIEW' && !held && (
         <section aria-labelledby="fix-h" className="fix-list">
           {/* 다른 할 일(확인 필요·개인정보 확인)이 있으면 '고칠 것이 없습니다'를 크게 쓰지 않는다 (11/18 dev 시험) */}
-          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : checks.length ? `확인 필요 ${checks.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">{checks.length ? '게시를 막는 문장은 없습니다.' : '규정과 어긋난 문장은 없습니다.'}</p>}
+          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : kept.length ? `규정과 어긋난 문장 ${kept.length}건 · 그대로 사용` : checks.length ? `확인 필요 ${checks.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">{none}</p>}
           {/* 확인할 내용이 남아 있으면 '검토할 게 없다'로 읽히지 않게 (11/18 사용자 보고) */}
           {/* 확인할 내용(게시를 막지 않음)은 여기서 바로 무엇인지·할 일을 보여 준다 (사용자 지적 11/18: 자세히에서 입력칸을 찾았다) */}
-          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>{checks.length ? '게시를 막는 문장은 없습니다.' : '규정과 어긋난 문장은 없습니다.'} 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
-            <ul>{r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code)).map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
-          {!open.length && uncertain === 0 && !checks.length && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
+          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>{none} 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
+            <ul>{r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code) && !fixIds.has(f.finding_id)).map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
+          {!open.length && uncertain === 0 && !checks.length && !kept.length && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
           <ol className="fixes">{(r.fixes ?? []).map((f) => (
             <li key={f.finding_id} id={`fx-${f.finding_id}`} className={`fix${f.acknowledged ? ' done' : ''}`}>
               <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && (f.code === 'KNOWHOW_CONFLICT' ? ` · 그대로 사용(${f.ack_reason ?? ''}) — 승인자가 판단` : ' · 의도한 삭제로 확인함')}</p>
