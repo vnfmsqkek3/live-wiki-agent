@@ -153,6 +153,8 @@ test("법령 원문 캐시 (prod 11/20 P0): 저장 실패해도 조회 결과는
   const failing = { get: async () => undefined, put: async () => { throw Object.assign(new Error("Item size has exceeded the maximum allowed size"), { name: "ValidationException" }); } };
   const r = await cachedFetcher(inner, failing).fetch("외국환거래규정");
   assert.equal(r.body, body); assert.equal(r.from_cache, false);
+  const getFails = { get: async () => { throw Object.assign(new Error("throttled"), { name: "ProvisionedThroughputExceededException" }); }, put: async () => {} };
+  assert.equal((await cachedFetcher(inner, getFails).fetch("외국환거래규정")).body, body, "캐시 읽기 실패도 조회는 계속");
   // DynamoDB 저장 형식: body 대신 body_gz, 읽을 때 원문 복원
   const items = new Map<string, Record<string, unknown>>();
   const c = new DynamoLawPageCache("t");
