@@ -102,7 +102,9 @@ test("externalLawRefs: 지시어·일반 명칭은 법령 아님, 호 목록은 
   for (const t of ["(시행령 제5조)", "(본규정 제3조)", "규정 제5조에 따라", "(동법 제3조)", "(같은법 제3조)", "(이 규정 제3조)", "(당행규정 제3조)"]) assert.deepEqual(await externalLawRefs(t, none), [], t);
   assert.deepEqual(await externalLawRefs("(이자제한법 제2조제1항)", none), [{ law_name: "이자제한법", clause: "제2조제1항", clauses: ["제2조제1항"] }]);
   assert.deepEqual(await externalLawRefs("(외국환거래규정 제9-9조제1항)\n(제9-4조제1항)\n(제9-9조제1항제8호·제9호)", none),
-    [{ law_name: "외국환거래규정", clause: "제9-9조제1항", clauses: ["제9-9조제1항", "제9-4조제1항", "제9-9조제1항제8호·제9호"] }]);
+    [{ law_name: "외국환거래규정", clause: "제9-9조제1항", clauses: ["제9-9조제1항", "제9-4조제1항", "제9-9조제1항제8호", "제9-9조제1항제9호"] }]);
+  const { clausePath } = await import("./clause.ts");
+  assert.equal(clausePath("제9-9조제1항제9호"), "ARTICLE:9-9/PARAGRAPH:1/ITEM:9");
 });
 
 test("cachedFetcher: 1일 안에 같은 법령은 Browser 재실행 없이 캐시, 지나면 다시 조회", async () => {
