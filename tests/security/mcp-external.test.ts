@@ -29,7 +29,7 @@ const call = (name: string, args: Record<string, unknown>) => mcp('tools/call', 
 /** Tool 결과 본문 (Lambda 반환 JSON). 인터셉터 거부는 JSON-RPC error */
 const out = (b: Awaited<ReturnType<typeof mcp>>['body']) => { try { return JSON.parse(b.result?.content?.[0]?.text ?? '{}') as Record<string, unknown>; } catch { return {}; } };
 // 거부 = 결과 없이 JSON-RPC 오류. 인터셉터(forbidden·unauthenticated) 또는 그 앞의 Gateway JWT 검사(insufficient_scope 등)
-const denied = (b: Awaited<ReturnType<typeof mcp>>['body']) => !b.result && /forbidden|unauthenticated|insufficient_scope|unauthorized|invalid/i.test(b.error?.message ?? '');
+const denied = (b: Awaited<ReturnType<typeof mcp>>['body']) => !b.result && /forbidden|unauthenticated|insufficient_scope|unauthorized|invalid_token/i.test(b.error?.message ?? '');
 
 function sql(q: string) {
   const r = JSON.parse(aws('rds-data', 'execute-statement', '--resource-arn', env('DB_CLUSTER_ARN'), '--secret-arn', env('DB_SECRET_ARN'), '--database', env('DB_NAME'), '--sql', q)) as { records?: { stringValue?: string }[][] };
