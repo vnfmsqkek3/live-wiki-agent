@@ -1,4 +1,6 @@
 import type { ApprovalRecord, DocumentRecord, DraftRecord, FeedbackRecord } from './contracts.ts';
+
+export interface Rating { avg: number; count: number; useful_count: number; mine?: number }
 import { ApiError } from './errors.ts';
 
 export interface AuditEvent {
@@ -27,6 +29,8 @@ export interface Store {
   /** APPROVED → USED. Promote 직전 1회만 성공 */
   consumeApproval(id: string): Promise<ApprovalRecord>;
   putFeedback(f: FeedbackRecord): Promise<void>;
+  /** 문서별 평점 집계(인기, 신뢰성과 별개) + 이 사용자의 별점. ponytail: 전체 GROUP BY, 문서 수천 건 넘으면 doc_id 목록으로 좁힘 */
+  ratings?(user_sub: string): Promise<Map<string, Rating>>;
   putDraft(d: DraftRecord): Promise<void>;
   listDrafts(doc_id: string): Promise<DraftRecord[]>;
   audit(e: AuditEvent): Promise<void>;
@@ -72,6 +76,17 @@ export function memoryStore() {
       return clone(a);
     },
     async putFeedback(f) { feedback.set(`${f.doc_id}#${f.user_sub}`, clone(f)); },
+    async ratings(sub) {
+      const m = new Map<string, Rating & { sum: number }>();
+      for (const f of feedback.values()) {
+        const r = m.get(f.doc_id) ?? { avg: 0, count: 0, useful_count: 0, sum: 0 };
+        if (typeof f.stars === 'number') { r.count++; r.sum += f.stars; }
+        if (f.useful) r.useful_count++;
+        if (f.user_sub === sub && typeof f.stars === 'number') r.mine = f.stars;
+        m.set(f.doc_id, r);
+      }
+      return new Map([...m].map(([k, { sum, ...r }]) => [k, { ...r, avg: r.count ? Math.round((sum / r.count) * 10) / 10 : 0 }]));
+    },
     async putDraft(d) { drafts.push(clone(d)); },
     async listDrafts(id) { return drafts.filter((d) => d.doc_id === id).map(clone); },
     async audit(e) { audits.push(e); },

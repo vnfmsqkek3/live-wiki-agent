@@ -17,7 +17,7 @@ import {
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
-import type { Store } from './store.ts';
+import type { Rating, Store } from './store.ts';
 import { CHECK_CODES, checkView, FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { buildDocPages } from './steps/structure.ts';
@@ -126,6 +126,8 @@ const clarifyView = (det: Record<string, unknown>) => {
   return { ...det, ...(typeof det['before'] === 'string' ? { before: figRefs(det['before'] as string, pg) } : {}), ...(sg ? { suggestions: sg } : {}) };
 };
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
+/** 평점(인기)은 결재·검증(신뢰성)과 따로: rating{avg,count}(별점 0건이면 생략)·useful_count (P1 추천·평점, 프론트 요청 11/20) */
+const ratingOf = (r?: Rating) => ({ ...(r?.count ? { rating: { avg: r.avg, count: r.count } } : {}), ...(r?.useful_count ? { useful_count: r.useful_count } : {}) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
 /** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
@@ -902,7 +904,8 @@ export function createApp(deps: Deps) {
     const groups = [...groupSeries(vis.filter((d) => d.lifecycle !== 'BLOCKED')).values()];
     const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f) && inCat(rep.doc_id))
       .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
-    return c.json({ items });
+    const rt = await store.ratings?.(c.get('actor').sub);
+    return c.json({ items: items.map((i) => ({ ...i, ...ratingOf(rt?.get(i.doc_id)) })) });
   });
   // 원본 보기 (사용자 요청 11/17 '원본 내용 그대로 png, 쪽별 파일 presigned URL'): 모든 쪽, 개인정보만 가린 이미지.
   // 가리지 않은 원본은 올린 사람·결재자의 원본 다운로드로만. URL 은 로그·감사에 남기지 않는다
@@ -1040,8 +1043,10 @@ export function createApp(deps: Deps) {
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
+    const myRt = (await store.ratings?.(a.sub))?.get(d.doc_id);
     return c.json({
       ...base,
+      ...ratingOf(myRt), my_stars: myRt?.mine ?? null,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
@@ -1101,7 +1106,8 @@ export function createApp(deps: Deps) {
     const items = [...groupByDoc((type ? sem.filter((i) => i.document_type === type) : sem) as unknown as { doc_id: string; basis?: string; snippet: string }[]), ...kw];
     const shown = new Set(items.map((i) => i.doc_id));
     const related = groupByDoc(all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type)) as unknown as { doc_id: string; basis?: string; snippet: string }[]);
-    return c.json({ items, related, ...(rewritten ? { rewritten } : {}) });
+    const rt = await store.ratings?.(a.sub);
+    return c.json({ items: items.map((i) => ({ ...i, ...ratingOf(rt?.get(i.doc_id)) })), related, ...(rewritten ? { rewritten } : {}) });
   });
 
   app.post('/v1/guides', async (c) => {
