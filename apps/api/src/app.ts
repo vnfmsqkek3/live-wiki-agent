@@ -1055,7 +1055,8 @@ export function createApp(deps: Deps) {
         lifecycle: d.lifecycle,
         approval_id: pendingApproval?.approval_id,
         source_mismatch: d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review,
-        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: plainMessage(f), fix_hint: f.fix_hint, page: f.location?.page })),
+        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: plainMessage(f), fix_hint: f.fix_hint, page: f.location?.page,
+          ...(f.acknowledged ? { ack_reason: f.acknowledged.reason ?? '' } : {}) })), // 작성자 '그대로 사용' 사유 → 승인자 상세에 (엔드유저 11/20)
       },
       ...docDatesOf(d, pages),
       verification: verification(d, approval),
