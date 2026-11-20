@@ -70,6 +70,7 @@ export default function Impact() {
         <div className="impact">
           <section aria-labelledby="chg-h">
             <h2 className="section" id="chg-h">바뀐 조문 {r.changes.length}곳 <span className="note">{r.old_revision} → {r.new_revision}</span></h2>
+            {r.new_revision > new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' }) && <p className="flag" style={{ display: 'block' }}>{r.new_revision.slice(5)} 시행 예정인 개정입니다. 시행일 전까지는 현행 규정이 적용됩니다.</p>}
             {r.changes.length === 0 ? <p className="note">두 개정본 사이에 바뀐 조문이 없습니다.</p> : (
               <ul className="ledger">{r.changes.map((c) => (
                 <li className="entry" key={c.path}>
