@@ -1,4 +1,5 @@
 'use client';
+import { roleText } from '../lib/roles';
 import { PageThumb } from '../page-thumb';
 import { PageHeader } from '../page-header';
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
@@ -48,11 +49,15 @@ function GuideView() {
       {err && <p className="error" role="alert">{err}</p>}
       {g && (
         <>
-          <p className="notice" style={{ color: 'var(--ink)' }}>
+          {/* 근거 0건 + 확인 필요 문구(게시·승인 요청 거절 등)면 그 문구를 맨 위에 (엔드유저 데모 06 ⑧ 11/20) */}
+          {!docs.length && g.uncertainty ? <div className="notice" role="status" style={{ display: 'block' }}>
+            <p style={{ margin: 0, whiteSpace: 'pre-line' }}><GText s={g.uncertainty} /></p>
+            {/게시|승인/.test(g.uncertainty) && <p className="note" style={{ marginBottom: 0 }}>가이드는 문서를 게시하거나 승인할 수 없습니다. 본인 문서는 등록 &gt; 검토 화면에서 [검토 마치고 게시 요청]을 누르면 승인자에게 갑니다.</p>}
+          </div> : <p className="notice" style={{ color: 'var(--ink)' }}>
             검증된 문서 {docs.length}건을 근거로 AI가 작성한 참고용 가이드입니다. 최종 판단은 근거 규정을 직접 확인한 뒤 하세요.
-          </p>
+          </p>}
           {g.query_masked && <p className="mock">질문에 있던 개인정보를 가린 뒤 처리했습니다.</p>}
-          {g.status === 'NO_EVIDENCE' ? <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
+          {g.status === 'NO_EVIDENCE' ? g.uncertainty && !docs.length ? null : <p className="note">열람할 수 있는 승인 문서에서 근거를 찾지 못했습니다. 질문을 바꾸거나 담당 부서에 문의하세요.</p> : (
             <>{(g.sections?.length ? g.sections : [{ title: '', note: '', steps: g.steps, fallback: '', source_note: '' }]).map((sec, k) => { const list = sec.steps; const brief = !!g.sections?.length; return (
               <section key={k} className="guide-section" aria-label={sec.title || '가이드'}>
                 {sec.title && <h2 className="section"><GText s={sec.title} /></h2>}
@@ -74,7 +79,7 @@ function GuideView() {
                 {sec.source_note && <p className="meta guide-source"><GText s={sec.source_note} />{list[0]?.sources[0] && <> · <a href={`/library?id=${encodeURIComponent(list[0].sources[0].doc_id)}${list[0].sources[0].page ? `&page=${list[0].sources[0].page}` : ''}`}>원문 보기</a></>}</p>}
               </section>); })}</>
           )}
-          {g.uncertainty && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}><GText s={g.uncertainty} /></p></>}
+          {g.uncertainty && docs.length > 0 && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}><GText s={g.uncertainty} /></p></>}
           <div className="actions">
             <button className="btn" onClick={() => router.push(`/search?q=${encodeURIComponent(q)}`)}>근거 문서 보기</button>
             <button className="btn" onClick={useful} disabled={thanks || docs.length === 0}>{thanks ? '의견을 남겼습니다' : '도움이 됐어요'}</button>
@@ -90,7 +95,8 @@ function GuideView() {
 // 가이드 문장 표시용 (엔드유저 11/20): '**굵게**'는 굵게, 내부 코드·조문 경로는 읽는 말로. 원문 근거는 바꾸지 않는다
 const CODE: Record<string, string> = { REVIEW_REQUIRED: '재검토 중', NOT_FOUND_VERIFIED: '검증된 문서에서 찾지 못함', SUPERSEDED: '개정 전 판', CURRENT: '현행', VERIFIED: '검증됨', UNVERIFIED: '미검증' };
 const UNIT: Record<string, string> = { ARTICLE: '조', PARAGRAPH: '항', ITEM: '호', SUBITEM: '목' };
-const readable = (s: string) => s
+const readable = (s: string) => roleText(s.replace(/\s*\((USER|AUTHOR|REG_APPROVER|SECURITY_REVIEWER|PLATFORM_OPERATOR)\)/g, ''))
+  .replace(/^#{1,6}\s+/gm, '')
   .replace(/[\w-]+@[\d-]+\//g, '')
   .replace(/ARTICLE:[\w-]+(?:\/(?:PARAGRAPH|ITEM|SUBITEM):[\w-]+)*/g, (p) => p.split('/').map((x) => { const [k, v] = x.split(':'); return `제${v}${UNIT[k!]}`; }).join(''))
   .replace(/\b[A-Z][A-Z_]{5,}\b/g, (c) => CODE[c] ?? c);
