@@ -6,7 +6,7 @@ import type { LawMeta } from "./parse.ts";
 
 const SUB = `[${SUBITEM_CHARS.join("")}]`;
 const EXTERNAL = new RegExp(String.raw`「([^」]+)」\s*제(\d+)조(?:의(\d+))?(?:\s*제(\d+)항)?(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");
-const ABSOLUTE = new RegExp(String.raw`제(\d+)조(?:의(\d+))?(?:\s*제(\d+)항)?(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");
+const ABSOLUTE = new RegExp(String.raw`제(\d+)(?:-(\d+)조(?:의(\d+))?|조(?:의(\d+))?)(?:\s*제(\d+)항)?(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");
 const PARA_ONLY = new RegExp(String.raw`(?<![조\d])제(\d+)항(?:\s*제(\d+)호(?:의(\d+))?)?(?:\s*(${SUB})목)?`, "gu");
 const RELATIVE = /전항|전조|같은\s*조|같은\s*항|다음\s*각\s*호|각\s*호|다음\s*각\s*목|각\s*목/gu;
 const ANNEX = /별표\s*(\d+)(?:의(\d+))?/gu;
@@ -53,7 +53,8 @@ export function extractReferences(p: Provision, byId: Map<string, Provision>, or
     mask(m.index!, m.index! + raw!.length);
   }
   for (const m of [...text.matchAll(ABSOLUTE)]) {
-    const [raw, a, ab, pa, it, ib, su] = m;
+    const [raw, a, db, db2, ub, pa, it, ib, su] = m; // 제9-5조 = 제9조의5 (ARTICLE:9-5), 제2-1조의2 = ARTICLE:2-1-2
+    const ab = db ? (db2 ? `${db}-${db2}` : db) : ub;
     refs.push({ raw: raw!, kind: "ABSOLUTE", target_id: buildPath(nsBase, a!, ab, pa, it, ib, su), exception_candidate: isExc(m.index! + raw!.length) });
     mask(m.index!, m.index! + raw!.length);
   }

@@ -777,3 +777,25 @@ test('외부 법령 참고(총괄 지시 11/20): 법령당 1건, 인용 조문 �
   assert.deepEqual([none.items[0]!.clause, none.items[0]!.clauses], [undefined, []]);
   assert.ok(none.items[0]!.result, '조문 없는 법령도 법령 단위로 조회');
 });
+
+test('확인 필요(checks): 외부 법령·근거 조문과 다름은 잠그지 않고, 작성자 검토·승인자 결재함 모두에 보인다 (MX-002 11/20)', async () => {
+  const t = setup();
+  const { doc_id, approval_id } = await submitted(t);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, findings: [{ finding_id: 'x1', step: 'KNOWHOW_VALIDATION', severity: 'MEDIUM', code: 'KNOWHOW_EXTERNAL_MISMATCH', message: 'm', user_message: '외부 법령과 다름', evidence_ref: 'ext', fix_hint: '30일 이내로 고치세요', location: { excerpt: '60일 이내 신고' } }] as never });
+  const rv = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/review`)).json()) as { fixes: unknown[]; checks: { code: string; excerpt: string; fix_hint: string }[] };
+  assert.deepEqual(rv.fixes, []);
+  assert.deepEqual(rv.checks.map((c) => [c.code, c.excerpt, c.fix_hint]), [['KNOWHOW_EXTERNAL_MISMATCH', '60일 이내 신고', '30일 이내로 고치세요']]);
+  const ap = (await (await t.call('approver', 'GET', '/v1/approvals')).json()) as { items: { approval_id: string; checks_count: number; checks: { text: string }[] }[] };
+  const card = ap.items.find((i) => i.approval_id === approval_id)!;
+  assert.equal(card.checks_count, 1);
+  assert.equal(card.checks[0]!.text, '60일 이내 신고');
+});
+
+test('검증 정보: 매뉴얼도 외부 법령 대조 결과가 있으면 그 사실·다른 문장을 보인다 (MX-002 11/20)', async () => {
+  const { verification } = await import('../src/library.ts');
+  const v = verification({ document_type: 'MANUAL', findings: [{ finding_id: 'x', step: 'KNOWHOW_VALIDATION', severity: 'MEDIUM', code: 'KNOWHOW_EXTERNAL_MISMATCH', message: 'm', user_message: '제9-5조 원문과 다릅니다', evidence_ref: 'EXT:x', location: { excerpt: '60일 이내 신고' } }] } as never);
+  assert.match(v.method, /외부 법령/);
+  assert.deepEqual(v.basis.map((b) => [b.result, b.statement]), [['외부 법령과 다름(확인 필요)', '60일 이내 신고']]);
+  assert.match(verification({ document_type: 'MANUAL', findings: [] } as never).method, /규정 대조 대상이 아닌/);
+});

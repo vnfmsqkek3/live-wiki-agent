@@ -82,6 +82,7 @@ test("clausePath: 가지번호 제9-5조 = 제9조의5 경로", async () => {
   assert.equal(clausePath("제9-5조제1항"), "ARTICLE:9-5/PARAGRAPH:1");
   assert.equal(clausePath("제 9-9 조 제1항 제8호"), "ARTICLE:9-9/PARAGRAPH:1/ITEM:8");
   assert.equal(clausePath("제12조의2제3항"), "ARTICLE:12-2/PARAGRAPH:3");
+  assert.equal(clausePath("제2-1조의2제2항"), "ARTICLE:2-1-2/PARAGRAPH:2"); // 가지번호 + 의 (외국환거래규정)
 });
 
 test("fetchOfficialLaw: 행정규칙 외국환거래규정 제9-5조제1항 원문 (AI팀 요청 11/20, 본문은 합성 mock)", async () => {
@@ -153,6 +154,8 @@ test("법령 원문 캐시 (prod 11/20 P0): 저장 실패해도 조회 결과는
   const failing = { get: async () => undefined, put: async () => { throw Object.assign(new Error("Item size has exceeded the maximum allowed size"), { name: "ValidationException" }); } };
   const r = await cachedFetcher(inner, failing).fetch("외국환거래규정");
   assert.equal(r.body, body); assert.equal(r.from_cache, false);
+  const getFails = { get: async () => { throw Object.assign(new Error("throttled"), { name: "ProvisionedThroughputExceededException" }); }, put: async () => {} };
+  assert.equal((await cachedFetcher(inner, getFails).fetch("외국환거래규정")).body, body, "캐시 읽기 실패도 조회는 계속");
   // DynamoDB 저장 형식: body 대신 body_gz, 읽을 때 원문 복원
   const items = new Map<string, Record<string, unknown>>();
   const c = new DynamoLawPageCache("t");

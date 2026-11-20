@@ -6,27 +6,30 @@ import { api, ApiError, apiBlobUrl, type DocChange, type Explanation, type Issue
 
 const SEV: Record<Issue['severity'], string> = { HIGH: '등록 불가·수정 필요', MEDIUM: '확인 필요', LOW: '참고' };
 
+// 어려운 용어 쉬운 말 병기 (엔드유저 D02 11/20). 문장마다 처음 한 번만
+const plain = (s: string) => s.replace(/프롬프트 인젝션(?!\()/, '프롬프트 인젝션(AI를 속이는 숨은 지시문)').replace(/HTML 주석(?!\()/, 'HTML 주석(화면에 보이지 않는 메모 칸)');
+
 /** AgentCore가 확인 결과를 사람이 읽을 문장으로 정리한 설명 (판정은 바꾸지 않음) */
 function ExplainView({ e, issues, pages, onPage }: { e: Explanation; issues: Issue[]; pages: number[]; onPage: (p: number) => void }) {
   const pageOf = (id: string, p?: number) => p ?? issues.find((i) => i.finding_id === id)?.location?.page;
   return (
     <div className="explain">
-      <p className="lead" style={{ marginTop: 0 }}>{e.summary}</p>
+      <p className="lead" style={{ marginTop: 0 }}>{plain(e.summary)}</p>
       <ul className="fixes">
         {e.items.map((it) => {
           const p = pageOf(it.finding_id, it.page);
           return (
             <li key={it.finding_id} className={`fix ${it.risk === '높음' ? 'sev-HIGH' : ''}`}>
-              <p className="fix-head">{p ? `${p}쪽 · ` : ''}{it.where} <span className={it.risk === '높음' ? 'danger-text' : 'note'}>· 위험도 {it.risk}</span></p>
-              <p><strong>무엇이</strong> {it.problem}</p>
-              <p><strong>왜</strong> {it.reason}</p>
-              <p><strong>고치는 방법</strong> {it.fix}</p>
+              <p className="fix-head">{p ? `${p}쪽 · ` : ''}{plain(it.where)} <span className={it.risk === '높음' ? 'danger-text' : 'note'}>· 위험도 {it.risk}</span></p>
+              <p><strong>무엇이</strong> {plain(it.problem)}</p>
+              <p><strong>왜</strong> {plain(it.reason)}</p>
+              <p><strong>고치는 방법</strong> {plain(it.fix)}</p>
               {p && pages.includes(p) && <button className="btn" type="button" onClick={() => onPage(p)}>{p}쪽에서 위치 보기</button>}
             </li>
           );
         })}
       </ul>
-      {e.next_action && <p><strong><Icon name="arrow" /> 다음에 할 일</strong> {e.next_action}</p>}
+      {e.next_action && <p><strong><Icon name="arrow" /> 다음에 할 일</strong> {plain(e.next_action)}</p>}
       <p className="meta">AI가 검사 결과를 설명한 내용입니다. 등록 가능 여부 판정은 검사 규칙이 정하며, 설명이 판정을 바꾸지 않습니다.</p>
     </div>
   );
@@ -66,7 +69,9 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
   // 항목별 확인 대상(개인정보·비밀값 MEDIUM)은 검토 화면 위쪽 '개인정보 확인'에서 처리하므로 여기서 뺀다 (Fable 권고 11/18)
   const REVIEW = new Set(['PII_IMAGE_REVIEW', 'PII_IN_FIGURE', 'PII_GUARDRAIL', 'SECRET_MASKED']);
   const shown = d.items.filter((i) => i.severity !== 'LOW' && !(i.severity === 'MEDIUM' && REVIEW.has(i.code)));
-  const info = d.items.filter((i) => i.severity === 'LOW');
+  // LOW 중 *_SKIPPED는 처리한 것이 아니라 확인하지 못한 것 (AI 규칙, 엔드유저 U2 11/20)
+  const skipped = d.items.filter((i) => i.severity === 'LOW' && i.code.endsWith('_SKIPPED'));
+  const info = d.items.filter((i) => i.severity === 'LOW' && !i.code.endsWith('_SKIPPED'));
   return (
     <section aria-labelledby="issues-h" className="issues">
       <h2 className="section" id="issues-h"><Icon name="alert" /> 확인할 내용 {shown.length > 0 && <span className="danger-text">{shown.length}건</span>}</h2>
@@ -89,6 +94,10 @@ export function IssueList({ docId, refreshKey }: { docId: string; refreshKey?: u
         ))}
       </ul>
       {open !== null && openAt === null && <PageView docId={docId} page={open} items={d.items.filter((i) => i.location?.page === open)} onClose={() => setOpen(null)} />}
+      {skipped.length > 0 && <>
+        <p className="note" style={{ marginTop: 12 }}>확인하지 못한 내용 {skipped.length}건 (승인자가 직접 확인)</p>
+        <ul className="fixes">{skipped.map((i, n) => <li key={n} className="fix"><p style={{ margin: 0 }}>{i.user_message}</p></li>)}</ul>
+      </>}
       {info.length > 0 && (
         <details style={{ marginTop: 12 }}>
           <summary className="note">자동으로 처리한 내용 {info.length}건</summary>

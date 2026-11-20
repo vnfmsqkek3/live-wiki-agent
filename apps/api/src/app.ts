@@ -18,7 +18,7 @@ import {
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
 import type { Store } from './store.ts';
-import { FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
+import { CHECK_CODES, checkView, FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { buildDocPages } from './steps/structure.ts';
 import { composePrompt, fallbackAfter, keepsRest, safeSuggestion, type ClarifyKind } from './steps/clarify.ts';
@@ -493,8 +493,10 @@ export function createApp(deps: Deps) {
     // 확인 필요 (계약 6.5): 질문·원문·제안·잠금 여부. 화면이 항목별 적용을 모아 /edit 한 번
     // 항목별 확인(개인정보·비밀값): 쪽·사유·처리 여부
     const reviews = d.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM').map((f) => ({ finding_id: f.finding_id, code: f.code, page: f.location?.page ?? (/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ? Number(/^page:(\d+)/.exec(f.evidence_ref)![1]) : null), message: f.user_message ?? f.message, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, reason: f.acknowledged?.reason ?? null }));
+    // 확인 필요 (게시 잠금 아님): 외부 법령과 다름·문서가 든 근거 조문과 다름. 수정 제안은 fix_hint (엔드유저 MX-002 11/20: 화면에 안 보임)
+    const checks = d.findings.filter((f) => CHECK_CODES.has(f.code)).map(checkView);
     const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) }));
-    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, checks, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
@@ -810,7 +812,10 @@ export function createApp(deps: Deps) {
       const summary_line = (d?.summary ?? '').split(/(?<=[.다])\s+/u)[0]?.slice(0, 140) || null;
       // 올린 사람이 '그대로 사용'한 규정 충돌·재검사에서 새로 나온 충돌은 승인자가 판단 (사용자 결정 11/18) → 카드에 보인다
       const kept = (d?.findings ?? []).filter((f) => f.code === 'KNOWHOW_CONFLICT' && f.acknowledged).map((f) => ({ text: (f.location?.excerpt ?? '').slice(0, 120), reason: f.acknowledged!.reason ?? '', system: f.acknowledged!.by.startsWith('system:') }));
+      // 승인자도 '확인 필요'를 본다 (틀린 매뉴얼 승인 방지, 11/20)
+      const checks = (d?.findings ?? []).filter((f) => CHECK_CODES.has(f.code));
       return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
+        checks_count: checks.length, checks: checks.slice(0, 5).map((f) => ({ code: f.code, text: (f.location?.excerpt ?? '').slice(0, 120), message: f.user_message ?? f.message })),
         ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)

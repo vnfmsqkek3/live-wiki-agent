@@ -61,14 +61,16 @@ function MatchItem({ m, docId }: { m: Match; docId: string }) {
   </li>;
 }
 /** 기본은 앞 limit 개만, 나머지는 접기. 원문 조각을 그림 조각보다 앞에. 규정은 '조문', 그 밖은 '곳' */
-function SearchMatches({ item, limit = 2 }: { item: SearchItem; limit?: number }) {
+// weak: related(참고) 결과는 '일치'가 아니라 '비슷한' 조문 (총괄 11/20: '주택청약 해지' → 펀드 철회가 '일치한 조문'으로 보임)
+function SearchMatches({ item, limit = 2, weak = false }: { item: SearchItem; limit?: number; weak?: boolean }) {
   const all = item.matches?.length ? item.matches : [{ basis: item.basis, snippet: item.snippet }];
   const isFig = (m: Match) => m.quotable === false || m.evidence_kind === 'FIGURE' || /^\[그림/.test(m.snippet);
   const matches = [...all.filter((m) => !isFig(m)), ...all.filter(isFig)];
   const reg = item.document_type === 'REGULATION';
   const rest = matches.slice(limit);
   return <div className="search-matches">
-    {matches.length > 1 && <p className="note">{reg ? `이 문서에서 일치한 조문 ${matches.length}건` : `이 문서에서 일치한 곳 ${matches.length}곳`}</p>}
+    {weak ? <p className="note">{reg ? `비슷한 조문(참고) ${matches.length}건` : `비슷한 곳(참고) ${matches.length}곳`}</p>
+      : matches.length > 1 && <p className="note">{reg ? `이 문서에서 일치한 조문 ${matches.length}건` : `이 문서에서 일치한 곳 ${matches.length}곳`}</p>}
     <ul>{matches.slice(0, limit).map((m, n) => <MatchItem key={n} m={m} docId={item.doc_id} />)}</ul>
     {rest.length > 0 && <details className="more-matches"><summary>나머지 {rest.length}{reg ? '건' : '곳'} 더 보기</summary>
       <ul>{rest.map((m, n) => <MatchItem key={n} m={m} docId={item.doc_id} />)}</ul></details>}
@@ -87,7 +89,7 @@ function Results() {
     // 필터 선택지: 볼 수 있는 게시 문서의 업무(1단계)·부서
     api<{ items: (LibraryCard & { dept?: string })[] }>('GET', '/v1/library').then((r) => setOptions({
       business: [...new Set(r.items.map((i) => i.business_path[0]).filter((x): x is string => !!x))].sort(),
-      dept: [...new Set(r.items.map((i) => i.dept).filter((x): x is string => !!x))].sort(),
+      dept: [...new Set(r.items.map((i) => i.dept).filter((x): x is string => !!x && x !== 'all'))].sort(),
     })).catch(() => {});
   }, []);
   const [input, setInput] = useState(q);
@@ -111,9 +113,11 @@ function Results() {
     setItems(null);
     setRelated([]);
     setRewritten(null);
+    let live = true; // 검색어가 바뀐 뒤 늦게 온 이전 응답은 버린다
     api<{ items: SearchItem[]; related?: SearchItem[]; rewritten?: { core: string; alternates: string[] } }>('GET', `/v1/search?q=${encodeURIComponent(q)}${type ? `&type=${type}` : ''}${dq}${raw ? '&raw=1' : ''}`)
-      .then((r) => { setItems(r.items); setRelated(r.related ?? []); setRewritten(r.rewritten ?? null); })
-      .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 검색하세요.' : e.message); setItems([]); });
+      .then((r) => { if (!live) return; setItems(r.items); setRelated(r.related ?? []); setRewritten(r.rewritten ?? null); })
+      .catch((e: ApiError) => { if (!live) return; setErr(e.status === 401 ? '로그인한 뒤 다시 검색하세요.' : e.message); setItems([]); });
+    return () => { live = false; };
   }, [q, type, dq, raw]);
   const nav = (nq: string, nt: string, nd: Detail = detail) =>
     router.push(`/search?q=${encodeURIComponent(nq)}${nt ? `&type=${nt}` : ''}${DETAIL.filter((k) => nd[k]).map((k) => `&${k}=${encodeURIComponent(nd[k]!)}`).join('')}`);
@@ -192,7 +196,7 @@ function Results() {
                     <Seal i={{ ...i, freshness: i.freshness }} />
                     <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
                                         <dl><dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
-                    <SearchMatches item={i} limit={1} />
+                    <SearchMatches item={i} limit={1} weak />
                     <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
                   </li>
                 ))}

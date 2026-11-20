@@ -13,14 +13,15 @@ export function kyulStamps(d: Doc, approvedNow = false): Stamp[] {
   const write: Stamp = { label: '작성', tone: 'ok', mark: reg ? '원본' : '등록', hint: reg ? '공식 규정 원본 등록' : '작성자 등록' };
   const check: Stamp =
     lc === 'QUARANTINED' ? { label: 'AI 검사', tone: 'wait', mark: '검사중', hint: '자동 검사 진행 중' }
-    : lc === 'BLOCKED' ? { label: 'AI 검사', tone: 'bad', mark: '차단', hint: '보안 검사에서 차단' }
+    : lc === 'BLOCKED' && d.authority_status !== 'REJECTED' ? { label: 'AI 검사', tone: 'bad', mark: '차단', hint: '보안 검사에서 차단' }
     : (d.mark_count ?? 0) > 0 || d.freshness === 'REVIEW_REQUIRED' ? { label: 'AI 검사', tone: 'bad', mark: '확인', hint: '고칠 곳이나 재검토 사유가 있음' }
     : d.mark_count === undefined && lc !== 'PUBLISHED' ? { label: 'AI 검사', tone: 'ok', mark: '완료', hint: '자동 검사 완료' }
     : { label: 'AI 검사', tone: 'ok', mark: '통과', hint: '자동 검사 통과' };
   const verified = approvedNow || (d.authority_status === 'VERIFIED' && lc === 'PUBLISHED');
   const approve: Stamp =
     verified ? { label: '승인', tone: 'ok', mark: reg ? '공식' : '승인', hint: reg ? '공식 원본과 일치' : '사람이 승인' }
-    : d.authority_status === 'REJECTED' || lc === 'BLOCKED' ? { label: '승인', tone: 'bad', mark: lc === 'BLOCKED' ? '불가' : '반려', hint: lc === 'BLOCKED' ? '차단되어 승인할 수 없음' : '승인자가 반려' }
+    : d.authority_status === 'REJECTED' ? { label: '승인', tone: 'bad', mark: '반려', hint: '승인자가 반려' } // 반려도 lifecycle은 BLOCKED (엔드유저 11/20)
+    : lc === 'BLOCKED' ? { label: '승인', tone: 'bad', mark: '불가', hint: '차단되어 승인할 수 없음' }
     : { label: '승인', tone: 'wait', mark: lc === 'PENDING_APPROVAL' ? '대기' : '검토중', hint: lc === 'PENDING_APPROVAL' ? '승인자 결재 대기' : '작성자 검토 중' };
   return [write, check, approve];
 }
@@ -40,7 +41,7 @@ export function summaryStamp(d: Doc): Stamp & { text: string } {
   if (approve!.tone === 'bad') return { ...approve!, text: approve!.mark === '반려' ? '반려됨' : '차단됨' };
   if (check!.tone === 'wait') return { ...check!, text: 'AI 검사 중' };
   if (approve!.tone === 'wait') return { ...approve!, text: approve!.mark === '대기' ? '승인 대기' : '작성자 검토 중' };
-  return { ...approve!, text: reg ? '공식 규정' : '검증 완료' };
+  return { ...approve!, mark: '승인', text: reg ? '공식 규정' : '검증 완료' }; // 도장 '공식' + '공식 규정'이 '공식공식 규정'으로 읽힘 (엔드유저 11/20)
 }
 
 /** 결재란. size=mini는 목록용(도장 1개 + 글자), full은 상세·결재용(3칸, 칸 아래 일자·승인자).

@@ -15,6 +15,9 @@ const sets = JSON.parse(readFileSync('tests/evaluations/cases/sets.json', 'utf8'
 const DEMO = { normal: ['F-001', 'K-001'], forged: ['F-003'], attack: ['A-001'], conflict: ['K-002'] };
 const S = process.env.QA_PART === 'demo' ? DEMO
   : { normal: sets.normal_register_5, forged: sets.forged_block_5, attack: sets.attack_block_5, conflict: ['K-002'] };
+// QA_SKIP=F-001,G-REG-01 : prod에 이미 게시된 시드는 다시 올리지 않는다(같은 문서가 새 버전 후보로 섞임, 총괄 11/20)
+const SKIP = new Set((process.env.QA_SKIP ?? '').split(',').filter(Boolean));
+for (const k of Object.keys(S)) S[k] = S[k].filter((id) => !SKIP.has(id));
 const fileOf = (id) => ['documents/pdf/' + id + '.pdf', 'golden/pdf/' + id + '.pdf', 'documents/' + id + '.png'].map((p) => resolve('tests/fixtures', p)).find(existsSync);
 const pw = JSON.parse(readFileSync(0, 'utf8'));
 // 데모 계정(사용자 결정 11/20): user = 작성자(업로드·검색·비인가 시도), admin = 승인·반려·관리 화면. approver 없음
@@ -33,6 +36,8 @@ ws.addEventListener('message', (e) => {
   if (m.id && wait.has(m.id)) { wait.get(m.id)(m.result ?? { error: m.error }); wait.delete(m.id); }
   if (m.method === 'Page.javascriptDialogOpening') send('Page.handleJavaScriptDialog', { accept: true, promptText: 'QA 자동 점검' });
   if (m.method === 'Network.responseReceived' && m.params.response.url.includes('/v1/')) net.push({ status: m.params.response.status, url: m.params.response.url, requestId: m.params.requestId });
+  // presigned S3 PUT 응답 (URL은 저장·출력하지 않는다)
+  if (m.method === 'Network.responseReceived' && m.params.response.url.includes('X-Amz-') && m.params.type !== 'Preflight') net.push({ status: m.params.response.status, url: 's3-put', requestId: m.params.requestId });
   if (m.method === 'Runtime.exceptionThrown') errors.push(m.params.exceptionDetails.exception?.description?.split('\n')[0]);
 });
 const send = (method, params = {}) => new Promise((r) => { const i = ++id; wait.set(i, r); ws.send(JSON.stringify({ id: i, method, params })); });
@@ -79,8 +84,9 @@ async function login(name) {
 const stamp = new Date().toISOString().slice(5, 16).replace('T', ' ');
 const docs = {}; // sample id → { title, docId, lifecycle, reasons, submit, approval_id, admin }
 
-async function upload(sid) {
+async function upload(sid, retry = 1) {
   const title = `[SYNTHETIC] QA ${sid} ${stamp}`;
+  net.length = 0;
   await go('/upload');
   const doc = await send('DOM.getDocument', {});
   const input = await send('DOM.querySelector', { nodeId: doc.root.nodeId, selector: '#f' });
@@ -90,7 +96,16 @@ async function upload(sid) {
   await click('분석 시작');
   await until(async () => net.some((n) => n.url.endsWith('/v1/documents/upload-url')) && /분석 중|분석이|차단/.test(await text()), 60_000, 1000);
   const docId = (await resBody('/v1/documents/upload-url'))?.doc_id;
+  // 다음 업로드로 넘어가기 전에 S3 PUT 끝을 기다린다 (11/20: 첫 건 PUT이 페이지 이동에 끊겨 S3 객체 없음)
+  // 화면은 PUT이 끝나야 /analyze를 부른다 → /analyze 응답이 오면 성공, S3가 오류를 주거나 60초 안에 안 오면 실패
+  const put = await until(async () => net.some((n) => n.url.endsWith('/analyze')) ? 'ok' : net.find((n) => n.url === 's3-put' && n.status >= 300)?.status, 60_000, 500);
   net.length = 0;
+  if (put !== 'ok') {
+    console.log(`  올림 ${sid} → ${docId ?? '-'} S3 PUT 실패(${put ?? '60초 안에 끝나지 않음'})${retry ? ', 다시 올림' : ''}`);
+    if (retry) return upload(sid, retry - 1);
+    docs[sid] = { title, docId: null, putFailed: docId ?? true };
+    return;
+  }
   docs[sid] = { title, docId };
   console.log(`  올림 ${sid} → ${docId ?? '실패'}`);
 }
@@ -164,7 +179,7 @@ if (APPROVE) await until(async () => { await login('user'); for (const sid of S.
 for (const sid of S.normal) {
   const d = docs[sid];
   const ok = d.submit?.ok && d.admin === 'approvable' && (!APPROVE || d.final === 'PUBLISHED');
-  check(`Q1 ${sid}`, ok ? true : d.submit?.ok ? 'partial' : false, `분석 ${d.lifecycle} · 게시 요청 ${d.submit?.ok ? '성공' : d.submit?.why} · 결재함 ${d.admin}${APPROVE ? ` · 승인 ${d.approved ? '성공' : '실패'} → ${d.final ?? '-'}` : ''}`, d.reviewShot);
+  check(`Q1 ${sid}`, ok ? true : d.submit?.ok ? 'partial' : false, `${d.putFailed ? 'S3 PUT 실패(올리기 2회) · ' : ''}분석 ${d.lifecycle} · 게시 요청 ${d.submit?.ok ? '성공' : d.submit?.why} · 결재함 ${d.admin}${APPROVE ? ` · 승인 ${d.approved ? '성공' : '실패'} → ${d.final ?? '-'}` : ''}`, d.reviewShot);
 }
 
 // Q2 위조 차단 / Q3 Injection 차단: 게시까지 못 가고 user 검색에 없음. 사람 반려가 필요하면 partial
@@ -195,25 +210,26 @@ check('M01', home.search && home.cards > 0 ? (home.chips > 0 ? true : 'partial')
 
 // M02 Trust Gate: F-001 승인, F-003 차단, A-001 검사 결과, 차단 문서 검색 제외
 const f3 = docs['F-003'], a1 = docs['A-001'];
+// QA_SKIP으로 뺀 문서는 판정에서 뺀다 (없는 문서로 멈추지 않게)
 const m02 = [
-  ['F-001 승인', docs['F-001'].admin === 'approvable'],
-  ['F-003 차단', !!blockedAt(f3)],
-  ['A-001 보안 검사 결과 표시', /보안 검사/.test(a1.review ?? '') || a1.lifecycle === 'BLOCKED'],
-  ['차단 문서 검색 제외', !(await userSees('F-003')) && !(await userSees('A-001'))],
-];
-check('M02', m02.every(([, v]) => v) ? true : 'partial', m02.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '));
+  docs['F-001'] && ['F-001 승인', docs['F-001'].admin === 'approvable'],
+  f3 && ['F-003 차단', !!blockedAt(f3)],
+  a1 && ['A-001 보안 검사 결과 표시', /보안 검사/.test(a1.review ?? '') || a1.lifecycle === 'BLOCKED'],
+  f3 && a1 && ['차단 문서 검색 제외', !(await userSees('F-003')) && !(await userSees('A-001'))],
+].filter(Boolean);
+if (m02.length) check('M02', m02.every(([, v]) => v) ? true : 'partial', m02.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '));
 
 // M03 노하우 검증: K-001 근거 확인, K-002 충돌 표시 + 게시 보류
-const k1 = docs['K-001'].review ?? '', k2 = docs['K-002'];
-const m03 = [
-  ['K-001 관련 규정 표시', /근거 규정과 맞습니다|근거 확인됨|실무 보완/.test(k1)],
-  ['K-002 충돌 표시', /규정과 충돌하는 내용이 있습니다|규정과 어긋남/.test(k2.review ?? '')],
+const k1 = docs['K-001']?.review ?? '', k2 = docs['K-002'];
+const m03 = !k2 ? [] : [
+  docs['K-001'] && ['K-001 관련 규정 표시', /근거 규정과 맞습니다|근거 확인됨|실무 보완/.test(k1)],
+  ['K-002 충돌 표시', /규정과 충돌하는 내용이 있습니다|규정과 어긋남|규정과 어긋난 문장(?!은 없습니다)/.test(k2.review ?? '')],
   ['K-002 게시 보류', !k2.submit?.ok || k2.admin === 'reject-only'],
-];
-check('M03', m03.every(([, v]) => v) ? true : 'partial', m03.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '), k2.reviewShot);
+].filter(Boolean);
+if (k2) check('M03', m03.every(([, v]) => v) ? true : 'partial', m03.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '), k2.reviewShot);
 
 // M04 Change Impact: F-001 게시 뒤 F-002 등록 → 새 버전 표시, 관리 > 규정 변경 영향에 바뀐 조문·영향 노하우
-if (docs['F-001'].final === 'PUBLISHED') {
+if (docs['F-001']?.final === 'PUBLISHED') {
   await login('user');
   await upload('F-002');
   await waitAnalysis(['F-002']);
@@ -263,7 +279,7 @@ console.log(`정리(반려): ${JSON.stringify(cleanup)}`);
 
 writeFileSync(`${OUT}/qa-demo-result.json`, JSON.stringify({
   base: BASE, at: new Date().toISOString(), part: process.env.QA_PART ?? 'all', approve: APPROVE, results, cleanup,
-  docs: Object.fromEntries(Object.entries(docs).map(([k, d]) => [k, { title: d.title, doc_id: d.docId, lifecycle: d.lifecycle, final: d.final, submit: d.submit, admin: d.admin }])),
+  docs: Object.fromEntries(Object.entries(docs).map(([k, d]) => [k, { title: d.title, doc_id: d.docId, put_failed: d.putFailed ?? false, lifecycle: d.lifecycle, final: d.final, submit: d.submit, admin: d.admin }])),
   page_errors: [...new Set(errors)].slice(0, 20), api_errors: net.filter((n) => n.status >= 400 && !n.url.includes('/decision')).map((n) => `${n.status} ${new URL(n.url).pathname}`),
 }, null, 2));
 console.log(`\n결과: ${OUT}/qa-demo-result.json · 정리 대상 doc_id: ${Object.values(docs).map((d) => d.docId).filter(Boolean).join(' ')}`);

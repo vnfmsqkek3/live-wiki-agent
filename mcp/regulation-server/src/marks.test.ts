@@ -151,3 +151,12 @@ test("근거 표시(사용자 피드백 11/20): 든 적 없는 조문(basis=NONE
   const [old] = await buildMarks(pages, { knowhow: { items: [item("처리 결과를 고객에게 안내한다.", "INSUFFICIENT")], outdated: [] } }, s);
   assert.equal(old!.kind, "INSUFFICIENT"); assert.equal(old!.basis?.provision_id, pid);
 });
+
+test("공식 원본 대조: 공백·줄바꿈만 다른 조문은 밑줄 없음, 글자가 다르면 밑줄 (형식 차이 D01 11/20)", async () => {
+  const s = fixtureClauseStore();
+  const reg = { law_id: "SYN-LOAN-001", law_name: "하나은행 기업여신 심사규정", revision_id: "2026-11-01", content_hash: "h", effective_from: "2026-11-01", effective_to: "2026-11-30",
+    clauses: { "ARTICLE:10/PARAGRAPH:1/ITEM:2": "사업자등록증 사본", "ARTICLE:12/PARAGRAPH:1": "여신 금액이 5억원 이상인 경우 본부 승인" } };
+  const claimed = { law_id: "SYN-LOAN-001", revision_id: "2026-11-01", clauses: { "ARTICLE:10/PARAGRAPH:1/ITEM:2": "사업자등록증사본", "ARTICLE:12/PARAGRAPH:1": "여신 금액이 7억원 이상인 경우 본부 승인" } };
+  const marks = await buildMarks(["사업자등록증사본\n여신 금액이 7억원 이상인 경우 본부 승인"], { registry: { registry: reg, claimed } as never }, s);
+  assert.deepEqual(marks.filter((m) => m.kind === "REGISTRY_MISMATCH").map((m) => m.original), ["여신 금액이 7억원 이상인 경우 본부 승인"]);
+});
