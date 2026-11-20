@@ -43,7 +43,15 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
     dialog.showModal();
     return () => { dialog.close(); document.body.style.overflow = overflow; if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
   }, [open]);
-  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onCancel={(e) => { e.preventDefault(); onClose(); }}>
+  // 바깥(배경)을 누르면 닫고, 그 자리에 있던 버튼·링크를 그대로 누른다 (엔드유저 11/20: 창을 연 채 [승인]을 눌러도 반응 없음)
+  const outside = (e: React.MouseEvent<HTMLDialogElement>) => {
+    const b = ref.current!.getBoundingClientRect();
+    if (e.target !== ref.current || (e.clientX >= b.left && e.clientX <= b.right && e.clientY >= b.top && e.clientY <= b.bottom)) return;
+    ref.current!.close(); onClose();
+    const el = document.elementFromPoint(e.clientX, e.clientY)?.closest('button, a') as HTMLElement | null;
+    setTimeout(() => el?.click(), 0); // 닫힘이 반영된 뒤 누른다 (같은 카드를 다시 열 때 상태가 꼬이지 않게)
+  };
+  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onClick={outside} onCancel={(e) => { e.preventDefault(); onClose(); }}>
     <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" autoFocus onClick={onClose}>닫기</button></div>
     {open && children}
   </dialog>;
@@ -330,10 +338,10 @@ function Reasons({ d, jump, onInsert }: { d: LibraryDoc; jump: (page: number, n:
 }
 
 /** 결재 대상 하단 결재 버튼. 출처 불일치는 반려만 */
-function Decide({ r, docId }: { r: NonNullable<LibraryDoc['review']>; docId: string }) {
+function Decide({ r, docId, onDone }: { r: NonNullable<LibraryDoc['review']>; docId: string; onDone: (msg: string) => void }) {
   const [msg, setMsg] = useState('');
   const [done, setDone] = useState(false);
-  const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) setDone(true); };
+  const run = async (f: () => Promise<{ status?: string; msg: string } | undefined>) => { const x = await f(); if (!x) return; setMsg(x.msg); if (x.status) { setDone(true); onDone(x.msg); } };
   const [opinion, setOpinion] = useState('');
   if (!r.source_mismatch && !r.approval_id) return null;
   return (
@@ -538,6 +546,7 @@ function ClarifyApply({ d, canEdit, onApply }: { d: LibraryDoc; canEdit: boolean
 
 function Detail({ id, from }: { id: string; from?: string | null }) {
   const [d, setD] = useState<LibraryDoc | null>(null);
+  const [decided, setDecided] = useState(''); // 결재 직후 문서를 다시 불러와 단계 표시를 바꾼다 (엔드유저 11/20)
   const [err, setErr] = useState('');
   // ?page=N(1부터): 검색·가이드 썸네일에서 온 경우 그 쪽부터
   const [p, setP] = useState(() => (typeof window === 'undefined' ? 0 : Math.max(0, (Number(new URLSearchParams(window.location.search).get('page')) || 1) - 1)));
@@ -577,7 +586,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           .catch(() => {});
       })
       .catch((e: ApiError) => setErr(e.status === 404 ? '문서를 찾을 수 없거나 볼 권한이 없습니다.' : e.message));
-  }, [id]);
+  }, [id, decided]);
   if (err) return <><p className="error" role="alert">{err}</p>{from === 'admin' ? <Link href="/admin">결재함으로 돌아가기</Link> : <Link href="/library">보관함으로 돌아가기</Link>}</>;
   if (!d) return <p className="note">불러오는 중입니다.</p>;
   const page = d.pages[p];
@@ -772,7 +781,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       )}
       {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} /></DetailCard>}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
-      </div></CardBoundary>{d.review && <Decide r={d.review} docId={d.doc_id} />}
+      </div></CardBoundary>{decided ? <p className="notice" role="status">{decided}</p> : d.review && <Decide r={d.review} docId={d.doc_id} onDone={setDecided} />}
 
 <DeleteDoc d={d} /></div></div>
       {from === 'admin' && <p style={{ marginTop: 16 }}>{back}</p>}
