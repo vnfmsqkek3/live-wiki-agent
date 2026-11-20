@@ -29,6 +29,8 @@ variable "model_sonnet" { type = string }
 variable "model_haiku" { type = string } # 가이드 여러 번 찾기 항목 뽑기 (11/18)
 # 가이드 출력 PII 검사 (AI팀 PR #69). env 와 ApplyGuardrail IAM 은 함께 있어야 한다: env 만 있으면 가이드 전부 실패(fail-closed)
 variable "guardrail" { type = object({ id = string, version = string, arn = string }) }
+# 답변 근거 일치 점수 기록 (차단 없음, AI P1 11/20). 한국어 GROUNDING 의미 있음(정답 0.99·조작 0.03, AI 로컬 실측)
+variable "grounding_guardrail" { type = object({ id = string, version = string, arn = string }) }
 variable "extra_allowed_clients" {
   type    = list(string)
   default = [] # 외부 MCP 연결 client_credentials 클라이언트 (11/18)
@@ -42,7 +44,15 @@ locals {
   acct      = data.aws_caller_identity.me.account_id
   discovery = "https://cognito-idp.${local.region}.amazonaws.com/${var.cognito_user_pool_id}/.well-known/openid-configuration"
   # Gateway 에는 MCP Tool 정의 필드만 (진행 문구 progress 등 확장 필드 제외, let522mj 요청)
-  schemas = { for k, v in var.targets : k => jsonencode([for t in jsondecode(v.tools_json) : { name = t.name, description = t.description, inputSchema = t.inputSchema }]) }
+  # 외부 클라이언트 허용 읽기 도구 (mcp/gateway-interceptor EXTERNAL_TOOLS 와 같게)
+  external_tools = ["search___search_wiki", "search___retrieve_evidence", "search___search_legal_clause", "search___get_wiki_document",
+    "regulation___get_clause", "regulation___get_official_policy", "regulation___verify_version", "regulation___resolve_reference", "regulation___compare_versions",
+  "graph___trace_impact", "graph___get_dependencies"]
+  schemas = merge(
+    { for k, v in var.targets : k => jsonencode([for t in jsondecode(v.tools_json) : { name = t.name, description = t.description, inputSchema = t.inputSchema }]) },
+    # 비인가 게시 거부 시험용 (docs/05 4장, P1). 실행 Tool 아님: Policy forbid 로 모두 거부, 통과해도 approval Lambda 가 unknown tool
+    { probe = jsonencode([{ name = "publish_wiki_probe", description = "TEST ONLY: 게시 시도 probe. Policy 로 항상 거부된다", inputSchema = { type = "object", properties = { doc_id = { type = "string" } } } }]) },
+  )
 }
 
 # ---------- Tool 스키마 ----------
@@ -146,6 +156,73 @@ resource "aws_bedrockagentcore_gateway_target" "t" {
   depends_on = [aws_iam_role_policy.gateway]
 }
 
+resource "aws_bedrockagentcore_gateway_target" "probe" {
+  gateway_identifier = aws_bedrockagentcore_gateway.user.gateway_id
+  name               = "probe"
+  description        = "비인가 게시 거부 시험 (publish_wiki_probe)"
+  credential_provider_configuration {
+    gateway_iam_role {}
+  }
+  target_configuration {
+    mcp {
+      lambda {
+        lambda_arn = var.targets["approval"].lambda_arn
+        tool_schema {
+          s3 { uri = "s3://${var.schema_bucket.name}/${aws_s3_object.schema["probe"].key}" }
+        }
+      }
+    }
+  }
+  depends_on = [aws_iam_role_policy.gateway]
+}
+
+# user_tools permit 에 probe 가 없어 기본 거부지만, permit 이 넓어져도 막히도록 명시 forbid (forbid 가 항상 이긴다)
+resource "aws_bedrockagentcore_policy" "deny_probe" {
+  name             = "${replace(var.n.prefix, "-", "_")}_deny_publish_probe${replace(var.n.suffix, "-", "_")}"
+  description      = "publish_wiki_probe 는 누구도 호출 불가 (데모 06 Policy 경로)"
+  policy_engine_id = aws_bedrockagentcore_policy_engine.user.policy_engine_id
+  validation_mode  = "FAIL_ON_ANY_FINDINGS"
+  lifecycle { create_before_destroy = true }
+  definition {
+    cedar {
+      statement = <<-CEDAR
+        forbid(
+          principal,
+          action in AgentCore::Action::"probe",
+          resource == AgentCore::Gateway::"${aws_bedrockagentcore_gateway.user.gateway_arn}"
+        );
+      CEDAR
+    }
+  }
+  depends_on = [aws_bedrockagentcore_gateway_target.probe]
+}
+
+# 외부 MCP 클라이언트(client_credentials, scope hanaeum-wiki-mcp/read)는 읽기 11개 외 거부 (백엔드 Cedar 문안 11/20, P1).
+# 인터셉터 EXTERNAL_TOOLS 와 같은 목록을 Gateway 경계에서 한 번 더. 내부 사용자 토큰은 scope 태그가 달라 when 이 거짓 → 영향 없음
+resource "aws_bedrockagentcore_policy" "external_readonly" {
+  name             = "${replace(var.n.prefix, "-", "_")}_user_external_readonly${replace(var.n.suffix, "-", "_")}"
+  description      = "외부 MCP 클라이언트(hanaeum-wiki-mcp/read): 읽기 도구 11개 외 거부 (인터셉터 EXTERNAL_TOOLS와 같은 목록)"
+  policy_engine_id = aws_bedrockagentcore_policy_engine.user.policy_engine_id
+  validation_mode  = "IGNORE_ALL_FINDINGS" # 분석기가 "외부 주체는 이후 추가될 Tool 까지 전부 거부"를 Overly Restrictive 로 막음(prod 11/20 실측) — 그게 의도. 이름 오타도 통과하므로 적용 뒤 외부 tools/list 11개로 확인
+  lifecycle { create_before_destroy = true }
+  definition {
+    cedar {
+      statement = <<-CEDAR
+        forbid(
+          principal is AgentCore::OAuthUser,
+          action,
+          resource == AgentCore::Gateway::"${aws_bedrockagentcore_gateway.user.gateway_arn}"
+        ) when {
+          principal.hasTag("scope") && principal.getTag("scope") like "*hanaeum-wiki-mcp/read*"
+        } unless {
+          action in [${join(", ", [for t in local.external_tools : "AgentCore::Action::\"${t}\""])}]
+        };
+      CEDAR
+    }
+  }
+  depends_on = [aws_bedrockagentcore_gateway_target.t]
+}
+
 resource "aws_bedrockagentcore_policy" "user_tools" {
   # 이름은 계정 단위로 유일 (prod 11/17 실측) → 환경 포함. 교체 시 새 것 먼저
   name             = "${replace(var.n.prefix, "-", "_")}_user_tools${replace(var.n.suffix, "-", "_")}"
@@ -206,7 +283,7 @@ resource "aws_iam_role_policy" "runtime" {
     Version = "2012-10-17"
     Statement = [
       { Effect = "Allow", Action = ["bedrock:InvokeModel", "bedrock:InvokeModelWithResponseStream", "bedrock:Converse", "bedrock:ConverseStream"], Resource = ["arn:aws:bedrock:*::foundation-model/*", "arn:aws:bedrock:${local.region}:${local.acct}:inference-profile/*"] },
-      { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = var.guardrail.arn },
+      { Effect = "Allow", Action = ["bedrock:ApplyGuardrail"], Resource = [var.guardrail.arn, var.grounding_guardrail.arn] },
       { Effect = "Allow", Action = ["ecr:GetAuthorizationToken"], Resource = "*" },
       { Effect = "Allow", Action = ["ecr:BatchGetImage", "ecr:GetDownloadUrlForLayer"], Resource = aws_ecr_repository.guide.arn },
       { Effect = "Allow", Action = ["kms:Decrypt"], Resource = var.kms_key_arn },
@@ -235,12 +312,14 @@ resource "aws_bedrockagentcore_agent_runtime" "guide" {
   # 사용자 토큰을 Runtime 코드까지 전달 → 같은 토큰으로 Gateway 호출
   request_header_configuration { request_header_allowlist = ["Authorization"] }
   environment_variables = {
-    GATEWAY_URL       = aws_bedrockagentcore_gateway.user.gateway_url
-    MODEL_SONNET      = var.model_sonnet
-    MODEL_HAIKU       = var.model_haiku
-    AWS_REGION        = local.region
-    GUARDRAIL_ID      = var.guardrail.id
-    GUARDRAIL_VERSION = var.guardrail.version
+    GATEWAY_URL                 = aws_bedrockagentcore_gateway.user.gateway_url
+    MODEL_SONNET                = var.model_sonnet
+    MODEL_HAIKU                 = var.model_haiku
+    AWS_REGION                  = local.region
+    GUARDRAIL_ID                = var.guardrail.id
+    GUARDRAIL_VERSION           = var.guardrail.version
+    GROUNDING_GUARDRAIL_ID      = var.grounding_guardrail.id
+    GROUNDING_GUARDRAIL_VERSION = var.grounding_guardrail.version
   }
   depends_on = [aws_iam_role_policy.runtime, aws_bedrockagentcore_policy.user_tools]
 }
@@ -250,3 +329,38 @@ output "ecr_repository_name" { value = aws_ecr_repository.guide.name }
 output "ecr_repository_arn" { value = aws_ecr_repository.guide.arn }
 output "runtime_arn" { value = try(aws_bedrockagentcore_agent_runtime.guide[0].agent_runtime_arn, "") }
 output "runtime_arn_pattern" { value = "arn:aws:bedrock-agentcore:${local.region}:${local.acct}:runtime/${replace("${var.n.prefix}_rt_guide${var.n.suffix}", "-", "_")}-*" }
+
+# ---------- 관측: 사용자 Gateway APPLICATION_LOGS·TRACES (11/20 P1: Policy 거부가 어디에도 안 남음 → 평가 화면 denials·데모 06 거부 Trace) ----------
+resource "aws_cloudwatch_log_group" "gateway" {
+  name = "/aws/vendedlogs/bedrock-agentcore/${var.n.prefix}-gw-user${var.n.suffix}"
+  # 7일: requestBody 에 Tool 인자 원문·sub 가 남음 → 사용자 결정 11/20 '조건부 유지'(7일·KMS·읽기는 API 역할·인프라만)
+  retention_in_days = 7
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_cloudwatch_log_delivery_source" "gateway" {
+  for_each     = toset(["APPLICATION_LOGS", "TRACES"])
+  name         = "${var.n.prefix}-lds-gw-user-${lower(replace(each.key, "_", "-"))}${var.n.suffix}"
+  log_type     = each.key
+  resource_arn = aws_bedrockagentcore_gateway.user.gateway_arn
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "gateway_logs" {
+  name = "${var.n.prefix}-ldd-gw-user-logs${var.n.suffix}"
+  delivery_destination_configuration {
+    destination_resource_arn = aws_cloudwatch_log_group.gateway.arn
+  }
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "gateway_xray" {
+  name                      = "${var.n.prefix}-ldd-gw-user-xray${var.n.suffix}"
+  delivery_destination_type = "XRAY"
+}
+
+resource "aws_cloudwatch_log_delivery" "gateway" {
+  for_each                 = aws_cloudwatch_log_delivery_source.gateway
+  delivery_source_name     = each.value.name
+  delivery_destination_arn = each.key == "TRACES" ? aws_cloudwatch_log_delivery_destination.gateway_xray.arn : aws_cloudwatch_log_delivery_destination.gateway_logs.arn
+}
+
+output "gateway_log_group" { value = { name = aws_cloudwatch_log_group.gateway.name, arn = aws_cloudwatch_log_group.gateway.arn } }

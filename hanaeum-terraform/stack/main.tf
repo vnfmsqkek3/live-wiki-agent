@@ -124,10 +124,12 @@ module "webapp" {
   runtime_arn_patterns = [module.pipeline.runtime_arn_pattern, module.user.runtime_arn_pattern]
   extra_ecr_arns       = [module.pipeline.ecr_repository_arn, module.user.ecr_repository_arn, aws_ecr_repository.convert.arn]
   kb_arn               = local.kb_arn
-  extra_api_statements = module.aurora.app_statements
+  # 평가 화면 denials: 사용자 Gateway 로그의 Policy 거부를 API 가 읽음 (백엔드 요청 11/20 P1)
+  extra_api_statements = concat(module.aurora.app_statements, [{ Effect = "Allow", Action = ["logs:FilterLogEvents"], Resource = "${module.user.gateway_log_group.arn}:*" }])
   api_env = merge(local.gov_env, {
     PIPELINE_RUNTIME_ARN = module.pipeline.runtime_arn != null ? module.pipeline.runtime_arn : ""
     AGENT_RUNTIME_ARN    = module.user.runtime_arn
+    GATEWAY_LOG_GROUP    = module.user.gateway_log_group.name
     USER_GATEWAY_URL     = module.user.gateway_url # 상세 '외부 법령 최신본': 사용자 토큰으로 regulation___fetch_official_law (NAT 경유 HTTPS)
     KB_ID                = module.kb.kb_id         # 없으면 /v1/search 가 빈 결과 (apps/api server.ts)
     MODEL_RERANK         = var.models["MODEL_RERANK"]
@@ -168,6 +170,7 @@ module "user" {
   model_sonnet          = var.models["MODEL_SONNET"]
   model_haiku           = var.models["MODEL_HAIKU"]
   guardrail             = { id = aws_bedrock_guardrail.pii.guardrail_id, version = aws_bedrock_guardrail_version.pii.version, arn = aws_bedrock_guardrail.pii.guardrail_arn }
+  grounding_guardrail   = { id = aws_bedrock_guardrail.grounding.guardrail_id, version = aws_bedrock_guardrail_version.grounding.version, arn = aws_bedrock_guardrail.grounding.guardrail_arn }
   extra_allowed_clients = [module.cognito.mcp_external_client_id]
   create_runtime        = local.agents_ref != null
   image_tag             = local.agents_ref != null ? terraform_data.agent_image["guide"].output : null
