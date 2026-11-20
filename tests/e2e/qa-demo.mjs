@@ -1,7 +1,7 @@
 // 데모 01~06(docs/02 5.1) + 정량 화면 확인(docs/02 4장) QA. 헤드리스 Chrome(CDP)으로 배포 사이트를 실제 조작한다.
 //   set -a; . ./.env.local; set +a; QA_BASE=https://<cloudfront> QA_SCRIPT=qa-demo.mjs tests/e2e/qa-run.sh
 // env: QA_BASE(필수), QA_OUT, QA_CDP, QA_PART=all|demo (demo = 데모 문서 6건만), QA_APPROVE=1 (정상 문서 실제 승인·게시, 기본 끔)
-// prod=데모 환경(11/20): 기본은 아무것도 게시하지 않는다. '승인 가능'(결재함 승인 버튼)까지만 보고, 끝에 이 실행이 게시 요청한 QA 문서를 approver가 모두 반려(BLOCKED, 검색 제외)
+// prod=데모 환경(11/20): 기본은 아무것도 게시하지 않는다. '승인 가능'(결재함 승인 버튼)까지만 보고, 끝에 이 실행이 게시 요청한 QA 문서를 admin이 모두 반려(BLOCKED, 검색 제외)
 // 입력: stdin JSON {"user":"…","admin":"…"} (비밀번호, 출력 금지). 샘플 목록은 tests/evaluations/cases/sets.json (단일 원본)
 // 점검표 ID는 tests/e2e/README.md 'qa-demo 점검표'. 올린 [SYNTHETIC] QA 문서는 정리하지 않는다 (hanaeum-qa.md 보고 절차대로 정리)
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
@@ -17,8 +17,7 @@ const S = process.env.QA_PART === 'demo' ? DEMO
   : { normal: sets.normal_register_5, forged: sets.forged_block_5, attack: sets.attack_block_5, conflict: ['K-002'] };
 const fileOf = (id) => ['documents/pdf/' + id + '.pdf', 'golden/pdf/' + id + '.pdf', 'documents/' + id + '.png'].map((p) => resolve('tests/fixtures', p)).find(existsSync);
 const pw = JSON.parse(readFileSync(0, 'utf8'));
-// 데모 역할(총괄팀 11/20): 업로드·검색·비인가 시도 user, 승인·반려 approver(규정 승인자), 관리 화면 admin
-const APPROVER = pw.approver ? 'approver' : 'admin';
+// 데모 계정(사용자 결정 11/20): user = 작성자(업로드·검색·비인가 시도), admin = 승인·반려·관리 화면. approver 없음
 mkdirSync(OUT, { recursive: true });
 
 // ---- CDP (qa-flow.mjs 와 같은 방식) ----
@@ -128,7 +127,7 @@ async function submit(sid) {
 // 결재함 카드 상태: approvable(승인 가능) / reject-only / absent. approve=true 면 열람 후 승인
 async function adminCard(sid, approve) {
   const d = docs[sid];
-  await login(APPROVER);
+  await login('admin');
   await go('/admin', 5000);
   const sel = `[...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(d.title)}))`;
   const state = await findAcrossPages(`(() => { const li = ${sel}; if (!li) return false; return [...li.querySelectorAll('button')].some((x) => x.textContent.trim() === '승인') ? 'approvable' : 'reject-only'; })()`) || 'absent';
@@ -256,8 +255,8 @@ const evalScreen = await ev("[...document.querySelectorAll('a')].some((a) => /�
 const q4 = results.find((r) => r.id === 'Q4')?.ok === true;
 check('M06', q4 && runs.n > 0 && runs.trace && evalScreen ? true : q4 ? 'partial' : false, `비인가 거부 ${q4} · 실행 기록 ${runs.n}건 · Trace 링크 ${runs.trace} · 평가 결과 화면 ${evalScreen ? '있음' : '없음(docs/02 허용 경로: 자체 평가 결과표)'}`, await shot('M06-runs'));
 
-// 정리: 이 실행이 게시 요청했고 승인하지 않은 QA 문서는 승인자가 반려 → 결재함·검색에 남지 않음
-await login(APPROVER);
+// 정리: 이 실행이 게시 요청했고 승인하지 않은 QA 문서는 admin이 반려 → 결재함·검색에 남지 않음
+await login('admin');
 const cleanup = {};
 for (const [sid, d] of Object.entries(docs)) if (d.approval_id && !d.approved) cleanup[sid] = (await api(`/v1/approvals/${d.approval_id}/decision`, 'POST', { decision: 'REJECT', reason: 'QA 자동 점검 정리' })).status;
 console.log(`정리(반려): ${JSON.stringify(cleanup)}`);
