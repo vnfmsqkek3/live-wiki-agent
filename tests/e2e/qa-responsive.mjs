@@ -41,6 +41,7 @@ const measure = (p) => ev(`(() => { const W = document.documentElement.clientWid
   return { path: ${JSON.stringify(p)}, W, scrollW: document.documentElement.scrollWidth, over, h1: document.querySelector('h1')?.textContent?.slice(0, 30) ?? null }; })()`);
 
 const results = [];
+const skipped = [];
 for (const [rid, w] of [['R1', 390], ['R2', 1440]]) {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: w < 600 });
   const rows = [];
@@ -52,7 +53,7 @@ for (const [rid, w] of [['R1', 390], ['R2', 1440]]) {
       ? async () => { await send('Page.navigate', { url: BASE + '/library' }); await sleep(5000); return ev("document.querySelector('li.entry a[href*=\"id=\"]')?.getAttribute('href')"); }
       : async () => { await send('Page.navigate', { url: BASE + '/admin' }); await sleep(5000); return ev("document.querySelector('li.entry a[href*=\"from=admin\"]')?.getAttribute('href')"); };
     const d = await firstDetail();
-    if (d) pages.push(d);
+    if (d) pages.push(d); else { skipped.push(`${w} ${who} 상세(열 문서 없음)`); console.log(`SKIP ${rid} ${w} ${who} 상세: ${who === 'user' ? '보관함' : '결재함'}에 문서 없음`); }
     for (const p of pages) {
       await send('Page.navigate', { url: BASE + p }); await sleep(5000);
       const m = await measure(p);
@@ -66,7 +67,7 @@ for (const [rid, w] of [['R1', 390], ['R2', 1440]]) {
   const bad = rows.filter((r) => r.scrollW > r.W || r.over.length);
   results.push({ id: rid, ok: bad.length === 0, detail: `${w}px 화면 ${rows.length}개 중 가로 넘침 ${bad.length}개${bad.length ? ': ' + bad.map((r) => r.path).join(', ') : ''}`, rows });
 }
-writeFileSync(`${OUT}/qa-responsive-result.json`, JSON.stringify({ base: BASE, at: new Date().toISOString(), results, page_errors: [...new Set(errors)].slice(0, 20) }, null, 2));
+writeFileSync(`${OUT}/qa-responsive-result.json`, JSON.stringify({ base: BASE, at: new Date().toISOString(), results, skipped, page_errors: [...new Set(errors)].slice(0, 20) }, null, 2));
 console.log(`\n결과: ${OUT}/qa-responsive-result.json`);
 ws.close();
 process.exit(0);
