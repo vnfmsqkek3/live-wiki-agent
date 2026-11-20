@@ -18,7 +18,7 @@ async function clause(pid: string) {
   const r = (await store.revisions(law)).find((x) => x.revision_id === rev);
   const p = ((await store.provisions(law, rev)) ?? []).find((x) => x.provision_id === pid);
   if (!r || !p) throw new Error(`fixture 에 없는 조문: ${pid}`);
-  return { label: `${r.law_name} ${p.path_label}`, rev, text: p.normalized_text };
+  return { label: `${r.law_name} ${p.path_label}`, rev, text: p.normalized_text, deleted: p.status === "DELETED" };
 }
 
 /** Agent 는 기준일을 말하지 않으면 오늘로 답한다 → 케이스 기준일을 질문에 넣는다 (정답이 그 기준일의 시행 버전) */
@@ -27,7 +27,7 @@ type Scenario = { scenario_id: string; turns: { input: string; expected_response
 const scenarios: Scenario[] = [];
 
 // 근거 인용: 질문 → 현행 조문을 근거로 답 (금지 근거 = 삭제·과거·위조 조문)
-for (const c of jsonl<{ id: string; question: string; as_of: string; expected_provision_ids: string[]; forbidden_provision_ids?: string[] }>("citation.jsonl")) {
+for (const c of jsonl<{ id: string; question: string; as_of: string; expected_provision_ids: string[]; forbidden_provision_ids?: string[]; note?: string }>("citation.jsonl")) {
   const exp = await Promise.all(c.expected_provision_ids.map(clause));
   const forb = await Promise.all((c.forbidden_provision_ids ?? []).map(clause));
   scenarios.push({
@@ -35,7 +35,8 @@ for (const c of jsonl<{ id: string; question: string; as_of: string; expected_pr
     turns: [{ input: ask(c.question, c.as_of), expected_response: exp.map((e) => `${e.label}(${e.rev} 시행): ${e.text}`).join("\n") }],
     assertions: [
       ...exp.map((e) => `답변이 ${e.label}(${e.rev} 시행)을 근거로 인용한다`),
-      ...forb.map((f) => `답변이 ${f.label}(${f.rev} 시행분, 현행 아님)을 현행 근거로 인용하지 않는다`),
+      ...forb.map((f) => `답변이 ${f.label}(${f.deleted ? "삭제된 항" : `${f.rev} 시행분, 현행 아님`})을 현행 근거로 인용하지 않는다`),
+      ...(c.note ? [`채점 기준: ${c.note}`] : []), // 데이터QA 케이스 주석 (예: 과거 시점 질의는 과거 버전임을 밝혀야 정답)
     ],
     metadata: { kind: "citation", as_of: c.as_of, expected_tools: ["search___search_wiki"], expected_provision_ids: c.expected_provision_ids, forbidden_provision_ids: c.forbidden_provision_ids ?? [] },
   });
@@ -51,6 +52,7 @@ for (const c of jsonl<{ id: string; query: string; as_of: string; expected_statu
       c.expected_status === "FOUND" && e ? `답변이 ${e.label} 원문을 인용한다${c.expected_text ? ` (핵심: "${c.expected_text}")` : ""}` :
       c.expected_status === "DELETED" ? "답변이 해당 조문이 삭제되었음을 밝히고 삭제 전 내용을 현행처럼 안내하지 않는다" :
       c.expected_status === "HISTORICAL" ? "답변이 해당 조문이 기준일에 시행 중이 아닌 과거 버전임을 밝힌다" :
+      c.expected_status === "NOT_FOUND_VERIFIED" ? "답변이 그 규정(확인한 버전)에 해당 조문이 없다고 밝히고 내용을 지어내지 않는다" : // 확인된 부재 (데이터QA #124)
       "답변이 조문을 확인하지 못했다고 밝히고 조문이 없다고 단정하지 않는다",
     ],
     metadata: { kind: "clause_lookup", as_of: c.as_of, expected_tools: ["search___search_legal_clause"], expected_status: c.expected_status, expected_provision_id: c.expected_provision_id ?? null },
