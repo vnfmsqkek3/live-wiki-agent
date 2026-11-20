@@ -169,7 +169,9 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
     const has = (c: Record<string, string>, k: string) => k in c || Object.keys(c).some((x) => x.startsWith(`${k}/`));
     const marked: string[] = [];
     const under = (k: string) => marked.some((m) => k.startsWith(`${m}/`));
-    for (const path of Object.keys({ ...official, ...uploaded }).filter((k) => official[k] !== uploaded[k]).sort()) {
+    // 공백·줄바꿈만 다른 조문은 같은 조문 (HWPX·OCR 등 형식 차이, 백엔드 Trust Gate FORMAT_ONLY_DIFF 와 같은 기준 11/20)
+    const squash = (t?: string) => t?.replace(/\s+/gu, "");
+    for (const path of Object.keys({ ...official, ...uploaded }).filter((k) => squash(official[k]) !== squash(uploaded[k])).sort()) {
       if (under(path)) continue; // 상위 조를 이미 "내용이 다름"으로 표시함
       const pid = `${reg.registry.law_id}@${reg.registry.revision_id}/${path}`;
       const basis = await basisOf(store, pid);
