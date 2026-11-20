@@ -1,6 +1,6 @@
 // 실환경(KB·DynamoDB) 정량 측정 — docs/02 4장 중 let522mj 담당분. 오프라인 measure.ts와 같은 케이스를 실 KB로 다시 잰다.
-// 실행 (E2E 색인 후): HANAEUM_ENV=prod node tests/evaluations/cases/src/measure-kb.ts
-//   환경: AWS_PROFILE·AWS_REGION (.env.local). KB_ID 등은 SSM /hanaeum-mvp/{HANAEUM_ENV}/* 에서 읽는다 (publish-regs-dev.sh와 같은 규칙: prod 외에는 dev)
+// 실행 (prod 시드 후): node tests/evaluations/cases/src/measure-kb.ts
+//   환경: AWS_PROFILE·AWS_REGION (.env.local). KB_ID 등은 SSM /hanaeum-mvp/prod/* 에서 읽는다 (11/20 dev 폐지, prod 단일 환경)
 // 측정 함수는 의존성을 주입받으므로 오프라인 테스트(메모리 KB)로 검출 로직을 먼저 검증한다.
 import { readFileSync } from "node:fs";
 import type { Retriever } from "@hanaeum/search-server";
@@ -92,8 +92,7 @@ if (import.meta.main) {
   const { execFileSync } = await import("node:child_process");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  const env = process.env["HANAEUM_ENV"] === "prod" ? "prod" : "dev";
-  const ssm = (n: string) => execFileSync("aws", ["ssm", "get-parameter", "--name", `/hanaeum-mvp/${env}/${n}`, "--query", "Parameter.Value", "--output", "text"]).toString().trim();
+  const ssm = (n: string) => execFileSync("aws", ["ssm", "get-parameter", "--name", `/hanaeum-mvp/prod/${n}`, "--query", "Parameter.Value", "--output", "text"]).toString().trim();
   const { BedrockRetriever, DynamoDocStates, searchTools: tools } = await import("@hanaeum/search-server");
   const { DynamoClauseStore, regulationTools } = await import("@hanaeum/regulation-server");
   const kb = ssm("KB_ID");
@@ -111,7 +110,7 @@ if (import.meta.main) {
     if (r["errorMessage"] || r["error"]) throw new Error(`search Lambda 오류: ${JSON.stringify(r["error"] ?? r["errorMessage"])}`);
     return (typeof r["body"] === "string" ? JSON.parse(r["body"]) : r) as Awaited<ReturnType<typeof local.search_wiki>>;
   };
-  const search = env === "prod" ? { ...local, search_wiki: viaLambda } : local;
+  const search = { ...local, search_wiki: viaLambda };
   const r = await measureLive({ raw: new BedrockRetriever(kb), search });
   console.log(`| 항목 | 목표 | 실환경 (KB ${kb}, 기준일 ${EVAL_TODAY}) | 판정 |`);
   console.log("|---|---|---|---|");
