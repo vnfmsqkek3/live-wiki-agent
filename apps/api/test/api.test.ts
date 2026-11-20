@@ -646,3 +646,134 @@ test('고칠 곳 해당 없음: 올린 사람·결재자만, 사유 필수, 상�
   assert.deepEqual([m.severity, m.reason], ['LOW', '해당 없음으로 둠: 영업점 기준']);
   assert.equal(t.store.audits.at(-1)!.action, 'MARK_DISMISSED');
 });
+
+test('관리 평가: 결재자만, 마지막 평가 실행 + 7일 거부 기록(역할·사유, sub 없음)', async () => {
+  const t = setup();
+  assert.equal((await t.call('user', 'GET', '/v1/admin/evaluations')).status, 403); // 이 거부도 기록된다
+  const empty = (await (await t.call('approver', 'GET', '/v1/admin/evaluations')).json()) as { run_at: string | null; items: unknown[]; denials: { role: string; tool: string; reason: string }[] };
+  assert.equal(empty.run_at, null);
+  assert.deepEqual(empty.items, []);
+  assert.equal(empty.denials.length, 1);
+  assert.deepEqual([empty.denials[0]!.role, empty.denials[0]!.tool], ['USER', 'GET /v1/admin/evaluations']);
+  assert.ok(empty.denials[0]!.reason);
+  assert.ok(!JSON.stringify(empty).includes('u-user'), '사용자 식별값을 내보내지 않음');
+  const at = (d: number) => new Date(Date.now() - d * 864e5).toISOString();
+  await t.store.audit({ at: at(2), actor: 'system:evaluations', action: 'EVALUATION_RUN', resource: 'evaluations', result: 'OK', trace_id: 'old', detail: { items: [] } });
+  const newest = at(1);
+  await t.store.audit({ at: newest, actor: 'system:evaluations', action: 'EVALUATION_RUN', resource: 'evaluations', result: 'OK', trace_id: 'new',
+    detail: { items: [{ key: 'forged_block_5', label: '위조 규정 차단', target: '5/5', passed: 5, total: 5, pass: true, extra: 'x' }], failures: [{ key: 'knowhow_conflict_5', case_id: 'G-KC-06', reason: '충돌 미탐지' }] } });
+  await t.store.audit({ at: at(9), actor: 'u-x', action: 'POST /v1/approvals/:id/decision', resource: '/v1/approvals/a', result: 'DENIED', trace_id: 'stale' });
+  const r = (await (await t.call('approver', 'GET', '/v1/admin/evaluations')).json()) as { run_at: string; items: Record<string, unknown>[]; failures: unknown[]; denials: { trace_id: string }[] };
+  assert.equal(r.run_at, newest);
+  assert.deepEqual(r.items, [{ key: 'forged_block_5', label: '위조 규정 차단', target: '5/5', passed: 5, total: 5, pass: true }]);
+  assert.deepEqual(r.failures, [{ key: 'knowhow_conflict_5', case_id: 'G-KC-06', reason: '충돌 미탐지' }]);
+  assert.ok(!r.denials.some((d) => d.trace_id === 'stale'), '7일 지난 거부는 제외');
+});
+
+test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영향 재확인 → 위키 수정 요청 OPEN·재검토 표시 → 반영해도 새 버전은 승인 전 미게시', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', acl_groups: ['ALL'] } as never);
+  t.deps.pages = async () => [{ page: 0, text: '1. 여신 한도는 5억 원 이하로 심사한다.\n2. 서류는 30일 보관한다.' }] as never;
+  t.deps.putOriginal = async () => {};
+  const ev = (span: string, kind = 'MODIFIED') => ({ cited_provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12', evidence_span: span, change: { path: 'ARTICLE:12', kind, old_text: '한도는 5억 원', new_text: '한도는 3억 원' } });
+  const tokens: string[] = [];
+  t.deps.traceImpact = async (a, tok) => { tokens.push(tok); return { law_id: 'SYN-LOAN-001', impacted: [{ doc_id, evidence: [ev('1. 여신 한도는 5억 원 이하로 심사한다.'), ev('본문에 없는 문장입니다')] }] }; };
+  const seen: { old_clause: string; new_clause: string }[] = [];
+  t.deps.draftImpact = async (i) => { seen.push(i); return { verdict: 'APPROPRIATE', after: '1. 여신 한도는 3억 원 이하로 심사한다.', reason: '조문 한도 변경' }; };
+  const body = { law: '기업여신 심사규정', doc_id };
+
+  assert.equal((await t.call('author', 'POST', '/v1/admin/impact/draft', body)).status, 403);
+  assert.equal((await t.call('approver', 'POST', '/v1/admin/impact/draft', { ...body, doc_id: 'doc_01M7MEH5136HE3JJ68AD8M0WWS' })).status, 404); // 영향 목록에 없는 문서
+  const res = await t.call('approver', 'POST', '/v1/admin/impact/draft', body);
+  assert.equal(res.status, 201);
+  const r = (await res.json()) as { items: { id: string; before: string; after: string | null; verdict: string; ai_reason: string }[] };
+  assert.equal(r.items.length, 2);
+  assert.deepEqual([r.items[0]!.verdict, r.items[0]!.after], ['APPROPRIATE', '1. 여신 한도는 3억 원 이하로 심사한다.']);
+  assert.deepEqual([r.items[1]!.verdict, r.items[1]!.after, r.items[1]!.ai_reason], ['UNKNOWN', null, '본문에서 근거 문장을 찾지 못했습니다']);
+  assert.equal(seen.length, 1, '찾지 못한 근거는 모델을 부르지 않음');
+  assert.deepEqual([seen[0]!.old_clause, seen[0]!.new_clause], ['한도는 5억 원', '한도는 3억 원']);
+  assert.equal(tokens[0], 'approver', '사용자 토큰으로 trace_impact');
+
+  // 문서는 그대로(게시 유지) + 재검토 표시. 다시 눌러도 새로 만들지 않음
+  const after1 = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([after1.lifecycle, after1.freshness], ['PUBLISHED', 'REVIEW_REQUIRED']);
+  const again = await t.call('approver', 'POST', '/v1/admin/impact/draft', body);
+  assert.equal(again.status, 200);
+  assert.deepEqual(((await again.json()) as { items: { id: string }[] }).items.map((x) => x.id), r.items.map((x) => x.id));
+
+  // 결재함에 올라감 → 반영 → 새 버전은 검사 대기(QUARANTINED), 승인 전이라 일반 사용자 보관함에 없음
+  const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; source?: string }[] };
+  assert.equal(list.items.filter((x) => x.source === 'IMPACT').length, 2);
+  const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.items[0]!.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
+  const nv = (await t.store.getDoc(ap.new_doc_id))!;
+  assert.equal(nv.lifecycle, 'QUARANTINED');
+  assert.equal((await t.store.getDoc(doc_id))!.lifecycle, 'PUBLISHED', '이전 버전은 승인 전까지 그대로');
+  const lib = JSON.stringify(await (await t.call('user', 'GET', '/v1/library')).json());
+  assert.ok(!lib.includes(ap.new_doc_id), '승인 전 새 버전은 일반 사용자에게 안 보임');
+});
+
+test('변경 영향 수정 초안: 모델 없음·모델이 바꾸지 않은 초안·PII 초안은 after 없이 UNKNOWN', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', acl_groups: ['ALL'] } as never);
+  t.deps.pages = async () => [{ page: 0, text: '가. 한도는 5억 원이다.\n나. 문의는 담당자에게 한다.' }] as never;
+  const ev = (span: string) => ({ cited_provision_id: 'L@1/ARTICLE:1', evidence_span: span, change: { path: 'ARTICLE:1', kind: 'MODIFIED', old_text: 'a', new_text: 'b' } });
+  t.deps.traceImpact = async () => ({ impacted: [{ doc_id, evidence: [ev('가. 한도는 5억 원이다.'), ev('나. 문의는 담당자에게 한다.')] }] });
+  t.deps.draftImpact = async (i) => ({ verdict: 'APPROPRIATE', after: i.before.startsWith('가') ? i.before : '나. 문의는 900101-1234568 로 한다.', reason: 'x' });
+  const r = (await (await t.call('approver', 'POST', '/v1/admin/impact/draft', { law: 'L', doc_id })).json()) as { items: { verdict: string; after: string | null }[] };
+  assert.deepEqual(r.items.map((x) => [x.verdict, x.after]), [['UNKNOWN', null], ['UNKNOWN', null]]);
+});
+
+test('재검토 문서 변경 없이 유효(재승인 흐름): 결재자만·사유 필수·본인 문서 금지 → CURRENT, 열린 영향 초안 닫힘, 본문 그대로', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'REVIEW_REQUIRED', version: 3,
+    freshness_reason: { law_id: 'SYN-LOAN-001', law_name: '기업여신 심사규정', cited_revision: '2026-11-01', current_revision: '2026-12-01', effective_from: '2026-12-01', provisions: [], at: '' },
+    change_requests: [{ id: 'cr_1', by: 'system:impact', at: '', before: 'b', request: 'r', verdict: 'UNKNOWN', status: 'OPEN', source: 'IMPACT' }] } as never);
+  const url = `/v1/documents/${doc_id}/freshness/confirm`;
+  assert.equal((await t.call('user', 'POST', url, { reason: 'x' })).status, 403);
+  assert.equal((await t.call('approver', 'POST', url, {})).status, 422);
+  assert.equal((await t.call('authorApprover', 'POST', url, { reason: '내 문서' })).status, 403);
+  const r = await t.call('approver', 'POST', url, { reason: '제12조 개정은 이 문서의 절차와 무관' });
+  assert.equal(r.status, 200);
+  const after = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([after.freshness, after.freshness_reason, after.version, after.lifecycle], ['CURRENT', undefined, 3, 'PUBLISHED']);
+  assert.deepEqual([after.freshness_confirmed![0]!.law_id, after.freshness_confirmed![0]!.revision], ['SYN-LOAN-001', '2026-12-01']);
+  assert.equal(after.change_requests![0]!.status, 'REJECTED');
+  assert.equal((await t.call('approver', 'POST', url, { reason: '두 번' })).status, 409);
+  assert.ok(t.store.audits.some((e) => e.action === 'FRESHNESS_CONFIRMED' && e.resource === doc_id));
+});
+
+test('외부 법령 참고(총괄 지시 11/20): 법령당 1건, 인용 조문 전부(조·항 단위, 호는 sub), 첫 조문 clause·result 하위 호환', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'MANUAL', acl_groups: ['ALL'] } as never);
+  t.deps.pages = async () => [{ page: 0, text: '본문' }] as never;
+  const L = '외국환거래규정';
+  // M-002·M-003 (tests/fixtures/documents, 데이터팀 PR #75) 본문 인용을 externalLawRefs(조문마다 1건) + 모델 보조가 낸 모양
+  let refs = [{ law_name: L, clause: '제9-5조제1항' }, { law_name: L, clause: '제9-5조제2항' }, { law_name: L, clause: '제9-5조제3항' }, { law_name: L, clause: '제9-5조제1항' }, { law_name: L }];
+  t.deps.externalLaws = async () => refs;
+  const calls: string[] = [];
+  t.deps.officialLaw = async (a) => { calls.push(`${a.law_name}|${a.clause ?? ''}`); if (a.clause === '제9-5조제3항') throw Object.assign(new Error('x'), { name: 'PageNotReady' }); return { text: a.clause }; };
+  type R = { items: { law_name: string; clause?: string; result: unknown; clauses: { clause: string; sub?: string[]; result: unknown; error?: string }[] }[] };
+  const m2 = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
+  assert.equal(m2.items.length, 1);
+  assert.deepEqual(m2.items[0]!.clauses.map((x) => x.clause), ['제9-5조제1항', '제9-5조제2항', '제9-5조제3항']);
+  assert.deepEqual([m2.items[0]!.clause, m2.items[0]!.result], ['제9-5조제1항', { text: '제9-5조제1항' }]);
+  assert.equal(m2.items[0]!.clauses[2]!.error, 'PageNotReady');
+  assert.equal(calls.length, 3, '조·항마다 1번');
+
+  refs = [{ law_name: L, clause: '제9-9조제1항' }, { law_name: L, clause: '제9-4조제1항' }, { law_name: L, clause: '제9-9조제1항제8호·제9호' }];
+  const m3 = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
+  assert.deepEqual(m3.items[0]!.clauses.map((x) => [x.clause, x.sub]), [['제9-9조제1항', ['제8호', '제9호']], ['제9-4조제1항', undefined]]);
+
+  refs = [{ law_name: '전자금융거래법' }];
+  const none = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
+  assert.deepEqual([none.items[0]!.clause, none.items[0]!.clauses], [undefined, []]);
+  assert.ok(none.items[0]!.result, '조문 없는 법령도 법령 단위로 조회');
+});

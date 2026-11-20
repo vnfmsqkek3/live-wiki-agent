@@ -17,5 +17,24 @@ export function mergeLaws(...lists: LawRef[][]): LawRef[] {
   const all = lists.flat().map(norm).filter((x) => x.law_name.length >= 2);
   const out: LawRef[] = [];
   for (const x of all) if (!out.some((y) => y.law_name === x.law_name && y.clause === x.clause)) out.push(x);
-  return out.filter((x) => x.clause || !out.some((y) => y.law_name === x.law_name && y.clause)).slice(0, 10);
+  return out.filter((x) => x.clause || !out.some((y) => y.law_name === x.law_name && y.clause));
+}
+
+/** 법령별로 묶고 조·항 단위로 합친다. 호·목은 그 조·항의 sub 로 (총괄 지시 11/20: 인용 조문 전부, 데이터팀 합의).
+ *  '제9-9조제1항제8호·제9호' → { clause: '제9-9조제1항', sub: ['제8호', '제9호'] }. 순서는 본문 등장 순, 법령·조문 각 최대 10 */
+export type LawGroup = { law_name: string; clauses: { clause: string; sub?: string[] }[] };
+export function groupLaws(refs: LawRef[]): LawGroup[] {
+  const out: LawGroup[] = [];
+  for (const r of mergeLaws(refs)) {
+    let g = out.find((x) => x.law_name === r.law_name);
+    if (!g) { if (out.length >= 10) continue; out.push(g = { law_name: r.law_name, clauses: [] }); }
+    if (!r.clause) continue;
+    const m = /^(제\d+(?:-\d+)?조(?:의\d+)?(?:제\d+항)?)(.*)$/u.exec(r.clause);
+    const base = m?.[1] ?? r.clause;
+    const sub = (m?.[2] ?? '').split(/[·ㆍ,]/u).map((x) => x.trim()).filter(Boolean);
+    let c = g.clauses.find((x) => x.clause === base);
+    if (!c) { if (g.clauses.length >= 10) continue; g.clauses.push(c = { clause: base }); }
+    for (const x of sub) if (!(c.sub ??= []).includes(x)) c.sub.push(x);
+  }
+  return out;
 }

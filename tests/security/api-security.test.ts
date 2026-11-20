@@ -1,5 +1,5 @@
 // 보안 테스트 (Owner dhxorb96, docs/02 4장 · TODO 11/21). 실행 중인 API에 데모 계정으로 직접 요청하는 블랙박스 테스트.
-// 실행: set -a; . ./.env.local; set +a; eval "$(apps/api/scripts/ssm-env.sh dev)"; API=http://localhost:8080 node --test tests/security/*.test.ts
+// 실행: set -a; . ./.env.local; set +a; eval "$(apps/api/scripts/ssm-env.sh prod)"; API=http://localhost:8080 node --test tests/security/*.test.ts
 // 의존성 없음: AWS 호출은 aws CLI로 한다. 문서는 공유 dev 실제 파이프라인으로 IN_REVIEW까지 만든다.
 import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
@@ -57,16 +57,20 @@ async function submitted() {
   return { ...d, approval_id: s.json.approval_id as string };
 }
 
-function deniedCount(sub: string, since: string) {
-  const day = since.slice(0, 10);
-  const r = JSON.parse(aws('dynamodb', 'query', '--table-name', env('TABLE_AUDIT_EVENTS'), '--key-condition-expression', 'pk = :p AND sk >= :s',
-    '--filter-expression', 'actor = :a AND #r = :d', '--expression-attribute-names', '{"#r":"result"}',
-    '--expression-attribute-values', JSON.stringify({ ':p': { S: `AUDIT#${day}` }, ':s': { S: since }, ':a': { S: sub }, ':d': { S: 'DENIED' } }), '--select', 'COUNT'));
-  return r.Count as number;
+/** 감사 기록: prod PostgreSQL audit_events (dev·DynamoDB 폐지 11/20) */
+function pgRows(sql: string, params: Record<string, string>) {
+  const r = JSON.parse(aws('rds-data', 'execute-statement', '--resource-arn', env('DB_CLUSTER_ARN'), '--secret-arn', env('DB_SECRET_ARN'), '--database', env('DB_NAME'), '--sql', sql,
+    '--parameters', JSON.stringify(Object.entries(params).map(([name, v]) => ({ name, value: { stringValue: v } }))))) as { records?: { stringValue?: string; longValue?: number }[][] };
+  return r.records ?? [];
 }
+const deniedCount = (sub: string, since: string) =>
+  pgRows("SELECT count(*) FROM audit_events WHERE at >= :since::timestamptz AND actor = :a AND result = 'DENIED'", { since, a: sub })[0]?.[0]?.longValue ?? 0;
+/** since 이후 감사 기록 전체 (문자열). 질의 원문이 남지 않았는지 확인용 */
+const auditSince = (since: string) =>
+  JSON.stringify(pgRows("SELECT action || ' ' || resource || ' ' || coalesce(detail::text, '') FROM audit_events WHERE at >= :since::timestamptz", { since }));
 
 before(() => {
-  const secret = JSON.parse(JSON.parse(aws('secretsmanager', 'get-secret-value', '--secret-id', 'hanaeum-mvp/demo-users-dev', '--query', 'SecretString')));
+  const secret = JSON.parse(JSON.parse(aws('secretsmanager', 'get-secret-value', '--secret-id', process.env.DEMO_USERS_SECRET ?? 'hanaeum-mvp/demo-users', '--query', 'SecretString')));
   for (const who of ['demo-user', 'demo-author', 'demo-approver', 'demo-security', 'demo-operator'] as Who[]) {
     const v = secret[who];
     const pw = typeof v === 'string' ? v : v.password;
@@ -139,8 +143,6 @@ test('질의 PII: 가이드 질문의 개인정보는 가려서 처리하고 감
   assert.equal(r.status, 200);
   assert.equal(r.json.query_masked, true);
   assert.ok(!JSON.stringify(r.json).includes('1234568')); // 전화번호는 가리지 않음 (사용자 결정 11/17 22시), 주민등록번호는 가림
-  const day = since.slice(0, 10);
-  const items = aws('dynamodb', 'query', '--table-name', env('TABLE_AUDIT_EVENTS'), '--key-condition-expression', 'pk = :p AND sk >= :s',
-    '--expression-attribute-values', JSON.stringify({ ':p': { S: `AUDIT#${day}` }, ':s': { S: since } }));
+  const items = auditSince(since);
   assert.ok(!items.includes('900101') && !items.includes('2222-3333'), '감사 기록에 질의 원문'); // 감사에는 질의 원문 자체를 남기지 않는다
 });

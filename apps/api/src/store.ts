@@ -30,7 +30,10 @@ export interface Store {
   putDraft(d: DraftRecord): Promise<void>;
   listDrafts(doc_id: string): Promise<DraftRecord[]>;
   audit(e: AuditEvent): Promise<void>;
+  /** since 이후 감사 기록, 최신순, 최대 limit건 (관리 '평가' 화면). result·action 은 정확히 일치 */
+  listAudit?(q: AuditQuery): Promise<AuditEvent[]>;
 }
+export interface AuditQuery { since: string; result?: AuditEvent['result']; action?: string; limit: number }
 
 // 메모리 구현: 단위 테스트·로컬 단독 실행용. 운영은 store-dynamo.ts
 export function memoryStore() {
@@ -72,6 +75,10 @@ export function memoryStore() {
     async putDraft(d) { drafts.push(clone(d)); },
     async listDrafts(id) { return drafts.filter((d) => d.doc_id === id).map(clone); },
     async audit(e) { audits.push(e); },
+    async listAudit(q) {
+      return audits.filter((e) => e.at >= q.since && (!q.result || e.result === q.result) && (!q.action || e.action === q.action))
+        .sort((x, y) => y.at.localeCompare(x.at)).slice(0, q.limit).map(clone);
+    },
   };
   return store;
 }

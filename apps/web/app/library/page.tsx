@@ -7,7 +7,9 @@ import { PageHeader } from '../page-header';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
+import { ConfirmCurrent } from '../confirm-current';
+import { isAdmin } from '../lib/roles';
+import { api, ApiError, getSession, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { CardBoundary } from '../card-boundary';
@@ -259,17 +261,26 @@ function ExternalLaws({ id }: { id: string }) {
     <section aria-labelledby="ext-h">
       <h3 className="section" id="ext-h">외부 법령 최신본 참고 <span className="note">(미검증)</span></h3>
       <ul className="fixes">
-        {items.map((x) => (
-          <li key={x.law_name + (x.clause ?? '')} className="fix">
-            <p className="fix-head">「{x.law_name}」{x.clause ? ` ${x.clause}` : ''}{x.result?.effective_from && ` · ${x.result.effective_from} 시행본`}</p>
-            {x.error || !x.result ? <p className="note">공식 사이트에서 가져오지 못했습니다. 잠시 뒤 다시 열어 보세요.</p> : (
-              <>
-                {x.result.clause?.text ? <blockquote className="basis"><p>{x.result.clause.text}</p></blockquote> : <p className="note">요청한 조문을 찾지 못했습니다.</p>}
-                <p className="meta">출처 {x.result.source} · 조회 {new Date(x.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{x.result.from_cache ? ' (1일 보관본)' : ''} · <a href={x.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
-              </>
-            )}
-          </li>
-        ))}
+        {items.map((x, xi) => {
+          // clauses가 없거나 빈 배열(조문 번호 없는 법령 인용)이면 법령 단위 clause·result 1건으로 본다
+          const cs = x.clauses?.length ? x.clauses : [{ clause: x.clause ?? '', result: x.result ?? null, error: x.error }];
+          return (
+            <li key={`${x.law_name}-${xi}`} className="fix">
+              <p className="fix-head">「{x.law_name}」 {cs.some((c) => c.clause) ? `인용 조문 ${cs.length}곳` : '조문 번호 없이 인용'}</p>
+              <ol className="law-clauses">{cs.map((c, n) => (
+                <li key={c.clause + n}>
+                  <p style={{ margin: 0 }}><strong>{c.clause || '법령 전체'}</strong>{c.sub?.length ? <span className="note"> ({c.sub.join('·')})</span> : null}{c.result?.effective_from && <span className="note"> · {c.result.effective_from} 시행본</span>}</p>
+                  {c.error || !c.result ? <p className="note">원문 조회 실패. 잠시 뒤 다시 열어 보세요.</p> : (
+                    <>
+                      {c.result.clause?.text ? <blockquote className="basis"><p>{c.result.clause.text}</p></blockquote> : <p className="note">{c.clause ? '요청한 조문을 찾지 못했습니다.' : '본문이 조문을 특정하지 않았습니다. 원문 보기에서 확인하세요.'}</p>}
+                      <p className="meta">출처 {c.result.source} · 조회 {new Date(c.result.fetched_at).toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}{c.result.from_cache ? ' (1일 보관본)' : ''} · <a href={c.result.url} target="_blank" rel="noopener noreferrer">원문 보기</a></p>
+                    </>
+                  )}
+                </li>
+              ))}</ol>
+            </li>
+          );
+        })}
       </ul>
       <p className="meta">공식 사이트 원문을 참고로 보여 줍니다. 공식 규정 등록·승인 전에는 검증 근거로 쓰지 않습니다.</p>
     </section>
@@ -415,6 +426,27 @@ function ChangeRequest({ id }: { id: string }) {
       <div className="actions"><button type="button" className="btn solid" disabled={busy || !before.trim() || !req.trim()} onClick={send}>{busy ? 'AI가 확인하는 중' : '요청하기'}</button><button type="button" className="btn" onClick={() => { setOpen(false); setMsg(''); }}>닫기</button></div>
       {msg && <p className="notice" role="status">{msg}</p>}
     </div>
+  );
+}
+
+/** 평점 (P1 추천·평점): 사용자당 문서 1건, 다시 누르면 덮어쓴다. 평점은 인기일 뿐 검증 상태(인장)와 별개 */
+function Rating({ id }: { id: string }) {
+  const [stars, setStars] = useState(0);
+  const [msg, setMsg] = useState('');
+  async function rate(n: number) {
+    setStars(n); setMsg('');
+    try { await api('POST', '/v1/feedback', { doc_id: id, stars: n, useful: n >= 4 }); setMsg(`${n}점으로 저장했습니다.`); }
+    catch (e) { setStars(0); setMsg((e as ApiError).message); }
+  }
+  return (
+    <section aria-labelledby="rate-h">
+      <h3 className="section" id="rate-h">이 문서가 업무에 도움이 됐나요?</h3>
+      <div className="view-toggle" style={{ flexWrap: 'wrap' }} role="group" aria-label="별점 주기">
+        {[1, 2, 3, 4, 5].map((n) => <button key={n} type="button" className="btn" aria-pressed={stars === n} aria-label={`${n}점`} onClick={() => rate(n)}>{'★'.repeat(n)}</button>)}
+      </div>
+      <p className="note">평점은 다른 사람의 추천 참고용입니다. 규정 근거 확인 여부(검증 상태)와는 따로 판단합니다.</p>
+      {msg && <p className="notice" role="status">{msg}</p>}
+    </section>
   );
 }
 
@@ -606,6 +638,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
         </p>
       )}
+      {d.lifecycle === 'PUBLISHED' && d.freshness === 'REVIEW_REQUIRED' && isAdmin(getSession()?.groups) && <ConfirmCurrent docId={d.doc_id} />}
 
 
       {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
@@ -735,6 +768,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
+      {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} /></DetailCard>}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
       </div></CardBoundary>{d.review && <Decide r={d.review} docId={d.doc_id} />}
 
