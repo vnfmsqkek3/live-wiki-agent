@@ -20,7 +20,7 @@ export function getSession(): Session | undefined {
 function expired() {
   logout();
   if (typeof window !== 'undefined' && window.location.pathname !== '/login')
-    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    window.location.assign(`/login?expired=1&next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
 }
 export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 시 무시 */ } }
 
@@ -347,6 +347,7 @@ export const MOCK_ISSUES: Issues = { doc_id: 'doc_MOCK', lifecycle: 'BLOCKED', p
     next_action: '다시 저장한 PDF를 새로 등록하세요.', model: 'mock' },
   items: [
   { step: 'FILE_STRUCTURE', step_label: '파일 구조 검사', severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', user_message: 'PDF 안에 첨부 파일 1개(대출내역.xlsx)가 들어 있어 보안상 등록할 수 없습니다.', fix_hint: "첨부 파일을 지운 뒤 '인쇄 → PDF로 저장'으로 새로 만든 PDF를 올려 주세요." },
+  { step: 'KNOWHOW', step_label: '노하우 검증', severity: 'LOW', code: 'KNOWHOW_EXTERNAL_SKIPPED', user_message: '확인하지 못함: 외부 법령 원문을 불러오지 못해 대조하지 않았습니다. 승인자가 직접 확인해 주세요.' },
   { step: 'PII_SCAN', step_label: '개인정보 가림', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', user_message: '2쪽에서 계좌번호 1건을 가렸습니다. 그중 1건은 실제 계좌번호인지 확인이 필요합니다.', fix_hint: '계좌번호가 아니라면 검토 화면에서 확인해 주세요.', location: { page: 2, excerpt: '…참조번호 [계좌번호]로 접수한다…' } },
 ] };
 
