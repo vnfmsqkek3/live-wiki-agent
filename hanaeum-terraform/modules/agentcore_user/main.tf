@@ -42,6 +42,10 @@ locals {
   acct      = data.aws_caller_identity.me.account_id
   discovery = "https://cognito-idp.${local.region}.amazonaws.com/${var.cognito_user_pool_id}/.well-known/openid-configuration"
   # Gateway 에는 MCP Tool 정의 필드만 (진행 문구 progress 등 확장 필드 제외, let522mj 요청)
+  # 외부 클라이언트 허용 읽기 도구 (mcp/gateway-interceptor EXTERNAL_TOOLS 와 같게)
+  external_tools = ["search___search_wiki", "search___retrieve_evidence", "search___search_legal_clause", "search___get_wiki_document",
+    "regulation___get_clause", "regulation___get_official_policy", "regulation___verify_version", "regulation___resolve_reference", "regulation___compare_versions",
+  "graph___trace_impact", "graph___get_dependencies"]
   schemas = merge(
     { for k, v in var.targets : k => jsonencode([for t in jsondecode(v.tools_json) : { name = t.name, description = t.description, inputSchema = t.inputSchema }]) },
     # 비인가 게시 거부 시험용 (docs/05 4장, P1). 실행 Tool 아님: Policy forbid 로 모두 거부, 통과해도 approval Lambda 가 unknown tool
@@ -189,6 +193,32 @@ resource "aws_bedrockagentcore_policy" "deny_probe" {
     }
   }
   depends_on = [aws_bedrockagentcore_gateway_target.probe]
+}
+
+# 외부 MCP 클라이언트(client_credentials, scope hanaeum-wiki-mcp/read)는 읽기 11개 외 거부 (백엔드 Cedar 문안 11/20, P1).
+# 인터셉터 EXTERNAL_TOOLS 와 같은 목록을 Gateway 경계에서 한 번 더. 내부 사용자 토큰은 scope 태그가 달라 when 이 거짓 → 영향 없음
+resource "aws_bedrockagentcore_policy" "external_readonly" {
+  name             = "${replace(var.n.prefix, "-", "_")}_user_external_readonly${replace(var.n.suffix, "-", "_")}"
+  description      = "외부 MCP 클라이언트(hanaeum-wiki-mcp/read): 읽기 도구 11개 외 거부 (인터셉터 EXTERNAL_TOOLS와 같은 목록)"
+  policy_engine_id = aws_bedrockagentcore_policy_engine.user.policy_engine_id
+  validation_mode  = "FAIL_ON_ANY_FINDINGS"
+  lifecycle { create_before_destroy = true }
+  definition {
+    cedar {
+      statement = <<-CEDAR
+        forbid(
+          principal is AgentCore::OAuthUser,
+          action,
+          resource == AgentCore::Gateway::"${aws_bedrockagentcore_gateway.user.gateway_arn}"
+        ) when {
+          principal.hasTag("scope") && principal.getTag("scope") like "*hanaeum-wiki-mcp/read*"
+        } unless {
+          action in [${join(", ", [for t in local.external_tools : "AgentCore::Action::\"${t}\""])}]
+        };
+      CEDAR
+    }
+  }
+  depends_on = [aws_bedrockagentcore_gateway_target.t]
 }
 
 resource "aws_bedrockagentcore_policy" "user_tools" {
