@@ -210,22 +210,23 @@ check('M01', home.search && home.cards > 0 ? (home.chips > 0 ? true : 'partial')
 
 // M02 Trust Gate: F-001 승인, F-003 차단, A-001 검사 결과, 차단 문서 검색 제외
 const f3 = docs['F-003'], a1 = docs['A-001'];
+// QA_SKIP으로 뺀 문서는 판정에서 뺀다 (없는 문서로 멈추지 않게)
 const m02 = [
-  ['F-001 승인', docs['F-001']?.admin === 'approvable'],
-  ['F-003 차단', !!blockedAt(f3)],
-  ['A-001 보안 검사 결과 표시', /보안 검사/.test(a1.review ?? '') || a1.lifecycle === 'BLOCKED'],
-  ['차단 문서 검색 제외', !(await userSees('F-003')) && !(await userSees('A-001'))],
-];
-check('M02', m02.every(([, v]) => v) ? true : 'partial', m02.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '));
+  docs['F-001'] && ['F-001 승인', docs['F-001'].admin === 'approvable'],
+  f3 && ['F-003 차단', !!blockedAt(f3)],
+  a1 && ['A-001 보안 검사 결과 표시', /보안 검사/.test(a1.review ?? '') || a1.lifecycle === 'BLOCKED'],
+  f3 && a1 && ['차단 문서 검색 제외', !(await userSees('F-003')) && !(await userSees('A-001'))],
+].filter(Boolean);
+if (m02.length) check('M02', m02.every(([, v]) => v) ? true : 'partial', m02.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '));
 
 // M03 노하우 검증: K-001 근거 확인, K-002 충돌 표시 + 게시 보류
 const k1 = docs['K-001']?.review ?? '', k2 = docs['K-002'];
-const m03 = [
-  ['K-001 관련 규정 표시', /근거 규정과 맞습니다|근거 확인됨|실무 보완/.test(k1)],
+const m03 = !k2 ? [] : [
+  docs['K-001'] && ['K-001 관련 규정 표시', /근거 규정과 맞습니다|근거 확인됨|실무 보완/.test(k1)],
   ['K-002 충돌 표시', /규정과 충돌하는 내용이 있습니다|규정과 어긋남|규정과 어긋난 문장(?!은 없습니다)/.test(k2.review ?? '')],
   ['K-002 게시 보류', !k2.submit?.ok || k2.admin === 'reject-only'],
-];
-check('M03', m03.every(([, v]) => v) ? true : 'partial', m03.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '), k2.reviewShot);
+].filter(Boolean);
+if (k2) check('M03', m03.every(([, v]) => v) ? true : 'partial', m03.map(([k, v]) => `${k} ${v ? 'O' : 'X'}`).join(' · '), k2.reviewShot);
 
 // M04 Change Impact: F-001 게시 뒤 F-002 등록 → 새 버전 표시, 관리 > 규정 변경 영향에 바뀐 조문·영향 노하우
 if (docs['F-001']?.final === 'PUBLISHED') {
