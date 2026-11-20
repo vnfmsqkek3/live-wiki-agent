@@ -42,7 +42,8 @@ export default function Home() {
   const rank = (i: LibraryCard) => (i.authority_status === 'VERIFIED' ? 0 : 2) + (i.freshness === 'CURRENT' ? 0 : 1);
   const recommended = [...items].sort((a, b) => rank(a) - rank(b) || b.updated_at.localeCompare(a.updated_at));
   // 인기 = 평점 평균·인원 순. 검증 여부와 무관하게 따로 보여 준다
-  const popular = items.filter((i) => i.rating).sort((a, b) => b.rating!.avg - a.rating!.avg || b.rating!.count - a.rating!.count);
+  // ponytail: 3명 미만은 뒤로(1명 5.0이 6명 4.5보다 위로 가지 않게, QA nit). 문서가 늘면 베이즈 평균으로
+  const popular = items.filter((i) => i.rating).sort((a, b) => Number(b.rating!.count >= 3) - Number(a.rating!.count >= 3) || b.rating!.avg - a.rating!.avg || b.rating!.count - a.rating!.count);
   // 태그는 AI가 붙인 자유 문구라 필터가 아닌 검색어로 쓴다 (search API 주석). ponytail: 게시 문서 태그 빈도 상위 8개
   const tags = Object.entries(items.flatMap((i) => i.tags).reduce<Record<string, number>>((m, t) => ({ ...m, [t]: (m[t] ?? 0) + 1 }), {}))
     .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t);
