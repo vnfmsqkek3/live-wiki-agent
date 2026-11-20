@@ -50,6 +50,12 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
         fix_hint: '규정 담당 부서가 배포한 공식 원본 파일을 그대로 올려 주세요. 신규 규정이면 관리자에게 등록을 요청하세요.' }));
     } else if (sameHash(i.registry.content_hash, i.doc.content_hash)) {
       authority = 'VERIFIED';
+    } else if (formatOnly(i.registry.clauses, i.claimed.clauses)) {
+      // 해시는 다르지만 공백·줄바꿈만 빼면 조문 전부가 같고 추가·누락도 없다 = HWPX·이미지 → PDF 변환·OCR의 형식 차이 (총괄 결정 11/20).
+      // 글자·숫자가 하나라도 다르면 아래 REGISTRY_MISMATCH. 승인은 여전히 이 파일의 버전·해시에 묶인다
+      authority = 'VERIFIED';
+      findings.push(fnd('LOW', 'FORMAT_ONLY_DIFF', '공식 원본과 파일 형식만 다름(공백·줄바꿈 외 조문 전부 일치) → 공식 원본으로 인정', `${i.registry.law_id}@${i.registry.revision_id}`, {
+        user_message: '파일 형식(띄어쓰기·줄바꿈)만 공식 원본과 다르고 조문 내용은 모두 같아 공식 원본으로 확인했습니다.' }));
     } else {
       review = true;
       const diff = diffClauses(i.registry.clauses, i.claimed.clauses);
@@ -70,11 +76,16 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
 /** `sha256:{hex}`·hex 표기 차이를 무시하고 비교 */
 const sameHash = (a?: string, b?: string) => !!a && !!b && a.replace(/^sha256:/, '').toLowerCase() === b.replace(/^sha256:/, '').toLowerCase();
 
+/** 공백·줄바꿈만 무시하고 조문별로 비교 (HWPX·OCR 경로의 띄어쓰기 차이는 내용 차이가 아님, 데이터팀 marks.ts 와 같은 기준) */
+const squash = (t?: string) => (t ?? '').replace(/\s+/g, '');
 export function diffClauses(official?: Record<string, string>, uploaded?: Record<string, string>) {
   if (!official || !uploaded) return [];
   const ids = new Set([...Object.keys(official), ...Object.keys(uploaded)]);
-  return [...ids].filter((k) => official[k] !== uploaded[k]).sort();
+  return [...ids].filter((k) => !(k in official) || !(k in uploaded) || squash(official[k]) !== squash(uploaded[k])).sort();
 }
+/** 형식만 다름: 양쪽 조문이 1개 이상이고 diffClauses 가 비었을 때만 (조문을 못 뽑았으면 판단하지 않는다) */
+const formatOnly = (official?: Record<string, string>, uploaded?: Record<string, string>) =>
+  !!official && !!uploaded && Object.keys(official).length > 0 && Object.keys(uploaded).length > 0 && diffClauses(official, uploaded).length === 0;
 
 function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {
   return { finding_id: newId.fnd(), step: 'TRUST_GATE', severity, code, message, evidence_ref, ...extra };
