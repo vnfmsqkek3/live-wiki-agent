@@ -131,6 +131,8 @@ export interface DocumentRecord {
   /** 게시 문서 '고칠 곳'을 해당 없음으로 둔 기록 (사용자 요청 11/19). key = markKey. 표시는 참고로 내린다 */
   mark_dismissals?: { key: string; reason: string; by: string; at: string }[];
   freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string };
+  /** 결재자가 '변경 없이 유효'로 확인한 규정 개정판. 같은 law_id·revision 으로는 다시 재검토 표시하지 않는다 */
+  freshness_confirmed?: { law_id: string; revision: string; by: string; at: string; reason: string }[];
   deleted_reason?: string;
   deleted_by?: string;
   /** 사용자 삭제 정리 실행 (purge_document → kb_ingest → graph_upsert → finalize). 정리가 끝나면 purge.deleted_at */

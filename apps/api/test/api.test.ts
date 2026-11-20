@@ -726,3 +726,24 @@ test('변경 영향 수정 초안: 모델 없음·모델이 바꾸지 않은 초
   const r = (await (await t.call('approver', 'POST', '/v1/admin/impact/draft', { law: 'L', doc_id })).json()) as { items: { verdict: string; after: string | null }[] };
   assert.deepEqual(r.items.map((x) => [x.verdict, x.after]), [['UNKNOWN', null], ['UNKNOWN', null]]);
 });
+
+test('재검토 문서 변경 없이 유효(재승인 흐름): 결재자만·사유 필수·본인 문서 금지 → CURRENT, 열린 영향 초안 닫힘, 본문 그대로', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'REVIEW_REQUIRED', version: 3,
+    freshness_reason: { law_id: 'SYN-LOAN-001', law_name: '기업여신 심사규정', cited_revision: '2026-11-01', current_revision: '2026-12-01', effective_from: '2026-12-01', provisions: [], at: '' },
+    change_requests: [{ id: 'cr_1', by: 'system:impact', at: '', before: 'b', request: 'r', verdict: 'UNKNOWN', status: 'OPEN', source: 'IMPACT' }] } as never);
+  const url = `/v1/documents/${doc_id}/freshness/confirm`;
+  assert.equal((await t.call('user', 'POST', url, { reason: 'x' })).status, 403);
+  assert.equal((await t.call('approver', 'POST', url, {})).status, 422);
+  assert.equal((await t.call('authorApprover', 'POST', url, { reason: '내 문서' })).status, 403);
+  const r = await t.call('approver', 'POST', url, { reason: '제12조 개정은 이 문서의 절차와 무관' });
+  assert.equal(r.status, 200);
+  const after = (await t.store.getDoc(doc_id))!;
+  assert.deepEqual([after.freshness, after.freshness_reason, after.version, after.lifecycle], ['CURRENT', undefined, 3, 'PUBLISHED']);
+  assert.deepEqual([after.freshness_confirmed![0]!.law_id, after.freshness_confirmed![0]!.revision], ['SYN-LOAN-001', '2026-12-01']);
+  assert.equal(after.change_requests![0]!.status, 'REJECTED');
+  assert.equal((await t.call('approver', 'POST', url, { reason: '두 번' })).status, 409);
+  assert.ok(t.store.audits.some((e) => e.action === 'FRESHNESS_CONFIRMED' && e.resource === doc_id));
+});

@@ -10,6 +10,7 @@ import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/l
 import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
+import { currentRevisions } from './steps/freshness.ts';
 import {
   ALLOWED_EXT, CategoryMergeBody, CategoryRenameBody, ClassificationBody, EditBody, DecisionBody, DeleteBody, FeedbackBody, PreviousBody, TitleBody, GuideBody, SourceReviewBody, UploadUrlBody, newId,
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
@@ -735,6 +736,26 @@ export function createApp(deps: Deps) {
       ...(cur.freshness === 'CURRENT' ? { freshness: 'REVIEW_REQUIRED' as const, freshness_reason: { law_id: r.law_id ?? law, law_name: law, cited_revision: '', current_revision: '', effective_from: '', provisions, at } } : {}), updated_at: at });
     if (made.length) await audit(c, 'IMPACT_DRAFT', doc_id);
     return c.json({ items: out.map((x) => ({ id: x.id, doc_id, before: x.before, after: x.after ?? null, verdict: x.verdict, ai_reason: x.ai_reason, path: x.path })) }, made.length ? 201 : 200);
+  });
+
+  // 재검토 문서 '변경 없이 유효' (Change Impact 재승인 흐름): 결재자가 개정 조문과 대조해 고칠 것이 없다고 확인 → CURRENT.
+  // 사람만 한다. 같은 개정판으로는 다시 표시하지 않고, 열린 영향 초안은 이 사유로 닫는다. 본문은 바꾸지 않는다
+  app.post('/v1/documents/:id/freshness/confirm', async (c) => {
+    const a = need(c, ['REG_APPROVER']);
+    const raw = String(((await c.req.json().catch(() => ({}))) as { reason?: unknown }).reason ?? '').trim().slice(0, 300);
+    if (!raw) throw new ApiError('VALIDATION', '유효하다고 본 이유를 적어 주세요');
+    const d = await loadDoc(c, c.req.param('id'));
+    if (d.lifecycle !== 'PUBLISHED' || d.freshness !== 'REVIEW_REQUIRED') throw new ApiError('CONFLICT', '재검토 중인 게시 문서가 아닙니다');
+    if (d.owner === a.sub && !hasRole(a, ['PLATFORM_OPERATOR'])) throw new ApiError('FORBIDDEN', 'self confirmation is not allowed'); // 자기 결재와 같은 규칙 (11/18)
+    const reason = mask(raw, detectPii(raw)); const at = new Date().toISOString();
+    const law_id = d.freshness_reason?.law_id ?? '';
+    // 확인 기준 개정판: 지금 시행 중인 게시본 (재검토 이유에 없으면 문서 목록에서)
+    const revision = d.freshness_reason?.current_revision || currentRevisions(await store.listDocs()).get(law_id)?.revision_id || '';
+    await store.putDoc({ ...d, freshness_reason: undefined, freshness: 'CURRENT', updated_at: at,
+      freshness_confirmed: [...(d.freshness_confirmed ?? []), { law_id, revision, by: a.sub, at, reason }].slice(-20),
+      change_requests: (d.change_requests ?? []).map((r) => (r.status === 'OPEN' && r.source === 'IMPACT' ? { ...r, status: 'REJECTED' as const, decided_by: a.sub, decided_at: at, decision_reason: `변경 없이 유효: ${reason}` } : r)) });
+    await audit(c, 'FRESHNESS_CONFIRMED', d.doc_id);
+    return c.json({ doc_id: d.doc_id, freshness: 'CURRENT', law_id, revision });
   });
 
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----

@@ -87,3 +87,11 @@ test('차단·반려: 원본·work는 바로 삭제, masked는 7일 뒤 sweep이
   assert.equal(purged.at(-1), 'B/');
   assert.equal(await purgeExpiredMasked(deps, new Date(Date.now() + 9 * 86_400_000)), 0); // 멱등
 });
+
+test('결재자가 현행 개정판 기준으로 유효 확인한 노하우는 다시 표시하지 않음 (다음 개정판이면 다시 표시)', () => {
+  const ok = { ...kh('OK', 'SYN-LOAN-001@2026-11-01/ARTICLE:12'), freshness_confirmed: [{ law_id: 'SYN-LOAN-001', revision: '2026-12-01', by: 'a', at: '', reason: 'r' }] };
+  const docs = [reg('2026-11-01', '2026-11-01', '2026-11-30'), reg('2026-12-01', '2026-12-01'), ok];
+  assert.deepEqual(staleKnowhow(docs, '2026-12-02'), []);
+  const next = [reg('2026-11-01', '2026-11-01', '2026-11-30'), reg('2026-12-01', '2026-12-01', '2027-01-01'), reg('2027-01-02', '2027-01-02'), ok];
+  assert.deepEqual(staleKnowhow(next, '2027-01-03').map((d) => d.doc_id), ['OK']);
+});
