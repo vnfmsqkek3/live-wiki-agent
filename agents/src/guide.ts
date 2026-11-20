@@ -52,6 +52,13 @@ export const ALLOWED_TOOLS = [
   'regulation___get_clause', 'regulation___verify_version', 'regulation___resolve_reference', 'regulation___compare_versions', 'regulation___get_official_policy', 'regulation___fetch_official_law',
   'graph___trace_impact', 'graph___get_dependencies', 'privacy___detect_sensitive_data',
 ] as const;
+/** 기준일(as_of)을 받는 Tool (search·regulation tools.json). 호출에 as_of가 없으면 요청 기준일을 채운다 (평가 기준일 고정용) */
+const AS_OF_TOOLS = new Set(['search_wiki', 'retrieve_evidence', 'search_legal_clause', 'get_wiki_document', 'get_clause', 'get_official_policy', 'verify_version']);
+export function withAsOf(name: string, input: unknown, asOf?: string): unknown {
+  if (!asOf || !AS_OF_TOOLS.has(name.split('___').pop() ?? '') || typeof input !== 'object' || input === null || 'as_of' in input) return input;
+  return { ...input, as_of: asOf };
+}
+export const AS_OF_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Tool별 진행 문구 (let522mj tools.json progress) */
 export const TOOL_PROGRESS: Record<string, string> = {
   search_wiki: '관련 규정과 노하우를 검색하는 중입니다', retrieve_evidence: '선택한 문서에서 근거를 찾는 중입니다', search_legal_clause: '해당 조문을 찾는 중입니다',

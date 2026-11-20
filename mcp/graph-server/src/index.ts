@@ -35,7 +35,11 @@ export async function buildUpsertInput(input: StepInput, records: Records, store
   const content = (await store.get(publishedBucket, `${publishedPrefix(doc)}content.txt`)).toString("utf8");
   const from = doc.effective_from ?? (doc.revision_id ? Number(doc.revision_id.replaceAll("-", "")) : 0);
   // 인용: 승인 시 확정된 doc.citations 우선. 없으면 본문에서 추출한 후보 중 실제 조문으로 확인된 것(confidence 0.9)만
-  const citations = doc.citations ?? (doc.document_type === "REGULATION" ? [] : (await extractCitations(content, clauses, from || 99991231)).filter((c) => c.confidence >= 0.9));
+  // 인용 해석 기준일: 노하우·매뉴얼은 시행일이 없으므로 게시일(없으면 오늘). 99991231로 두면 Registry에 미리 적재된 미래 개정본 조문을 가리켜
+  // 그 개정본 노드가 아직 그래프에 없을 때 CITES가 하나도 안 생기고, 개정 영향 분석에서 빠진다 (prod 시드 11/20: G-KREV-01~03 영향 0건)
+  const ymd = (iso?: string) => Number((iso ?? new Date().toISOString()).slice(0, 10).replaceAll("-", ""));
+  const asOf = from || ymd((doc as { published_at?: string }).published_at);
+  const citations = doc.citations ?? (doc.document_type === "REGULATION" ? [] : (await extractCitations(content, clauses, asOf)).filter((c) => c.confidence >= 0.9));
   return {
     ...input, document_type: doc.document_type, title: doc.title, effective_from: from, effective_to: doc.effective_to ?? 99991231,
     content, content_hash: doc.published_content_hash ?? "", acl_groups: doc.acl_groups, authority_status: doc.authority_status,
