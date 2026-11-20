@@ -2,6 +2,7 @@
 .env*
 !.env.example
 .omc/
+role/.state/
 .claude/scheduled_tasks.lock
 node_modules/
 *.tfstate

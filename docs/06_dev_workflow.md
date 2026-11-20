@@ -1,6 +1,6 @@
 # 개발 운영 규칙 · Git · CI · QA · 보안
 
-> 모든 팀원 공통. 세 Claude가 같은 저장소를 동시에 쓰므로 이 규칙을 어기면 통합이 깨진다.
+> 모든 팀 공통. 여러 팀 에이전트가 같은 저장소를 동시에 쓰므로 이 규칙을 어기면 통합이 깨진다. 팀 구성과 Orca 소통은 `role/README.md`를 따른다.
 
 ## 1. 개발 환경
 
@@ -20,13 +20,13 @@
 
 | 항목 | 규칙 |
 |---|---|
-| 브랜치 | 개인 브랜치 `{닉네임}`. 이미 있으면 `git switch {닉네임}`, 없으면 `git switch -c {닉네임} origin/main`. **`checkout -B`, `reset --hard`, force push 금지** |
+| 브랜치 | 팀 브랜치 `team/{slug}`. 이미 있으면 `git switch team/{slug}`, 없으면 `git switch -c team/{slug} origin/main`. **`checkout -B`, `reset --hard`, force push 금지** |
 | 시작 전 | 작업 트리가 깨끗한지 확인 (`git status`). 변경이 남아 있으면 커밋하거나 사용자에게 묻는다 |
-| 동기화 | 세션 시작마다 `git fetch` → `git pull --ff-only origin {닉네임}` → `git merge origin/main`. push 전 로컬 커밋만 있을 때는 rebase 허용. 충돌은 브랜치 주인이 해결. main 병합은 Squash merge |
-| 커밋 | 작게, 기능 단위. 메시지 `[{닉네임}] {영역}: {요약}` |
-| main 병합 | PR 필수. 리뷰어 1명 승인(`05` 2장) + CI 통과. 매일 18:00(KST) 통합 |
+| 동기화 | 세션 시작마다 `git fetch` → `git pull --ff-only origin team/{slug}` → `git merge origin/main`. push 전 로컬 커밋만 있을 때는 rebase 허용. 충돌은 브랜치 주인이 해결. main 병합은 Squash merge |
+| 커밋 | 작게, 기능 단위. 메시지 `[{slug}] {영역}: {요약}` |
+| main 병합 | PR 필수. 리뷰 팀 1곳 승인(`role/README.md` 1장) + CI 통과. 리뷰 요청·병합 알림은 Orca 메시지. 매일 18:00(KST) 통합 |
 | main 직접 push | 금지 (초기 골격 커밋만 예외) |
-| 기록 파일 | `공통기록/`·`요청기록/`은 1건 1파일이라 충돌하지 않음. 개인 브랜치에 남겨도 PR로 main에 함께 들어감 |
+| 기록 | 요청·보고는 Orca 메시지로 한다 (`role/README.md` 2장). `공통기록/`·`요청기록/`에 새 파일을 만들지 않는다 (11/20 이전 보관용) |
 
 ## 3. CI (GitHub Actions, Owner yoyo0704)
 
@@ -51,10 +51,10 @@
 
 - 실패 집계는 **기능 × 원인** 단위로 센다. AWS 일시 오류(Throttling, 5xx)는 세지 않는다.
 - 같은 기능이 같은 원인으로 3회 실패하면 그 기능을 멈추고 재현 방법·로그·막힌 의존성을 사용자에게 보고한다. 독립된 다른 작업은 계속한다.
-- QA agent는 직접 고치지 않고 Owner에게 `요청기록/`으로 요청한다.
+- QA 팀과 엔드유저팀은 직접 고치지 않고 Owner 팀에 Orca로 요청한다.
 - **개인 dev 원칙** (사용자 지시 11/16, 요청기록 2242): 개인 dev(`-{닉네임}`)는 기능 테스트용이다. 공유 dev·prod는 개인 자원을 참조하지 않는다 (팀원 Lambda도 공유 dev·prod는 `lambda_refs` 커밋으로 CodeBuild가 빌드한 공유 이름 Lambda). 각자 정리 스크립트를 둔다: 기본은 점검, 공유 자원이 참조하면 중단, `--apply`로 삭제 (`hanaeum-terraform/scripts/personal-dev-check.sh <닉네임>`, let522mj `services/legal-etl/scripts/destroy-dev-let522mj.sh`). 공유 테이블·버킷의 데이터는 정리 대상이 아니다.
 - **배포 원칙** (사용자 지시 11/16): 공유 dev·prod는 `terraform apply`만으로 AWS(CodeBuild 등) 안에서 빌드·배포한다. 로컬에서 빌드한 zip·이미지를 올리지 않는다. 빌드할 커밋은 원격에 push된 것이어야 한다.
-- **공유 dev 변경 규칙** (11/16 합의, let522mj·yoyo0704): 파이프라인 실행 중에는 단계 Lambda 재배포와 Gateway 정책(AgentCore Policy) 변경을 피한다. 해야 하면 `공통기록/`에 변경 시각을 남기고, 변경 직후 `workflows/scripts/smoke-agentcore.sh`(허용)와 비허용 호출(거부)을 함께 확인한다. 근거: 11/16 12:56~13:07 UTC Policy 조건 오류로 G-REV-04 Promote 가 거부됨
+- **공유 dev 변경 규칙** (11/16 합의, let522mj·yoyo0704): 파이프라인 실행 중에는 단계 Lambda 재배포와 Gateway 정책(AgentCore Policy) 변경을 피한다. 해야 하면 전 팀에 Orca로 변경 시각을 예고하고, 변경 직후 `workflows/scripts/smoke-agentcore.sh`(허용)와 비허용 호출(거부)을 함께 확인한다. 근거: 11/16 12:56~13:07 UTC Policy 조건 오류로 G-REV-04 Promote 가 거부됨
 
 ## 5. 보안 (public 저장소)
 
@@ -67,5 +67,5 @@
 
 ## 6. Claude 작업 단위
 
-1. `plan.md`에서 작업 1개 선택 → 2. 구현 + 테스트 → 3. 로컬 QA → 4. 커밋 → 5. `기록.md` 1줄 → 6. 의미 있는 완료면 `공통기록/` 1건 → 7. 다음 작업.
-다른 사람 코드가 필요하면 기다리지 말고 mock으로 진행하고 `요청기록/`을 남긴다.
+1. `role/.state/{slug}.md`에서 작업 1개 선택 → 2. 구현 + 테스트 → 3. 로컬 QA → 4. 커밋 → 5. `role/.state/{slug}.md` 갱신 → 6. 의미 있는 완료면 총괄팀에 Orca 보고 → 7. `orca orchestration check` → 8. 다음 작업.
+다른 팀 코드가 필요하면 기다리지 말고 mock으로 진행하고 Owner 팀에 Orca로 요청한다.

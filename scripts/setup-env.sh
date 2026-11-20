@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 # 실행 환경(EC2/로컬)을 판별하고 개인 설정을 .env.local 에 저장한다.
-# 사용: scripts/setup-env.sh <닉네임> [AWS_PROFILE]
+# 사용: scripts/setup-env.sh <팀 slug> [AWS_PROFILE]
 #   인자가 없으면 터미널에서 물어본다. Claude는 인자로 넘긴다.
 #   기존 .env.local 이 있으면 profile 기본값으로 재사용한다.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 OUT=.env.local
-NICKS="yoyo0704 let522mj dhxorb96"
+NICKS="lead infra backend frontend frontend-qa ai data data-qa enduser yoyo0704 let522mj dhxorb96"  # 팀 slug (role/README.md) + 이전 닉네임
 
 # EC2 판별: IMDSv2 토큰 발급이 HTTP 200으로 성공해야 함 (1초 타임아웃)
 if curl -sf -m 1 -X PUT http://169.254.169.254/latest/api/token \
