@@ -12,7 +12,7 @@ export interface RegistryEntry {
 
 export interface TrustGateInput {
   doc: Pick<DocumentRecord, 'classification' | 'content_hash' | 'findings'>;
-  claimed?: { law_id: string; revision_id?: string; clauses?: Record<string, string> }; // 문서가 주장하는 공식 규정
+  claimed?: { law_id: string; revision_id?: string; clauses?: Record<string, string>; /** 업로드 본문 중 조문 밖 글자 수(공백 제외). lambdas 가 계산 */ other_chars?: number }; // 문서가 주장하는 공식 규정
   registry?: RegistryEntry; // let522mj Registry 조회 결과 (없으면 미등록)
 }
 
@@ -50,7 +50,7 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
         fix_hint: '규정 담당 부서가 배포한 공식 원본 파일을 그대로 올려 주세요. 신규 규정이면 관리자에게 등록을 요청하세요.' }));
     } else if (sameHash(i.registry.content_hash, i.doc.content_hash)) {
       authority = 'VERIFIED';
-    } else if (formatOnly(i.registry.clauses, i.claimed.clauses)) {
+    } else if (formatOnly(i.registry.clauses, i.claimed.clauses, i.claimed.other_chars)) {
       // 해시는 다르지만 공백·줄바꿈만 빼면 조문 전부가 같고 추가·누락도 없다 = HWPX·이미지 → PDF 변환·OCR의 형식 차이 (총괄 결정 11/20).
       // 글자·숫자가 하나라도 다르면 아래 REGISTRY_MISMATCH. 승인은 여전히 이 파일의 버전·해시에 묶인다
       authority = 'VERIFIED';
@@ -77,15 +77,20 @@ export function trustGate(i: TrustGateInput): TrustGateOutput {
 const sameHash = (a?: string, b?: string) => !!a && !!b && a.replace(/^sha256:/, '').toLowerCase() === b.replace(/^sha256:/, '').toLowerCase();
 
 /** 공백·줄바꿈만 무시하고 조문별로 비교 (HWPX·OCR 경로의 띄어쓰기 차이는 내용 차이가 아님, 데이터팀 marks.ts 와 같은 기준) */
-const squash = (t?: string) => (t ?? '').replace(/\s+/g, '');
+export const squash = (t?: string) => (t ?? '').replace(/\s+/g, '');
 export function diffClauses(official?: Record<string, string>, uploaded?: Record<string, string>) {
   if (!official || !uploaded) return [];
   const ids = new Set([...Object.keys(official), ...Object.keys(uploaded)]);
   return [...ids].filter((k) => !(k in official) || !(k in uploaded) || squash(official[k]) !== squash(uploaded[k])).sort();
 }
-/** 형식만 다름: 양쪽 조문이 1개 이상이고 diffClauses 가 비었을 때만 (조문을 못 뽑았으면 판단하지 않는다) */
-const formatOnly = (official?: Record<string, string>, uploaded?: Record<string, string>) =>
-  !!official && !!uploaded && Object.keys(official).length > 0 && Object.keys(uploaded).length > 0 && diffClauses(official, uploaded).length === 0;
+/** 형식만 다름: 양쪽 조문이 1개 이상이고 diffClauses 가 비었고, 조문 밖 글자(제목·머리말 등, Registry 와 비교 못 함)가 고정 상한 이하일 때만.
+ *  조문 밖 글자 수를 모르면 적용 안 함(fail-closed). 부칙·별표는 파서가 조문으로 뽑아 위에서 비교된다 (AI·인프라 리뷰 #139·#140).
+ *  상한은 문서 크기에 비례하지 않는다(큰 규정의 3% = 수천 자 무대조 통과 방지). 넘으면 #139 이전처럼 REGISTRY_MISMATCH → 사람 확인.
+ *  ponytail: 조문 밖은 길이 상한만 — 같은 길이로 바꾼 머리말은 못 잡음. Registry 가 조문 밖 해시를 갖게 되면 그것으로 대조 */
+export const OTHER_CHARS_MAX = 200;
+const formatOnly = (official?: Record<string, string>, uploaded?: Record<string, string>, otherChars?: number) =>
+  !!official && !!uploaded && otherChars !== undefined && otherChars <= OTHER_CHARS_MAX
+  && Object.keys(official).length > 0 && Object.keys(uploaded).length > 0 && diffClauses(official, uploaded).length === 0;
 
 function fnd(severity: Finding['severity'], code: string, message: string, evidence_ref: string, extra: Pick<Finding, 'location' | 'user_message' | 'fix_hint'> = {}): Finding {
   return { finding_id: newId.fnd(), step: 'TRUST_GATE', severity, code, message, evidence_ref, ...extra };
