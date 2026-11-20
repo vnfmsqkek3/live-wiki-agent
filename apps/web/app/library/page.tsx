@@ -7,7 +7,9 @@ import { PageHeader } from '../page-header';
 import Link from 'next/link';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 'react';
-import { api, ApiError, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
+import { ConfirmCurrent } from '../confirm-current';
+import { isAdmin } from '../lib/roles';
+import { api, ApiError, getSession, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
 import { FreshnessFlag, Seal } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { CardBoundary } from '../card-boundary';
@@ -627,6 +629,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.
         </p>
       )}
+      {d.lifecycle === 'PUBLISHED' && d.freshness === 'REVIEW_REQUIRED' && isAdmin(getSession()?.groups) && <ConfirmCurrent docId={d.doc_id} />}
 
 
       {!page ? <p className="note">표시할 본문이 없습니다. 개인정보를 가린 본문이 아직 만들어지지 않았습니다.</p> : (
