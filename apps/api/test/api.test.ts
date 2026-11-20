@@ -646,3 +646,26 @@ test('고칠 곳 해당 없음: 올린 사람·결재자만, 사유 필수, 상�
   assert.deepEqual([m.severity, m.reason], ['LOW', '해당 없음으로 둠: 영업점 기준']);
   assert.equal(t.store.audits.at(-1)!.action, 'MARK_DISMISSED');
 });
+
+test('관리 평가: 결재자만, 마지막 평가 실행 + 7일 거부 기록(역할·사유, sub 없음)', async () => {
+  const t = setup();
+  assert.equal((await t.call('user', 'GET', '/v1/admin/evaluations')).status, 403); // 이 거부도 기록된다
+  const empty = (await (await t.call('approver', 'GET', '/v1/admin/evaluations')).json()) as { run_at: string | null; items: unknown[]; denials: { role: string; tool: string; reason: string }[] };
+  assert.equal(empty.run_at, null);
+  assert.deepEqual(empty.items, []);
+  assert.equal(empty.denials.length, 1);
+  assert.deepEqual([empty.denials[0]!.role, empty.denials[0]!.tool], ['USER', 'GET /v1/admin/evaluations']);
+  assert.ok(empty.denials[0]!.reason);
+  assert.ok(!JSON.stringify(empty).includes('u-user'), '사용자 식별값을 내보내지 않음');
+  const at = (d: number) => new Date(Date.now() - d * 864e5).toISOString();
+  await t.store.audit({ at: at(2), actor: 'system:evaluations', action: 'EVALUATION_RUN', resource: 'evaluations', result: 'OK', trace_id: 'old', detail: { items: [] } });
+  const newest = at(1);
+  await t.store.audit({ at: newest, actor: 'system:evaluations', action: 'EVALUATION_RUN', resource: 'evaluations', result: 'OK', trace_id: 'new',
+    detail: { items: [{ key: 'forged_block_5', label: '위조 규정 차단', target: '5/5', passed: 5, total: 5, pass: true, extra: 'x' }], failures: [{ key: 'knowhow_conflict_5', case_id: 'G-KC-06', reason: '충돌 미탐지' }] } });
+  await t.store.audit({ at: at(9), actor: 'u-x', action: 'POST /v1/approvals/:id/decision', resource: '/v1/approvals/a', result: 'DENIED', trace_id: 'stale' });
+  const r = (await (await t.call('approver', 'GET', '/v1/admin/evaluations')).json()) as { run_at: string; items: Record<string, unknown>[]; failures: unknown[]; denials: { trace_id: string }[] };
+  assert.equal(r.run_at, newest);
+  assert.deepEqual(r.items, [{ key: 'forged_block_5', label: '위조 규정 차단', target: '5/5', passed: 5, total: 5, pass: true }]);
+  assert.deepEqual(r.failures, [{ key: 'knowhow_conflict_5', case_id: 'G-KC-06', reason: '충돌 미탐지' }]);
+  assert.ok(!r.denials.some((d) => d.trace_id === 'stale'), '7일 지난 거부는 제외');
+});

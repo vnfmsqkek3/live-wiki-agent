@@ -143,7 +143,8 @@ export function createApp(deps: Deps) {
     const e = err instanceof ApiError ? err : new ApiError('INTERNAL', 'internal error');
     if (!(err instanceof ApiError)) console.error(JSON.stringify({ trace_id, err: String(err?.name) })); // 메시지에 원문이 섞일 수 있어 이름만
     if (e.status === 403 && c.get('actor'))
-      await store.audit({ at: new Date().toISOString(), actor: c.get('actor').sub, action: `${c.req.method} ${c.req.routePath}`, resource: c.req.path, result: 'DENIED', trace_id });
+      // detail: 관리 '평가' 화면 거부 목록용 역할·사유 (원문·토큰 없음)
+      await store.audit({ at: new Date().toISOString(), actor: c.get('actor').sub, action: `${c.req.method} ${c.req.routePath}`, resource: c.req.path, result: 'DENIED', trace_id, detail: { roles: c.get('actor').groups, reason: e.message.slice(0, 200) } });
     return c.json({ error: { code: e.code, message: e.message, trace_id } }, e.status);
   });
 
@@ -666,6 +667,27 @@ export function createApp(deps: Deps) {
     if (!deps.traceImpact) throw new ApiError('NOT_FOUND', '영향 분석 도구가 연결되지 않았습니다');
     try { return c.json(await deps.traceImpact({ law }, c.get('token'))); }
     catch (e) { throw new ApiError('NOT_FOUND', (e as Error).name === 'ToolError' ? '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다' : '영향 분석 도구 호출에 실패했습니다'); }
+  });
+
+  // 관리 > Agent 평가 (docs/02 6장 화면 08, 프론트엔드팀 요청 11/20): 최근 평가 결과 + 비인가 호출 거부 기록.
+  // 평가 결과는 실행기가 감사 기록에 남긴 마지막 EVALUATION_RUN (detail.items·failures). 없으면 run_at=null
+  app.get('/v1/admin/evaluations', async (c) => {
+    need(c, APPROVERS);
+    if (!store.listAudit) return c.json({ run_at: null, items: [], failures: [], denials: [] });
+    const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
+    const [run] = await store.listAudit({ since: ago(30), action: 'EVALUATION_RUN', limit: 1 });
+    const denied = await store.listAudit({ since: ago(7), result: 'DENIED', limit: 50 });
+    const arr = (v: unknown) => (Array.isArray(v) ? v as Record<string, unknown>[] : []);
+    const str = (v: unknown) => (typeof v === 'string' ? v : '');
+    const num = (v: unknown) => (typeof v === 'number' ? v : 0);
+    return c.json({
+      run_at: run?.at ?? null,
+      items: arr(run?.detail?.items).map((i) => ({ key: str(i.key), label: str(i.label), target: str(i.target), passed: num(i.passed), total: num(i.total), pass: i.pass === true })),
+      failures: arr(run?.detail?.failures).slice(0, 100).map((f) => ({ key: str(f.key), case_id: str(f.case_id), reason: str(f.reason).slice(0, 300) })),
+      // 거부 기록에는 사용자 식별값(sub)을 내보내지 않는다. 역할만
+      denials: denied.map((e) => ({ at: e.at, role: (Array.isArray(e.detail?.roles) ? (e.detail!.roles as string[]) : []).join(','), tool: e.action, reason: str(e.detail?.reason), trace_id: e.trace_id })),
+      trace_url: 'https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core',
+    });
   });
 
   // ---- 출처 불일치 (위조 의심) 처리: 승인 대상이 아니므로 별도 큐 ----
