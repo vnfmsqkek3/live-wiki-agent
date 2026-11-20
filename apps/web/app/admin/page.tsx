@@ -150,6 +150,7 @@ export default function Admin() {
       <div className="actions ops-row" role="group" aria-label="운영 도구">
         <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
         <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
+        <Link className="btn" href="/admin/evals"><Icon name="clock" />Agent 평가</Link>
       </div>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">

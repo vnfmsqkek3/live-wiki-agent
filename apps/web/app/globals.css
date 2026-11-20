@@ -414,7 +414,7 @@ h1, h2, h3, h4, .title, .section, .doc-title, .num { color:var(--navy-900); }
 .pii { color:var(--ink-700); background:var(--navy-050); border-radius:4px; padding:1px 4px; }
 .doc-table { max-width:100%; margin:16px 0; }
 .doc-table table { width:100%; table-layout:fixed; border-collapse:collapse; }
-.doc-table td { border:1px solid var(--line); padding:8px; overflow-wrap:anywhere; white-space:pre-wrap; }
+.doc-table td, .doc-table th { border:1px solid var(--line); padding:8px; overflow-wrap:anywhere; white-space:pre-wrap; text-align:left; }
 .doc-table tr:first-child { background:var(--navy-050); font-weight:700; }
 .entry dl { font-size:.875rem; }
 @media (min-width:1024px) { .document-columns { grid-template-columns:minmax(0,7fr) minmax(0,5fr); } }
