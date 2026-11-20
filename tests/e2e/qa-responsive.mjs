@@ -1,4 +1,4 @@
-// UI 반응형 QA (R1~R2): 390px(모바일)·1440px(데스크톱)에서 주요 화면의 가로 넘침과 스크린샷.
+// UI 반응형 QA (R1~R2): 390px(모바일)·1280px(데스크톱)에서 주요 화면의 가로 넘침과 스크린샷.
 //   QA_BASE=https://<prod CloudFront> QA_SCRIPT=qa-responsive.mjs tests/e2e/qa-run.sh
 // 읽기만 한다(업로드·결재 없음). 상세 화면은 user 보관함 첫 카드, 결재 대상 상세는 admin 결재함 첫 문서
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
@@ -42,7 +42,7 @@ const measure = (p) => ev(`(() => { const W = document.documentElement.clientWid
 
 const results = [];
 const skipped = [];
-for (const [rid, w] of [['R1', 390], ['R2', 1440]]) {
+for (const [rid, w] of [['R1', 390], ['R2', 1280]]) {
   await send('Emulation.setDeviceMetricsOverride', { width: w, height: 900, deviceScaleFactor: 1, mobile: w < 600 });
   const rows = [];
   for (const who of ['user', 'admin']) {
