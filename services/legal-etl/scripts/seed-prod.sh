@@ -16,6 +16,7 @@ seq2() { for i in $(seq "$2" "$3"); do printf "$1 " "$(printf %02d "$i")"; done;
   node mcp/regulation-server/src/load-fixtures.ts
 # 1) 기반 규정 → 2) 노하우(규정 게시 뒤라야 근거 확인) → 3) 개정본(직전 버전 diff로 영향 노하우 표시) → 4) 차단 기대
 "$P" F-001 $(seq2 G-REG-%s 1 12)
-"$P" K-003 K-004 $(seq2 G-KN-%s 1 13) $(seq2 G-KREV-%s 1 4)
+"$P" K-004 $(seq2 G-KN-%s 1 13) $(seq2 G-KREV-%s 1 4)
 "$P" $(seq2 G-REV-%s 1 4)
-EXPECT=block "$P" $(seq2 G-KC-%s 1 9)
+# K-003: 2025년판(7억원) 인용 → 최신성 실패 기대(manifest kb_visibility=false). 게시하지 않고 반려. 영향 5/5는 measure.ts(오프라인 그래프)로 판정
+EXPECT=block "$P" K-003 $(seq2 G-KC-%s 1 9)
