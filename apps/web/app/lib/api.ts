@@ -54,11 +54,13 @@ export class ApiError extends Error {
 export async function api<T>(method: string, path: string, body?: unknown): Promise<T> {
   if (MOCK) return mock(method, path, body) as T;
   const s = getSession();
+  // 응답이 오지 않는 요청이 화면을 '찾는 중'에 묶어 두지 않게 45초에서 끊는다 (인프라 11/20: 서버 3초 응답인데 화면 60초 고정, 재현 안 됨)
   const r = await fetch(`${API}${path}`, {
     method,
     headers: { 'content-type': 'application/json', ...(s ? { authorization: `Bearer ${s.token}` } : {}) },
     body: body === undefined ? undefined : JSON.stringify(body),
-  });
+    signal: AbortSignal.timeout(45_000),
+  }).catch((e: Error) => { throw new ApiError(0, e.name === 'TimeoutError' ? '응답이 늦어 중단했습니다. 다시 시도해 주세요.' : '서버에 연결하지 못했습니다. 네트워크를 확인하고 다시 시도해 주세요.'); });
   const j = (await r.json().catch(() => ({}))) as { error?: { message: string } };
   if (r.status === 401) expired();
   if (!r.ok) throw new ApiError(r.status, j.error?.message ?? `HTTP ${r.status}`);
