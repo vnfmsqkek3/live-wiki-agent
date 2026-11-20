@@ -159,7 +159,7 @@ Ground Truth 필드 예: `document_id`, `document_type`, `expected_status`, `exp
 - [ ] 거부 Trace 확인
 - [ ] Evaluations 대시보드에서 검색·인용·보안 평가 결과 확인
 
-데모에 필요한 계정: `user`(일반 사용자 = 작성자: 업로드·게시 요청·검색), `admin`(업로드·게시 요청도 가능 + 승인·반려·관리). 별도 규정 승인자 계정은 두지 않는다 (사용자 결정 11/20). 자기 승인 금지 규칙상 admin이 올린 문서는 admin이 승인할 수 없다. 역할 정의는 `01_architecture_spec.md` 3장.
+데모에 필요한 계정: `user`(일반 사용자 = 작성자: 업로드·게시 요청·검색), `admin`(업로드·게시 요청도 가능 + 승인·반려·관리). 별도 규정 승인자 계정은 두지 않는다 (사용자 결정 11/20). admin(PLATFORM_OPERATOR)은 자기 문서도 승인할 수 있고 감사에 SELF_APPROVAL로 남는다 (사용자 결정 11/18). 데모는 user 업로드 → admin 승인. 역할 정의는 `01_architecture_spec.md` 3장.
 
 ---
 
