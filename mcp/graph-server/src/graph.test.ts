@@ -300,5 +300,6 @@ test("규정 게시: Trusted Registry 원본 버전은 조문 원문을 게시�
     content: ocr, content_hash: "sha256:published-content", law: { ...LAW, revision_id: "2026-11-01" } }, graph, Object.assign(clauses, { putLaw }));
   const after = (await clauses.provisions(LAW.law_id, "2026-11-01"))!;
   assert.deepEqual(after.map((p) => p.normalized_text), official.provisions.map((p) => p.normalized_text), "Registry 원문 유지");
+  assert.equal((await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!.parse_ok, true, "구조 판정도 Registry 것");
   assert.equal((await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!.doc_id, "doc_pub", "게시 문서 연결은 갱신");
 });

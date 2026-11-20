@@ -103,16 +103,16 @@ export async function graphUpsertStep(input: GraphUpsertInput, graph: GraphStore
     // Trusted Registry 원본 해시(content_hash·pdf_content_hash)는 덮어쓰지 않는다. 덮어쓰면 같은 공식 원본을 다시 올릴 때
     // 해시 대조가 실패해 "공식 원본과 다름"으로 막힌다 (11/17 재업로드 실측: F-000·F-001 출처 불일치)
     const prev = (await clauses.revisions(law.law_id)).find((r) => r.revision_id === law.revision_id);
-    const rec: RevisionRecord = {
-      law_id: law.law_id, law_name: law.law_name, revision_id: law.revision_id, registry_doc_no: input.law.registry_doc_no ?? prev?.registry_doc_no,
-      effective_from: input.effective_from, effective_to: input.effective_to, authority_status: input.authority_status,
-      doc_id: input.doc_id, content_hash: prev?.content_hash || input.content_hash, ...(prev?.pdf_content_hash ? { pdf_content_hash: prev.pdf_content_hash } : {}),
-      acl_groups: input.acl_groups, parse_ok: !broken,
-    };
     // Trusted Registry 원본이 있는 버전(pdf_content_hash = 공식 원본 파일)은 조문 원문도 Registry 것을 지킨다.
     // 게시본은 OCR·그림 정리본이 섞인 마스킹 본문이라 덮어쓰면 '공식 원본'이 띄어쓰기·마침표가 틀린 글이 되고,
     // 같은 규정을 다른 형식(HWPX)으로 올리면 공식 원본과 다르다고 격리된다 (prod 11/20 엔드유저 D01)
     const official = prev?.pdf_content_hash ? await clauses.provisions(law.law_id, law.revision_id) : undefined;
+    const rec: RevisionRecord = {
+      law_id: law.law_id, law_name: law.law_name, revision_id: law.revision_id, registry_doc_no: input.law.registry_doc_no ?? prev?.registry_doc_no,
+      effective_from: input.effective_from, effective_to: input.effective_to, authority_status: input.authority_status,
+      doc_id: input.doc_id, content_hash: prev?.content_hash || input.content_hash, ...(prev?.pdf_content_hash ? { pdf_content_hash: prev.pdf_content_hash } : {}),
+      acl_groups: input.acl_groups, parse_ok: official?.length ? prev!.parse_ok : !broken, // 원문을 지키면 구조 판정도 Registry 것 (데이터QA #117)
+    };
     if (clauses.putLaw) await clauses.putLaw(rec, official?.length ? { ...law, provisions: official } : law);
     // 새 VERIFIED 버전이 시행되면 겹치는 이전 버전의 종료일을 닫는다 (이전 버전이 현행으로 남지 않게)
     if (rec.authority_status === "VERIFIED" && clauses.closeRevision) {
