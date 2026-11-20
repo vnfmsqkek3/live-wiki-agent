@@ -4,11 +4,11 @@ MCP 서버 이름은 `hanaeum-wiki-mcp` 로 통일합니다(다른 위키 MCP �
 
 다른 챗봇·문서 생성 앱이 위키의 검색·근거·규정·정리본을 MCP 도구로 쓰는 방법입니다. 계약은 `docs/interfaces.md` 11장.
 
-## 1. 접속 정보 (dev)
+## 1. 접속 정보 (prod, 11/20부터 dev 없음)
 | 항목 | 값을 얻는 곳 |
 |---|---|
-| MCP 엔드포인트 | SSM `/hanaeum-mvp/dev/USER_GATEWAY_URL` |
-| 클라이언트 ID·시크릿·토큰 주소·scope | Secrets Manager `hanaeum-mvp/mcp-external-client-dev` (관리자에게 요청) |
+| MCP 엔드포인트 | SSM `/hanaeum-mvp/prod/USER_GATEWAY_URL` |
+| 클라이언트 ID·시크릿·토큰 주소·scope | Secrets Manager `hanaeum-mvp/mcp-external-client` (관리자에게 요청) |
 
 ## 2. 토큰 받기
 ```bash
