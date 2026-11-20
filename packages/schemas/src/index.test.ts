@@ -8,6 +8,7 @@ test("ID 정규식", () => {
   assert.ok(LawRevisionId.safeParse("SYN-LOAN-001@2026-11-01").success);
   assert.ok(ProvisionId.safeParse("SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA").success);
   assert.ok(ProvisionId.safeParse("SYN-LOAN-001@2026-11-01/ARTICLE:12-2").success);
+  assert.ok(ProvisionId.safeParse("FX@2026-01-01/ARTICLE:2-1-2/PARAGRAPH:2").success, "가지번호+의 제2-1조의2"); assert.ok(!ProvisionId.safeParse("FX@2026-01-01/ARTICLE:2-1-2-3").success);
   assert.ok(ProvisionId.safeParse("SYN-LOAN-001@2026-11-01/ARTICLE:12/SUBITEM:CHA").success === true);
   assert.ok(!ProvisionId.safeParse("SYN-LOAN-001@2026-11-01/ARTICLE:12/SUBITEM:XX").success);
 });
