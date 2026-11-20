@@ -44,7 +44,7 @@ TMP=$(mktemp)
 {
   echo "HANAEUM_RUNTIME=$RUNTIME"
   echo "HANAEUM_NICKNAME=$NICKNAME"
-  echo "HANAEUM_ENV=dev-$NICKNAME"
+  echo "HANAEUM_ENV=prod" # 사용자 결정 11/20: dev 미사용, prod 단일 환경 (SSM /hanaeum-mvp/prod/)
   echo "HANAEUM_ACCOUNT_ID=$ACCOUNT"
   echo "AWS_REGION=us-east-1"
   if [ "$RUNTIME" = local ]; then
