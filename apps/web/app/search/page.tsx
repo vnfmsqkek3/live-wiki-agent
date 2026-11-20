@@ -87,7 +87,7 @@ function Results() {
     // 필터 선택지: 볼 수 있는 게시 문서의 업무(1단계)·부서
     api<{ items: (LibraryCard & { dept?: string })[] }>('GET', '/v1/library').then((r) => setOptions({
       business: [...new Set(r.items.map((i) => i.business_path[0]).filter((x): x is string => !!x))].sort(),
-      dept: [...new Set(r.items.map((i) => i.dept).filter((x): x is string => !!x))].sort(),
+      dept: [...new Set(r.items.map((i) => i.dept).filter((x): x is string => !!x && x !== 'all'))].sort(),
     })).catch(() => {});
   }, []);
   const [input, setInput] = useState(q);
