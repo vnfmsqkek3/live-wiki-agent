@@ -1,5 +1,5 @@
 {
-  "_note": "SYNTHETIC. 데모 핵심 10건 정답 (docs/02 3.1). 필드는 docs/02 3.2 Ground Truth 예시를 따른다. upload_file = 데모 업로드용 파일 (허용 형식: PDF·DOCX·HWPX·PNG/JPG).",
+  "_note": "SYNTHETIC. 데모 핵심 10건 정답 (docs/02 3.1). 필드는 docs/02 3.2 Ground Truth 예시를 따른다. upload_file = 데모 업로드용 파일 (허용 형식: PDF·DOCX·HWPX·PNG/JPG). user_documents = 사용자 테스트 문서(외부 법령 인용 매뉴얼)와 법령 내용 변형본(MX-*, expected_conflict=true, changes=바꾼 곳). 핵심 10건(documents)과 분리.",
   "documents": [
     {
       "document_id": "F-001",
@@ -213,6 +213,154 @@
       "test_scenario": "구조 파싱 검증 (데모 05). 정답 legal/expected/L-001.json",
       "upload_file": null,
       "upload_note": "파서 검증 전용 (데모 05는 실 DynamoDB 조회)"
+    }
+  ],
+  "user_documents": [
+    {
+      "document_id": "M-002",
+      "file": "documents/M-002.md",
+      "title": "창구 메모 · 거주자 해외직접투자 신고 받을 때",
+      "document_type": "MANUAL",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "related_regulation": "외국환거래규정 (외부 행정규칙, 내부 Registry 없음)",
+      "related_clause": null,
+      "expected_kb_visibility": "after_human_approval",
+      "source": "사용자 테스트 문서 11/20 (총괄팀 전달), SYNTHETIC 표준 머리 추가 후 재생성",
+      "expected_external_laws": [
+        {
+          "law_name": "외국환거래규정",
+          "clause": "제9-5조제1항",
+          "clauses": [
+            "제9-5조제1항",
+            "제9-5조제3항",
+            "제9-5조제2항"
+          ]
+        }
+      ],
+      "expected_conflict": false,
+      "upload_file": "documents/pdf/M-002.pdf",
+      "expected_status": "UNVERIFIED",
+      "test_scenario": "외부 법령(괄호 없는 이름·가지번호 조문) 인식 → 상세 '외부 법령 참고'"
+    },
+    {
+      "document_id": "M-003",
+      "file": "documents/M-003.md",
+      "title": "창구 메모 · 해외직접투자 하고 나서 내야 하는 보고서",
+      "document_type": "MANUAL",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "related_regulation": "외국환거래규정 (외부 행정규칙, 내부 Registry 없음)",
+      "related_clause": null,
+      "expected_kb_visibility": "after_human_approval",
+      "source": "사용자 테스트 문서 11/20 (총괄팀 전달), SYNTHETIC 표준 머리 추가 후 재생성",
+      "expected_external_laws": [
+        {
+          "law_name": "외국환거래규정",
+          "clause": "제9-9조제1항",
+          "clauses": [
+            "제9-9조제1항",
+            "제9-4조제1항",
+            "제9-9조제1항제8호·제9호"
+          ]
+        }
+      ],
+      "expected_conflict": false,
+      "upload_file": "documents/pdf/M-003.pdf",
+      "expected_status": "UNVERIFIED",
+      "test_scenario": "외부 법령(괄호 없는 이름·가지번호 조문) 인식 → 상세 '외부 법령 참고'"
+    },
+    {
+      "document_id": "MX-002",
+      "file": "documents/MX-002.md",
+      "title": "창구 메모 · 거주자 해외직접투자 신고 받을 때",
+      "document_type": "MANUAL",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "related_regulation": "외국환거래규정 (외부 행정규칙, 내부 Registry 없음)",
+      "related_clause": null,
+      "expected_kb_visibility": "after_human_approval",
+      "source": "사용자 테스트 문서 11/20 (총괄팀 전달), SYNTHETIC 표준 머리 추가 후 재생성",
+      "expected_external_laws": [
+        {
+          "law_name": "외국환거래규정",
+          "clause": "제9-5조제1항",
+          "clauses": [
+            "제9-5조제1항",
+            "제9-5조제3항",
+            "제9-5조제2항"
+          ]
+        }
+      ],
+      "expected_conflict": true,
+      "upload_file": "documents/pdf/MX-002.pdf",
+      "variant_of": "M-002",
+      "expected_status": "UNVERIFIED",
+      "test_scenario": "외부 법령 대조로 틀린 법령 내용 탐지·수정 제안",
+      "changes": [
+        {
+          "page": 1,
+          "before": "주채무계열 소속 기업이면 그 기업의 주채권은행 / 주채무계열이 아니면 여신최다은행",
+          "after": "주채무계열 소속 기업이면 그 기업의 여신최다은행 / 주채무계열이 아니면 주채권은행",
+          "basis": "외국환거래규정 제9-5조제1항"
+        },
+        {
+          "page": 1,
+          "before": "거래 후 3개월 안에 사후보고로 해도 돼요",
+          "after": "거래 후 6개월 안에 사후보고로 해도 돼요",
+          "basis": "외국환거래규정 제9-5조제2항"
+        }
+      ]
+    },
+    {
+      "document_id": "MX-003",
+      "file": "documents/MX-003.md",
+      "title": "창구 메모 · 해외직접투자 하고 나서 내야 하는 보고서",
+      "document_type": "MANUAL",
+      "dept": "외환",
+      "acl_groups": [
+        "ALL"
+      ],
+      "related_regulation": "외국환거래규정 (외부 행정규칙, 내부 Registry 없음)",
+      "related_clause": null,
+      "expected_kb_visibility": "after_human_approval",
+      "source": "사용자 테스트 문서 11/20 (총괄팀 전달), SYNTHETIC 표준 머리 추가 후 재생성",
+      "expected_external_laws": [
+        {
+          "law_name": "외국환거래규정",
+          "clause": "제9-9조제1항",
+          "clauses": [
+            "제9-9조제1항",
+            "제9-4조제1항",
+            "제9-9조제1항제8호·제9호"
+          ]
+        }
+      ],
+      "expected_conflict": true,
+      "upload_file": "documents/pdf/MX-003.pdf",
+      "variant_of": "M-003",
+      "expected_status": "UNVERIFIED",
+      "test_scenario": "외부 법령 대조로 틀린 법령 내용 탐지·수정 제안",
+      "changes": [
+        {
+          "page": 1,
+          "before": "외화증권(채권)취득보고서: 투자금 납입이나 대여자금 제공 후 6개월 이내",
+          "after": "… 3개월 이내",
+          "basis": "외국환거래규정 제9-9조제1항"
+        },
+        {
+          "page": 1,
+          "before": "연간사업실적보고서: 투자금액 합계가 미화 300만불을 넘는 경우",
+          "after": "… 미화 500만불을 넘는 경우",
+          "basis": "외국환거래규정 제9-9조제1항"
+        }
+      ]
     }
   ]
 }
