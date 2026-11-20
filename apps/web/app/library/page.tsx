@@ -182,8 +182,8 @@ function List() {
 
 /** 확인이 필요한 건의 세 칸: 원본 내용 · 근거 내용 · 근거를 바탕으로 한 수정 내용 (사용자 요청 11/17) */
 function Trio({ m }: { m: Mark }) {
-  // INSUFFICIENT: 근거 조문이 없으면 판단 불가, 있으면 그 조문만으로는 판단 부족 (AI팀 요청 11/20). BASIS_MISMATCH는 서버 revision 그대로
-  const revision = m.revision ?? (m.kind !== 'INSUFFICIENT' ? '수정 필요 없음' : m.basis ? '근거 조문만으로는 AI가 판단하지 못했습니다. 담당 부서에 확인해 주세요.' : '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.');
+  // INSUFFICIENT: 근거 조문이 없으면 판단 불가, 있으면 그 조문만으로는 판단 부족 (AI팀 요청 11/20). BASIS_MISMATCH는 revision=null, 안내문은 fix (데이터 PR #103)
+  const revision = m.revision ?? (m.kind === 'BASIS_MISMATCH' ? m.fix ?? '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.' : m.kind !== 'INSUFFICIENT' ? '수정 필요 없음' : m.basis ? '근거 조문만으로는 AI가 판단하지 못했습니다. 담당 부서에 확인해 주세요.' : '관련 조문이 없어 AI가 판단하지 못했습니다. 내용이 맞으면 그대로 두어도 됩니다.');
   return (
     <dl className="trio">
       <dt>원본 내용</dt><dd>{m.original ?? <span className="note">(올린 문서에 없음)</span>}</dd>
@@ -197,7 +197,8 @@ function Trio({ m }: { m: Mark }) {
 function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; on?: boolean; onEdit?: (text: string, to?: string) => void; body?: string; docId?: string; locked?: string }) {
   // 카드 안에서 바로 고친다 (사용자 요청 11/19: 업로드 뒤 질문 페이지처럼 [수정] → 입력칸). 문장이 본문에 그대로 있을 때만, 없으면 편집기로
   const inline = !!(onEdit && docId && m.original && body?.includes(m.original));
-  const ai = !!(m.revision && m.revision !== m.original);
+  // BASIS_MISMATCH의 revision은 안내문이지 고친 문장이 아니므로 [적용] 대상에서 뺀다 (데이터QA 11/20: 적용하면 본문이 안내문으로 바뀜)
+  const ai = !!(m.revision && m.revision !== m.original && m.kind !== 'BASIS_MISMATCH');
   const [draft, setDraft] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState('');
@@ -233,7 +234,7 @@ function Fix({ m, n, on, onEdit, body, docId, locked }: { m: Mark; n?: number; o
       {inline && draft === null && <div className="actions"><button type="button" className="btn solid" onClick={() => setDraft(m.original!)}>수정</button></div>}
       {inline && draft !== null && <div className="fix-edit">
         {ai ? <div className="clarify-sugg"><span className="src-badge">AI 추천</span><span>{m.revision}</span><button type="button" className={`btn${draft === m.revision ? ' solid' : ''}`} aria-pressed={draft === m.revision} onClick={() => setDraft(m.revision!)}>적용</button></div>
-          : <p className="note">AI 추천 없음: 근거 조문을 찾지 못해 AI가 고칠 문장을 만들지 않았습니다. 직접 고치거나, 맞는 내용이면 해당 없음으로 두세요.</p>}
+          : <p className="note">AI 추천 없음: {m.kind === 'BASIS_MISMATCH' ? '근거로 든 조항과 내용이 달라 AI가 고칠 문장을 만들지 않았습니다. 근거 조항을 확인해 직접 고치세요.' : '근거 조문을 찾지 못해 AI가 고칠 문장을 만들지 않았습니다. 직접 고치거나, 맞는 내용이면 해당 없음으로 두세요.'}</p>}
         <label className="lbl" htmlFor={`fix-in-${n ?? 'd'}`}>직접 입력</label>
         <textarea id={`fix-in-${n ?? 'd'}`} className="field" rows={3} value={draft} onChange={(e) => setDraft(e.target.value)} />
         {draft.trim() && draft.trim() !== m.original && <ol className="diff-lines" aria-label="고치기 전·후"><li className="del"><span className="num">전</span><del>{m.original}</del></li><li className="add"><span className="num">후</span><ins>{draft.trim()}</ins></li></ol>}
