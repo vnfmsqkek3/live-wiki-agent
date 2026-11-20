@@ -8,7 +8,7 @@ import { parse, type Failure, type Item } from "./parse.ts";
 
 const root = fileURLToPath(new URL("../../../../", import.meta.url));
 const dry = process.argv.includes("--dry-run"), offlineOnly = process.argv.includes("--offline");
-const env = process.env["HANAEUM_ENV"] === "prod" ? "prod" : "dev";
+const env = "prod"; // 사용자 결정 11/20: prod 단일 환경
 const run = (script: string) => {
   // 측정이 미달이어도 표는 나온다. 실행 자체가 실패하면 그 묶음은 실패 1건으로 남긴다
   try { return execFileSync("node", [`tests/evaluations/cases/src/${script}`], { cwd: root, env: { ...process.env, HANAEUM_ENV: env }, encoding: "utf8", stdio: ["ignore", "pipe", "inherit"], timeout: 30 * 60_000 }); }
