@@ -35,15 +35,18 @@ function DetailPopup({ title, children, open, onClose }: { title: string; childr
   // 비모달 (총괄·엔드유저 11/20 U4): 창이 열려 있어도 결재 의견·승인·반려를 키보드·화면 낭독기로 쓸 수 있게. Esc로 닫는다
   const ref = useRef<HTMLDialogElement>(null);
   const heading = useId();
+  const close = useRef(onClose); close.current = onClose; // 부모가 매번 새 함수를 넘겨도 창을 다시 열지 않게
   useEffect(() => {
     if (!open) return;
     const dialog = ref.current!;
     const trigger = document.activeElement as HTMLElement | null;
     dialog.show();
     dialog.querySelector<HTMLElement>('.popup-header button')?.focus();
-    return () => { dialog.close(); if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') close.current(); }; // 초점이 창 밖에 있어도 Esc로 닫힘 (QA nit)
+    document.addEventListener('keydown', esc);
+    return () => { document.removeEventListener('keydown', esc); dialog.close(); if (trigger?.isConnected) trigger.focus({ preventScroll: true }); };
   }, [open]);
-  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading} onKeyDown={(e) => { if (e.key === 'Escape') onClose(); }}>
+  return <dialog ref={ref} className="detail-popup" aria-labelledby={heading}>
     <div className="popup-header"><h2 id={heading}>{title}</h2><button type="button" className="btn" onClick={onClose}>닫기</button></div>
     {open && children}
   </dialog>;
