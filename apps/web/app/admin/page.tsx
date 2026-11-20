@@ -122,7 +122,7 @@ export default function Admin() {
   }
 
   const [opinion, setOpinion] = useState<Record<string, string>>({}); // 카드별 결재 의견
-  async function decide(id: string, decision: 'APPROVE' | 'REJECT') {
+  async function decide(id: string, decision: 'APPROVE' | 'REJECT' | 'REVALIDATE') {
     const r = await decideApproval(id, decision, opinion[id] ?? '');
     if (!r) return;
     if (r.status) setDone((d) => ({ ...d, [id]: r.status! }));
@@ -196,6 +196,7 @@ export default function Admin() {
                     <Link className="btn" href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}><Icon name="library" />{viewed[i.doc_id] ? '확인함 · 다시 보기' : '문서 확인'}</Link>
                     <span className="actions-gap" aria-hidden="true" />
                     <button className="btn" onClick={() => decide(i.approval_id, 'REJECT')}>반려</button>
+                    <button className="btn" onClick={() => decide(i.approval_id, 'REVALIDATE')} title="게시하지 않고 작성자 검토 단계로 돌려 AI 검사를 다시 받게 합니다">재검증 요청</button>
                     {/* 열어 보기 전 승인 잠금 (사용자 결정 11/18). 반려는 열지 않아도 가능 */}
                     <button className={`btn${viewed[i.doc_id] ? ' solid' : ''}`} onClick={() => decide(i.approval_id, 'APPROVE')} disabled={!viewed[i.doc_id]} aria-describedby={viewed[i.doc_id] ? undefined : `lock-${i.approval_id}`}>승인</button>
                     {!viewed[i.doc_id] && <p className="note lock-hint" id={`lock-${i.approval_id}`}>문서를 열어 확인한 뒤 승인할 수 있습니다.</p>}
