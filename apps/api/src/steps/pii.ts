@@ -20,6 +20,7 @@ export async function piiScan(
   const findings: Finding[] = [];
   const masked: { page: number; text: string }[] = [];
   let guardrailSkipped = false;
+  const secretPages: { page: number; n: number; excerpt?: string }[] = [];
   for (const s of segments) {
     const spans = detectPii(s.text);
     let text = mask(s.text, spans);
@@ -44,11 +45,7 @@ export async function piiScan(
       const other = ents.filter((x) => !SECRET_TYPES.has(x.type) && !GUARD_SKIP.has(x.type));
       if (secrets) {
         const at = text.indexOf('[비밀값]');
-        findings.push(fnd('MEDIUM', 'SECRET_MASKED', `비밀값(비밀번호·키 등) ${secrets}건 가림`, `page:${s.page}`, {
-          location: { page: s.page + 1, ...(at >= 0 ? { excerpt: excerptAround(text, at, at + 5) } : {}) },
-          user_message: `${s.page + 1}쪽에 비밀번호·접근 키 같은 비밀값 ${secrets}건이 있어 가렸습니다.`,
-          fix_hint: '문서에서 비밀값을 지우고 다시 올려 주세요. 이미 노출된 비밀번호·키는 바꾸는 것이 안전합니다.',
-        }));
+        secretPages.push({ page: s.page, n: secrets, ...(at >= 0 ? { excerpt: excerptAround(text, at, at + 5) } : {}) });
       }
       if (other.length) {
         const kinds = [...new Set(other.map((x) => GUARD_NAME[x.type] ?? x.type))].join(', ');
@@ -61,8 +58,19 @@ export async function piiScan(
     }
     masked.push({ page: s.page, text });
   }
+  // 비밀값은 쪽마다가 아니라 문서당 한 건(쪽 목록) — 사진 많은 문서에서 같은 확인이 수십 건 뜨던 문제 (사용자 피드백 11/20)
+  if (secretPages.length) {
+    const total = secretPages.reduce((x, p) => x + p.n, 0);
+    const pages = secretPages.map((p) => p.page + 1);
+    const first = secretPages.find((p) => p.excerpt);
+    findings.push(fnd('MEDIUM', 'SECRET_MASKED', `비밀값(비밀번호·키 등) ${total}건 가림 (${pages.join('·')}쪽)`, `page:${secretPages[0]!.page}`, {
+      location: { page: pages[0]!, ...(first?.excerpt ? { excerpt: first.excerpt } : {}) },
+      user_message: `${pages.join('·')}쪽에 비밀번호·접근 키 같은 비밀값 ${total}건이 있어 가렸습니다.`,
+      fix_hint: '문서에서 비밀값을 지우고 다시 올려 주세요. 이미 노출된 비밀번호·키는 바꾸는 것이 안전합니다.',
+    }));
+  }
   if (guardrailSkipped)
-    findings.push(fnd('LOW', 'GUARDRAIL_SKIPPED', 'Guardrails 미설정 → 정규식 단계만 수행', 'config'));
+    findings.push(fnd('LOW', 'GUARDRAIL_SKIPPED', 'Guardrails 미설정 → 정규식 단계만 수행', 'config', { user_message: '확인하지 못함: 개인정보 2차 검사(Guardrails)를 하지 못해 정규식 검사만 했습니다. 승인자가 직접 확인해 주세요.' }));
   const status = findings.some((x) => x.severity === 'MEDIUM' || x.severity === 'HIGH') ? 'REVIEW_REQUIRED' : 'OK';
   return { status, findings, masked };
 }

@@ -114,6 +114,10 @@ export interface GuideDeps {
   model: string;
   /** 여러 번 찾기(11/18 결정): 1차 근거에서 질문에 걸린 핵심 항목(제조사·모델·시스템명 등, 최대 3개)을 뽑는다. 없으면 1회 검색 */
   expand?(query: string, evidence: { id: string; title: string; text: string }[]): Promise<string[] | { items: string[]; variants?: string[] }>;
+  /** 인용한 규정의 시행 예정 개정(오늘 이후 시행 버전). 없으면 생략 (엔드유저 D05 의견 11/20) */
+  /** 근거 대비 환각 점수 (Guardrails contextual grounding, 기록만). 실패·시간 초과는 생략 */
+  grounding?(answer: string, sources: string, query: string): Promise<{ grounding: number; relevance: number } | undefined>;
+  upcoming?(laws: string[]): Promise<{ law: string; effective_from: string }[]>;
   /** draft가 Gateway 검색 Tool을 직접 쓸 수 있음. 1차 검색이 0건이어도 Agent가 다른 표현으로 다시 찾게 한다 (QA 데모 05 '담보평가 시 확인 절차는?' 11/20) */
   toolSearch?: boolean;
   /** 스트리밍 진행 문구 (사용자 확인 13항 10·11번). 원문·근거 본문은 보내지 않는다 */
@@ -122,6 +126,44 @@ export interface GuideDeps {
   guard?(text: string): Promise<{ blocked: boolean; matches: string[] }>;
 }
 
+const GA = ['가', '나', '다', '라', '마', '바', '사', '아', '자', '차', '카', '타', '파', '하'];
+const GA_ROMAN = ['GA', 'NA', 'DA', 'RA', 'MA', 'BA', 'SA', 'A', 'JA', 'CHA', 'KA', 'TA', 'PA', 'HA'];
+/** 'ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA' → '제12조제2항제3호가목' (가지번호 n-m → 제n조의m, n-m-k → 제n-m조의k) */
+export function pathLabel(path: string): string {
+  return path.split('/').map((x) => {
+    const [k, n = ''] = x.split(':'); const [a, b, c] = n.split('-');
+    if (k === 'ARTICLE') return c ? `제${a}-${b}조의${c}` : `제${a}조${b ? `의${b}` : ''}`;
+    if (k === 'PARAGRAPH') return `제${a}항`;
+    if (k === 'ITEM') return `제${a}호${b ? `의${b}` : ''}`;
+    if (k === 'SUBITEM') { const i = GA_ROMAN.indexOf(n.toUpperCase()); return `${i >= 0 ? GA[i] : n}목`; }
+    return '';
+  }).join('');
+}
+/** 답변 문장의 내부 조문 ID·법령 ID·상태 코드를 사람이 읽는 표기로 */
+export function humanize(t: string, lawNames: Map<string, string>): string {
+  const law = (id: string) => lawNames.get(id) ?? '해당 규정';
+  return t
+    .replace(/\b([A-Z][A-Z0-9]*-[A-Z0-9]+-\d+)@\d{4}-\d{2}-\d{2}\/((?:[A-Z]+:[A-Za-z0-9-]+\/?)+)/g, (_m, id: string, path: string) => `${law(id)} ${pathLabel(path.replace(/\/$/, ''))}`)
+    .replace(/\b(ARTICLE:[0-9-]+(?:\/(?:PARAGRAPH|ITEM|SUBITEM):[A-Za-z0-9-]+)*)/g, (_m, path: string) => pathLabel(path))
+    // 이름을 모르는 법령 ID: 괄호 안 보조 표기면 지우고, 본문 속이면 '해당 규정'
+    .replace(/\(\s*(SYN-[A-Z]+-\d+)\s*(,\s*)?/g, (m, id: string) => (lawNames.has(id) ? m : '(')).replace(/\(\s*\)/g, '')
+    .replace(/\b(SYN-[A-Z]+-\d+)\b/g, (_m, id: string) => law(id))
+    .replace(/\b(?:freshness|search_status|authority_status)\s*[=:]\s*/g, '')
+    .replace(/\bfreshness(?:가|이)/gi, '최신성이').replace(/\bfreshness(?:는|은)/gi, '최신성은').replace(/\bfreshness(?:를|을)/gi, '최신성을').replace(/\bfreshness\b/gi, '최신성').replace(/\bauthority\b/gi, '검증 상태')
+    .replace(/\bNOT_FOUND_VERIFIED\b/g, '조문 없음(확인됨)').replace(/\bREVIEW_REQUIRED\b/g, '재검토 필요').replace(/\bACCESS_DENIED\b/g, '열람 권한 없음')
+    .replace(/([가-힣A-Za-z][가-힣A-Za-z ]{1,19})\s*\(\1\)/g, '$1'); // '재검토 필요(재검토 필요)' 중복
+}
+
+/** 근거 없어 뺀 단계: 본문은 보이지 않고(틀린 문장 노출 방지, 총괄 결정 11/20) 주제 낱말 + 건수만 */
+export function droppedNote(texts: string[]): string {
+  const topic = (t: string) => t.replace(/\([^)]*\)/g, ' ').split(/\s+/).filter((w) => !/\d/.test(w)).map((w) => w.replace(/[^가-힣A-Za-z]/g, '').replace(/(으로|에서|에게|까지|부터|이|가|을|를|은|는|의|에|로|와|과|도|만)$/, ''))
+    .find((w) => w.length >= 2 && !/(다|면|며)$/.test(w) && !/^(반드시|모든|해당|이후|이전|경우|위|아래|또한|그리고|다만|이하|이상|이내|초과|미만|매월|매일|매년|나중|즉시|결과|내용)$/.test(w));
+  const words = [...new Set(texts.map(topic).filter((w): w is string => !!w))].slice(0, 3);
+  return words.length ? `${words.map((w) => `「${w}」`).join('·')} 관련 ${texts.length}건은 근거를 찾지 못해 뺐습니다.` : `근거를 찾지 못한 ${texts.length}건은 뺐습니다.`;
+}
+export const ACTION_REFUSED = 'AI 가이드는 문서를 게시·승인·삭제할 수 없습니다. 게시는 작성자가 검토 화면에서 [게시 요청]을 누르면 승인자가 결재합니다.';
+// ponytail: 문구 정규식 — '게시 절차 알려줘'(안내 요청)는 통과, '게시해줘'(실행 요청)만 거부
+const ACTION_RE = /(게시|승인|결재|반려|삭제|폐기|배포)\s*(?:처리)?\s*(?:해\s*줘|해\s*주세요|해\s*줄래|해\s*달라|하라|해라|시켜|부탁)/;
 export const GUARD_BLOCKED = '답변에 표시할 수 없는 내용이 있어 보여드리지 않습니다. 담당 부서에 문의하세요.';
 /** 사람에게 보이는 답변 문장 전부를 한 번에 검사하고, 탐지 값은 가린다. 차단이면 답변을 버린다 */
 export async function guardOutput(r: GuideResult, guard: NonNullable<GuideDeps['guard']>): Promise<GuideResult> {
@@ -161,6 +203,8 @@ export interface GuideResult {
   tool_calls?: ToolCall[];
   /** Guardrails 출력 검사 결과. 없으면 검사 안 함(GUARDRAIL_ID 미설정) 또는 탐지 없음 */
   guard?: 'MASKED' | 'BLOCKED';
+  /** Guardrails 근거 대비 환각 점수 (P1 도입안 1, 기록만·차단 안 함). 0~1, 낮을수록 근거와 멀다 */
+  grounding?: { grounding: number; relevance: number; low_steps: number[] };
 }
 
 const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나은행 자료 아님) 업무 가이드 작성자다.
@@ -177,6 +221,7 @@ const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나
 - 질문 대상이 여러 종류(제조사·모델)이고 갈래(운영체제·버전 등)에 따라 절차가 다르면 sections 로 쓴다: ① '○○ 목록' 섹션(근거 표의 위치·제조사·모델 등을 항목마다 한 단계로) ② '설치 방법 안내' 섹션(note 에 "운영체제와 모델에 따라 방법이 다릅니다" 같은 갈래 안내, 단계 없음) ③ <items> 의 조합마다 한 섹션(제목 예: 'macOS에서 삼성 프린터 연결', 단계는 번호 순서대로 세세하게). 근거에 절차가 없는 조합도 섹션을 만들고 note 에 '매뉴얼에 해당 절차 없음', 단계는 비운다. 이때 steps 는 빈 배열.
 - 간단하게 쓴다(사용자 요구 11/18): 질문에 조건(운영체제·제조사·층 등)이 있으면 그 조건의 섹션만 쓴다. 섹션당 단계는 최대 5개로 합친다. 같은 일을 하는 다른 경로가 있으면 문서가 기준으로 삼는 한 경로만 쓴다. 사용자의 실제 값(표의 IP·모델명 등)은 단계 문장 안에 바로 넣는다. 화면 캡처 속 예시 값과 드문 경우·수동 방법은 단계에서 빼고 fallback 에 "안 될 때: …" 한 줄로. 질문 범위 밖의 불확실(묻지 않은 제조사의 빈 칸 등)은 쓰지 않는다. 단계 문장에 '(그림 기준 · N쪽)'을 쓰지 않는다(출처는 화면이 섹션 끝에 한 번 붙인다).
 - 질문한 예외·우대·가산이 근거에 없고, 같은 주제의 조문(상한·금지·기준)은 찾았으면 그 조문을 출처로 '조문은 ○○만 정한다'는 단계를 쓰고, 예외가 없다는 점은 '근거에서 확인되지 않음'으로 uncertainty 에 적는다(근거 없이 '없다'고 단정하지 않는다). 과거 시점 질문은 조문 조회 Tool에 그 날짜를 as_of 로 넣어 그 시점 조문을 확인한다.
+- uncertainty·단계 문장에 내부 상태 코드(UNVERIFIED·VERIFIED·related·search_status·provision_id 등)를 쓰지 않는다. '확인되지 않음', '참고 조문'처럼 사용자 말로 쓴다.
 - 근거 표의 칸이 비어 있으면 추측하지 말고 '원본 표에 기재 없음'이라고 쓰고, 표에 사유(예: 임원 전용)가 있으면 함께 적는다. 외부 공식 법령(fetch_official_law)은 참고로만 쓰고 uncertainty에 '외부 법령 참고(미검증)'라고 적는다.`;
 export { SYSTEM as GUIDE_SYSTEM };
 
@@ -186,6 +231,8 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   const spans = detectPii(query);
   const q = mask(query, spans); // 원문 PII는 Tool·모델에 보내지 않는다
   // 삭제 조항은 근거로 쓰지 않는다 (삭제 조항 오인용 0건, docs/02 4장). 과거 버전은 쓰되 불확실로 알린다
+  // 게시·승인·삭제 요청: 근거 검색 없이 거부 + 할 일 한 줄 (엔드유저 의견 11/20: 거부가 '확인 필요' 안에 묻혀 게시해 줄 것처럼 읽힘)
+  if (ACTION_RE.test(q)) return { query_masked: spans.length > 0, model: deps.model, evidence: [], status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: ACTION_REFUSED, tool_calls: [] };
   say(PROGRESS.search);
   const all = await deps.search(q);
   const evidence = all.filter((e) => e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED' && e.search_status !== 'DELETED' && citableOk(e)).map(asCitable);
@@ -237,9 +284,10 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   for (const e of pool) if (!byId.has(e.doc_id) && pool.filter((x) => x.doc_id === e.doc_id).length === 1) byId.set(e.doc_id, e);
   const steps: GuideResult['steps'] = [];
   let dropped = 0;
+  const droppedText: string[] = [];
   for (const s of draft.steps) {
     const sources = [...new Set(s.sources)].map((id) => byId.get(id)).filter((e): e is Evidence => !!e);
-    if (sources.length === 0) { dropped++; continue; } // 출처 없는 문장은 내보내지 않는다
+    if (sources.length === 0) { dropped++; droppedText.push(s.text); continue; } // 출처 없는 문장은 내보내지 않는다
     // 그림 기준 근거만으로 된 단계는 문장에 표시가 없으면 붙인다
     const figOnly = sources.every((e) => e.figure);
     const pg = sources.find((e) => e.page)?.page;
@@ -249,7 +297,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   // 섹션: 단계마다 같은 출처 검증. 단계가 모두 빠진 섹션은 안내만 남긴다
   const check = (st: { text: string; sources: string[] }) => {
     const sources = [...new Set(st.sources)].map((id) => byId.get(id)).filter((e): e is Evidence => !!e);
-    if (!sources.length) { dropped++; return undefined; }
+    if (!sources.length) { dropped++; droppedText.push(st.text); return undefined; }
     const pg = sources.find((e) => e.page)?.page;
     const text = sources.every((e) => e.figure) && !st.text.includes('그림 기준') ? `(그림 기준${pg ? ` · ${pg}쪽` : ''}) ${st.text}` : st.text;
     return { text: mask(text, detectPii(text)), sources };
@@ -273,12 +321,34 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   // 불확실 안내의 근거 ID(doc_…#s2·조문 ID)는 문서 이름으로 (11/18 dev 시험: 내부 ID 가 그대로 보임)
   const named = (t: string) => pool.reduce((x, e) => [evidenceKey(e), e.doc_id].reduce((y, k) => (k ? y.split(k).join(`「${e.title}」`) : y), x), t).replace(/「([^」]+)」\s*\(\s*「\1」\s*\)/g, '「$1」').replace(/(?:노하우|매뉴얼|규정)\s*\(\s*(「[^」]+」)\s*\)/g, '$1')
     // 내부 구간 표시(#s1)·상태 코드(freshness=…)는 사람에게 보이지 않게 (11/18 prod 시험)
-    .replace(/(」)\s*#s\d+(?:\s*,\s*#s\d+)*/g, '$1').replace(/\(\s*#s\d+(?:\s*,\s*#s\d+)*\s*\)/g, '').replace(/freshness\s*=\s*REVIEW_REQUIRED\s*/g, '');
+    .replace(/(」)\s*#s\d+(?:\s*,\s*#s\d+)*/g, '$1').replace(/\(\s*#s\d+(?:\s*,\s*#s\d+)*\s*\)/g, '').replace(/freshness\s*=\s*REVIEW_REQUIRED\s*/g, '')
+    // 내부 상태 용어 → 사용자 문구 (QA M05 nit 11/20: '검색 결과가 UNVERIFIED 상태로, related 조문으로만 확인됨')
+    .replace(/\b(?:search_status\s*=\s*)?UNVERIFIED\b(?:\s*상태)?/g, '확인되지 않은 상태').replace(/\b(?:authority_status\s*=\s*)?VERIFIED\b/g, '검증됨')
+    .replace(/\brelated\s*조문/gi, '참고 조문').replace(/\b(?:HISTORICAL|SUPERSEDED)\b/g, '과거 버전');
   draft.uncertainty = named(draft.uncertainty ?? '');
-  const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
+  // 내부 ID·상태 코드 → 사람이 읽는 표기 (엔드유저 D05: 'SYN-LOAN-001', 'ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA', 'NOT_FOUND_VERIFIED')
+  const lawNames = new Map<string, string>();
+  for (const e of pool) if (e.provision_id?.includes('@') && e.provision) lawNames.set(e.provision_id.split('@')[0]!, e.provision.replace(/\s*제\s*\d.*$/, '').trim());
+  const human = (t: string) => humanize(t, lawNames);
+  for (const st of steps) st.text = human(st.text);
+  for (const sec of sections) { sec.title = human(sec.title); sec.note = human(sec.note); }
+  draft.uncertainty = human(draft.uncertainty ?? '');
+  // 시행 예정 개정 한 줄 (인용한 규정만, 10초 상한, 실패는 생략)
+  const cited = [...new Set(steps.flatMap((st) => st.sources).map((e) => e.provision ? e.provision.replace(/\s*제\s*\d.*$/, '').trim() : '').filter(Boolean))];
+  const soon = deps.upcoming && cited.length ? await Promise.race([deps.upcoming(cited).catch(() => []), new Promise<{ law: string; effective_from: string }[]>((r) => setTimeout(() => r([]), 10_000))]) : [];
+  const upcomingNote = soon.length ? `시행 예정 개정 있음: ${soon.map((u) => `${u.law} ${u.effective_from} 시행`).join(', ')} — 시행일 이후에는 내용이 달라질 수 있습니다.` : '';
+  const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? droppedNote(droppedText) : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '', upcomingNote]
     .filter(Boolean).join(' ');
   const unc = uncertainty || (pool.length ? '' : NONE);
   const out: GuideResult = { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(unc, detectPii(unc)), tool_calls: draft.tool_calls ?? [] };
+  // 근거 대비 환각 점수: 답변 단계 ↔ 인용 근거 본문. 기록만(답변·상태 불변), 5초 상한
+  // 단계마다(그 단계의 출처 본문만) 따로 매겨 어느 단계가 근거와 먼지 보이게. 최솟값 + 0.5 미만 단계 번호(1부터)
+  if (deps.grounding && steps.length) {
+    const score = (st: { text: string; sources: Evidence[] }) => deps.grounding!(st.text.slice(0, 5_000), st.sources.map((e) => e.snippet).join('\n').slice(0, 50_000), q.slice(0, 1_000)).catch(() => undefined);
+    const all = await Promise.race([Promise.all(steps.slice(0, 10).map(score)), new Promise<undefined>((r) => setTimeout(() => r(undefined), 5_000))]);
+    const got = (all ?? []).map((x, i) => (x ? { ...x, i } : undefined)).filter((x): x is { grounding: number; relevance: number; i: number } => !!x);
+    if (got.length) out.grounding = { grounding: Math.min(...got.map((x) => x.grounding)), relevance: Math.min(...got.map((x) => x.relevance)), low_steps: got.filter((x) => x.grounding < 0.5).map((x) => x.i + 1) };
+  }
   return deps.guard ? guardOutput(out, deps.guard) : out;
 }
 
