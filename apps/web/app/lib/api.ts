@@ -20,7 +20,7 @@ export function getSession(): Session | undefined {
 function expired() {
   logout();
   if (typeof window !== 'undefined' && window.location.pathname !== '/login')
-    window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
+    window.location.assign(`/login?expired=1&next=${encodeURIComponent(window.location.pathname + window.location.search)}`);
 }
 export function logout() { try { sessionStorage.removeItem(KEY); } catch { /* 저장소 차단 시 무시 */ } }
 
@@ -231,7 +231,7 @@ const MOCK_GUIDE: Guide = {
 // ---------- 문서보관함 (let522mj 요청 2220) ----------
 export interface Mark {
   page: number | null; start: number | null; end: number | null; severity: 'HIGH' | 'MEDIUM' | 'LOW';
-  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION' | 'CONFIRMED' | 'SUPPLEMENT';
+  kind: 'CONFLICT' | 'OUTDATED' | 'INSUFFICIENT' | 'BASIS_MISMATCH' | 'REGISTRY_MISMATCH' | 'PII_UNCERTAIN' | 'INJECTION' | 'CONFIRMED' | 'SUPPLEMENT';
   /** let522mj buildMarks 표시 이름 (있으면 그대로 쓴다) */
   label?: string;
   reason: string; basis?: { provision_id: string; label: string; text: string; effective_from?: string }; fix?: string;
@@ -270,7 +270,7 @@ export interface Claim { claim_id: string; seq: number; statement: string; page:
 export interface LibraryDoc extends LibraryCard {
   claims?: Claim[]; doc_pages?: { title: string; pages: number[]; parts: { page: number; markdown: string }[] }[]; clarify?: import('../clarify').ClarifyItem[]; image_pages?: number[]; suggestions?: import('../ref-suggestions').RefSuggestion[]; review?: ReviewInfo; can_delete?: boolean; doc_date?: { label: string; date: string } | null; verification?: Verification; doc_marks: Mark[]; pages: ({ page: number; text: string; structured?: string | null; structured_source?: 'TEXT' | 'VISION' | 'AI' | null; figures?: { k: number | string; url: string | null }[]; summary: string | null; marks: Mark[] } & Omit<Partial<PageMeta>, 'summary'>)[] }
 
-const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다.';
+const K002 = '소액 부동산 담보대출 빠른 처리 팁 (SYNTHETIC)\n1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다. 실사 보고서는 나중에 작성해도 된다. 감정평가서는 심사역이 보관한다. 실사는 영업일 기준 3일 안에 마친다.';
 export const MOCK_LIBRARY: LibraryDoc[] = [
   {
     doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', document_type: 'KNOWHOW', lifecycle: 'PUBLISHED', business_path: ['여신', '담보'], tags: ['실무사례', '담보'],
@@ -281,7 +281,9 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
     pages: [
       { page: 0, text: K002, summary: '금액 기준으로 현장 실사를 생략하는 처리 요령과 보고서 사후 작성을 안내합니다.', marks: [
         { page: 0, start: K002.indexOf('1억원'), end: K002.indexOf('처리한다.') + 5, severity: 'HIGH', kind: 'CONFLICT', original: '1억원 이하 부동산 담보대출은 현장 실사를 생략하고 감정평가서만으로 처리한다.', revision: '1억원 이하 부동산 담보대출도 현장 실사를 반드시 실시하여야 한다.', reason: '규정은 담보가 부동산이면 금액과 관계없이 현장 실사를 반드시 하도록 정하고 있습니다.', basis: { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', text: '① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', effective_from: '2026-11-01' }, fix: '근거 조문에 맞게 수정: "담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다."' },
-        { page: 0, start: K002.indexOf('실사 보고서'), end: K002.length, severity: 'MEDIUM', kind: 'INSUFFICIENT', reason: '보고서 작성 시점에 대한 기준을 조문에서 찾지 못했습니다.', fix: '근거 조문을 명시하거나 담당 부서 확인' },
+        { page: 0, start: K002.indexOf('실사 보고서'), end: K002.indexOf('된다.') + 3, severity: 'MEDIUM', kind: 'INSUFFICIENT', original: '실사 보고서는 나중에 작성해도 된다.', revision: null, reason: '보고서 작성 시점에 대한 기준을 조문에서 찾지 못했습니다.', fix: '근거 조문을 명시하거나 담당 부서 확인' },
+        { page: 0, start: K002.indexOf('감정평가서는'), end: K002.indexOf('보관한다.') + 5, severity: 'MEDIUM', kind: 'BASIS_MISMATCH', original: '감정평가서는 심사역이 보관한다.', revision: null, fix: '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.', reason: '인용한 조항이 다른 주제를 다룹니다.', basis: { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', text: '① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.' } },
+        { page: 0, start: K002.indexOf('실사는 영업일'), end: K002.length, severity: 'MEDIUM', kind: 'INSUFFICIENT', original: '실사는 영업일 기준 3일 안에 마친다.', revision: null, reason: '같은 주제 조문은 있으나 기한 기준이 없습니다.', basis: { provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', label: '기업여신 심사규정 제14조제1항', text: '① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.' } },
       ] },
     ],
   },
@@ -345,6 +347,7 @@ export const MOCK_ISSUES: Issues = { doc_id: 'doc_MOCK', lifecycle: 'BLOCKED', p
     next_action: '다시 저장한 PDF를 새로 등록하세요.', model: 'mock' },
   items: [
   { step: 'FILE_STRUCTURE', step_label: '파일 구조 검사', severity: 'HIGH', code: 'PDF_EMBEDDED_FILE', user_message: 'PDF 안에 첨부 파일 1개(대출내역.xlsx)가 들어 있어 보안상 등록할 수 없습니다.', fix_hint: "첨부 파일을 지운 뒤 '인쇄 → PDF로 저장'으로 새로 만든 PDF를 올려 주세요." },
+  { step: 'KNOWHOW', step_label: '노하우 검증', severity: 'LOW', code: 'KNOWHOW_EXTERNAL_SKIPPED', user_message: '확인하지 못함: 외부 법령 원문을 불러오지 못해 대조하지 않았습니다. 승인자가 직접 확인해 주세요.' },
   { step: 'PII_SCAN', step_label: '개인정보 가림', severity: 'MEDIUM', code: 'PII_UNCERTAIN_ACCOUNT', user_message: '2쪽에서 계좌번호 1건을 가렸습니다. 그중 1건은 실제 계좌번호인지 확인이 필요합니다.', fix_hint: '계좌번호가 아니라면 검토 화면에서 확인해 주세요.', location: { page: 2, excerpt: '…참조번호 [계좌번호]로 접수한다…' } },
 ] };
 

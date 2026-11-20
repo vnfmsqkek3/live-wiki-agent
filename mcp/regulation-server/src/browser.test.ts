@@ -143,3 +143,27 @@ test("readPage 주소 검사: http(s)만, 내부 주소 거부, 허용 목록 (P
   assert.equal(checkUrl("https://www.law.go.kr/법령/은행법", ["www.law.go.kr"]).hostname, "www.law.go.kr");
   assert.throws(() => checkUrl("https://evil.example.com", ["www.law.go.kr"]), { name: "BlockedUrl" });
 });
+
+test("법령 원문 캐시 (prod 11/20 P0): 저장 실패해도 조회 결과는 돌려주고, 본문은 gzip 으로 저장해 400KB 한도 안", async () => {
+  const { cachedFetcher } = await import("./browser.ts");
+  const { DynamoLawPageCache } = await import("./store.ts");
+  const body = "제9조의5(지급등의 절차) ① 외국환은행은 신고 여부를 확인하여야 한다.\n".repeat(8000); // UTF-8 약 700KB
+  assert.ok(Buffer.byteLength(body) > 400_000);
+  const inner: LawPageFetcher = { fetch: async (n) => ({ url: lawUrl(n), header: "[시행 2026. 7. 1.]", body }) };
+  const failing = { get: async () => undefined, put: async () => { throw Object.assign(new Error("Item size has exceeded the maximum allowed size"), { name: "ValidationException" }); } };
+  const r = await cachedFetcher(inner, failing).fetch("외국환거래규정");
+  assert.equal(r.body, body); assert.equal(r.from_cache, false);
+  const getFails = { get: async () => { throw Object.assign(new Error("throttled"), { name: "ProvisionedThroughputExceededException" }); }, put: async () => {} };
+  assert.equal((await cachedFetcher(inner, getFails).fetch("외국환거래규정")).body, body, "캐시 읽기 실패도 조회는 계속");
+  // DynamoDB 저장 형식: body 대신 body_gz, 읽을 때 원문 복원
+  const items = new Map<string, Record<string, unknown>>();
+  const c = new DynamoLawPageCache("t");
+  (c as unknown as { db: unknown }).db = { send: async (cmd: { input: { Item?: Record<string, unknown>; Key?: { pk: string } } }) => {
+    if (cmd.input.Item) { items.set(String(cmd.input.Item["pk"]), cmd.input.Item); return {}; }
+    return { Item: items.get(cmd.input.Key!.pk) };
+  } };
+  await c.put("외국환거래규정", { url: "u", header: "h", body }, "2026-11-20T00:00:00Z");
+  const it = items.get("WEBLAW#외국환거래규정")!;
+  assert.equal(it["body"], undefined); assert.ok((it["body_gz"] as Uint8Array).length < 400_000);
+  assert.equal((await c.get("외국환거래규정"))!.body, body);
+});

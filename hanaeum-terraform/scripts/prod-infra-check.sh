@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# prod 시험 체크리스트 '인프라(yoyo0704)' I1~I7 (members/dhxorb96/qa/20261118_prod시험_체크리스트.md). 사용: prod-infra-check.sh [prefix=/hanaeum-mvp/prod/] [suffix=""]
+# prod 시험 체크리스트 '인프라' I1~I8 (members/dhxorb96/qa/20261118_prod시험_체크리스트.md). 사용: [DOC=doc_…] prod-infra-check.sh [prefix=/hanaeum-mvp/prod/] [suffix=""]
+# DOC: 공개(acl ALL) 게시 문서 ID. 주면 외부 MCP get_wiki_document 도 확인 (I8)
 set -uo pipefail
 P=${1:-/hanaeum-mvp/prod/} S=${2:-}
 ssm() { aws ssm get-parameter --name "$P$1" --query Parameter.Value --output text 2>/dev/null; }
@@ -16,11 +17,19 @@ TOK=$(curl -s -u "$CID:$CSEC" -d "grant_type=client_credentials&scope=$SCOPE" "$
 GW=$(ssm USER_GATEWAY_URL)
 mcp() { curl -s -X POST "$GW" -H "Authorization: Bearer $TOK" -H 'Content-Type: application/json' -H 'Accept: application/json, text/event-stream' -d "$1"; }
 TL=$(mcp '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' | python3 -c 'import json,sys; t=sys.stdin.read(); t=t[t.find("{"):]; print(" ".join(sorted(x["name"] for x in json.loads(t)["result"]["tools"])))' 2>/dev/null)
-AP=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"approval___create_review_request","arguments":{}}}' | grep -o 'forbidden[^"]*' | head -1)
+AP=$(mcp '{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"approval___draft_change","arguments":{}}}' | grep -o 'forbidden[^"]*' | head -1)
 SR=$(mcp '{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"search___search_wiki","arguments":{"query":"담보"}}}' | grep -c '"result"')
 [[ -n "$TOK" && "$SR" -ge 1 && -n "$AP" ]] && ok I2 통과 "토큰 $SCOPE, 검색 응답, 결재 도구 차단($AP)" || ok I2 실패 "tok=${#TOK} search=$SR approval=$AP"
 for t in search___search_wiki search___get_wiki_document; do [[ " $TL " == *" $t "* ]] || miss="$miss $t"; done
+# 외부 클라이언트 허용 도구는 읽기 11개 (interfaces.md 11장). tools/list 는 Gateway 전체 목록이라 개수는 참고로만
 [[ -z "${miss:-}" ]] && ok I3 통과 "도구 $(wc -w <<<"$TL")개 (search_wiki·get_wiki_document 포함)" || ok I3 실패 "없음:$miss"
+# I8 get_wiki_document(공개 게시 문서) + 감사 로그 MCP_EXTERNAL (interceptor Lambda 로그, 질의 원문 없음)
+if [[ -n "${DOC:-}" ]]; then
+  GD=$(mcp "{\"jsonrpc\":\"2.0\",\"id\":4,\"method\":\"tools/call\",\"params\":{\"name\":\"search___get_wiki_document\",\"arguments\":{\"doc_id\":\"$DOC\"}}}" | grep -c 'pages')
+  sleep 5
+  AU=$(aws logs filter-log-events --log-group-name /aws/lambda/hanaeum-mvp-lambda-interceptor$S --start-time $(( ($(date +%s) - 600) * 1000 )) --filter-pattern '"MCP_EXTERNAL"' --query 'events[].message' --output text | grep -o '"result":"[A-Z]*"' | sort | uniq -c | tr -s ' ' | tr '\n' ' ')
+  [[ "$GD" -ge 1 && "$AU" == *ALLOWED* && "$AU" == *DENIED* ]] && ok I8 통과 "get_wiki_document 정리본, 감사 $AU" || ok I8 실패 "doc=$GD audit=$AU"
+fi
 # I4 마이그레이션
 CL=$(aws rds describe-db-clusters --query "DBClusters[?DBClusterIdentifier=='hanaeum-mvp-aurora$S'].DBClusterArn" --output text)
 MS=$(aws rds describe-db-clusters --db-cluster-identifier hanaeum-mvp-aurora$S --query 'DBClusters[0].MasterUserSecret.SecretArn' --output text 2>/dev/null)

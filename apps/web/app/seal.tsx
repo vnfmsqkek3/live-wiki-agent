@@ -40,7 +40,7 @@ export function summaryStamp(d: Doc): Stamp & { text: string } {
   if (approve!.tone === 'bad') return { ...approve!, text: approve!.mark === '반려' ? '반려됨' : '차단됨' };
   if (check!.tone === 'wait') return { ...check!, text: 'AI 검사 중' };
   if (approve!.tone === 'wait') return { ...approve!, text: approve!.mark === '대기' ? '승인 대기' : '작성자 검토 중' };
-  return { ...approve!, text: reg ? '공식 규정' : '검증 완료' };
+  return { ...approve!, mark: '승인', text: reg ? '공식 규정' : '검증 완료' }; // 도장 '공식' + '공식 규정'이 '공식공식 규정'으로 읽힘 (엔드유저 11/20)
 }
 
 /** 결재란. size=mini는 목록용(도장 1개 + 글자), full은 상세·결재용(3칸, 칸 아래 일자·승인자).

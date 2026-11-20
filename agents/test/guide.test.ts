@@ -207,3 +207,27 @@ test('Guardrails 출력 검사: 탐지 값은 가리고, 차단이면 답변을 
   assert.ok(!JSON.stringify(blocked.steps).includes('hunter2'));
   await assert.rejects(guide('접속 방법', { ...deps(draft), guard: async () => { throw new Error('guardrail down'); } }));
 });
+
+test('withAsOf: 기준일을 받는 Tool에 as_of가 없을 때만 채운다', async () => {
+  const { withAsOf } = await import('../src/guide.ts');
+  assert.deepEqual(withAsOf('search___search_wiki', { query: 'q' }, '2026-12-15'), { query: 'q', as_of: '2026-12-15' });
+  assert.deepEqual(withAsOf('regulation___get_clause', { law: 'l', as_of: '2025-01-01' }, '2026-12-15'), { law: 'l', as_of: '2025-01-01' }, '모델이 정한 기준일은 그대로');
+  assert.deepEqual(withAsOf('regulation___resolve_reference', { provision_id: 'p' }, '2026-12-15'), { provision_id: 'p' }, 'as_of 없는 Tool은 그대로');
+  assert.deepEqual(withAsOf('search___search_wiki', { query: 'q' }), { query: 'q' }, '기준일 미지정이면 그대로');
+});
+
+test('1차 검색 0건: Tool 검색 가능하면 Agent가 다시 찾고, 찾은 근거로만 답한다 (QA 데모 05)', async () => {
+  const found = MOCK_EVIDENCE[0]!;
+  let prompt = '';
+  const draft = async (p: string) => { prompt = p; return { steps: [{ text: '본부 승인을 받는다', sources: [found.doc_id] }, { text: '근거 없는 단계', sources: ['nope'] }], uncertainty: '', evidence: [found], tool_calls: [] }; };
+  const r = await guide('담보평가 시 확인 절차는?', { search: async () => [], draft, model: 'm', toolSearch: true });
+  assert.match(prompt, /1차 검색 근거가 없다/);
+  assert.equal(r.status, 'OK');
+  assert.equal(r.steps.length, 1, '출처 없는 단계는 빠짐');
+  const none = await guide('q', { search: async () => [], draft: async () => ({ steps: [{ text: 'x', sources: ['nope'] }], uncertainty: '', evidence: [], tool_calls: [] }), model: 'm', toolSearch: true });
+  assert.equal(none.status, 'NO_EVIDENCE');
+  assert.match(none.uncertainty!, /근거를 찾지 못했습니다|제외했습니다/);
+  let called = false;
+  const off = await guide('q', { search: async () => [], draft: async () => { called = true; return { steps: [], uncertainty: '' }; }, model: 'm' });
+  assert.equal(off.status, 'NO_EVIDENCE'); assert.equal(called, false, 'Tool 없으면 기존처럼 바로 끝');
+});

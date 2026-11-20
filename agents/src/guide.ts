@@ -52,6 +52,13 @@ export const ALLOWED_TOOLS = [
   'regulation___get_clause', 'regulation___verify_version', 'regulation___resolve_reference', 'regulation___compare_versions', 'regulation___get_official_policy', 'regulation___fetch_official_law',
   'graph___trace_impact', 'graph___get_dependencies', 'privacy___detect_sensitive_data',
 ] as const;
+/** 기준일(as_of)을 받는 Tool (search·regulation tools.json). 호출에 as_of가 없으면 요청 기준일을 채운다 (평가 기준일 고정용) */
+const AS_OF_TOOLS = new Set(['search_wiki', 'retrieve_evidence', 'search_legal_clause', 'get_wiki_document', 'get_clause', 'get_official_policy', 'verify_version']);
+export function withAsOf(name: string, input: unknown, asOf?: string): unknown {
+  if (!asOf || !AS_OF_TOOLS.has(name.split('___').pop() ?? '') || typeof input !== 'object' || input === null || 'as_of' in input) return input;
+  return { ...input, as_of: asOf };
+}
+export const AS_OF_RE = /^\d{4}-\d{2}-\d{2}$/;
 /** Tool별 진행 문구 (let522mj tools.json progress) */
 export const TOOL_PROGRESS: Record<string, string> = {
   search_wiki: '관련 규정과 노하우를 검색하는 중입니다', retrieve_evidence: '선택한 문서에서 근거를 찾는 중입니다', search_legal_clause: '해당 조문을 찾는 중입니다',
@@ -107,6 +114,8 @@ export interface GuideDeps {
   model: string;
   /** 여러 번 찾기(11/18 결정): 1차 근거에서 질문에 걸린 핵심 항목(제조사·모델·시스템명 등, 최대 3개)을 뽑는다. 없으면 1회 검색 */
   expand?(query: string, evidence: { id: string; title: string; text: string }[]): Promise<string[] | { items: string[]; variants?: string[] }>;
+  /** draft가 Gateway 검색 Tool을 직접 쓸 수 있음. 1차 검색이 0건이어도 Agent가 다른 표현으로 다시 찾게 한다 (QA 데모 05 '담보평가 시 확인 절차는?' 11/20) */
+  toolSearch?: boolean;
   /** 스트리밍 진행 문구 (사용자 확인 13항 10·11번). 원문·근거 본문은 보내지 않는다 */
   progress?(text: string): void;
   /** 답변 출력 검사 (Bedrock Guardrails ApplyGuardrail OUTPUT). 정규식 마스킹 뒤 2차. 탐지 값과 차단 여부 */
@@ -167,6 +176,7 @@ const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나
 - <evidence> 중 figure=true 는 매뉴얼·노하우의 그림·화면 정리본이다. '어느 창에서 무엇을 누르는지' 같은 화면 절차의 출처로 쓸 수 있고, 그 단계 문장 앞에 '(그림 기준 · N쪽)'을 붙인다. 규정 해석·조문 인용에는 쓰지 않는다. 화면 정리본에 없는 버튼·메뉴 이름을 지어내지 않는다.
 - 질문 대상이 여러 종류(제조사·모델)이고 갈래(운영체제·버전 등)에 따라 절차가 다르면 sections 로 쓴다: ① '○○ 목록' 섹션(근거 표의 위치·제조사·모델 등을 항목마다 한 단계로) ② '설치 방법 안내' 섹션(note 에 "운영체제와 모델에 따라 방법이 다릅니다" 같은 갈래 안내, 단계 없음) ③ <items> 의 조합마다 한 섹션(제목 예: 'macOS에서 삼성 프린터 연결', 단계는 번호 순서대로 세세하게). 근거에 절차가 없는 조합도 섹션을 만들고 note 에 '매뉴얼에 해당 절차 없음', 단계는 비운다. 이때 steps 는 빈 배열.
 - 간단하게 쓴다(사용자 요구 11/18): 질문에 조건(운영체제·제조사·층 등)이 있으면 그 조건의 섹션만 쓴다. 섹션당 단계는 최대 5개로 합친다. 같은 일을 하는 다른 경로가 있으면 문서가 기준으로 삼는 한 경로만 쓴다. 사용자의 실제 값(표의 IP·모델명 등)은 단계 문장 안에 바로 넣는다. 화면 캡처 속 예시 값과 드문 경우·수동 방법은 단계에서 빼고 fallback 에 "안 될 때: …" 한 줄로. 질문 범위 밖의 불확실(묻지 않은 제조사의 빈 칸 등)은 쓰지 않는다. 단계 문장에 '(그림 기준 · N쪽)'을 쓰지 않는다(출처는 화면이 섹션 끝에 한 번 붙인다).
+- 질문한 예외·우대·가산이 근거에 없고, 같은 주제의 조문(상한·금지·기준)은 찾았으면 그 조문을 출처로 '조문은 ○○만 정한다'는 단계를 쓰고, 예외가 없다는 점은 '근거에서 확인되지 않음'으로 uncertainty 에 적는다(근거 없이 '없다'고 단정하지 않는다). 과거 시점 질문은 조문 조회 Tool에 그 날짜를 as_of 로 넣어 그 시점 조문을 확인한다.
 - 근거 표의 칸이 비어 있으면 추측하지 말고 '원본 표에 기재 없음'이라고 쓰고, 표에 사유(예: 임원 전용)가 있으면 함께 적는다. 외부 공식 법령(fetch_official_law)은 참고로만 쓰고 uncertainty에 '외부 법령 참고(미검증)'라고 적는다.`;
 export { SYSTEM as GUIDE_SYSTEM };
 
@@ -204,7 +214,10 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   }
   const historical = evidence.filter((e) => e.search_status === 'HISTORICAL').length;
   const base = { query_masked: spans.length > 0, model: deps.model, evidence };
-  if (evidence.length === 0) return { ...base, status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: '열람 가능한 승인 문서에서 근거를 찾지 못했습니다.' };
+  const NONE = '열람 가능한 승인 문서에서 근거를 찾지 못했습니다.';
+  if (evidence.length === 0 && !deps.toolSearch) return { ...base, status: 'NO_EVIDENCE', steps: [], dropped_steps: 0, uncertainty: NONE };
+  // 1차 검색 0건: 관련도 기준에 못 미친 표현일 수 있다(붙여 쓴 복합어 등). Agent가 Tool로 다시 찾는다. 출처 검증은 아래에서 그대로
+  const retry = evidence.length === 0 ? `\n\n<note>1차 검색 근거가 없다. search_wiki 로 질문의 핵심어를 바꿔(붙여 쓴 말은 띄어 쓰기, 같은 뜻의 다른 업무 용어) 다시 찾는다. 찾은 Tool 결과의 provision_id(없으면 doc_id)로만 출처를 단다. 끝내 없으면 steps 를 비운다.</note>` : '';
 
   const ev = evidence.map((e) => ({ id: evidenceKey(e), ...(e.figure ? { figure: true, page: e.page } : {}), ...(e.document_type ? { document_type: e.document_type } : {}), title: e.title, provision: e.provision, effective_from: e.effective_from, authority_status: e.authority_status, freshness: e.freshness, text: e.snippet }));
   say(PROGRESS.draft(evidence.length));
@@ -213,7 +226,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
     .slice(0, 5).map((e) => ({ doc_id: e.doc_id, title: e.title, text: e.snippet.slice(0, 1500) }));
   const ctx = context.length ? `\n\n<context note="그림·쪽 맥락. 출처로 쓰지 않는다">\n${JSON.stringify(context, null, 1)}\n</context>` : '';
   const items = hopItems.length ? `\n\n<items note="질문에 걸린 갈래(조합). sections 로 조합마다 한 섹션">${JSON.stringify(hopItems)}</items>` : '';
-  const draft = await deps.draft(`질문: ${q}\n\n<evidence>\n${JSON.stringify(ev, null, 1)}\n</evidence>${ctx}${items}`);
+  const draft = await deps.draft(`질문: ${q}\n\n<evidence>\n${JSON.stringify(ev, null, 1)}\n</evidence>${ctx}${items}${retry}`);
 
   say(PROGRESS.verify);
   // 첫 검색 근거 + Agent가 Tool로 더 찾은 근거(인용 가능분만). 출처는 이 안에 있어야 한다
@@ -264,7 +277,8 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   draft.uncertainty = named(draft.uncertainty ?? '');
   const uncertainty = [draft.uncertainty, usedFigure ? '그림 기준(AI 정리) 근거가 포함되어 있습니다. 화면 절차는 원본 그림과 함께 확인하세요.' : '', missing.length ? `${missing.join('·')} 절차는 근거에서 더 찾지 못했습니다.` : '', dropped ? `근거를 확인할 수 없는 ${dropped}개 단계는 제외했습니다.` : '', historical ? `현재 시행 중이 아닌 과거 조문 ${historical}건이 근거에 포함되어 있습니다.` : '']
     .filter(Boolean).join(' ');
-  const out: GuideResult = { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(uncertainty, detectPii(uncertainty)), tool_calls: draft.tool_calls ?? [] };
+  const unc = uncertainty || (pool.length ? '' : NONE);
+  const out: GuideResult = { ...base, evidence: pool, status: steps.length ? 'OK' : 'NO_EVIDENCE', steps, ...(sections.length ? { sections } : {}), dropped_steps: dropped, uncertainty: mask(unc, detectPii(unc)), tool_calls: draft.tool_calls ?? [] };
   return deps.guard ? guardOutput(out, deps.guard) : out;
 }
 

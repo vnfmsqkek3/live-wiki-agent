@@ -4,11 +4,11 @@ import { isoOfYmd } from "@hanaeum/schemas";
 import type { ClauseStore } from "./store.ts";
 import type { RegistryMatch } from "./registry.ts";
 
-export type MarkKind = "CONFLICT" | "OUTDATED" | "INSUFFICIENT" | "SUPPLEMENT" | "CONFIRMED" | "REGISTRY_MISMATCH" | "PII_UNCERTAIN" | "INJECTION";
+export type MarkKind = "CONFLICT" | "OUTDATED" | "INSUFFICIENT" | "BASIS_MISMATCH" | "SUPPLEMENT" | "CONFIRMED" | "REGISTRY_MISMATCH" | "PII_UNCERTAIN" | "INJECTION";
 /** 화면 표시 이름 (한 곳에서 정함). 고칠 곳(틀림)과 확인 필요(근거 없음)·실무 보완(규정 범위 안 구체화)을 구분한다 */
 export const MARK_LABEL: Record<MarkKind, string> = {
   CONFLICT: "고칠 곳", OUTDATED: "개정 전 인용", REGISTRY_MISMATCH: "공식 원본과 다름",
-  INSUFFICIENT: "확인 필요", SUPPLEMENT: "실무 보완(참고)", CONFIRMED: "근거 확인됨",
+  INSUFFICIENT: "확인 필요", BASIS_MISMATCH: "근거와 다름", SUPPLEMENT: "실무 보완(참고)", CONFIRMED: "근거 확인됨",
   PII_UNCERTAIN: "개인정보 확인 필요", INJECTION: "지시문 의심",
 };
 export interface Basis { provision_id: string; label: string; text: string; effective_from?: string }
@@ -23,7 +23,9 @@ export interface MarkSources {
   /** dhxorb96 KnowhowValidation (apps/api/src/steps/knowhow.ts) */
   knowhow?: {
     /** suggestion: 근거 조문에 맞게 고쳐 쓴 문장 (dhxorb96 knowhow.ts, 있으면 수정 내용으로 그대로 씀) */
-    items: { statement: string; provision_id: string; relation: string; reason: string; quote: string; label: string; verified_quote: boolean; suggestion?: string }[];
+    items: { statement: string; provision_id: string; relation: string; reason: string; quote: string; label: string; verified_quote: boolean; suggestion?: string;
+      /** 판단 못함(INSUFFICIENT)·무관(UNRELATED)일 때 그 조문을 본문이 근거로 들었는지 (AI PR #99). CITED=든 조문과 내용이 다름, NONE=든 적 없음(무관 조문 표시 금지) */
+      basis?: "CITED" | "NONE" }[];
     outdated: { cited: string; current: string; label: string }[];
   };
   /** 규정 문서: registryMatch 결과 (해시 불일치일 때 claimed.clauses 포함) */
@@ -117,19 +119,22 @@ export async function buildMarks(pages: string[], src: MarkSources, store: Claus
   const marks: Mark[] = [];
   for (const it of src.knowhow?.items ?? []) {
     // 판정 → 표시. 모델 판단은 인용 원문 대조를 통과한 것만 확정(충돌·일치). 실무 보완 = 규정이 정한 범위 안에서 노하우가 구체화한 내용(의무 아님)
-    const kind: MarkKind | undefined = { CONFLICTS: "CONFLICT", INSUFFICIENT: "INSUFFICIENT", SUPPLEMENTS: "SUPPLEMENT", SUPPORTS: "CONFIRMED" }[it.relation] as MarkKind | undefined;
+    // 근거로 든 조문과 내용이 다름(basis=CITED) → '근거와 다름'. 든 적 없는 조문(basis=NONE)은 근거로 보이지 않는다 (사용자 피드백 11/20: '처리 결과 안내'에 비대면 개설 조문)
+    const kind: MarkKind | undefined = it.basis === "CITED" && (it.relation === "INSUFFICIENT" || it.relation === "UNRELATED") ? "BASIS_MISMATCH"
+      : ({ CONFLICTS: "CONFLICT", INSUFFICIENT: "INSUFFICIENT", SUPPLEMENTS: "SUPPLEMENT", SUPPORTS: "CONFIRMED" }[it.relation] as MarkKind | undefined);
     if (!kind) continue;
     if ((kind === "CONFLICT" || kind === "CONFIRMED") && !it.verified_quote) continue;
-    const basis = await basisOf(store, it.provision_id);
-    const fix = { CONFLICT: `근거 조문에 맞게 수정: "${it.quote}"`, INSUFFICIENT: "근거 조문을 명시하거나 담당 부서에 확인해 주세요",
+    const basis = it.basis === "NONE" ? undefined : await basisOf(store, it.provision_id);
+    const MISMATCH = "근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.";
+    const fix = { BASIS_MISMATCH: MISMATCH, CONFLICT: `근거 조문에 맞게 수정: "${it.quote}"`, INSUFFICIENT: "근거 조문을 명시하거나 담당 부서에 확인해 주세요",
       SUPPLEMENT: "규정이 요구하는 의무가 아니라 권장 사항임을 문장에 밝혀 주세요 (예: '첨부하는 것을 권장한다')" } as Partial<Record<MarkKind, string>>;
     const w = at(pages, it.statement);
     // 수정 내용: 모델이 근거 조문에 맞게 고쳐 쓴 문장(suggestion) 우선. 없으면 충돌=근거 조문 문구, 실무 보완=권장 표현, 근거 확인됨=수정 없음
     // 실무 보완은 모델 수정문을 쓰지 않는다 (모델이 의무를 '권장'으로 낮추는 등 내용을 바꿈 — dhxorb96 실측 11/17). suggestion은 충돌에만 옴
-    const revision = kind === "CONFIRMED" ? null : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : kind === "CONFLICT" ? it.suggestion ?? it.quote : null;
+    const revision = kind === "CONFIRMED" ? null : kind === "SUPPLEMENT" ? asRecommendation(it.statement) : kind === "CONFLICT" ? it.suggestion ?? it.quote : null; // 근거와 다름: 고쳐 쓸 문장이 없음(안내문은 fix 에만, 웹 [적용]이 본문을 안내문으로 바꾸지 않게)
     marks.push({
       ...w, kind, label: MARK_LABEL[kind],
-      severity: kind === "CONFLICT" ? "HIGH" : kind === "INSUFFICIENT" ? "MEDIUM" : "LOW", reason: it.reason,
+      severity: kind === "CONFLICT" ? "HIGH" : kind === "INSUFFICIENT" || kind === "BASIS_MISMATCH" ? "MEDIUM" : "LOW", reason: it.reason,
       ...(basis ? { basis } : {}), ...(fix[kind] ? { fix: fix[kind] } : {}),
       original: slice(pages, w) ?? it.statement, revision,
     });
