@@ -260,7 +260,7 @@ export interface Verification {
 export interface LawResult { source: string; url: string; fetched_at: string; from_cache: boolean; effective_from?: string; promulgation?: string; note: string; clause?: { path: string; text: string } | null }
 /** clauses: 본문이 인용한 조문 전부(등장 순서). 없으면 옛 응답(clause·result 1건) */
 export interface ExternalLaw { law_name: string; clause?: string; error?: string; result?: LawResult | null;
-  clauses?: { clause: string; sub?: string | string[]; result: LawResult | null; error?: string }[] }
+  clauses?: { clause: string; sub?: string[]; result: LawResult | null; error?: string }[] }
 /** 결재 대상 문서를 관리자가 열었을 때 (GET /v1/library/:id). 쪽 본문이 없으면 findings로 이유를 보여 준다 */
 export interface ReviewInfo {
   lifecycle: string; approval_id?: string; source_mismatch: boolean;
