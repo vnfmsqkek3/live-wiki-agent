@@ -608,7 +608,7 @@ Exact Lookup에서 확인되면 확장 단계를 건너뛴다.
 > | Authority Verification | TrustGate 단계 Registry 해시·조문 대조 | 없음 (Registry 우선) | 완료 |
 > | Trust Verification | TrustGate 단계 노하우 검증 (인용 추출·조문 검색·판정·인용 원문 대조). 11/20 외부 법령 대조 추가: 본문이 인용한 외부 법령 조문(최대 3)을 law.go.kr 원문(UNVERIFIED)과 비교 → 불일치 `KNOWHOW_EXTERNAL_MISMATCH` MEDIUM + 수정 제안, 조회 실패·60초 초과·지시문 의심 `KNOWHOW_EXTERNAL_SKIPPED` LOW. 게시 차단·잠금·verdict 반영 없음. MANUAL 은 외부 대조만(`validateExternal`) | Sonnet 판정·Haiku 수정 제안, temperature 0 | 완료 (로컬 실측 MX 4곳 5회 20/20·원본 오탐 0) |
 > | Knowledge Graph | GraphUpsert 단계·graph Tool (let522mj) | 없음 | 완료 |
-> | Change Impact | graph `trace_impact` Tool (let522mj) + 화면 07·초안 (dhxorb96) | 없음 | **탐지 Tool만. 게시된 노하우 자동 재검증 표시·화면 07 미구현** |
+> | Change Impact | graph `trace_impact` Tool(데이터) → `GET /v1/admin/impact`·`POST /v1/admin/impact/draft`(백엔드). 초안 요청 시 영향 문서 freshness CURRENT → REVIEW_REQUIRED, 초안은 Wiki Maintenance 행 | 없음(탐지) | 완료 (11/20, 영향 화면 '초안 만들기'는 프론트) |
 > | Wiki Maintenance | Change Impact 수정 초안: `POST /v1/admin/impact/draft` → 영향 근거 문장마다 개정 조문대로 고친 초안(`steps/impact-draft.ts`, 숫자 지어내기·PII·조문 삭제는 코드로 UNKNOWN) → 위키 수정 요청(OPEN)으로만 저장 → [반영] → 새 버전 → AI 검사 → 사람 승인 | Haiku | 완료 (11/20, 화면은 프론트) |
 > | Recommendation | 피드백 API(별점)만 | — | P1 미착수 |
 > | Knowledge Synthesis | 가이드 Agent (AgentCore Runtime, 검색 Tool 근거만 인용) | Sonnet | 완료 (검색 Tool 실연동 전) |
