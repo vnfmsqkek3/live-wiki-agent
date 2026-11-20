@@ -94,6 +94,11 @@ export function postgresStore(d: Db = connect()): PostgresStore {
       await q(`INSERT INTO feedback (doc_id, user_sub, stars, useful, updated_at) VALUES (:doc_id, :user_sub, :stars, :useful, :updated_at::timestamptz)
         ON CONFLICT (doc_id, user_sub) DO UPDATE SET stars = EXCLUDED.stars, useful = EXCLUDED.useful, updated_at = EXCLUDED.updated_at`, { ...f, stars: f.stars ?? null });
     },
+    async ratings(sub) {
+      const rows = await q(`SELECT doc_id, coalesce(round(avg(stars)::numeric, 1), 0)::float8 AS avg, count(stars)::int AS count,
+        (count(*) FILTER (WHERE useful))::int AS useful_count, max(stars) FILTER (WHERE user_sub = :sub) AS mine FROM feedback GROUP BY doc_id`, { sub });
+      return new Map(rows.map((r) => [r.doc_id as string, { avg: Number(r.avg), count: Number(r.count), useful_count: Number(r.useful_count), ...(r.mine != null ? { mine: Number(r.mine) } : {}) }]));
+    },
     async putDraft(x) {
       await q(`INSERT INTO drafts (draft_id, doc_id, base_version, proposed_text, basis, created_by, status, created_at)
         VALUES (:draft_id, :doc_id, :base_version, :proposed_text, ARRAY(SELECT jsonb_array_elements_text(:basis::jsonb)), :created_by, :status, :created_at::timestamptz)

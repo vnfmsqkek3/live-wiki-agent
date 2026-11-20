@@ -21,7 +21,7 @@ export function ConfirmCurrent({ docId, onDone }: { docId: string; onDone?: () =
     setBusy(false);
   }
   if (done) return <p className="notice" role="status">변경 없이 유효로 확인했습니다. 문서는 현행으로 표시되고, 이 문서의 열린 수정 초안은 닫혔습니다.</p>;
-  if (!open) return <button type="button" className="btn" onClick={() => setOpen(true)}>변경 없이 유효</button>;
+  if (!open) return <button type="button" className="btn" onClick={() => setOpen(true)}>변경 없이 유효로 확인하기</button>;
   return (
     <div className="change-req" role="group" aria-label="변경 없이 유효 확인">
       <label className="lbl" htmlFor={`cc-${docId}`}>개정 후에도 그대로 맞는 이유 (필수)</label>
