@@ -119,7 +119,7 @@ export async function guardOutput(r: GuideResult, guard: NonNullable<GuideDeps['
   const secs = r.sections ?? [];
   const texts = [...r.steps.map((s) => s.text), ...secs.flatMap((s) => [s.title, s.note, s.fallback ?? '', s.source_note ?? '']), r.uncertainty];
   const g = await guard(texts.filter(Boolean).join('\n'));
-  if (g.blocked) { const { sections: _s, ...rest } = r; return { ...rest, status: 'NO_EVIDENCE', steps: [], dropped_steps: r.steps.length, uncertainty: GUARD_BLOCKED, guard: 'BLOCKED' }; }
+  if (g.blocked) return { ...r, status: 'NO_EVIDENCE', steps: [], sections: undefined, dropped_steps: r.steps.length, uncertainty: GUARD_BLOCKED, guard: 'BLOCKED' };
   if (!g.matches.length) return r;
   // ponytail: 탐지 값 문자열 치환. 짧은 값(PIN 등)이 다른 숫자 일부와 겹치면 함께 가려진다 — 과마스킹 쪽으로 틀린다
   const c = (t: string) => g.matches.reduce((x, m) => x.split(m).join('[민감정보]'), t);
