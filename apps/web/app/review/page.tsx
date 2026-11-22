@@ -291,7 +291,7 @@ function ReviewView() {
       )}
 
       </details>
-      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
+      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked || rejected ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : rejected ? '반려됨 · 수정 필요' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : rejected ? '반려 사유를 확인하고 고친 파일을 새로 올려 주세요.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
       {editTitle === null ? (
         <>
           <h2 className="section">문서 제목</h2><p>{r.title}</p>

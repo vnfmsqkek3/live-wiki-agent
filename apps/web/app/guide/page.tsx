@@ -5,7 +5,7 @@ import { PageHeader } from '../page-header';
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, streamGuide, type Guide } from '../lib/api';
+import { api, ApiError, streamGuide, type Evidence, type Guide } from '../lib/api';
 
 function GuideView() {
   const router = useRouter();
@@ -21,7 +21,7 @@ function GuideView() {
     if (!q) return;
     setBusy(true); setErr(''); setG(null); setThanks(false); setSaid([]);
     streamGuide(q, (t) => setSaid((x) => [...x, t]))
-      .then(setG)
+      .then((x) => setG(fixSources(x)))
       .catch((e: ApiError) => setErr(e.status === 401 ? '로그인한 뒤 다시 시도하세요.' : '가이드를 만들지 못했습니다. 잠시 뒤 다시 시도하세요.'))
       .finally(() => setBusy(false));
   }, [q]);
@@ -30,7 +30,7 @@ function GuideView() {
   // 근거 0건이거나 게시·승인 요청 거절이면 '확인이 더 필요한 부분'을 맨 위에 (엔드유저 ⑧ 11/20: 근거 1건이어도 거절이 아래에 묻힘)
   const top = !!g?.uncertainty && (!docs.length || (/게시|승인/.test(g.uncertainty) && /할 수 없|불가/.test(g.uncertainty)));
   async function useful() {
-    const top = docs[0];
+    const top = docs.find((d) => d.doc_id);
     if (!top) return;
     try { await api('POST', '/v1/feedback', { doc_id: top.doc_id, useful: true }); setThanks(true); } catch { setThanks(true); }
   }
@@ -78,7 +78,7 @@ function GuideView() {
               ))}
                 </ol>}
                 {sec.fallback && <p className="note"><GText s={sec.fallback} /></p>}
-                {sec.source_note && <p className="meta guide-source"><GText s={sec.source_note} />{list[0]?.sources[0] && <> · <a href={`/library?id=${encodeURIComponent(list[0].sources[0].doc_id)}${list[0].sources[0].page ? `&page=${list[0].sources[0].page}` : ''}`}>원문 보기</a></>}</p>}
+                {sec.source_note && <p className="meta guide-source"><GText s={sec.source_note} />{list[0]?.sources[0]?.doc_id && <> · <a href={`/library?id=${encodeURIComponent(list[0].sources[0].doc_id)}${list[0].sources[0].page ? `&page=${list[0].sources[0].page}` : ''}`}>원문 보기</a></>}</p>}
               </section>); })}</>
           )}
           {g.uncertainty && !top && <><h2 className="section">확인이 더 필요한 부분</h2><p className="flag" style={{ display: 'block', padding: '8px 12px', fontWeight: 400 }}><GText s={g.uncertainty} /></p></>}
@@ -89,9 +89,24 @@ function GuideView() {
           <p className="meta" style={{ marginTop: 16 }}>AI 생성 안내입니다. 근거 문서를 확인해 주세요.</p>
         </>
       )}
-      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id}><a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a><p className="note">{d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
+      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
     </>
   );
+}
+
+/** 조문 직접 인용 source는 doc_id·title이 법령 ID(SYN-LOAN-001@…)로 온다 (엔드유저 11/23, AI팀에 요청).
+ *  같은 응답에 같은 법령 문서가 있으면 그 문서로, 없으면 링크 없는 '근거 규정 제n조'로 */
+function fixSources(g: Guide): Guide {
+  const all = [...(g.evidence ?? []), ...g.steps.flatMap((s) => s.sources), ...(g.sections ?? []).flatMap((s) => s.steps.flatMap((t) => t.sources))];
+  const law = (id = '') => id.split('@')[0];
+  const byLaw = new Map(all.filter((e) => e.doc_id.startsWith('doc_') && e.provision_id).map((e) => [law(e.provision_id), e]));
+  const fix = (e: Evidence): Evidence => {
+    if (e.doc_id.startsWith('doc_')) return e;
+    const d = byLaw.get(law(e.doc_id));
+    return { ...e, doc_id: d?.doc_id ?? '', title: d?.title ?? '근거 규정', provision: `${d?.provision?.replace(/\s*제\d.*$/, '') ?? '근거 규정'} ${e.provision ?? ''}`.trim(), page: undefined };
+  };
+  const steps = (l: Guide['steps']) => l.map((s) => ({ ...s, sources: s.sources.map(fix) }));
+  return { ...g, steps: steps(g.steps), sections: g.sections?.map((s) => ({ ...s, steps: steps(s.steps) })) };
 }
 
 function GText({ s }: { s: string }) {
