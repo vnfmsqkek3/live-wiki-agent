@@ -4,7 +4,8 @@
 #  2) QA·데모 업로드 정리: 시드 목록(SEED_IDS JSON)에 없는 문서 삭제 + EXTRA_IDS(QA팀이 보고한 doc_id, 공백 구분: 버전 묶음 카드·결재함 50건 밖 보완)
 #  3) 영향 표시 되돌리기(삭제 뒤): SYN-LOAN-001 개정 또는 2)의 삭제 때문에 '재검토 필요'가 된 게시 노하우 → admin '변경 없이 유효' 확인(데모 계정은 user·admin만, 총괄 11/20. admin은 PLATFORM_OPERATOR라 자기 문서 확인 허용) = CURRENT, 열린 영향 초안(IMPACT) 닫힘
 # 기본은 목록만 보여 준다(dry run). APPLY=1 일 때만 바꾼다. 실행 전 총괄·인프라에 예고
-# 사용: API=https://<cloudfront> SEED_IDS=../team-lead/role/.state/seed-doc-ids.json [EXTRA_IDS="doc_… doc_…"] [APPLY=1] services/legal-etl/scripts/demo-reset.sh
+# KEEP_IDS: 시드는 아니지만 남길 문서(공백 구분, 예: 사용자 요청 M-002·M-003 외부 법령 참고 시연용, 총괄 11/23) → 2)에서 제외
+# 사용: API=https://<cloudfront> SEED_IDS=../team-lead/role/.state/seed-doc-ids.json [EXTRA_IDS="doc_… doc_…"] [KEEP_IDS="doc_…"] [APPLY=1] services/legal-etl/scripts/demo-reset.sh
 set -euo pipefail
 cd "$(dirname "$0")/../../.."
 : "${API:?API=https://<cloudfront> 필요}" "${SEED_IDS:?SEED_IDS=seed-doc-ids.json 필요}"
@@ -23,7 +24,7 @@ echo "1) F-002 삭제: ${F002:-없음}"
 
 echo "2) 시드 밖 문서 정리 (QA·데모 업로드)"
 EXTRA=$( { get /v1/library; echo; get /v1/admin/in-review; } | python3 -c 'import json,sys,re
-seed=set(json.load(open(sys.argv[1])).values())
+seed=set(json.load(open(sys.argv[1])).values())|set(sys.argv[3].split())
 seen=set()
 for line in sys.stdin:
   if not line.strip(): continue
@@ -31,8 +32,8 @@ for line in sys.stdin:
     if x["doc_id"] not in seed and x["doc_id"] not in seen: seen.add(x["doc_id"]); print(x["doc_id"], x.get("lifecycle",""), x.get("title","")[:40], file=sys.stderr); print(x["doc_id"])
 for d in sys.argv[2].split():
   if not re.fullmatch(r"doc_[0-9A-Z]{26}", d): print(d, "doc_id 형식 아님, 제외", file=sys.stderr)
-  elif d in seed: print(d, "시드 문서라 제외", file=sys.stderr)
-  elif d not in seen: seen.add(d); print(d, "EXTRA_IDS", file=sys.stderr); print(d)' "$SEED_IDS" "${EXTRA_IDS:-}")
+  elif d in seed: print(d, "시드·KEEP 문서라 제외", file=sys.stderr)
+  elif d not in seen: seen.add(d); print(d, "EXTRA_IDS", file=sys.stderr); print(d)' "$SEED_IDS" "${EXTRA_IDS:-}" "${KEEP_IDS:-}")
 [ -z "$EXTRA" ] || run env API="$API" REASON="데모 초기화: 시드 밖 QA·데모 업로드 정리 (리허설 11/22)" services/legal-etl/scripts/delete-docs.sh $EXTRA
 # 삭제 정리(그래프·재검토 표시)는 delete-docs.sh 가 끝까지 기다림 → 아래 3)이 그 표시까지 되돌림
 # 표시 되돌리기는 삭제 뒤에: 삭제한 문서를 인용하던 노하우에도 재검토 표시가 생긴다(데이터QA 리뷰 11/20)
