@@ -225,7 +225,7 @@ const MOCK_REVIEW: Review = {
   masked_preview: '1. 감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.\n2. 담당자 연락처 [전화번호]로 평가 일정을 확인한다.\n3. 입금 계좌 [계좌번호]는 고객 확인 후 기재한다.',
 };
 
-export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
+export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; provision_id?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
 export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; sections?: { title: string; note: string; steps: { text: string; sources: Evidence[] }[]; fallback?: string; source_note?: string }[]; dropped_steps: number; uncertainty: string }
 const MOCK_GUIDE: Guide = {
   status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,

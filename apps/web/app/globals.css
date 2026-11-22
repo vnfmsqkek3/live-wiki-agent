@@ -838,7 +838,7 @@ details[open] > summary::after { content:" ▴"; }
 .diff-lines { list-style:none; margin:8px 0 0; padding:0; border:1px solid var(--line); border-radius:8px; max-height:260px; overflow:auto; font-size:var(--fs-small); }
 .diff-lines li { display:flex; gap:12px; padding:6px 12px; border-top:1px solid var(--line); }
 .diff-lines li:first-child { border-top:0; }
-.diff-lines li > .num { color:var(--ink-500); min-width:3ch; text-align:right; }
+.diff-lines li > .num { color:var(--ink-500); min-width:3ch; text-align:right; flex:none; }
 .diff-lines li.add { background:var(--green-050); } .diff-lines li.add ins { text-decoration:none; }
 .diff-lines li.del { background:var(--coral-050); } .diff-lines li.del del { color:var(--coral-700); }
 .wiki-md::selection { background:#FFE58A; color:var(--navy-900); }
