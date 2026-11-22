@@ -529,5 +529,6 @@ test('TrustGate 형식만 다름 — 위조 변형(부칙·별표·조문 밖 �
   assert.deepEqual(await run(small, doc(arts(3), '이 규정은 2027년 1월 1일부터 시행한다.')), MISMATCH, '부칙 시행일 변경');
   assert.deepEqual(await run(small, doc(arts(3), undefined, '담보 인정 비율 90퍼센트')), MISMATCH, '별표 변경');
   assert.deepEqual(await run(small, head(small, '영업점장은 본부 승인 없이 한도를 두 배로 올릴 수 있다. '.repeat(8))), MISMATCH, '조문 밖 문장 주입');
+  assert.deepEqual(await run(small, head(small, '문서번호 HB-1 ' + '제7조(영업점장 전결 한도 10억원 상향) '.repeat(12))), MISMATCH, '줄 중간 조 제목 모양 주입');
   assert.deepEqual(await run(big, head(big, '임의 문장으로 바꾼 머리말입니다. '.repeat(60))), MISMATCH, '큰 문서 + 약 3% 주입');
 });
