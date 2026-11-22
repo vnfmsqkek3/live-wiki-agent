@@ -524,6 +524,8 @@ test('TrustGate 형식만 다름 — 위조 변형(부칙·별표·조문 밖 �
   const head = (text: string, extra: string) => text.replace('하나은행 기업여신 심사규정\n', `하나은행 기업여신 심사규정\n${extra}\n`);
   const MISMATCH = ['UNVERIFIED', 'REGISTRY_MISMATCH'];
   assert.deepEqual(await run(small, small.replace(/ /g, '  ').replace(/\n/g, '\n\n')), ['VERIFIED', 'FORMAT_ONLY_DIFF'], '띄어쓰기·줄바꿈만');
+  // 조 제목·항 번호는 조문 밖 글자로 세지 않는다 (7차 F-001 216자, 큰 규정은 제목만으로 상한 초과하던 결함)
+  assert.deepEqual(await run(big, big.replace(/ /g, '  ')), ['VERIFIED', 'FORMAT_ONLY_DIFF'], '큰 규정 띄어쓰기만');
   assert.deepEqual(await run(small, doc(arts(3), '이 규정은 2027년 1월 1일부터 시행한다.')), MISMATCH, '부칙 시행일 변경');
   assert.deepEqual(await run(small, doc(arts(3), undefined, '담보 인정 비율 90퍼센트')), MISMATCH, '별표 변경');
   assert.deepEqual(await run(small, head(small, '영업점장은 본부 승인 없이 한도를 두 배로 올릴 수 있다. '.repeat(8))), MISMATCH, '조문 밖 문장 주입');

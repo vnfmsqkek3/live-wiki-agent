@@ -88,6 +88,11 @@ export function diffClauses(official?: Record<string, string>, uploaded?: Record
  *  상한은 문서 크기에 비례하지 않는다(큰 규정의 3% = 수천 자 무대조 통과 방지). 넘으면 #139 이전처럼 REGISTRY_MISMATCH → 사람 확인.
  *  ponytail: 조문 밖은 길이 상한만 — 같은 길이로 바꾼 머리말은 못 잡음. Registry 가 조문 밖 해시를 갖게 되면 그것으로 대조 */
 export const OTHER_CHARS_MAX = 200;
+/** 조문 밖 글자 수: 조 제목(제n조(…))·항 번호(①)·호 번호(줄 머리 1.)는 구조 표시라 빼고 센다 — 안 빼면 조문 수에 비례해 커져
+ *  정상 규정도 상한을 넘는다 (F-001 216자 중 약 100자, 7차 AI 재측정). 양쪽에 같은 규칙을 써서 본문 속 '제13조에 따라' 도 상쇄 */
+const MARKS = /제\d+(?:-\d+)?조(?:의\d+)?(?:\([^()\n]{1,30}\))?|[\u2460-\u2473]|^[ \t]*\d{1,2}\.(?=\s)/gm;
+export const outsideChars = (text: string, clauses: Record<string, string>) =>
+  Math.max(0, squash(text.replace(MARKS, '')).length - Object.values(clauses).reduce((n, t) => n + squash(t.replace(MARKS, '')).length, 0));
 const formatOnly = (official?: Record<string, string>, uploaded?: Record<string, string>, otherChars?: number) =>
   !!official && !!uploaded && otherChars !== undefined && otherChars <= OTHER_CHARS_MAX
   && Object.keys(official).length > 0 && Object.keys(uploaded).length > 0 && diffClauses(official, uploaded).length === 0;
