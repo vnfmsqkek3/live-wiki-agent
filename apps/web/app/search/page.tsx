@@ -44,7 +44,7 @@ function showMatch(m: Match): { badge?: string; text: string } {
   const head = /^\[(그림 설명 · 원문 아님|그림 기준 · AI 정리)\]\s*/.exec(m.snippet);
   // 표 조각은 '|' 원문 대신 행마다 '칸 · 칸'으로 (11/18 dev 시험: 검색 결과에 마크다운 표 원문)
   const untable = (t: string) => t.split('\n').filter((l) => !/^\s*\|?\s*:?-{2,}/.test(l)).map((l) => (/^\s*\|.*\|\s*$/.test(l) ? l.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim() || '—').join(' · ') : l)).join(' / ');
-  if (!head && m.quotable !== false && m.evidence_kind !== 'FIGURE') return { text: /\|.*\|/.test(m.snippet) ? untable(m.snippet) : m.snippet };
+  if (!head && m.quotable !== false && m.evidence_kind !== 'FIGURE') { const t = m.snippet.replace(/^#{1,6}\s+/gm, ''); return { text: /\|.*\|/.test(t) ? untable(t) : t }; } // '#' 제목 기호 제거 (엔드유저 11/20)
   const body = m.snippet.replace(/^\[[^\]]*\]\s*/, '');
   if (m.evidence_kind === 'FIGURE' || head?.[1] === '그림 기준 · AI 정리') return { badge: '그림 기준 · AI 정리', text: body };
   const parts = body.split(/\s+\/\s+(?=(?:표기|의도):)/);

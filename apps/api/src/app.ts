@@ -399,6 +399,13 @@ export function createApp(deps: Deps) {
     return c.json({ workflow_id: doc.workflow_id }, 202);
   });
 
+  /** 사람이 반려한 사유 (작성자 화면 '승인자가 반려했습니다: …', 엔드유저 11/20). 출처 검토 반려 → 결재 반려 최신. 개인정보는 가림 */
+  const rejectionReason = async (d: DocumentRecord) => {
+    if (d.authority_status !== 'REJECTED') return null;
+    const r = d.source_review?.reason ?? (await store.listApprovals('REJECTED')).filter((x) => x.doc_id === d.doc_id)
+      .sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0]?.reason;
+    return r ? mask(r, detectPii(r)) : null;
+  };
   app.get('/v1/documents/:id', async (c) => {
     const d = await loadDoc(c, c.req.param('id'));
     const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
@@ -500,7 +507,7 @@ export function createApp(deps: Deps) {
     // 확인 필요 (게시 잠금 아님): 외부 법령과 다름·문서가 든 근거 조문과 다름. 수정 제안은 fix_hint (엔드유저 MX-002 11/20: 화면에 안 보임)
     const checks = d.findings.filter((f) => CHECK_CODES.has(f.code)).map(checkView);
     const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) }));
-    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, checks, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, checks, rejection_reason: await rejectionReason(d), suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
@@ -777,7 +784,9 @@ export function createApp(deps: Deps) {
     const me = c.get('actor').sub;
     const items = (await store.listDocs()).filter((d) => d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED')
       .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 50)
-      .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at }));
+      .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at,
+        // 출처 불일치면 게시 요청이 409 → '게시 요청만 남음'이 아니라 '출처 확인 대기' (프론트 요청 11/20)
+        source_mismatch: hasSourceMismatch(d) && !d.source_review }));
     return c.json({ items });
   });
 
@@ -1054,6 +1063,7 @@ export function createApp(deps: Deps) {
     return c.json({
       ...base,
       ...ratingOf(myRt), my_stars: myRt?.mine ?? null,
+      rejection_reason: d.owner === a.sub || hasRole(a, APPROVERS) ? await rejectionReason(d) : null,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
       claims: await docClaimsView(d),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)

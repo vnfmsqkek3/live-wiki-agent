@@ -185,6 +185,7 @@ export interface Review {
   fixes?: Fix[]; reviews?: import('../review-items').ReviewItem[]; clarify?: import('../clarify').ClarifyItem[]; text?: string; source?: 'UPLOAD' | 'WIKI_EDIT'; suggestions?: import('../ref-suggestions').RefSuggestion[];
   doc_id: string; title?: string; lifecycle: string; trust_gate_result?: 'PASS' | 'REVIEW_REQUIRED' | 'QUARANTINED';
   authority_status: string;
+  rejection_reason?: string | null; // 백엔드 요청 중 (엔드유저 11/20)
   classification?: { document_type: 'REGULATION' | 'KNOWHOW' | 'MANUAL'; confidence: number; rationale: string; source?: 'MODEL' | 'HUMAN' };
   findings: Finding[]; masked_preview?: string;
   page_summaries?: ({ page_index: number } & PageMeta)[];

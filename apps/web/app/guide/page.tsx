@@ -1,5 +1,5 @@
 'use client';
-import { roleText } from '../lib/roles';
+import { readable } from '../lib/readable';
 import { PageThumb } from '../page-thumb';
 import { PageHeader } from '../page-header';
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
@@ -94,14 +94,6 @@ function GuideView() {
   );
 }
 
-// 가이드 문장 표시용 (엔드유저 11/20): '**굵게**'는 굵게, 내부 코드·조문 경로는 읽는 말로. 원문 근거는 바꾸지 않는다
-const CODE: Record<string, string> = { REVIEW_REQUIRED: '재검토 중', NOT_FOUND_VERIFIED: '검증된 문서에서 찾지 못함', SUPERSEDED: '개정 전 판', CURRENT: '현행', VERIFIED: '검증됨', UNVERIFIED: '미검증' };
-const UNIT: Record<string, string> = { ARTICLE: '조', PARAGRAPH: '항', ITEM: '호', SUBITEM: '목' };
-const readable = (s: string) => roleText(s.replace(/\s*\((USER|AUTHOR|REG_APPROVER|SECURITY_REVIEWER|PLATFORM_OPERATOR)\)/g, ''))
-  .replace(/^#{1,6}\s+/gm, '')
-  .replace(/[\w-]+@[\d-]+\//g, '')
-  .replace(/ARTICLE:[\w-]+(?:\/(?:PARAGRAPH|ITEM|SUBITEM):[\w-]+)*/g, (p) => p.split('/').map((x) => { const [k, v] = x.split(':'); return `제${v}${UNIT[k!]}`; }).join(''))
-  .replace(/\b[A-Z][A-Z_]{5,}\b/g, (c) => CODE[c] ?? c);
 function GText({ s }: { s: string }) {
   return <>{readable(s).split(/\*\*(.+?)\*\*/g).map((t, i) => (i % 2 ? <strong key={i}>{t}</strong> : t))}</>;
 }
