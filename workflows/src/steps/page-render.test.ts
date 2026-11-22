@@ -77,7 +77,7 @@ describe("PageRender", () => {
     const { puts, deps } = store("doc_1/original.jpeg", new Uint8Array([1, 2]));
     await makeHandler(deps)(input);
     const t = JSON.parse(puts.get("doc_1/work/pages/ocr_targets.json") as string) as OcrTargets;
-    expect(t.pages).toEqual([{ page_index: 0, key: "doc_1/work/pages/0000.jpg", width: 0, height: 0, reason: "image", has_images: true, graphics: true }]);
+    expect(t.pages).toEqual([{ page_index: 0, key: "doc_1/work/pages/0000.jpg", width: 0, height: 0, reason: "image", has_images: true, graphics: true, scan: true }]);
     expect(puts.get("doc_1/work/pages/0000.jpg")).toEqual(new Uint8Array([1, 2]));
   });
 
@@ -119,14 +119,14 @@ describe("graphics 신호 (그림으로 인식 안 된 쪽의 서명·명함, �
     const got = [];
     for (let i = 0; i < pdf.pageCount; i++) got.push(await pdf.inspect(i));
     expect(got).toEqual([
-      { has_images: false, graphics: false }, { has_images: false, graphics: true }, { has_images: false, graphics: false },
-      { has_images: true, graphics: true }, { has_images: true, graphics: false },
+      { has_images: false, graphics: false, scan: false }, { has_images: false, graphics: true, scan: false }, { has_images: false, graphics: false, scan: false },
+      { has_images: true, graphics: true, scan: false }, { has_images: true, graphics: false, scan: true },
     ]);
   });
   it("ocr_targets.json 모든 쪽에 graphics 명시", async () => {
     const { puts, deps } = store("doc_1/original.pdf", pdfPages(["BT /F1 10 Tf 20 800 Td (a) Tj ET 100 400 m " + "110 380 120 420 130 400 c ".repeat(8) + "S", "BT /F1 10 Tf 20 800 Td (b) Tj ET"]));
     const out = await makeHandler(deps)(input);
     const t = JSON.parse(puts.get(out.output_key!) as string) as OcrTargets;
-    expect(t.pages.map((p) => p.graphics)).toEqual([true, false]);
+    expect(t.pages.map((p) => [p.graphics, p.scan])).toEqual([[true, false], [false, false]]);
   });
 });

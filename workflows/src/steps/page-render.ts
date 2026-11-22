@@ -18,8 +18,9 @@ export const MAX_BROKEN_RATIO = 0.2;
 export const RENDER_WIDTH = 2000;
 export const GRAPHICS_MIN_CURVES = 8;
 
-/** graphics: 그림 개인정보 확인 대상 쪽 신호 (총괄 11/20: OCR 이 그림으로 못 본 쪽의 선 그림 서명·명함 빈틈). 백엔드 isFigurePage 가 OCR figures 와 함께 본다 */
-export type OcrTarget = { page_index: number; key: string; width: number; height: number; reason: string; has_images: boolean; graphics: boolean };
+/** graphics: 그림 개인정보 확인 대상 쪽 신호 (총괄 11/20: OCR 이 그림으로 못 본 쪽의 선 그림 서명·명함 빈틈). 백엔드 isFigurePage 가 OCR figures 와 함께 본다
+ *  scan: 이미지만 있고 글자 층이 없는 쪽(스캔·사진 PDF). 백엔드가 이 쪽은 PII 가림 상자·서명 낱말로 그림 쪽을 더 본다 (총괄 11/23: 이미지로만 된 쪽의 서명·명함·자필 놓침) */
+export type OcrTarget = { page_index: number; key: string; width: number; height: number; reason: string; has_images: boolean; graphics: boolean; scan: boolean };
 export type OcrTargets = { doc_id: string; page_count: number; pages: OcrTarget[] };
 
 // U+FFFD(대체 문자), 제어문자, 사설 영역 = 깨진 문자
@@ -37,7 +38,7 @@ type Rendered = { png: Uint8Array; width: number; height: number };
 export type Pdf = {
   pageCount: number;
   pageText: (i: number) => Promise<string>;
-  inspect: (i: number) => Promise<{ has_images: boolean; graphics: boolean }>;
+  inspect: (i: number) => Promise<{ has_images: boolean; graphics: boolean; scan: boolean }>;
   render: (i: number) => Promise<Rendered>;
 };
 
@@ -66,7 +67,7 @@ export async function openPdf(data: Uint8Array): Promise<Pdf> {
           for (let j = 0; j < d.length;) { const o = d[j]!; if (o === 2) { curves++; j += 7; } else if (o === 3) { curves++; j += 5; } else if (o === 4) j += 1; else j += 3; }
         }
       });
-      return { has_images: images, graphics: curves >= GRAPHICS_MIN_CURVES || (images && text) };
+      return { has_images: images, graphics: curves >= GRAPHICS_MIN_CURVES || (images && text), scan: images && !text };
     },
     render: async (i) => {
       const page = await doc.getPage(i + 1);
@@ -133,19 +134,19 @@ export function makeHandler(d: Deps) {
       const pdf = await d.openPdf(converted ?? await d.get(e.bucket, key));
       out.page_count = pdf.pageCount;
       for (let i = 0; i < pdf.pageCount; i++) {
-        const { has_images, graphics } = await pdf.inspect(i);
+        const { has_images, graphics, scan } = await pdf.inspect(i);
         const reason = "all";
         const r = await pdf.render(i);
         const pk = `${pagesDir}/${String(i).padStart(4, "0")}.png`;
         await d.put(e.bucket, pk, r.png, "image/png");
-        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason, has_images, graphics });
+        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason, has_images, graphics, scan });
       }
     } else if (ext === "png" || ext === "jpg" || ext === "jpeg") {
       // (ConvertToPdf 배포 전 호환) 이미지는 work/pages/ 로 복사해 OCR 대상으로. OCR(SageMaker) Role 은 원본 경로를 읽지 않는다
       out.page_count = 1;
       const pk = `${pagesDir}/0000.${ext === "jpeg" ? "jpg" : ext}`;
       await d.put(e.bucket, pk, await d.get(e.bucket, key), ext === "png" ? "image/png" : "image/jpeg");
-      out.pages.push({ page_index: 0, key: pk, width: 0, height: 0, reason: "image", has_images: true, graphics: true });
+      out.pages.push({ page_index: 0, key: pk, width: 0, height: 0, reason: "image", has_images: true, graphics: true, scan: true });
     } else if (ext === "docx" || ext === "hwpx") {
       // (ConvertToPdf 가 변환하지 못한 경우 호환) 본문 글은 TextLayerExtract(let522mj). 여기서는 그림만. 손상 파일은 TextLayerExtract 가 차단 사유로 안내
       let figs: OfficeFigure[] = [];
@@ -167,7 +168,7 @@ export function makeHandler(d: Deps) {
         if (!r) continue;
         const pk = `${pagesDir}/${String(i).padStart(4, "0")}.png`;
         await d.put(e.bucket, pk, r.png, "image/png");
-        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason: "embedded_images", has_images: true, graphics: true });
+        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason: "embedded_images", has_images: true, graphics: true, scan: false });
       }
     }
 
