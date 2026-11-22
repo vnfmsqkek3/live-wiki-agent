@@ -26,7 +26,7 @@ function GuideView() {
       .finally(() => setBusy(false));
   }, [q]);
 
-  const docs = g ? [...new Map(g.steps.flatMap((s) => s.sources).map((e) => [e.doc_id, e])).values()] : [];
+  const docs = g ? [...new Map(g.steps.flatMap((s) => s.sources).map((e) => [e.doc_id || e.provision, e])).values()] : [];
   // 근거 0건이거나 게시·승인 요청 거절이면 '확인이 더 필요한 부분'을 맨 위에 (엔드유저 ⑧ 11/20: 근거 1건이어도 거절이 아래에 묻힘)
   const top = !!g?.uncertainty && (!docs.length || (/게시|승인/.test(g.uncertainty) && /할 수 없|불가/.test(g.uncertainty)));
   async function useful() {
@@ -69,7 +69,7 @@ function GuideView() {
                 <li key={i}>
                   <p style={{ margin: 0 }}><GText s={s.text} /></p>
                   {!brief && s.sources.map((e) => (
-                    <p key={e.doc_id} className="meta" style={{ margin: '4px 0 0' }}>
+                    <p key={e.doc_id || e.provision} className="meta" style={{ margin: '4px 0 0' }}>
                       <PageThumb docId={e.doc_id} page={e.page} />
                       근거{(e as { figure?: boolean }).figure ? '(그림 기준)' : ''}: {e.provision ?? e.title}{e.effective_from ? `, ${e.effective_from} 시행` : ''}{e.freshness === 'REVIEW_REQUIRED' ? ' (재검토 중)' : ''}
                     </p>
@@ -89,7 +89,7 @@ function GuideView() {
           <p className="meta" style={{ marginTop: 16 }}>AI 생성 안내입니다. 근거 문서를 확인해 주세요.</p>
         </>
       )}
-      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
+      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id || d.provision}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
     </>
   );
 }

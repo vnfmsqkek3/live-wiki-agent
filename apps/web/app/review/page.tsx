@@ -165,7 +165,7 @@ function ReviewView() {
       {r.version && <section className="edit-diff" aria-labelledby="rv-diff-h">
         <h2 className="section" id="rv-diff-h">v{r.version.previous.version_no}에서 바뀐 부분 <b className="num">{r.version.count}곳</b></h2>
         {r.version.changes.length > 0 && <ol className="diff-lines">{r.version.changes.slice(0, 30).map((c, n) => (
-          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.new_page ?? c.old_page ?? ''}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
+          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.where}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
         ))}{r.version.count > 30 && <li className="note">외 {r.version.count - 30}곳</li>}</ol>}
       </section>}
       {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
