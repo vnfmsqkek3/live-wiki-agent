@@ -118,7 +118,7 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
     tool_calls.push({ name: ev.toolUse.name, ok: ev.result.status === 'success' && !ev.error, ms: Date.now() - t0 });
     for (const c of ev.result.content) {
       const raw = 'text' in c && typeof c.text === 'string' ? c.text : 'json' in c ? JSON.stringify((c as { json: unknown }).json) : '';
-      try { evidence.push(...citableFrom(JSON.parse(raw))); } catch { /* JSON 아님 */ }
+      try { evidence.push(...citableFrom(JSON.parse(raw), typeof (ev.toolUse.input as { law?: unknown })?.law === 'string' ? (ev.toolUse.input as { law: string }).law : undefined)); } catch { /* JSON 아님 */ }
     }
   });
   try {
