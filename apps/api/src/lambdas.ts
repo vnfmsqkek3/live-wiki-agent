@@ -102,11 +102,14 @@ export function makePiiScan(deps: SegmentDeps) {
   };
 }
 
+// 서명 낱말 + 명함 신호(전화·이메일 모양). 가림 대상이 아니라(사용자 결정 11/17) 그림 쪽 판단에만 쓴다
+const SIGN_WORDS = /서명|자필|날인|인감|명함|signature|\d{2,3}-\d{3,4}-\d{4}|[\w.+-]+@[\w-]+\.[\w.]+/i;
+
 /** 그림이 있는 페이지: OCR 블록 중 개인정보 bbox를 검게 칠한 masked/pages/{nnnn}.png (ImageDescribe의 유일한 입력).
  *  얼굴·서명 같은 이미지 개인정보는 글자로 판정할 수 없어 페이지 단위 PII_IMAGE_REVIEW(사람 확인). OCR이 없는 페이지는 이미지를 만들지 않는다 */
 async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Finding[]> {
   if (!deps.getBytes || !deps.putBytes) return [];
-  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean; graphics?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
+  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean; graphics?: boolean; scan?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
   const ocr = await deps.getJson<{ pages: (OcrPage & { figures?: { label: string }[] })[] }>(`${doc_id}/work/ocr/result.json`).catch(() => undefined);
   // 그림 쪽 기준 (사용자 결정 11/17, 비전 중복 줄이기): OCR 쪽에 figures 키가 있으면 사진·그림·차트·도장 영역이 있는 쪽만.
   // 없으면(이전 OCR) has_images || reason==='image'. 글자·표만 있는 쪽은 masked/pages를 만들지 않아 ImageDescribe가 빠진다
@@ -122,12 +125,16 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
   for (const p of targets?.pages ?? []) {
     const n = String(p.page_index).padStart(4, '0');
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
-    const fig = isFigurePage(p);
+    // scan(이미지만 있고 글자 층 없는 쪽, 데이터 #147): 구조 신호로는 서명·명함·자필 쪽과 설정 화면·흐름도를 못 가른다 →
+    // 글자 개인정보 상자가 있거나 OCR 글자에 서명 낱말이 있으면 그림 쪽, OCR 이 없으면 확인 불가라 그림 쪽(fail-closed). 모델 호출 추가 없음 (데이터·총괄 11/23)
+    // ponytail: 낱말 없는 선 서명 스캔은 못 잡음 — 놓침이 다시 보이면 scan 쪽 전부 그림 쪽(쪽마다 ImageDescribe 1회)
+    let fig = isFigurePage(p) || (p.scan === true && !o);
     if (!o) {
       if (fig) out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
       continue;
     }
     const boxes = await piiBoxes(o, deps.guardrail);
+    if (!fig && p.scan === true) fig = boxes.length > 0 || SIGN_WORDS.test(o.blocks.map((b) => b.text).join(' '));
     const png = blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o);
     await deps.putBytes(`${doc_id}/masked/view/${n}.png`, png, 'image/png');
     if (!fig) continue;

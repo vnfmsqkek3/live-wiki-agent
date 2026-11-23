@@ -113,3 +113,28 @@ test('그림 쪽: OCR 이 그림으로 못 본 쪽도 PageRender graphics=true(�
   assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0000.png`], 'graphics 쪽만 그림 분석 입력');
   assert.deepEqual(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').map((f) => f.evidence_ref), ['page:0']);
 });
+
+test('그림 쪽: 이미지만 있는 쪽(scan)은 글자 개인정보 상자·서명 낱말이 있거나 OCR 이 없으면 그림 쪽, 설정 화면 같은 쪽은 아님 (데이터 #147·총괄 11/23)', async () => {
+  const { memoryStore } = await import('../src/store.ts');
+  const store = memoryStore();
+  const doc_id = 'doc_scan';
+  const now = new Date().toISOString();
+  await store.putDoc({ doc_id, version: 1, owner: 'u', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'QUARANTINED', authority_status: 'UNVERIFIED', freshness: 'CURRENT', findings: [], created_at: now, updated_at: now } as never);
+  const texts = ['대출 약정서 차주 서명', '김하나 과장 010-1234-5678', '스캔 설정 화면 해상도 300dpi', '', '본문'];
+  const objs = new Map<string, unknown>([
+    ...texts.map((t, i) => [`${doc_id}/work/segments/000${i}.json`, { doc_id, page_index: i, text: t }] as [string, unknown]),
+    [`${doc_id}/work/pages/ocr_targets.json`, { pages: texts.map((_, i) => ({ page_index: i, reason: 'all', has_images: i < 4, graphics: false, scan: i < 4 })) }],
+    // 3쪽은 OCR 결과 없음
+    [`${doc_id}/work/ocr/result.json`, { pages: [0, 1, 2, 4].map((page_index) => ({ page_index, width: 10, height: 10, blocks: [{ text: texts[page_index], bbox: [0, 0, 10, 10] }], figures: [] })) }],
+  ]);
+  const put: string[] = [];
+  const png = (await import('pngjs')).PNG;
+  const img = png.sync.write(new png({ width: 10, height: 10 }));
+  const scan = makePiiScan({
+    store, listKeys: async (pre) => [...objs.keys()].filter((k) => k.startsWith(pre)), getJson: async <T>(k: string) => { if (!objs.has(k)) throw new Error('nf'); return objs.get(k) as T; },
+    putJson: async (k, v) => { objs.set(k, v); }, getBytes: async () => new Uint8Array(img), putBytes: async (k) => { put.push(k); },
+  });
+  const r = await scan({ doc_id, workflow_id: 'wf' } as never);
+  assert.deepEqual(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').map((f) => f.evidence_ref), ['page:0', 'page:1', 'page:3'], '서명 낱말·개인정보 상자·OCR 없음');
+  assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0000.png`, `${doc_id}/masked/pages/0001.png`]);
+});
