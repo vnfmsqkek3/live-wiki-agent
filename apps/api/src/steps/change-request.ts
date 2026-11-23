@@ -5,6 +5,8 @@ export interface ChangeRequest {
   status: 'OPEN' | 'APPLIED' | 'REJECTED'; decided_by?: string; decided_at?: string; decision_reason?: string; new_doc_id?: string;
   /** IMPACT: 규정 개정 영향 초안 (POST /v1/admin/impact/draft). law·path = 개정 규정·조문, requested_by = 초안을 만든 결재자 */
   source?: 'IMPACT'; law?: string; path?: string; requested_by?: string;
+  /** IMPACT: 개정 내용 (프론트 8차 11/23). provision_id = 새 개정본 조문 ID, 날짜 YYYY-MM-DD. 초안을 만들 때 저장 */
+  revision?: { provision_id: string; law_name: string; label: string; kind: string; old_text: string; new_text: string; effective_from: string; current_effective_from: string };
 }
 export const CHANGE_SYSTEM = `당신은 은행 내부 위키 편집 검토자다. <before>는 게시된 문서의 한 문장(또는 짧은 구간), <request>는 읽는 사람이 낸 수정 요청, <context>는 그 주변 글이다.
 요청이 적절한지 판단하고, 적절하면 before 를 고친 after 를 낸다.

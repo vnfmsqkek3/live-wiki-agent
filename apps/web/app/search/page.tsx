@@ -5,7 +5,7 @@ import { PageHeader } from '../page-header';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type LibraryCard, type SearchItem } from '../lib/api';
-import { FreshnessFlag, Popularity, Seal } from '../seal';
+import { FreshnessFlag, Popularity, Scheduled, Seal } from '../seal';
 import { PageThumb } from '../page-thumb';
 
 // 문서 종류로 거른다 (태그는 AI가 붙인 자유 문구라 필터로 쓰면 0건이 되기 쉽다)
@@ -141,7 +141,7 @@ function Results() {
               {recent.map((i) => (
                 <li className="entry" key={i.doc_id}>
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
-                  <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
+                  <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
                   <FreshnessFlag freshness={i.freshness} />
                   {(i.version_count ?? 1) > 1 && <p className="note">전체 {i.version_count}개 판 · 오늘 시행 중인 판</p>}
                   {i.summary && <p className="card-summary">{i.summary}</p>}
@@ -172,7 +172,7 @@ function Results() {
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
                 <Seal i={{ ...i, freshness: i.freshness }} />
-                <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
+                <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
                                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
                   {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
@@ -194,7 +194,7 @@ function Results() {
                 {related.map((i, n) => (
                   <li className="entry" key={`w-${i.doc_id}-${n}`}>
                     <Seal i={{ ...i, freshness: i.freshness }} />
-                    <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a></h3>
+                    <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
                                         <dl><dt>찾은 이유</dt><dd>{i.reason}</dd></dl>
                     <SearchMatches item={i} limit={1} weak />
                     <a href={`/library?id=${encodeURIComponent(i.doc_id)}`}>문서 보기 →</a>
