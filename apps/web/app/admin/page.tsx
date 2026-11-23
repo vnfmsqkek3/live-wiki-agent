@@ -4,14 +4,14 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type DocChange, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
+import { api, ApiError, getSession, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
 import { accountLabel } from '../lib/roles';
 import { readable } from '../lib/readable';
 import { Icon } from '../icons';
-import { Seal } from '../seal';
+import { FreshnessFlag, Scheduled, Seal, todayKst } from '../seal';
 
-interface Item { approval_id: string; doc_id: string; own?: boolean; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string; kept?: { text: string; reason: string; system: boolean }[]; checks_count?: number; checks?: { code: string; text: string; message: string }[] }
+interface Item { approval_id: string; doc_id: string; own?: boolean; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string; kept?: { text: string; reason: string; system: boolean }[]; checks_count?: number; checks?: { code: string; text: string; message: string }[]; effective_from?: string | null; freshness?: LibraryCard['freshness']; freshness_reason?: FreshnessReason | null }
 interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_MISMATCH' | 'BLOCKED'; findings: { message: string; user_message?: string; evidence_ref: string }[] }
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
@@ -37,7 +37,16 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
 
 /** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
 /** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
-type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string };
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string; revision?: CrRevision };
+/** IMPACT 수정 요청의 개정 시행일·현행 값 (총괄 11/23: 시행 예정 개정을 '현행과 다른 틀린 제안'으로 오해) */
+function Revision({ r }: { r: CrRevision }) {
+  const soon = r.effective_from! > todayKst();
+  return <p className="notice" style={{ display: 'block' }}>
+    <strong>{r.effective_from} 시행{soon ? ' 예정' : ''} 개정 반영 초안</strong>{r.label && <> · {r.law_name} {r.label}</>}
+    {r.old_text && <><br />현행{r.current_effective_from ? `(${r.current_effective_from}판)` : ''}은 「{r.old_text}」{r.new_text && <>, 개정 후 「{r.new_text}」</>}</>}
+    {soon && <><br />시행일 전입니다. 반영은 시행일 이후에 하세요 (그 전까지는 현행 조문이 맞습니다).</>}
+  </p>;
+}
 function ChangeRequests() {
   const [items, setItems] = useState<CR[] | null>(null);
   const [edit, setEdit] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
@@ -61,6 +70,7 @@ function ChangeRequests() {
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
           <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}</p>
+          {i.revision?.effective_from && <Revision r={i.revision} />}
           <blockquote className="basis"><p>{i.before}</p></blockquote>
           {i.request && <p><strong>요청:</strong> {readable(i.request)}</p>}
           {!i.after && i.source === 'IMPACT' && <p className="danger-text">AI 초안 없음: 바꿀 문장을 직접 쓰거나 문서에서 직접 고치세요.</p>}
@@ -180,7 +190,8 @@ export default function Admin() {
                 {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
                 <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : i.version ? '새 버전' : '새 문서'} · {i.kept?.length ? `승인자 판단 ${i.kept.length}건` : i.checks_count ? `확인 필요 ${i.checks_count}건` : 'AI 검사 통과'}</span>
                 {i.own && <span className="kind-tag own" title="관리자 본인이 올린 문서입니다. 승인하면 자기 승인으로 기록됩니다.">본인 문서</span>}
-                <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
+                <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link><Scheduled date={i.effective_from} /></h3>
+                {i.freshness && <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} max={1} />}
                 {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
                 {i.checks?.length ? <div className="kept-conflicts"><p className="danger-text"><strong>근거 확인이 필요한 문장 {i.checks_count ?? i.checks.length}건 — 승인자 확인</strong></p><ul>{i.checks.map((c, n) => <li key={n}>{c.text}<span className="note"> — {c.message}</span></li>)}</ul></div> : null}
                 {i.kept?.length ? <div className="kept-conflicts"><p className="danger-text"><strong>규정과 어긋난 문장 {i.kept.length}건 — 승인자 판단</strong></p><ul>{i.kept.map((k, n) => <li key={n}>{k.text}<span className="note"> — {k.system ? '재검사에서 새로 나옴(고치지 않은 문장)' : `올린 사람: 그대로 사용(${k.reason})`}</span></li>)}</ul></div> : null}
