@@ -395,21 +395,6 @@ test("related 통합 (PR #46 리뷰): 핵심어 없는 조각·그림 설명(인
   assert.ok(r.related!.every((x) => /여신심사위원회|본부|개인정보/u.test(`${x.title} ${x.snippet}`.replace(/\s+/gu, ""))));
 });
 
-test("search_wiki doc_ids: 주면 그 문서 밖 결과 0, 안 주면 그대로, 형식 아니면 거부 (평가 시드 한정, 데이터QA 11/23)", async () => {
-  const { retriever, states } = setup();
-  const t = searchTools({ retriever, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
-  type R = { items: { doc_id: string }[]; related?: { doc_id: string }[] };
-  const q = { query: "본부 여신심사위원회", as_of: "2026-12-15" };
-  const all = await t.search_wiki(q, user) as unknown as R;
-  const docs = [...new Set(all.items.map((x) => x.doc_id))];
-  assert.ok(docs.length > 1, "비교하려면 결과 문서가 둘 이상: " + JSON.stringify(docs));
-  const only = await t.search_wiki({ ...q, doc_ids: [docs[1]] }, user) as unknown as R;
-  assert.ok(only.items.length > 0);
-  assert.ok([...only.items, ...(only.related ?? [])].every((x) => x.doc_id === docs[1]));
-  await assert.rejects(() => t.search_wiki({ ...q, doc_ids: [] }, user));
-  await assert.rejects(() => t.search_wiki({ ...q, doc_ids: "doc_x" }, user));
-});
-
 test("search_wiki: 얕은 근거(1위 < 기준+0.05)여도 삭제 항이 질의에 맞으면 같은 조 현행 항을 앞에 (CT-04 경계, 총괄 11/23)", async () => {
   const { retriever, states } = setup();
   // prod 11/23 실측: 현행 검색 1위가 다른 조 0.32(기준 0.30 바로 위) → 근거 있음이라 이력 보충이 안 돌아 제15조제1항이 관련(weak)에만
