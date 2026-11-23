@@ -369,7 +369,10 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
 
   return {
     async search_wiki(args: Record<string, unknown>, actor: Actor) {
-      return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true, ...classArgs(args) }, topK(args), args["rewrite"] !== false);
+      // doc_ids(선택): 이 문서들 안에서만 (평가 실행기가 시드 문서로 한정, QA 문서 간섭 제외 — 데이터QA·총괄 11/23). 재작성·#163 경로는 그대로
+      const docIds = args["doc_ids"];
+      if (docIds !== undefined && (!Array.isArray(docIds) || !docIds.length || docIds.length > 100 || docIds.some((d) => typeof d !== "string"))) throw new ToolError("INVALID_ARGUMENT", "doc_ids: 문자열 1~100개");
+      return run(str(args, "query"), actor, { asOf: asOfYmd(args), indexGroups: groupsArg(args), includeHistory: args["include_history"] === true, ...classArgs(args), ...(docIds ? { docIds: docIds as string[] } : {}) }, topK(args), args["rewrite"] !== false);
     },
 
     /** 문서 전체를 쪽별로 (외부 MCP 클라이언트·문서 생성 앱용, interfaces 11장). 게시본(마스킹)에서만 읽어 지금 게시된 버전과 항상 같다.
