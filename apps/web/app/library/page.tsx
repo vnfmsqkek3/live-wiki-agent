@@ -446,7 +446,7 @@ function Download({ id, edited, hasOriginal, onPrint }: { id: string; edited?: b
 function DocActions({ d, canWikiEdit, onEdit, onPrint }: { d: LibraryDoc; canWikiEdit: boolean; onEdit: () => void; onPrint: () => void }) {
   const [more, setMore] = useState(false);
   const admin = isAdmin(getSession()?.groups);
-  const owner = !!d.can_delete && !admin; // can_delete = 작성자 또는 결재자
+  const owner = !!(d.is_owner ?? d.can_delete) && !admin; // is_owner(백엔드 11/23) 없으면 옛 기준 can_delete(작성자 또는 결재자). 게시 문서 삭제는 admin만이라 can_delete로는 작성자를 못 가림
   const prim = admin && d.freshness === 'REVIEW_REQUIRED' ? 'cr' : canWikiEdit ? (admin || owner ? 'wiki' : 'req') : null;
   const wiki = (solid: boolean) => <button type="button" className={`btn${solid ? ' solid' : ''}`} onClick={onEdit} title="새 버전 초안을 만들어 결재를 요청합니다"><Icon name="edit" />위키에서 고치기</button>;
   const main = prim === 'cr' ? <Link className="btn solid" href="/admin#cr-h" title="이 문서에 들어온 수정 요청을 결재함에서 확인합니다"><Icon name="approval" />수정 요청 보기</Link>
