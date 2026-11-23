@@ -134,6 +134,8 @@ const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMess
 const ratingOf = (r?: Rating) => ({ ...(r?.count ? { rating: { avg: r.avg, count: r.count } } : {}), ...(r?.useful_count ? { useful_count: r.useful_count } : {}) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
+/** 문서 삭제 권한 (사용자 결정 11/23, 11/17 B 변경): 결재자는 모두, 작성자는 게시 전(PUBLISHED 아님)만 — 승인받아 게시된 지식은 혼자 내리지 못한다 */
+const canDelete = (a: Actor, d: DocumentRecord) => hasRole(a, APPROVERS) || (d.owner === a.sub && d.lifecycle !== 'PUBLISHED');
 /** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
 export const markKey = (m: Pick<Mark, 'kind' | 'reason'> & { original?: string | null }) => `${m.kind}|${m.original ?? m.reason}`.slice(0, 400);
 /** 공백만 다른 같은 문장을 본문에서 찾아 본문 쪽 글자를 돌려준다 (없으면 undefined) */
@@ -481,7 +483,7 @@ export function createApp(deps: Deps) {
   app.delete('/v1/documents/:id', async (c) => {
     const a = c.get('actor');
     const d = await loadDoc(c, c.req.param('id'));
-    if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('FORBIDDEN', 'owner or approver only');
+    if (!canDelete(a, d)) throw new ApiError('FORBIDDEN', d.owner === a.sub ? '게시된 문서는 결재자만 삭제할 수 있습니다' : 'owner or approver only');
     const b = await body(c, DeleteBody);
     const at = new Date().toISOString();
     const next: DocumentRecord = {
@@ -1114,7 +1116,7 @@ export function createApp(deps: Deps) {
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
-      can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
+      can_delete: canDelete(a, d), is_owner: d.owner === a.sub, // 작성자 행동 막대 판단 (can_delete 가 게시 문서에서 false 가 된 뒤, 프론트 11/23)
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
         lifecycle: d.lifecycle,
