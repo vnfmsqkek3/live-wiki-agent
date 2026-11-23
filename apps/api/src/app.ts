@@ -233,6 +233,8 @@ export function createApp(deps: Deps) {
     const b = { markdown };
     const t = await store.getDoc(id);
     if (!t || t.lifecycle === 'DELETED' || (t.owner !== a.sub && !(t.lifecycle === 'PUBLISHED' && canRead(a, t.acl_groups)))) throw new ApiError('NOT_FOUND', 'document not found');
+    // 게시 문서의 새 버전(위키에서 고치기)은 결재자만 (사용자 결정 11/23 B). 사용자는 [수정 요청]. 내 검토 중 문서 고치기는 그대로
+    if (t.lifecycle === 'PUBLISHED' && !hasRole(a, APPROVERS)) throw new ApiError('FORBIDDEN', '게시된 문서는 결재자만 고칠 수 있습니다. [수정 요청]을 남겨 주세요');
     const type = t.document_type ?? t.classification?.document_type;
     if (type === 'REGULATION') throw new ApiError('CONFLICT', '규정은 위키에서 고칠 수 없습니다. 개정된 원본 파일을 올려 주세요');
     if (t.freshness === 'SUPERSEDED') throw new ApiError('CONFLICT', '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요');
@@ -1117,6 +1119,8 @@ export function createApp(deps: Deps) {
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
       can_delete: canDelete(a, d), is_owner: d.owner === a.sub, // 작성자 행동 막대 판단 (can_delete 가 게시 문서에서 false 가 된 뒤, 프론트 11/23)
+      // 위키에서 고치기(새 버전) 가능 여부: 결재자·게시·규정 아님·최신 버전 (사용자 결정 11/23 B). editDoc 과 같은 기준
+      can_wiki_edit: hasRole(a, APPROVERS) && d.lifecycle === 'PUBLISHED' && (d.document_type ?? d.classification?.document_type) !== 'REGULATION' && d.freshness !== 'SUPERSEDED',
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
         lifecycle: d.lifecycle,
