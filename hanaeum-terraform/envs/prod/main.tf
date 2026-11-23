@@ -30,7 +30,8 @@ module "stack" {
   lambda_refs               = { yoyo0704 = "0a090c1", dhxorb96 = "0675f57", let522mj = "0a090c1" }
   ocr_source_ref            = "620108a"
   webapp_source_ref         = "0675f57" # 웹·API (ECS·CloudFront)
-  agents_source_ref         = "0a090c1" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
+  agents_source_ref         = "0859c00" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
+  pipeline_runtime_image_tag = "0a090c1" # ponytail: 11/23 가이드만 #150 핫픽스. 파이프라인은 0a090c1 고정, 다음 정식 배포 때 이 줄 삭제
   enable_transaction_search = true      # 계정 단위 자원 (dev destroy 11/18 23:22 뒤 prod 가 보유)
   team_lambdas = [
     "type-detection", "file-structure-check", "pii-scan", "injection-scan", "classify", "trust-gate", "wait-for-approval", "finalize",
