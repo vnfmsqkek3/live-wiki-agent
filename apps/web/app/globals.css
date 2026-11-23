@@ -1028,3 +1028,7 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
   .more-btn { display: inline-flex; }
 }
 .document-header > .doc-actions { grid-column: 1 / -1; }
+/* 문서 종류 배지 색 (사용자 11/23): 검증(청록)·경고(코랄)와 겹치지 않는 남색·황토·보라. 연한 바탕 + 진한 글자, 대비 AA */
+.kind-tag.kind-regulation { background: var(--navy-050); border-color: var(--navy-600); color: var(--navy-600); }
+.kind-tag.kind-knowhow { background: #FFF4D6; border-color: #7A5200; color: #7A5200; } /* 황토: 검증 청록·경고 코랄·규정 남색과 다른 계열 (총괄 11/23) */
+.kind-tag.kind-manual { background: var(--violet-050); border-color: var(--violet-700); color: var(--violet-700); }

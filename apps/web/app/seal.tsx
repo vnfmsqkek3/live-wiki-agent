@@ -84,6 +84,12 @@ export function Popularity({ r }: { r?: { avg: number; count: number } }) {
 
 /** 「이름」: 전각 괄호 글리프의 안쪽 여백 때문에 '「 이름 」'처럼 띄어 보이는 것을 줄인다 (사용자 11/23, 데이터에는 공백 없음) */
 export const Q = ({ children }: { children: ReactNode }) => <span className="q"><span className="ql">「</span>{children}<span className="qr">」</span></span>;
+/** 문서 종류 배지: 규정·노하우·매뉴얼을 색으로도 구분 (사용자 11/23). 글자는 항상 보인다(색만으로 구분하지 않음) */
+const KIND: Record<string, string> = { REGULATION: '규정', KNOWHOW: '노하우', MANUAL: '매뉴얼' };
+export function KindTag({ type }: { type?: string | null }) {
+  const t = type && KIND[type] ? type : 'KNOWHOW';
+  return <span className={`kind-tag kind-${t.toLowerCase()}`}>{KIND[t]}</span>;
+}
 export const todayKst = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 const soon = (date?: string | null): date is string => !!date && date > todayKst();
 const md = (date: string) => `${+date.slice(5, 7)}월 ${+date.slice(8, 10)}일`;

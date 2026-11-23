@@ -10,7 +10,7 @@ import { Suspense, useEffect, useId, useRef, useState, type ReactNode } from 're
 import { ConfirmCurrent } from '../confirm-current';
 import { isAdmin } from '../lib/roles';
 import { api, ApiError, getSession, isCheck, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
-import { FreshnessFlag, Popularity, Scheduled, Seal, Upcoming } from '../seal';
+import { FreshnessFlag, KindTag, Popularity, Scheduled, Seal, Upcoming } from '../seal';
 import { WikiEditor } from '../wiki-editor';
 import { LibraryTree } from '../library-tree';
 import { CardBoundary } from '../card-boundary';
@@ -175,6 +175,7 @@ function List() {
           {sorted(items, sort).map((d) => (
             <li className="entry" key={d.doc_id}>
               <Seal i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
+              <KindTag type={d.document_type} />
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link><Scheduled date={d.effective_from} /></h3>
               <FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} max={1} /><Upcoming u={d.upcoming} />
               <dl>
