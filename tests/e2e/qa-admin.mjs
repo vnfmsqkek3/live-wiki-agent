@@ -63,7 +63,8 @@ await login('admin');
 await go('/admin', 5000);
 const collected = new Map();
 for (;;) {
-  const visible = await ev("[...document.querySelectorAll('.approval-categories a[href*=from]')].map((a) => [a.textContent.trim(), a.getAttribute('href')])");
+  // 세 번째 값: 결재 카드(재검증 요청 버튼 있음) 여부. 수정 요청(CR)·참고 카드 링크는 A2·A3 대상이 아님 (9차: CR 카드를 집어 FAIL)
+  const visible = await ev("[...document.querySelectorAll('.approval-categories a[href*=from]')].map((a) => [a.textContent.trim(), a.getAttribute('href'), [...(a.closest('li')?.querySelectorAll('button') ?? [])].some((b) => b.textContent.trim() === '재검증 요청')])");
   for (const link of visible) collected.set(link[1], link);
   const before = await ev('location.href');
   const next = await ev("(() => { const b = document.querySelector('button[data-page-next]:not(:disabled)'); if (!b) return false; b.click(); return true; })()");
@@ -76,7 +77,7 @@ const links = [...collected.values()];
 check('A1', links.length === 0 ? 'partial' : links.every(([, h]) => h.includes('from=admin')), links.length ? `결재함 제목 링크 ${links.length}개` : '결재 대상 없음 (해당 없음)', await shot('A1-admin'));
 // 점검 대상: QA_ADMIN_DOCS(쉼표, doc_id)가 없으면 결재함 목록에 지금 있는 문서 앞에서 3건 (데이터 초기화 뒤에도 동작)
 const targets = process.env.QA_ADMIN_DOCS ? process.env.QA_ADMIN_DOCS.split(',').map((id) => [id.slice(-6), id])
-  : links.slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
+  : links.filter(([, , approval]) => approval).slice(0, 3).map(([t, h]) => [t.slice(0, 20), new URL(h, BASE).searchParams.get('id')]);
 for (const [name, id] of targets) {
   await go('/admin', 4000);
   const ok = await findAcrossPages(`(() => { const a = [...document.querySelectorAll('.approval-categories a[href*=from]')].find((x) => x.getAttribute('href').includes(${JSON.stringify(id)})); if (!a) return false; a.click(); return true; })()`);
