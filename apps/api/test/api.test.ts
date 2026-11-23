@@ -738,6 +738,13 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   assert.equal(list.items.filter((x) => x.source === 'IMPACT').length, 2);
   assert.deepEqual(list.items[0]!.revision, { provision_id: 'SYN-LOAN-001@2027-01-01/ARTICLE:12', law_name: '하나은행 기업여신 심사규정', label: '제12조', kind: 'MODIFIED',
     old_text: '한도는 5억 원', new_text: '한도는 3억 원', effective_from: '2027-01-01', current_effective_from: '2026-11-01' });
+  // 시행 예정(2027-01-01) 개정판 기준 제안은 시행일 전 반영 불가 (G-KREV-02 왕복, 총괄 11/23)
+  assert.equal((list.items[0] as { apply_after?: string }).apply_after, '2027-01-01');
+  const early = await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.items[0]!.id}`, { decision: 'APPLY' });
+  assert.equal(early.status, 409);
+  assert.match(((await early.json()) as { error: { message: string } }).error.message, /2027-01-01부터 반영/);
+  const cur = (await t.store.getDoc(doc_id))!; // 시행일이 지났다고 두고 반영
+  await t.store.putDoc({ ...cur, change_requests: cur.change_requests!.map((x) => ({ ...x, revision: x.revision && { ...x.revision, effective_from: '2026-01-01' } })) });
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.items[0]!.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.lifecycle, 'QUARANTINED');

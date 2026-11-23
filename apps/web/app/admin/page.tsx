@@ -37,16 +37,18 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
 
 /** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
 /** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
-type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string; revision?: CrRevision };
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string; revision?: CrRevision; apply_after?: string | null };
 /** IMPACT 수정 요청의 개정 시행일·현행 값 (총괄 11/23: 시행 예정 개정을 '현행과 다른 틀린 제안'으로 오해) */
 function Revision({ r }: { r: CrRevision }) {
   const soon = r.effective_from! > todayKst();
   return <p className="notice" style={{ display: 'block' }}>
     <strong>{r.effective_from} 시행{soon ? ' 예정' : ''} 개정 반영 초안</strong>{r.label && <> · {r.law_name} {r.label}</>}
     {r.old_text && <><br />현행{r.current_effective_from ? `(${r.current_effective_from}판)` : ''}은 「{r.old_text}」{r.new_text && <>, 개정 후 「{r.new_text}」</>}</>}
-    {soon && <><br />시행일 전입니다. 반영은 시행일 이후에 하세요 (그 전까지는 현행 조문이 맞습니다).</>}
+    {soon && <><br />{r.effective_from}부터 반영할 수 있습니다. 그 전까지는 현행 조문이 맞으므로 [초안으로 새 버전 만들기]는 잠겨 있습니다.</>}
   </p>;
 }
+/** 시행일 전 개정에서 나온 수정 요청은 반영 불가 (총괄 11/23 왕복). 기준은 백엔드 apply_after(#160), 없던 옛 API면 개정 시행일로 */
+const notYet = (i: CR) => i.apply_after ?? (i.revision?.effective_from && i.revision.effective_from > todayKst() ? i.revision.effective_from : null);
 function ChangeRequests() {
   const [items, setItems] = useState<CR[] | null>(null);
   const [edit, setEdit] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
@@ -59,7 +61,7 @@ function ChangeRequests() {
       const r = await api<{ new_doc_id: string | null }>('POST', `/v1/admin/change-requests/${encodeURIComponent(i.doc_id)}/${encodeURIComponent(i.id)}`, { decision, reason: why[i.id] ?? '', after: edit[i.id] ?? i.after ?? '' });
       if (r.new_doc_id) { location.href = `/review?id=${encodeURIComponent(r.new_doc_id)}`; return; }
       setItems((x) => x && x.filter((y) => y.id !== i.id));
-    } catch (e) { const x = e as ApiError; if (decision === 'APPLY' && x.status === 409) setManual((m) => ({ ...m, [i.id]: true })); else setMsg(x.message); }
+    } catch (e) { const x = e as ApiError; if (decision === 'APPLY' && x.status === 409 && !/시행/.test(x.message)) setManual((m) => ({ ...m, [i.id]: true })); else setMsg(x.message); }
   }
   if (!items?.length) return null;
   const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
@@ -78,7 +80,7 @@ function ChangeRequests() {
           <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
           <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
           <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
-          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim()} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
+          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim() || !!notYet(i)} title={notYet(i) ? `${notYet(i)}부터 반영할 수 있습니다` : undefined} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
           {manual[i.id] && <p className="error" role="alert">본문에서 이 문장을 찾지 못해 초안으로 반영할 수 없습니다. <Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>문서를 열어 [위키에서 고치기]로 직접 고쳐 주세요.</Link></p>}
         </li>
       ))}</ol>
