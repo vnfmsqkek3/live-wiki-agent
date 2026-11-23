@@ -387,7 +387,8 @@
       "expected_conflict": false,
       "upload_file": "documents/pdf/K-005.pdf",
       "expected_status": "UNVERIFIED",
-      "test_scenario": "업로드 → PiiScan 마스킹(형식별 전부) → 검색·가이드·외부 MCP 응답에 원문 0"
+      "test_scenario": "업로드 → PiiScan 마스킹(형식별 전부) → 검색·가이드·외부 MCP 응답에 원문 0",
+      "expected_external_laws": []
     }
   ]
 }
