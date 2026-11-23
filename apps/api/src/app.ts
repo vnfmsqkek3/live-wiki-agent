@@ -806,8 +806,10 @@ export function createApp(deps: Deps) {
   app.get('/v1/admin/in-review', async (c) => {
     need(c, APPROVERS);
     const me = c.get('actor').sub;
-    const items = (await store.listDocs()).filter((d) => d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED')
-      .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 50)
+    // all=1: 데모 초기화(demo-reset)용 — 게시·삭제가 아닌 모든 문서(결재 대기·차단·분석 중 포함), 상한 500 (총괄 11/23). 화면 기본은 그대로
+    const all = c.req.query('all') === '1';
+    const items = (await store.listDocs()).filter((d) => (all ? d.lifecycle !== 'PUBLISHED' && d.lifecycle !== 'DELETED' : d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED'))
+      .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, all ? 500 : 50)
       .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at,
         // 출처 불일치면 게시 요청이 409 → '게시 요청만 남음'이 아니라 '출처 확인 대기' (프론트 요청 11/20)
         source_mismatch: hasSourceMismatch(d) && !d.source_review }));

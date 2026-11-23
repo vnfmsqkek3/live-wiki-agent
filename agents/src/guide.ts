@@ -109,6 +109,18 @@ export function citableFrom(result: unknown, lawName?: string): Evidence[] {
     && e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED').map(asCitable);
 }
 
+/** 법령 ID로만 표기된 조문 근거(제목 = 법령 ID: Agent가 조문 조회에 ID를 넣은 경우) */
+export const unnamedLaws = (ev: Evidence[]) => [...new Set(ev.filter((e) => e.provision_id?.includes('@') && e.title === e.provision_id.split('@')[0]).map((e) => e.title))];
+/** Registry 규정 이름으로 제목·조항 표기를 바꾼다 (8차, 백엔드 제안: 'SYN-LOAN-001 제10조제1항' → '하나은행 기업여신 심사규정 제10조제1항'). provision_id 불변 */
+export function applyLawNames(ev: Evidence[], names: Map<string, string>) {
+  for (const e of ev) {
+    const n = names.get(e.title);
+    if (!n || e.provision_id?.split('@')[0] !== e.title) continue;
+    e.title = n;
+    if (e.provision && !e.provision.startsWith(n)) e.provision = `${n} ${e.provision}`;
+  }
+}
+
 export interface GuideDeps {
   /** expand 'section': 걸린 장 전체 조각(쪽 순서)까지 — 조합별 절차 검색에 쓴다 */
   search(query: string, opts?: { expand?: 'section' }): Promise<Evidence[]>;
@@ -226,7 +238,7 @@ const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나
 - 질문한 예외·우대·가산이 근거에 없고, 같은 주제의 조문(상한·금지·기준)은 찾았으면 그 조문을 출처로 '조문은 ○○만 정한다'는 단계를 쓰고, 예외가 없다는 점은 '근거에서 확인되지 않음'으로 uncertainty 에 적는다(근거 없이 '없다'고 단정하지 않는다). 과거 시점 질문은 조문 조회 Tool에 그 날짜를 as_of 로 넣어 그 시점 조문을 확인한다.
 - uncertainty·단계 문장에 내부 상태 코드(UNVERIFIED·VERIFIED·related·search_status·provision_id 등)를 쓰지 않는다. '확인되지 않음', '참고 조문'처럼 사용자 말로 쓴다.
 - 조문이 '다음 각 호'로 나열한 서류·요건은 각 호를 따로 나란히 쓴다(예: '최근 3년간 재무제표, 사업자등록증 사본, 담보물 감정평가서 세 가지'). 한 호 안에 다른 호가 '포함'된 것처럼 괄호로 합치지 않는다. 다른 항의 조건(유효기간 등)은 그 조건이 걸린 호 바로 뒤에만 붙인다. 근거에 없는 후속 조치(재발급 요청·사진 첨부 등)를 덧붙이지 않는다 (데모 05 11/23).
-- 조회한 조문이 다른 항·호를 가리키면(예: '제1항제3호의 감정평가서') 그 항도 조회해 단계에 함께 쓴다. 서류·확인 절차 질문이면 서류 목록 조문을 빠뜨리지 않는다.
+- 조회한 조문이 다른 항·호를 가리키면(예: '제1항제3호의 감정평가서') 그 항도 조회해 단계에 함께 쓴다. 서류·확인 절차 질문이면 서류 목록 조문을 빠뜨리지 않고, 같은 조의 다른 항에 있는 조건(유효기간·기한·승인 기준 등)도 항 단위로 조회해 함께 쓴다.
 - 근거 표의 칸이 비어 있으면 추측하지 말고 '원본 표에 기재 없음'이라고 쓰고, 표에 사유(예: 임원 전용)가 있으면 함께 적는다. 외부 공식 법령(fetch_official_law)은 참고로만 쓰고 uncertainty에 '외부 법령 참고(미검증)'라고 적는다.`;
 export { SYSTEM as GUIDE_SYSTEM };
 
