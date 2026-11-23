@@ -120,12 +120,12 @@ test('그림 쪽: 이미지만 있는 쪽(scan)은 글자 개인정보 상자·�
   const doc_id = 'doc_scan';
   const now = new Date().toISOString();
   await store.putDoc({ doc_id, version: 1, owner: 'u', title: 't', dept: 'd', acl_groups: ['ALL'], ext: 'pdf', lifecycle: 'QUARANTINED', authority_status: 'UNVERIFIED', freshness: 'CURRENT', findings: [], created_at: now, updated_at: now } as never);
-  const texts = ['대출 약정서 차주 서명', '김하나 과장 010-1234-5678', '스캔 설정 화면 해상도 300dpi', '', '본문'];
+  const texts = ['대출 약정서 차주 서명', '김하나 과장 010-1234-5678', '스캔 설정 화면 해상도 300dpi', '', '본문', ''];
   const objs = new Map<string, unknown>([
     ...texts.map((t, i) => [`${doc_id}/work/segments/000${i}.json`, { doc_id, page_index: i, text: t }] as [string, unknown]),
-    [`${doc_id}/work/pages/ocr_targets.json`, { pages: texts.map((_, i) => ({ page_index: i, reason: 'all', has_images: i < 4, graphics: false, scan: i < 4 })) }],
-    // 3쪽은 OCR 결과 없음
-    [`${doc_id}/work/ocr/result.json`, { pages: [0, 1, 2, 4].map((page_index) => ({ page_index, width: 10, height: 10, blocks: [{ text: texts[page_index], bbox: [0, 0, 10, 10] }], figures: [] })) }],
+    [`${doc_id}/work/pages/ocr_targets.json`, { pages: texts.map((_, i) => ({ page_index: i, reason: 'all', has_images: i !== 4, graphics: false, scan: i !== 4 })) }],
+    // 3쪽은 OCR 결과 없음, 5쪽은 OCR 은 있지만 글자 블록 0개(얼굴 사진·선 서명만)
+    [`${doc_id}/work/ocr/result.json`, { pages: [0, 1, 2, 4, 5].map((page_index) => ({ page_index, width: 10, height: 10, blocks: texts[page_index] ? [{ text: texts[page_index], bbox: [0, 0, 10, 10] }] : [], figures: [] })) }],
   ]);
   const put: string[] = [];
   const png = (await import('pngjs')).PNG;
@@ -135,6 +135,6 @@ test('그림 쪽: 이미지만 있는 쪽(scan)은 글자 개인정보 상자·�
     putJson: async (k, v) => { objs.set(k, v); }, getBytes: async () => new Uint8Array(img), putBytes: async (k) => { put.push(k); },
   });
   const r = await scan({ doc_id, workflow_id: 'wf' } as never);
-  assert.deepEqual(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').map((f) => f.evidence_ref), ['page:0', 'page:1', 'page:3'], '서명 낱말·개인정보 상자·OCR 없음');
-  assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0000.png`, `${doc_id}/masked/pages/0001.png`]);
+  assert.deepEqual(r.findings?.filter((f) => f.code === 'PII_IMAGE_REVIEW').map((f) => f.evidence_ref), ['page:0', 'page:1', 'page:3', 'page:5'], '서명 낱말·연락처 모양·OCR 없음·글자 블록 0개');
+  assert.deepEqual(put.filter((k) => k.includes('/masked/pages/')), [`${doc_id}/masked/pages/0000.png`, `${doc_id}/masked/pages/0001.png`, `${doc_id}/masked/pages/0005.png`]);
 });

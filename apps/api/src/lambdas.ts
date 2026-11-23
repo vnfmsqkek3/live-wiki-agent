@@ -134,7 +134,8 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
       continue;
     }
     const boxes = await piiBoxes(o, deps.guardrail);
-    if (!fig && p.scan === true) fig = boxes.length > 0 || SIGN_WORDS.test(o.blocks.map((b) => b.text).join(' '));
+    // 글자 블록 0개(얼굴 사진·선 서명만)도 확인 불가라 그림 쪽 (인프라 리뷰 #155)
+    if (!fig && p.scan === true) fig = !o.blocks.length || boxes.length > 0 || SIGN_WORDS.test(o.blocks.map((b) => b.text).join(' '));
     const png = blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o);
     await deps.putBytes(`${doc_id}/masked/view/${n}.png`, png, 'image/png');
     if (!fig) continue;
