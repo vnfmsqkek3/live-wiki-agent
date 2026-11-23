@@ -1,6 +1,6 @@
 import { changePrompt, type ChangeRequest } from './steps/change-request.ts';
 import { groupLaws } from './steps/external-laws.ts';
-import { ackItem, makeCarry } from './steps/carry.ts';
+import { ackItem, CR_APPLIED, makeCarry } from './steps/carry.ts';
 import { sentences } from './steps/edit-review.ts';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -382,7 +382,7 @@ export function createApp(deps: Deps) {
       const text = await editText(d.doc_id);
       if (!text.includes(cr.before)) throw new ApiError('CONFLICT', '문서가 바뀌어 요청한 부분을 찾지 못했습니다');
       // 관리자가 승인한 변경: 바뀐 원래 문장의 '중요 문장 삭제'는 이 결정으로 확인된 것으로 잇는다 (재검사에서 다시 막지 않음)
-      const acks = sentences(cr.before).map((x) => ackItem('EDIT_REMOVED_KEY_SENTENCE', x.slice(0, 160), a.sub, '수정 요청 반영(관리자 승인)'));
+      const acks = sentences(cr.before).map((x) => ackItem('EDIT_REMOVED_KEY_SENTENCE', x.slice(0, 160), a.sub, CR_APPLIED));
       const r = await editDoc(a, d.doc_id, text.replace(cr.before, after), acks);
       next = { status: 'APPLIED', new_doc_id: r.doc_id, ...(reason ? { decision_reason: mask(reason, detectPii(reason)) } : {}) };
     } else throw new ApiError('VALIDATION', 'decision 은 APPLY 또는 REJECT');

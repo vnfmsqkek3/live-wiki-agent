@@ -31,6 +31,8 @@ const h = (s: string) => createHash('sha256').update(norm(s)).digest('hex').slic
 const textOf = (f: Finding) => String((f.details as { before?: unknown } | undefined)?.before ?? f.location?.excerpt ?? f.message);
 const keyOf = (f: Finding) => h(`${f.code}|${textOf(f)}`);
 
+/** 관리자가 승인해 반영한 수정 요청의 확인 사유 (app.ts 수정 요청 반영 → applyCarry 가 알아본다) */
+export const CR_APPLIED = '수정 요청 반영(관리자 승인)';
 /** 이미 내린 결정을 새 버전에 미리 잇는다 (예: 관리자가 승인해 반영한 수정 요청으로 바뀐 문장의 '중요 문장 삭제' — 11/19 팀 계정 G4) */
 export const ackItem = (code: string, text: string, by: string, reason: string): ReviewCarry['items'][number] => ({ code, key: h(`${code}|${text}`), status: 'ACK', reason, by, at: new Date().toISOString() });
 
@@ -60,6 +62,10 @@ export function applyCarry(c: ReviewCarry | undefined, findings: Finding[]): Fin
       if (prev?.status === 'OPEN') return [f];
       const t = norm(textOf(f));
       return t && norm(c.text).includes(t) ? [] : [f]; // 고치지 않은 문장의 새 질문은 만들지 않는다
+    }
+    // 승인된 수정 요청으로 바뀐 문장은 '빠진 중요 문장'이 아니라 바뀐 문장: LOW 안내로 ('되돌려 주세요'가 개정 반영을 되돌리라고 읽힘, G-KREV-02 11/23)
+    if (prev?.status === 'ACK' && ack && !f.acknowledged && f.code === 'EDIT_REMOVED_KEY_SENTENCE' && prev.reason === CR_APPLIED) {
+      return [{ ...f, fix_hint: undefined, acknowledged: ack, severity: 'LOW' as const, message: '승인된 수정 요청으로 바뀐 문장', user_message: `승인된 수정 요청으로 바뀐 문장입니다 (이전 문장: "${textOf(f).slice(0, 80)}")` }];
     }
     if (prev?.status === 'ACK' && ack && !f.acknowledged) return [{ ...f, acknowledged: ack }];
     // 규정 충돌: 고치지 않은 문장에서 재검사로 새로 나온 것은 올린 사람을 막지 않고 승인자에게 보인다 (사용자 결정 11/18, 규칙 2 완화)
