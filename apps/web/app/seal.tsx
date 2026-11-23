@@ -84,6 +84,12 @@ export function Popularity({ r }: { r?: { avg: number; count: number } }) {
 
 /** 「이름」: 전각 괄호 글리프의 안쪽 여백 때문에 '「 이름 」'처럼 띄어 보이는 것을 줄인다 (사용자 11/23, 데이터에는 공백 없음) */
 export const Q = ({ children }: { children: ReactNode }) => <span className="q"><span className="ql">「</span>{children}<span className="qr">」</span></span>;
+/** 문서 종류 배지: 규정·노하우·매뉴얼을 색으로도 구분 (사용자 11/23). 글자는 항상 보인다(색만으로 구분하지 않음) */
+const KIND: Record<string, string> = { REGULATION: '규정', KNOWHOW: '노하우', MANUAL: '매뉴얼' };
+export function KindTag({ type }: { type?: string | null }) {
+  const t = type && KIND[type] ? type : 'KNOWHOW';
+  return <span className={`kind-tag kind-${t.toLowerCase()}`}>{KIND[t]}</span>;
+}
 export const todayKst = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 const soon = (date?: string | null): date is string => !!date && date > todayKst();
 const md = (date: string) => `${+date.slice(5, 7)}월 ${+date.slice(8, 10)}일`;
@@ -99,7 +105,7 @@ export function Upcoming({ u }: { u?: LibraryCard['upcoming'] }) {
 }
 
 /** '근거 규정이 바뀌어 재검토 중' + 바로 아래 이유 상자(aria-describedby로 연결). reason이 없으면 배너만 */
-export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: SearchItem['freshness']; reason?: FreshnessReason | null; max?: number }) {
+export function FreshnessFlag({ freshness, reason, max = 3, compact = false }: { freshness: SearchItem['freshness']; reason?: FreshnessReason | null; max?: number; compact?: boolean }) {
   const id = useId();
   if (freshness === 'SUPERSEDED') return <span className="flag"><Icon name="alert" />개정·폐지되어 현행이 아닌 판</span>;
   if (freshness !== 'REVIEW_REQUIRED') return null;
@@ -114,12 +120,13 @@ export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: Searc
     <p className="reason-head" id={id}>{flag}</p>
     <p><b>재검토 사유</b> {r.deleted_doc ? <>근거로 쓰던 <Q>{law}</Q> 문서가 삭제되었습니다.</>
       : <>근거 규정 <Q>{law}</Q>{labels.length ? ` ${labels.join(', ')}` : ''}이 {r.effective_from && <><span className="num">{r.effective_from}</span> {soon(r.effective_from) ? '시행 예정인 ' : '시행 '}</>}개정판으로 바뀌었습니다.{r.cited_revision && <> 이 문서는 <span className="num">{r.cited_revision}</span> 판을 근거로 승인되었습니다.</>}{soon(r.effective_from) && ' 시행일 전까지는 현행 조문이 적용됩니다.'}</>}</p>
-    {changes.slice(0, max).map((c, i) => <div key={i}>
+    {/* 목록 카드(compact)는 제목 + 사유 한 줄만, 전체는 상세에서 (엔드유저 13차: 카드가 너무 김) */}
+    {!compact && changes.slice(0, max).map((c, i) => <div key={i}>
       {(c.old_text || c.new_text !== undefined) && <p><b>{c.label ?? readable(c.provision_id)}</b> <del>{c.old_text || '(없음)'}</del> → <ins>{c.new_text === '' ? '(개정본에서 삭제)' : c.new_text ?? '(확인 못 함)'}</ins></p>}
       {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text.replace(/^(\d+\.)(?=[^\s\d])/, '$1 ')}</p>}
     </div>)}
     {/* 결재자만 할 수 있는 행동은 결재자에게만 (엔드유저 11/23: 읽는 직원은 할 일이 없음) */}
-    {isAdmin(getSession()?.groups) ? <><p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+    {compact ? null : isAdmin(getSession()?.groups) ? <><p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
       {soon(r.effective_from) && <p>수정 반영은 <span className="num">{r.effective_from}</span>부터 가능합니다. 개정 후에도 이 문서를 고칠 필요가 없으면 지금 [변경 없이 유효로 확인하기]를 눌러도 됩니다.</p>}</>
       : <p><b>읽는 분께</b> {soon(r.effective_from) ? <>시행일(<span className="num">{r.effective_from}</span>) 전까지는 현행 기준으로 업무하세요. </> : '바뀐 조문을 먼저 확인하고 업무에 쓰세요. '}담당 결재자가 이 문서를 고칠지 확인하고 있습니다.</p>}
   </div>;
