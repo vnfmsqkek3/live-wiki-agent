@@ -114,7 +114,7 @@ export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: Searc
       : <>근거 규정 「{law}」{labels.length ? ` ${labels.join(', ')}` : ''}이 {r.effective_from && <><span className="num">{r.effective_from}</span> {soon(r.effective_from) ? '시행 예정인 ' : '시행 '}</>}개정판으로 바뀌었습니다.{r.cited_revision && <> 이 문서는 <span className="num">{r.cited_revision}</span> 판을 근거로 승인되었습니다.</>}{soon(r.effective_from) && ' 시행일 전까지는 현행 조문이 적용됩니다.'}</>}</p>
     {changes.slice(0, max).map((c, i) => <div key={i}>
       {(c.old_text || c.new_text !== undefined) && <p><b>{c.label ?? readable(c.provision_id)}</b> <del>{c.old_text || '(없음)'}</del> → <ins>{c.new_text === '' ? '(개정본에서 삭제)' : c.new_text ?? '(확인 못 함)'}</ins></p>}
-      {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text.replace(/^(\d+\.)(?=\S)/, '$1 ')}</p>}
+      {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text.replace(/^(\d+\.)(?=[^\s\d])/, '$1 ')}</p>}
     </div>)}
     {/* 결재자만 할 수 있는 행동은 결재자에게만 (엔드유저 11/23: 읽는 직원은 할 일이 없음) */}
     {isAdmin(getSession()?.groups) ? <p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
