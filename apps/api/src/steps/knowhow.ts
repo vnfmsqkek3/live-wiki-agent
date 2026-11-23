@@ -137,6 +137,11 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
   const externalItems = checked.filter(isExt);
   const internal = checked.filter((j) => !isExt(j));
 
+  // 현행 조문과 충돌하지만 시행 예정 개정판(같은 조문, 미래 시행 VERIFIED)과 일치: 영향 초안대로 미리 고친 문장 → 충돌이 아니라 안내(LOW).
+  // 안 하면 개정판 기준 영향 초안 반영 → 새 버전 검사가 현행 기준으로 '되돌리라'는 왕복 (사용자 보고 G-KREV-02, 총괄 지시 11/23)
+  const early = await upcomingMatches(internal.filter((j) => j.relation === 'CONFLICTS' && j.verified_quote), byId, deps.judge);
+  // 주장(claims)은 개정판 조문에 묶는다: 시행일 이후 영향 분석이 이 문장을 '개정으로 바뀐 근거'로 다시 잡지 않게
+  for (const [j, n] of early) Object.assign(j, { relation: 'SUPPORTS', provision_id: n.provision_id, quote: n.quote, label: n.label, reason: `시행 예정 개정(${n.effective} 시행)과 일치 — 시행일 전까지는 현행 ${n.current}과 다름` });
   // 수정 문장: 인용이 조문 원문에서 확인된 충돌만. 실패해도 판정은 그대로
   // (INSUFFICIENT는 고쳐 쓸 기준이 없어 지어내고, SUPPLEMENTS는 모델이 내용까지 바꿔 의무를 '권장'으로 낮춤 → 화면이 원문에 '권장' 어미만 붙인다. 실측 11/17)
   const fixable = checked.filter((j) => j.verified_quote && j.relation === 'CONFLICTS');
@@ -153,6 +158,11 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
       location: { excerpt: j.statement.slice(0, 120) },
       user_message: `"${j.statement.slice(0, 60)}" 문장이 ${j.label}과 맞지 않습니다: ${j.reason}`.slice(0, 300),
       fix_hint: (j.suggestion ? `이렇게 고쳐 주세요: "${j.suggestion}"` : `근거 조문에 맞게 고쳐 주세요. 조문: "${j.quote}"`).slice(0, 300),
+    }));
+  for (const [j, n] of early)
+    findings.push(fnd('LOW', 'KNOWHOW_UPCOMING_MATCH', `현행 ${n.current}와 다르지만 시행 예정 개정판(${n.effective})과 일치`.slice(0, 300), n.provision_id, {
+      location: { excerpt: j.statement.slice(0, 120) },
+      user_message: `"${j.statement.slice(0, 60)}" 문장은 시행 예정 개정(${n.effective} 시행)에 맞춘 내용입니다. 시행일 전까지는 현행 ${n.current}과 다릅니다.`.slice(0, 300),
     }));
   for (const o of outdated)
     findings.push(fnd('MEDIUM', 'KNOWHOW_OUTDATED_CITATION', `개정 전 조문 인용 → 현행 ${o.label} 기준으로 재검토 필요`, o.cited, {
@@ -183,6 +193,24 @@ export async function validateKnowhow(maskedText: string, deps: KnowhowDeps): Pr
     gate: verdict === 'SUPPORTED' ? 'PASS' : 'REVIEW_REQUIRED',
     ...(verdict === 'OUTDATED' || verdict === 'CONFLICT' ? { freshness: 'REVIEW_REQUIRED' as const } : {}),
   };
+}
+
+/** 충돌 문장 중 같은 조문의 시행 예정 개정판과 일치하는 것. 개정판 조문으로 한 번 더 판정(인용이 개정판 원문에 있어야 인정). 실패하면 빈 Map(충돌 그대로) */
+async function upcomingMatches(conflicts: (Judgement & { label: string })[], byId: Map<string, Clause>, judge: KnowhowDeps['judge']) {
+  const out = new Map<Judgement & { label: string }, { provision_id: string; effective: string; quote: string; label: string; current: string }>();
+  // 인용한 조문이 현행(ACTIVE)인데 newer 가 있으면 newer 는 시행 전 개정판 (knowhow-deps clauseGetter: 더 새 VERIFIED, 현행이면 그보다 미래)
+  const cand = conflicts.map((j) => ({ j, c: byId.get(j.provision_id) })).filter((x): x is { j: typeof x.j; c: Clause } => !!x.c && x.c.status === 'ACTIVE' && !!x.c.newer && !x.c.newer.deleted && !!x.c.newer.text);
+  if (!cand.length) return out;
+  const eff = (pid: string) => /@(\d{4}-\d{2}-\d{2})\//.exec(pid)?.[1] ?? '시행 예정';
+  const newer = [...new Map(cand.map(({ j, c }) => [c.newer!.provision_id, { provision_id: c.newer!.provision_id, label: `${j.label} (${eff(c.newer!.provision_id)} 시행 예정)`, text: c.newer!.text, status: 'ACTIVE' as const, effective_from: eff(c.newer!.provision_id) }])).values()];
+  const r = await judge(cand.map((x) => x.j.statement).join('\n'), newer).catch(() => ({ items: [] as Judgement[] }));
+  for (const { j, c } of cand) {
+    const n = c.newer!;
+    const hit = r.items.find((x) => x.provision_id === n.provision_id && (x.relation === 'SUPPORTS' || x.relation === 'SUPPLEMENTS')
+      && !!x.quote && norm(n.text).includes(norm(x.quote)) && (norm(x.statement).includes(norm(j.statement)) || norm(j.statement).includes(norm(x.statement))));
+    if (hit) out.set(j, { provision_id: n.provision_id, effective: eff(n.provision_id), quote: hit.quote, label: `${j.label} (${eff(n.provision_id)} 시행 예정)`, current: j.label });
+  }
+  return out;
 }
 
 const externalSkipped = (skipped: string[]): Finding[] => (skipped.length ? [extStep(fnd('LOW', 'KNOWHOW_EXTERNAL_SKIPPED', `외부 법령 대조 생략: ${skipped.join(' / ')}`.slice(0, 300), 'external', {

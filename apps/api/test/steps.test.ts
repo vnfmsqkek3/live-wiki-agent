@@ -429,6 +429,18 @@ test('carry ackItem: 관리자가 반영한 수정 요청의 원래 문장은 �
   carry.items.push(...sentences('1. 신청서는 IT인프라팀 팀장의 승인을 받은 뒤 접수한다.').map((s) => ackItem('EDIT_REMOVED_KEY_SENTENCE', s.slice(0, 160), 'u-admin', '수정 요청 반영(관리자 승인)')));
   const out = applyCarry(carry, f);
   assert.equal(out[0]!.acknowledged?.by, 'u-admin');
+  // 승인된 수정 요청으로 바뀐 문장은 '되돌려 주세요'가 아니라 LOW 안내 (G-KREV-02 왕복 11/23)
+  assert.equal(out[0]!.severity, 'LOW');
+  assert.equal(out[0]!.fix_hint, undefined);
+  assert.match(out[0]!.user_message!, /^승인된 수정 요청으로 바뀐 문장입니다/);
+  // 사람이 '의도한 삭제'로 확인한 것은 그대로(MEDIUM·안내 유지)
+  const own = makeCarry(before, []);
+  own.items.push(...sentences('1. 신청서는 IT인프라팀 팀장의 승인을 받은 뒤 접수한다.').map((s) => ackItem('EDIT_REMOVED_KEY_SENTENCE', s.slice(0, 160), 'u-author', '의도한 삭제')));
+  assert.equal(applyCarry(own, editReview(before, after).findings)[0]!.severity, 'MEDIUM');
+  // 작성자가 사유에 CR_APPLIED 문자열을 그대로 적어도(사용자 확인 → makeCarry) 강등 안 됨
+  const { CR_APPLIED } = await import('../src/steps/carry.ts');
+  const forged = editReview(before, after).findings.map((x) => ({ ...x, acknowledged: { by: 'u-author', at: 't', reason: CR_APPLIED } }));
+  assert.equal(applyCarry(makeCarry(before, forged), editReview(before, after).findings)[0]!.severity, 'MEDIUM');
 });
 
 test('allocate: 같은 문장·종류에서 겹치는 질문은 짧은 쪽 하나만 (11/19 팀 계정 C1)', async () => {

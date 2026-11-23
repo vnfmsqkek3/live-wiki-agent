@@ -310,3 +310,29 @@ test('법령 ID로만 표기된 조문 근거는 Registry 규정 이름으로 (8
   assert.equal(e[0]!.title, '하나은행 기업여신 심사규정'); assert.equal(e[0]!.provision, '하나은행 기업여신 심사규정 제10조제1항');
   assert.equal(e[0]!.provision_id, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1'); assert.deepEqual(unnamedLaws(e), []);
 });
+
+test('조 전체 조회 결과의 하위 항·호도 각자 provision_id 로 인용 근거 (Tool 상한 대비, 8차)', () => {
+  const B = 'SYN-LOAN-001@2026-11-01/ARTICLE:10';
+  const ev = citableFrom({ search_status: 'FOUND', provision_id: B, path_label: '제10조', law_id: 'SYN-LOAN-001', original_text: '(심사 서류)', children: [
+    { provision_id: `${B}/PARAGRAPH:1`, path_label: '제10조제1항', status: 'ACTIVE', original_text: '심사역은 다음 각 호의 서류를 받아야 한다.' },
+    { provision_id: `${B}/PARAGRAPH:1/ITEM:1`, path_label: '제10조제1항제1호', status: 'ACTIVE', original_text: '최근 3년간 재무제표' },
+    { provision_id: `${B}/PARAGRAPH:2`, path_label: '제10조제2항', status: 'ACTIVE', original_text: '감정평가서는 6개월 이내의 것이어야 한다.' },
+    { provision_id: `${B}/PARAGRAPH:3`, path_label: '제10조제3항', status: 'DELETED', original_text: '삭제' }] }, '기업여신 심사규정');
+  assert.deepEqual(ev.map((e) => e.provision_id), [B, `${B}/PARAGRAPH:1`, `${B}/PARAGRAPH:1/ITEM:1`, `${B}/PARAGRAPH:2`]);
+  assert.match(ev[1]!.snippet, /다음 각 호.*최근 3년간 재무제표/); assert.equal(ev[3]!.provision, '기업여신 심사규정 제10조제2항');
+});
+
+test('엔드유저 8차: 시스템 사정 문구 숨김·상위/하위 조문 중복 출처는 상위만', async () => {
+  const { humanize, topSources } = await import('../src/guide.ts');
+  const { hideSystem } = await import('../src/guide.ts');
+  const t = hideSystem('제10조제2항은 도구 조회 한도 초과로 확인하지 못하였음 — 원문을 확인할 것. 대출 한도는 5억원이다.');
+  assert.equal(humanize('신용정보 조회 한도는 1일 3회이다.', new Map()), '신용정보 조회 한도는 1일 3회이다.', '단계 본문의 정상 문장은 그대로');
+  assert.match(hideSystem('제10조제2항 등 추가 항의 내용은 조회 한도 초과로 확인하지 못하였습니다.'), /^일부 조문은 직접 확인하지 못했습니다/);
+  assert.equal(hideSystem('신용정보 조회 한도는 1일 3회이다.'), '신용정보 조회 한도는 1일 3회이다.', '도구 낱말 없으면 그대로');
+  assert.equal(humanize('심사역은 담보물 감정평가서를 포함한 다음 서류를 징구한다: ① 재무제표', new Map()), '심사역은 다음 서류를 징구한다: ① 재무제표');
+  assert.equal(humanize('심사역은 담보물감정평가서를 포함한 아래 서류를 받는다.', new Map()), '심사역은 아래 서류를 받는다.');
+  assert.doesNotMatch(t, /한도 초과/); assert.match(t, /일부 조문은 직접 확인하지 못했습니다/); assert.match(t, /대출 한도는 5억원이다/);
+  const e = (provision_id: string) => ({ doc_id: provision_id, provision_id, title: 't', snippet: 's' }) as Evidence;
+  const B = 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1';
+  assert.deepEqual(topSources([e(B), e(`${B}/ITEM:1`), e('SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2')]).map((x) => x.provision_id), [B, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2']);
+});
