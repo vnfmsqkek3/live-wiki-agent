@@ -850,4 +850,9 @@ test('반려 사유: 작성자 review·문서보관함 상세에 rejection_reaso
   await t.store.putDoc({ ...x, lifecycle: 'IN_REVIEW', findings: [{ finding_id: 'r1', step: 'TRUST_GATE', severity: 'HIGH', code: 'REGISTRY_MISMATCH', message: 'm', evidence_ref: 'e' }] } as never);
   const ir = (await (await t.call('approver', 'GET', '/v1/admin/in-review')).json()) as { items: { doc_id: string; source_mismatch: boolean }[] };
   assert.equal(ir.items.find((i) => i.doc_id === d2)!.source_mismatch, true);
+  // demo-reset 용 all=1: 반려 등 게시·삭제가 아닌 문서도 (화면 기본 목록엔 없음, 총괄 11/23)
+  assert.ok(!ir.items.some((i) => i.doc_id === doc_id));
+  const all = (await (await t.call('approver', 'GET', '/v1/admin/in-review?all=1')).json()) as { items: { doc_id: string; lifecycle: string }[] };
+  assert.deepEqual(all.items.map((i) => i.doc_id).sort(), [doc_id, d2].sort());
+  assert.equal((await t.call('author', 'GET', '/v1/admin/in-review?all=1')).status, 403);
 });
