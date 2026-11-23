@@ -8,7 +8,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/legal-parser';
-import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
+import { card, freshnessView, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
 import { currentRevisions } from './steps/freshness.ts';
@@ -97,6 +97,8 @@ export interface Deps {
   /** Change Impact 수정 초안 (AI팀 steps/impact-draft.ts: impactPrompt → 모델 → checkImpactDraft). 없으면 UNKNOWN 으로만 저장 */
   /** Gateway 안에서 일어난 거부(AgentCore Policy·interceptor). API 감사 DB 밖이라 Gateway 로그에서 읽는다 (P1 데모 06, 11/20). sub 는 넘기지 않는다 */
   gatewayDenials?(since: string): Promise<{ at: string; role: string; tool: string; reason: string; trace_id: string }[]>;
+  /** 조문 ID → 원문·표기·더 새 개정본 같은 조문 (knowhow-deps clauseGetter). 재검토 사유 상자 */
+  clause?(provision_id: string): Promise<import('./steps/knowhow.ts').Clause | undefined>;
   draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string; /** 개정 규정 이름 → 초안 괄호 인용에 붙임 (AI팀 11/20) */ law_name?: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
@@ -141,6 +143,9 @@ export const looseFind = (text: string, s: string) => {
   return new RegExp(chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*'), 'u').exec(text)?.[0];
 };
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
+
+/** 조문 경로 → 사람 표기 (ARTICLE:12/PARAGRAPH:1 → 제12조제1항). Registry 표기를 못 읽었을 때만 */
+const pathLabel = (p: string) => p.split('/').map((seg) => { const [k, n] = seg.split(':'); return k === 'ARTICLE' ? `제${n}조` : k === 'PARAGRAPH' ? `제${n}항` : k === 'ITEM' ? `제${n}호` : k === 'SUBITEM' ? `${n}목` : ''; }).join('') || p;
 
 export function createApp(deps: Deps) {
   const app = new Hono<Env>();
@@ -593,6 +598,17 @@ export function createApp(deps: Deps) {
         on_provision: r.provision_id ? { supports: (c.SUPPORTS ?? 0) + (c.SUPPLEMENTS ?? 0), conflicts: c.CONFLICTS ?? 0, unclear: c.INSUFFICIENT ?? 0 } : null };
     });
   }
+  // 재검토 이유 보충 (프론트 8차 11/23): 영향 수정 제안(IMPACT)이 없는 재검토(GraphUpsert 가 주장을 provision_revised 로 표시)는
+  // 주장의 인용 조문 ↔ 새 개정본 조문을 Registry 에서 읽어 changes 1건. 조문 조회 비용 때문에 상세에서만
+  async function claimChange(claims: { provision_id: string | null; quote: string | null; statement: string; status: string; status_reason: string | null }[]) {
+    const c = claims.find((r) => r.status === 'REVIEW_REQUIRED' && r.status_reason?.startsWith('provision_revised:') && r.provision_id);
+    if (!c || !deps.clause) return undefined;
+    const newId = c.status_reason!.slice('provision_revised:'.length);
+    const [before, after] = await Promise.all([deps.clause(c.provision_id!).catch(() => undefined), deps.clause(newId).catch(() => undefined)]);
+    const path = /제\s*\d.*$/.exec(after?.label ?? before?.label ?? '')?.[0] ?? '';
+    return { change: { provision_id: newId, label: path, kind: !after || after.status === 'DELETED' ? 'DELETED' : 'MODIFIED', old_text: before?.text ?? '', new_text: after && after.status !== 'DELETED' ? after.text : '', cited_text: c.quote ?? c.statement },
+      effective_from: after?.effective_from ?? '' };
+  }
   // 관리자: 지식 부채 (게시 문서 주장 기준). knowledge_debt 뷰 그대로
   app.get('/v1/admin/knowledge-debt', async (c) => {
     need(c, APPROVERS);
@@ -719,7 +735,7 @@ export function createApp(deps: Deps) {
     if (!law || law.length > 200 || !/^doc_[0-9A-Z]{26}$/.test(doc_id)) throw new ApiError('VALIDATION', 'law(1~200자)·doc_id 필요');
     if (!deps.traceImpact) throw new ApiError('NOT_FOUND', '영향 분석 도구가 연결되지 않았습니다');
     type Ev = { cited_provision_id: string; evidence_span: string; change: { path: string; kind: string; old_text: string; new_text: string } };
-    const r = await deps.traceImpact({ law }, c.get('token')).catch(() => { throw new ApiError('NOT_FOUND', '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다'); }) as { law_id?: string; impacted?: { doc_id: string; evidence?: Ev[] }[] };
+    const r = await deps.traceImpact({ law }, c.get('token')).catch(() => { throw new ApiError('NOT_FOUND', '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다'); }) as { law_id?: string; old_revision?: string; new_revision?: string; impacted?: { doc_id: string; evidence?: Ev[] }[] };
     const hit = r.impacted?.find((i) => i.doc_id === doc_id);
     // 초안 인용 '(제15조제1항)'에 규정 이름을 붙이도록 Registry 이름을 넘긴다 (사용자 피드백 11/20)
     const lawName = r.law_id ? (await store.listDocs()).find((x) => x.law_id === r.law_id && x.law_name)?.law_name : undefined;
@@ -740,7 +756,15 @@ export function createApp(deps: Deps) {
         context: text.slice(Math.max(0, i - 1500), i + before.length + 1500) }).catch(() => undefined) : undefined;
       // 마지막 방어: AI팀 checkImpactDraft 를 거친 값이어도 PII·무변경이면 버린다
       const after = j?.verdict === 'APPROPRIATE' && j.after?.trim() && j.after.trim() !== before && !detectPii(j.after).length ? j.after.trim() : undefined;
-      const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: 'system:impact', at, before: before ?? span,
+      // 개정 내용(프론트 8차): 조문 표기·시행일은 Registry 조문에서, 없으면 개정 ID(날짜)·경로
+      const newPid = r.law_id && r.new_revision ? `${r.law_id}@${r.new_revision}/${ev.change.path}` : '';
+      const [oc, nc] = deps.clause ? await Promise.all([deps.clause(ev.cited_provision_id).catch(() => undefined), newPid ? deps.clause(newPid).catch(() => undefined) : undefined]) : [];
+      const lbl = nc?.label ?? oc?.label ?? '';
+      const path = /제\s*\d.*$/.exec(lbl)?.[0] ?? '';
+      const ymd = (s?: string) => (/^\d{4}-\d{2}-\d{2}/.test(s ?? '') ? s!.slice(0, 10) : '');
+      const revision = { provision_id: newPid || ev.cited_provision_id, law_name: lbl.slice(0, lbl.length - path.length).trim() || lawName || law, label: path || pathLabel(ev.change.path), kind: ev.change.kind,
+        old_text: ev.change.old_text.slice(0, 2000), new_text: ev.change.new_text.slice(0, 2000), effective_from: nc?.effective_from || ymd(r.new_revision), current_effective_from: oc?.effective_from || ymd(r.old_revision) };
+      const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: 'system:impact', at, before: before ?? span, revision,
         request: mask(`근거 조문 개정(${ev.change.path}, ${ev.change.kind}): ${ev.change.old_text.slice(0, 200)} → ${ev.change.new_text.slice(0, 200)}`, detectPii(ev.change.new_text + ev.change.old_text)),
         verdict: !before ? 'UNKNOWN' : j ? (j.verdict === 'APPROPRIATE' && !after ? 'UNKNOWN' : j.verdict) : 'UNKNOWN', ...(after ? { after } : {}),
         ai_reason: !before ? '본문에서 근거 문장을 찾지 못했습니다' : j?.reason?.slice(0, 300) ?? 'AI 초안을 받지 못했습니다',
@@ -834,7 +858,9 @@ export function createApp(deps: Deps) {
       const kept = (d?.findings ?? []).filter((f) => f.code === 'KNOWHOW_CONFLICT' && f.acknowledged).map((f) => ({ text: (f.location?.excerpt ?? '').slice(0, 120), reason: f.acknowledged!.reason ?? '', system: f.acknowledged!.by.startsWith('system:') }));
       // 승인자도 '확인 필요'를 본다 (틀린 매뉴얼 승인 방지, 11/20)
       const checks = (d?.findings ?? []).filter((f) => CHECK_CODES.has(f.code));
-      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
+      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle,
+        effective_from: d?.effective_from ?? null, freshness: d?.freshness, freshness_reason: d ? freshnessView(d) : null, // 결재 카드 배지·재검토 이유 (프론트 8차)
+        workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
         checks_count: checks.length, checks: checks.slice(0, 5).map((f) => ({ code: f.code, text: (f.location?.excerpt ?? '').slice(0, 120), message: f.user_message ?? f.message })),
         ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
@@ -1067,7 +1093,12 @@ export function createApp(deps: Deps) {
       ...ratingOf(myRt), my_stars: myRt?.mine ?? null,
       rejection_reason: d.owner === a.sub || hasRole(a, APPROVERS) ? await rejectionReason(d) : null,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
-      claims: await docClaimsView(d),
+      ...await (async () => {
+        const cl = await docClaimsView(d);
+        const fr = base.freshness_reason;
+        const x = fr && !fr.changes.length && d.lifecycle === 'PUBLISHED' ? await claimChange(cl) : undefined;
+        return { claims: cl, ...(fr && x ? { freshness_reason: { ...fr, changes: [x.change], effective_from: fr.effective_from || x.effective_from } } : {}) };
+      })(),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
       clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) })),
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
