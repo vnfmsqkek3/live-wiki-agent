@@ -103,16 +103,18 @@ export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: Searc
   const r = reason;
   const changes = r?.changes ?? [];
   const labels = changes.length ? changes.map((c) => c.label ?? readable(c.provision_id)) : (r?.provisions ?? []).map(readable);
-  return <>
-    <span className="flag" aria-describedby={r ? id : undefined}><Icon name="alert" />근거 규정이 바뀌어 재검토 중</span>
-    {r && <div className="reason-box" id={id}>
-      {r.deleted_doc ? <p>근거로 쓰던 「{r.law_name}」 문서가 삭제되었습니다.</p> : <p><b>바뀐 규정</b> 「{r.law_name}」{labels.length > 0 && ` ${labels.join(', ')}`}</p>}
-      {r.effective_from && <p><b>개정 시행일</b> <span className="num">{r.effective_from}</span>{soon(r.effective_from) ? ' 시행 예정 (그 전까지는 현행 조문 적용)' : ' 시행'}</p>}
-      {changes.slice(0, max).map((c, i) => <div key={i}>
-        {(c.old_text || c.new_text !== undefined) && <p><b>{c.label ?? readable(c.provision_id)}</b> <del>{c.old_text || '(없음)'}</del> → <ins>{c.new_text === '' ? '(개정본에서 삭제)' : c.new_text ?? '(확인 못 함)'}</ins></p>}
-        {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text}</p>}
-      </div>)}
-      <p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
-    </div>}
-  </>;
+  const flag = <><Icon name="alert" />근거 규정이 바뀌어 재검토 중</>;
+  if (!r) return <span className="flag">{flag}</span>;
+  const law = (r.law_name ?? '').trim();
+  // 이유가 있으면 빨간 경고 상자 하나로: 제목 + '재검토 사유' (엔드유저·사용자 11/23). 날짜는 있는 것만 문장에 넣는다
+  return <div className="reason-box" role="note" aria-labelledby={id}>
+    <p className="reason-head" id={id}>{flag}</p>
+    <p><b>재검토 사유</b> {r.deleted_doc ? `근거로 쓰던 「${law}」 문서가 삭제되었습니다.`
+      : `근거 규정 「${law}」${labels.length ? ` ${labels.join(', ')}` : ''}이 ${r.effective_from ? `${r.effective_from} ${soon(r.effective_from) ? '시행 예정인 ' : '시행 '}` : ''}개정판으로 바뀌었습니다.${r.cited_revision ? ` 이 문서는 ${r.cited_revision} 판을 근거로 승인되었습니다.` : ''}${soon(r.effective_from) ? ' 시행일 전까지는 현행 조문이 적용됩니다.' : ''}`}</p>
+    {changes.slice(0, max).map((c, i) => <div key={i}>
+      {(c.old_text || c.new_text !== undefined) && <p><b>{c.label ?? readable(c.provision_id)}</b> <del>{c.old_text || '(없음)'}</del> → <ins>{c.new_text === '' ? '(개정본에서 삭제)' : c.new_text ?? '(확인 못 함)'}</ins></p>}
+      {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text}</p>}
+    </div>)}
+    <p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+  </div>;
 }
