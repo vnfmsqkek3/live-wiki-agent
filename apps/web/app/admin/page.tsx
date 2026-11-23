@@ -6,7 +6,6 @@ import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { api, ApiError, getSession, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
-import { accountLabel } from '../lib/roles';
 import { readable } from '../lib/readable';
 import { Icon } from '../icons';
 import { FreshnessFlag, Scheduled, Seal, todayKst } from '../seal';
@@ -83,7 +82,7 @@ function ChangeRequests() {
   const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
   return (
     <section aria-labelledby="cr-h" className="fix-list">
-      <h3 className="section" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h3>
+      <h3 className="section sub" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h3>
       <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
@@ -134,10 +133,8 @@ export default function Admin() {
   const markViewed = (id: string) => { markViewedDoc(id); setViewed(viewedDocs()); };
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
-  const [role, setRole] = useState('');
   const [after, setAfter] = useState<Item[]>([]);
   useEffect(() => {
-    setRole(accountLabel(getSession()?.groups as Role[] | undefined));
     // 승인 뒤 아직 게시되지 않은 문서 (게시 중이거나 실패). 실패면 단계·사유를 보여 준다
     Promise.all(['APPROVED', 'USED'].map((st) => api<{ items: Item[] }>('GET', `/v1/approvals?status=${st}`).then((r) => r.items).catch(() => [] as Item[])))
       .then((x) => setAfter(x.flat().filter((i) => i.lifecycle && i.lifecycle !== 'PUBLISHED' && i.lifecycle !== 'DELETED')));
@@ -167,7 +164,6 @@ export default function Admin() {
   return (
     <>
       <PageHeader title="결재함" description="위험한 것부터 처리하세요. 승인은 문서를 열어 본 뒤에 할 수 있습니다." action={<Link className="btn" href="/library">문서보관함</Link>} />
-      {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
       <TodoNow pending={items ? pending.length : null} source={items ? source.filter((m) => !done[m.doc_id]).length : null} />
 
@@ -175,20 +171,19 @@ export default function Admin() {
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
         <div className="approval-category-group" aria-label="결재할 일">
-          {source.length > 0 && <h3 className="section" id="source-h">출처 확인이 먼저 필요한 문서</h3>}
+          {source.length > 0 && <h3 className="section sub" id="source-h">출처 확인이 먼저 필요한 문서</h3>}
           <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                 <span className="flag"><Icon name="alert" />출처 확인 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
-                {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
-                <p className="note">위조 확정은 아닙니다. 출처가 확인될 때까지 게시 요청이 막혀 있습니다.</p>
+                {i.findings.map((f, n) => <p key={n} className="quote">{readable(f.message)}</p>)}
                 {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <><input className="field" aria-label="반려 사유" maxLength={300} placeholder="반려 사유 (예: 공식 원본과 승인 기준 금액이 다름)" value={opinion[i.doc_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.doc_id]: e.target.value }))} /><div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div></>}
               </li>
             ))}
           </PaginatedList>
 
-          <h3 className="section" id="pending-h">게시 승인 대기</h3>
+          <h3 className="section sub" id="pending-h">게시 승인 대기</h3>
           {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
           <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (

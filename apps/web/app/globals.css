@@ -976,3 +976,6 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 @media (max-width: 480px) { .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 #queue-h { margin-bottom: 0; } #queue-h + .approval-categories, #queue-h + .approval-categories .approval-category-group > .section:first-child { margin-top: 8px; }
 .stat-cards li { display: flex; } .stat-cards a { flex: 1; word-break: keep-all; }
+/* 결재함 보완 A (총괄 11/23): 넓은 화면 카드 폭, 소제목은 작게 (h2 '결재할 문서'와 겹쳐 보이지 않게) */
+.admin-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)) !important; grid-auto-rows: auto; }
+.section.sub { font-size: var(--fs-h3); color: var(--ink-700); margin: 16px 0 8px; }
