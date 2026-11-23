@@ -89,7 +89,7 @@ function GuideView() {
           <p className="meta" style={{ marginTop: 16 }}>AI 생성 안내입니다. 근거 문서를 확인해 주세요.</p>
         </>
       )}
-      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id || d.provision}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
+      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id || d.provision}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{d.provision?.startsWith(d.title) ? d.provision.slice(d.title.length).trim() : d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
     </>
   );
 }
@@ -103,7 +103,10 @@ function fixSources(g: Guide): Guide {
   const fix = (e: Evidence): Evidence => {
     if (e.doc_id.startsWith('doc_')) return e;
     const d = byLaw.get(law(e.doc_id));
-    return { ...e, doc_id: d?.doc_id ?? '', title: d?.title ?? '근거 규정', provision: `${d?.provision?.replace(/\s*제\d.*$/, '') ?? '근거 규정'} ${e.provision ?? ''}`.trim(), page: undefined };
+    const name = /^[A-Z]+-[A-Z]+-\d+/.test(e.title) ? undefined : e.title; // AI가 law_name을 채워 주면 그대로 (8차 #156)
+    const prov = e.provision ?? '';
+    return { ...e, doc_id: d?.doc_id ?? '', title: d?.title ?? name ?? '근거 규정',
+      provision: /^제/.test(prov) ? `${d?.provision?.replace(/\s*제\d.*$/, '') ?? name ?? '근거 규정'} ${prov}` : prov, page: undefined };
   };
   const steps = (l: Guide['steps']) => l.map((s) => ({ ...s, sources: s.sources.map(fix) }));
   return { ...g, steps: steps(g.steps), sections: g.sections?.map((s) => ({ ...s, steps: steps(s.steps) })) };
