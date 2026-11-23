@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { z } from 'zod';
 import { AfterToolCallEvent, Agent, BedrockModel, BeforeToolCallEvent, McpClient } from '@strands-agents/sdk';
-import { ALLOWED_TOOLS, AS_OF_RE, GUIDE_SYSTEM, withAsOf, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, citableFrom, guide, toolBudget, type Evidence, type ToolCall } from './guide.ts';
+import { ALLOWED_TOOLS, AS_OF_RE, GUIDE_SYSTEM, withAsOf, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, applyLawNames, citableFrom, guide, toolBudget, unnamedLaws, type Evidence, type ToolCall } from './guide.ts';
 
 const env = (k: string) => {
   const v = process.env[k];
@@ -35,6 +35,20 @@ async function searchViaGateway(query: string, authorization: string, opts: { ex
 }
 
 /** 인용 규정의 시행 예정 버전 (regulation get_official_policy versions, 사용자 JWT). 기준일 이후 시행 + VERIFIED 만 */
+/** 법령 ID → Registry 규정 이름 (get_official_policy law_name). 실패한 법령은 빠진다 */
+async function lawNames(client: McpClient, ids: string[]) {
+  const m = new Map<string, string>();
+  if (!ids.length) return m;
+  const tool = (await client.listTools()).find((t) => t.name === 'regulation___get_official_policy');
+  if (!tool) return m;
+  for (const id of ids) {
+    const r = (await client.callTool(tool, { law: id })) as { content?: { type: string; text?: string }[] };
+    const n = (JSON.parse(r.content?.find((c) => c.type === 'text')?.text ?? '{}') as { law_name?: unknown }).law_name;
+    if (typeof n === 'string' && n.trim()) m.set(id, n.trim().slice(0, 80));
+  }
+  return m;
+}
+
 async function upcomingViaGateway(laws: string[], authorization: string, asOf?: string) {
   const ymd = (v: unknown) => String(v ?? '').replace(/\D/g, '').slice(0, 8);
   const today = ymd(asOf ?? new Date().toISOString());
@@ -123,6 +137,7 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
   });
   try {
     const r = await agent.invoke(prompt);
+    if (client) await Promise.race([lawNames(client, unnamedLaws(evidence).slice(0, 3)).then((m) => applyLawNames(evidence, m)).catch(() => {}), new Promise((ok) => setTimeout(ok, 5_000))]);
     return { ...(r.structuredOutput as GuideDraft), evidence, tool_calls };
   } finally {
     await client?.disconnect().catch(() => {});

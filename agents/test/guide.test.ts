@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { citableFrom, guide, MOCK_EVIDENCE, type Evidence, type GuideDraft } from '../src/guide.ts';
+import { applyLawNames, citableFrom, guide, unnamedLaws, MOCK_EVIDENCE, type Evidence, type GuideDraft } from '../src/guide.ts';
 
 const deps = (draft: GuideDraft, seen: string[] = []) => ({
   model: 'test-model',
@@ -301,4 +301,12 @@ test('조문 조회 근거 제목: 같은 응답에 규정 문서가 없으면 T
   assert.equal(a.title, '기업여신 심사규정'); assert.equal(a.provision, '기업여신 심사규정 제10조제1항');
   const b = citableFrom(r, 'SYN-LOAN-001')[0]!;
   assert.equal(b.title, 'SYN-LOAN-001'); assert.equal(b.provision, '제10조제1항');
+});
+
+test('법령 ID로만 표기된 조문 근거는 Registry 규정 이름으로 (8차)', () => {
+  const e = citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1', original_text: 'x', path_label: '제10조제1항', law_id: 'SYN-LOAN-001' }, 'SYN-LOAN-001');
+  assert.deepEqual(unnamedLaws(e), ['SYN-LOAN-001']);
+  applyLawNames(e, new Map([['SYN-LOAN-001', '하나은행 기업여신 심사규정']]));
+  assert.equal(e[0]!.title, '하나은행 기업여신 심사규정'); assert.equal(e[0]!.provision, '하나은행 기업여신 심사규정 제10조제1항');
+  assert.equal(e[0]!.provision_id, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1'); assert.deepEqual(unnamedLaws(e), []);
 });
