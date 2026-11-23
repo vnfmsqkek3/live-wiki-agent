@@ -137,7 +137,7 @@ function mock(method: string, path: string, body?: unknown): unknown {
   if (path === '/v1/guides') return MOCK_GUIDE;
   if (path === '/v1/feedback') return { ok: true };
   // 규정 변경 영향 (SYNTHETIC): 제14조제1항 개정 → K-002 직접 영향
-  if (path === '/v1/admin/change-requests') return { items: [{ id: 'cr_MOCK2', doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', before: '1억원 이하는 감정평가서만으로 처리한다.', request: '', verdict: 'UNKNOWN', after: null, ai_reason: '금액 기준 예외가 개정 조문과 어떻게 맞물리는지 판단할 수 없습니다.', at: '2026-11-20T09:00:00Z', source: 'IMPACT', law: '기업여신 심사규정', path: 'ARTICLE:14/PARAGRAPH:1' }] };
+  if (path === '/v1/admin/change-requests') return { items: [{ id: 'cr_MOCK2', doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', before: '1억원 이하는 감정평가서만으로 처리한다.', request: '', verdict: 'UNKNOWN', after: null, ai_reason: '금액 기준 예외가 개정 조문과 어떻게 맞물리는지 판단할 수 없습니다.', at: '2026-11-20T09:00:00Z', source: 'IMPACT', law: '기업여신 심사규정', path: 'ARTICLE:14/PARAGRAPH:1' }, { id: 'cr_MOCK3', doc_id: 'doc_KREV', title: '외국환 실무 메모 2', before: '건당 5천달러 이하 송금은 증빙 없이 처리한다.', request: '', verdict: 'APPROPRIATE', after: '건당 3천달러 이하 송금은 증빙 없이 처리한다.', ai_reason: '개정 조문이 기준 금액을 3천달러로 낮췄습니다.', at: '2026-11-22T09:00:00Z', source: 'IMPACT', law: '외국환업무 취급규정', path: 'ARTICLE:5/PARAGRAPH:1', revision: { law_name: '외국환업무 취급규정', effective_from: '2026-12-01', current_effective_from: '2026-11-01', old_text: '건당 미화 5천달러 이하', new_text: '건당 미화 3천달러 이하', kind: 'MODIFIED', label: '제5조제1항' } }] };
   if (/\/v1\/admin\/change-requests\/.+/.test(path)) { if ((body as { decision: string }).decision === 'APPLY') throw new ApiError(409, 'before not found in document'); return { new_doc_id: null }; }
   if (/\/v1\/documents\/.+\/freshness\/confirm/.test(path)) return { doc_id: path.split('/')[3], freshness: 'CURRENT', law_id: 'SYN-LOAN-001', revision: '2026-12-01' };
   if (path === '/v1/admin/impact/laws') return { items: [{ law_name: '기업여신 심사규정', versions: 2 }] };
@@ -225,7 +225,7 @@ const MOCK_REVIEW: Review = {
   masked_preview: '1. 감정평가서를 받은 뒤 3영업일 안에 담보 적정성 검토 결과를 등록한다.\n2. 담당자 연락처 [전화번호]로 평가 일정을 확인한다.\n3. 입금 계좌 [계좌번호]는 고객 확인 후 기재한다.',
 };
 
-export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
+export interface Evidence { doc_id: string; title: string; snippet: string; provision?: string; provision_id?: string; effective_from?: string; authority_status: string; freshness: string; page?: number }
 export interface Guide { status: 'OK' | 'NO_EVIDENCE'; query_masked: boolean; model: string; evidence: Evidence[]; steps: { text: string; sources: Evidence[] }[]; sections?: { title: string; note: string; steps: { text: string; sources: Evidence[] }[]; fallback?: string; source_note?: string }[]; dropped_steps: number; uncertainty: string }
 const MOCK_GUIDE: Guide = {
   status: 'OK', query_masked: false, model: 'us.anthropic.claude-sonnet-4-6', dropped_steps: 0,
@@ -253,6 +253,14 @@ export interface Mark {
 export interface CategoryNode { category_id: string; parent_id: string | null; name: string; path: string; level: number; description: string; doc_count: number }
 /** 평점 집계 (P1, 백엔드 #125): 0건이면 서버가 생략 */
 export interface Rating { avg: number; count: number }
+/** 재검토 이유. changes·open_change_requests는 백엔드 요청 중(11/23): 없으면 화면이 그 줄을 숨긴다 */
+export interface FreshnessReason {
+  law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string;
+  changes?: { provision_id: string; label?: string; kind?: string; old_text?: string; new_text?: string; cited_text?: string }[];
+  open_change_requests?: number;
+}
+/** 수정 요청(IMPACT)의 개정 정보 (백엔드 요청 중) */
+export interface CrRevision { law_name?: string; effective_from?: string; current_effective_from?: string; old_text?: string; new_text?: string; kind?: string; label?: string }
 export interface LibraryCard {
   rating?: Rating; useful_count?: number;
   category_path?: string | null; category_id?: string | null;
@@ -261,7 +269,9 @@ export interface LibraryCard {
   freshness: 'CURRENT' | 'REVIEW_REQUIRED' | 'SUPERSEDED'; effective_from: string | null; uploaded_at: string; updated_at: string; mark_count: number; edited?: boolean; has_original_upload?: boolean;
   version_count?: number;
   doc_dates?: DocDate[]; version_no?: number | null; superseded_by?: string | null;
-  freshness_reason?: { law_id: string; law_name: string; cited_revision: string; current_revision: string; effective_from: string; provisions: string[]; at: string; deleted_doc?: string } | null;
+  freshness_reason?: FreshnessReason | null;
+  /** 같은 규정의 시행 예정 개정판 (총괄 11/23, 백엔드 요청 중) */
+  upcoming?: { doc_id: string; version_no?: number | null; effective_from: string } | null;
   related: { doc_id: string; title: string; relation: 'CITES' | 'CITED_BY' | 'CONFLICTS' | 'SIMILAR'; reason: string; document_type?: string }[];
 }
 export interface Verification {
@@ -305,13 +315,16 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
     doc_id: 'doc_F001', title: '기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED', business_path: ['여신'], tags: ['공식규정'],
     version_no: 2, version_count: 2,
     summary: '기업여신 심사 절차와 승인 기준을 정합니다. 3억원 이상은 본부 승인, 부동산 담보는 금액과 관계없이 현장 실사를 해야 합니다.',
-    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', uploaded_at: '2026-11-16T10:50:00Z', updated_at: '2026-11-16T11:13:00Z', mark_count: 0,
+    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', uploaded_at: '2026-11-16T10:50:00Z', updated_at: '2026-11-16T11:13:00Z', mark_count: 0, upcoming: { doc_id: 'doc_F001_v2', version_no: 2, effective_from: '2026-12-01' },
     related: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
     doc_marks: [], pages: [{ page: 0, text: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.\n\n제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
   },
 ];
 
 // 이전 판은 상세에서 열 수 있지만 보관함에는 대표 판만 표시한다.
+MOCK_LIBRARY.push({ ...MOCK_LIBRARY[1]!, doc_id: 'doc_F001_v2', version_no: 2, effective_from: '2026-12-01', upcoming: null });
+MOCK_LIBRARY.push({ ...MOCK_LIBRARY[0]!, doc_id: 'doc_KREV', title: '외국환 실무 메모 2', freshness: 'REVIEW_REQUIRED', mark_count: 0, freshness_reason: { law_id: 'SYN-FX-001', law_name: '외국환업무 취급규정', cited_revision: '2026-11-01', current_revision: '2026-12-01', effective_from: '2026-12-01', provisions: ['SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1'], at: '2026-11-22T09:00:00Z', open_change_requests: 1,
+  changes: [{ provision_id: 'SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1', label: '제5조제1항', kind: 'MODIFIED', old_text: '건당 미화 5천달러 이하', new_text: '건당 미화 3천달러 이하', cited_text: '건당 5천달러 이하 송금은 증빙 없이 처리한다.' }] } });
 MOCK_LIBRARY.push({ ...MOCK_LIBRARY[1]!, doc_id: 'doc_F001_old', version_no: 1, freshness: 'SUPERSEDED', effective_from: '2025-01-01', updated_at: '2025-01-01T00:00:00Z', superseded_by: 'doc_F001', summary: '개정 전 승인 기준: 5억원 이상 본부 승인.', pages: [{ page: 0, text: '제12조(승인 기준) ② 담보가액이 5억원 이상인 경우 본부 승인을 받아야 한다.', summary: '개정 전 승인 기준입니다.', marks: [] }] });
 
 /** 가이드 스트리밍 (SSE): 진행 문구를 onProgress로, 마지막에 결과. 서버가 스트림을 못 주면 JSON으로 받는다 */

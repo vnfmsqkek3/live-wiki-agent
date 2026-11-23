@@ -56,6 +56,7 @@
 | 검색·색인 | Bedrock KB 중심. Agent는 KB를 직접 호출하지 않고 AgentCore Gateway Tool로만 접근하며, Tool은 DynamoDB 현재 상태로 재검증 (`docs/04` 4·7장) |
 | 승인 | 사람만 승인. 승인은 문서 버전·해시에 묶고 1회만 사용 (`interfaces.md` 7.1) |
 | 언어 | TypeScript. 예외: PaddleOCR SageMaker 컨테이너(Python) |
+| 레퍼런스 | 버전·구성을 정하거나 구현하기 전에 최신 공식 문서를 확인하고, aws-samples 등 비슷한 레퍼런스 코드를 찾아 동작·로직을 확인한 뒤 좋은 것은 도입한다 (예: OCR은 `aws-samples/sample-aws-idp-pipeline`). 직접 만든 것보다 AWS 관리형 기능(AgentCore 오케스트레이션·Gateway Interceptor/Policy·Evaluations, Bedrock Prompt Management 등)을 우선한다. 큰 구조 변경은 도입안을 총괄팀에 먼저 보내고 P0 게이트(11/21)를 깨지 않는 범위에서 한다 (사용자 지시 11/20) |
 | 버전 | 설치 전 최신 안정판 조회 → `interfaces.md` 8장 고정표에 기록 → lockfile 고정 |
 | 모델 | Sonnet 5.5 / Haiku 5.5 기본, Opus 5.5는 고위험 검토에만. 모델 ID는 환경변수로만 |
 | 리전·계정 | us-east-1. AWS 명령 전 계정 ID가 `.env.local`의 `HANAEUM_ACCOUNT_ID`와 같은지 확인 |
@@ -67,6 +68,10 @@
 | 폴더 구조 | 모든 파일은 **사용목적 → 카테고리** 순으로 저장. 루트에는 정해진 파일만. 새 폴더에는 `README.md`에 목적 한 줄. 맞는 곳이 있으면 새로 만들지 않는다 |
 | Git·CI | `docs/06`. public 저장소이므로 secret·실데이터 커밋 금지. main은 PR + 리뷰 1팀(`role/README.md` 1장) + CI 통과. 리뷰 요청과 병합 알림도 Orca로 한다 |
 | 공통문서 | `공통문서/`는 읽기 전용, Git 미업로드. `docs/`의 md를 먼저 본다 |
+
+## 컨텍스트 압축
+
+길어지면 스스로 `/compact`. 그 전에 `role/.state/{slug}.md`에 끝낸 일·다음 일·대기 중 요청을 기록하고, 압축 뒤 `role/README.md` → `role/{팀명}.md` → `role/.state/{slug}.md` → `orca orchestration check` 순서로 다시 시작한다 (`role/README.md` 2장).
 
 ## QA (`docs/06` 4장)
 

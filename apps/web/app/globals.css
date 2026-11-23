@@ -838,7 +838,7 @@ details[open] > summary::after { content:" ▴"; }
 .diff-lines { list-style:none; margin:8px 0 0; padding:0; border:1px solid var(--line); border-radius:8px; max-height:260px; overflow:auto; font-size:var(--fs-small); }
 .diff-lines li { display:flex; gap:12px; padding:6px 12px; border-top:1px solid var(--line); }
 .diff-lines li:first-child { border-top:0; }
-.diff-lines li > .num { color:var(--ink-500); min-width:3ch; text-align:right; }
+.diff-lines li > .num { color:var(--ink-500); min-width:3ch; text-align:right; flex:none; }
 .diff-lines li.add { background:var(--green-050); } .diff-lines li.add ins { text-decoration:none; }
 .diff-lines li.del { background:var(--coral-050); } .diff-lines li.del del { color:var(--coral-700); }
 .wiki-md::selection { background:#FFE58A; color:var(--navy-900); }
@@ -954,3 +954,8 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 /* 세 칸 높이 맞춤: 승인 칸만 두 줄이면 .seal.kyul 의 align-items:center 때문에 칸이 어긋남 (11/19) */
 .seal.kyul.full { align-items:stretch; }
 .kyul.full .kyul-cell { grid-template-rows:auto calc(var(--stamp-full) + 20px) 1fr; }
+/* 시행 예정 배지·재검토 이유 상자 (총괄 11/23) */
+.flag.soon { margin: 0 0 0 6px; padding: 2px 6px; vertical-align: middle; font-size: .75rem; }
+.reason-box { margin: 4px 0 12px; padding: 12px; border: 1px solid var(--ochre); border-radius: 8px; background: var(--sheet, #fff); font-size: .88rem; overflow-wrap: anywhere; }
+.reason-box p { margin: 0 0 4px; } .reason-box p:last-child { margin: 0; color: var(--ink-2); }
+.reason-box b { color: var(--ochre); margin-right: 4px; }

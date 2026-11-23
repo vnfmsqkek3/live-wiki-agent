@@ -1,5 +1,8 @@
+import Link from 'next/link';
+import { useId } from 'react';
 import { Icon } from './icons';
-import type { SearchItem } from './lib/api';
+import type { FreshnessReason, LibraryCard, SearchItem } from './lib/api';
+import { readable } from './lib/readable';
 
 /** 결재란과 도장 (impeccable 방향 '결재란과 도장'). 모든 문서는 작성·AI 검사·승인 세 칸을 갖고,
  *  승인 칸에 그린 도장이 찍혀야 '검증 완료'다. 코랄 도장은 충돌·차단·반려, 점선 빈 도장은 대기.
@@ -78,7 +81,38 @@ export function Popularity({ r }: { r?: { avg: number; count: number } }) {
   return r ? <span className="meta">평점 <span className="num">{r.avg.toFixed(1)}</span> · {r.count}명</span> : null;
 }
 
-export function FreshnessFlag({ freshness }: { freshness: SearchItem['freshness'] }) {
+export const todayKst = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
+const soon = (date?: string | null): date is string => !!date && date > todayKst();
+const md = (date: string) => `${+date.slice(5, 7)}월 ${+date.slice(8, 10)}일`;
+
+/** 제목 옆 '(2026-12-01 시행 예정)'. 시행일이 지나면 저절로 사라진다 (총괄 11/23: 제목은 고치지 않음) */
+export function Scheduled({ date }: { date?: string | null }) {
+  return soon(date) ? <span className="flag soon"> {date} 시행 예정</span> : null;
+}
+
+/** 현행판 카드·상세: 시행 예정 개정판 한 줄 + 그 버전 링크 */
+export function Upcoming({ u }: { u?: LibraryCard['upcoming'] }) {
+  return u && soon(u.effective_from) ? <p className="note"><Icon name="alert" />{md(u.effective_from)} 개정 예정 · <Link href={`/library?id=${encodeURIComponent(u.doc_id)}`} prefetch={false}>시행 예정 개정판{u.version_no ? ` v${u.version_no}` : ''} 보기</Link></p> : null;
+}
+
+/** '근거 규정이 바뀌어 재검토 중' + 바로 아래 이유 상자(aria-describedby로 연결). reason이 없으면 배너만 */
+export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: SearchItem['freshness']; reason?: FreshnessReason | null; max?: number }) {
+  const id = useId();
   if (freshness === 'SUPERSEDED') return <span className="flag"><Icon name="alert" />개정·폐지되어 현행이 아닌 판</span>;
-  return freshness === 'REVIEW_REQUIRED' ? <span className="flag"><Icon name="alert" />근거 규정이 바뀌어 재검토 중</span> : null;
+  if (freshness !== 'REVIEW_REQUIRED') return null;
+  const r = reason;
+  const changes = r?.changes ?? [];
+  const labels = changes.length ? changes.map((c) => c.label ?? readable(c.provision_id)) : (r?.provisions ?? []).map(readable);
+  return <>
+    <span className="flag" aria-describedby={r ? id : undefined}><Icon name="alert" />근거 규정이 바뀌어 재검토 중</span>
+    {r && <div className="reason-box" id={id}>
+      {r.deleted_doc ? <p>근거로 쓰던 「{r.law_name}」 문서가 삭제되었습니다.</p> : <p><b>바뀐 규정</b> 「{r.law_name}」{labels.length > 0 && ` ${labels.join(', ')}`}</p>}
+      {r.effective_from && <p><b>개정 시행일</b> <span className="num">{r.effective_from}</span>{soon(r.effective_from) ? ' 시행 예정 (그 전까지는 현행 조문 적용)' : ' 시행'}</p>}
+      {changes.slice(0, max).map((c, i) => <div key={i}>
+        {(c.old_text || c.new_text !== undefined) && <p><b>{c.label ?? readable(c.provision_id)}</b> <del>{c.old_text || '(없음)'}</del> → <ins>{c.new_text === '' ? '(개정본에서 삭제)' : c.new_text ?? '(확인 못 함)'}</ins></p>}
+        {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text}</p>}
+      </div>)}
+      <p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+    </div>}
+  </>;
 }
