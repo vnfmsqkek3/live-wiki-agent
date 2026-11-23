@@ -455,7 +455,7 @@ function DocActions({ d, canWikiEdit, onEdit, onPrint }: { d: LibraryDoc; canWik
     <div className={`doc-actions no-print${more || !main ? ' open' : ''}`} role="group" aria-label="문서 작업">
       {main}
       <div className="sec" id="doc-more">
-        {canWikiEdit && prim !== 'wiki' && wiki(false)}
+        {canWikiEdit && prim !== 'wiki' && (admin || owner) && wiki(false)} {/* 권고 A: 일반 사용자는 남의 문서를 [수정 요청]으로만 (사용자 결정 대기) */}
         {canWikiEdit && prim !== 'req' && <ChangeRequest id={d.doc_id} />}
         <span className="push" aria-hidden="true" />
         <Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={onPrint} />
