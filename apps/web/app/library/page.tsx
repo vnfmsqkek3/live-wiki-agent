@@ -494,12 +494,12 @@ function ChangeRequest({ id, primary }: { id: string; primary?: boolean }) {
 }
 
 /** 평점 (P1 추천·평점): 사용자당 문서 1건, 다시 누르면 덮어쓴다. 평점은 인기일 뿐 검증 상태(인장)와 별개 */
-function Rating({ id, mine, avg }: { id: string; mine?: number | null; avg?: { avg: number; count: number } }) {
+function Rating({ id, mine, avg, onRated }: { id: string; mine?: number | null; avg?: { avg: number; count: number }; onRated?: (n: number) => void }) {
   const [stars, setStars] = useState(mine ?? 0);
   const [msg, setMsg] = useState('');
   async function rate(n: number) {
     setStars(n); setMsg('');
-    try { await api('POST', '/v1/feedback', { doc_id: id, stars: n, useful: n >= 4 }); setMsg(`${n}점으로 저장했습니다.`); }
+    try { await api('POST', '/v1/feedback', { doc_id: id, stars: n, useful: n >= 4 }); setMsg(`${n}점으로 저장했습니다.`); onRated?.(n); }
     catch (e) { setStars(0); setMsg((e as ApiError).message); }
   }
   return (
@@ -825,7 +825,11 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
           })}
         </section></DetailCard>
       )}
-      {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} mine={d.my_stars} avg={d.rating} /></DetailCard>}
+      {d.lifecycle === 'PUBLISHED' && <DetailCard title="평점"><Rating id={d.doc_id} mine={d.my_stars} avg={d.rating} onRated={(n) => setD((x) => {
+        // 저장 직후 머리 평균도 바로 바꾼다 (엔드유저 14차: 새로고침 전 '아직 평가 없음' 그대로). 서버 값은 다음 조회에서 덮어씀
+        if (!x) return x; const c = x.rating?.count ?? 0, sum = (x.rating?.avg ?? 0) * c, had = x.my_stars ?? 0;
+        const count = had ? c : c + 1; return { ...x, my_stars: n, rating: { count, avg: (sum - had + n) / count } };
+      })} /></DetailCard>}
       <DetailCard title="외부 법령 참고" filled={false} lazy><ExternalLaws id={d.doc_id} /></DetailCard>
       </div></CardBoundary>{decided ? <p className="notice" role="status">{decided}</p> : d.review && <Decide r={d.review} docId={d.doc_id} onDone={setDecided} />}
 
