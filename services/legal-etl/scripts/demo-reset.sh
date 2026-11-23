@@ -23,13 +23,15 @@ echo "1) F-002 삭제: ${F002:-없음}"
 [ -z "$F002" ] || run env API="$API" REASON="데모 초기화: F-002 다시 올리는 장면 (리허설 11/22)" services/legal-etl/scripts/delete-docs.sh "$F002"
 
 echo "2) 시드 밖 문서 정리 (QA·데모 업로드)"
-EXTRA=$( { get /v1/library; echo; get /v1/admin/in-review; } | python3 -c 'import json,sys,re
+# 목록: 문서함(게시·본인) + 결재함(IN_REVIEW·QUARANTINED) + 결재 대기(PENDING_APPROVAL) + 검토 큐(차단 BLOCKED 7일 안·출처 불일치)
+# (11/23: 결재 대기·차단은 앞의 두 목록에 안 나와 보안 테스트 문서가 남았다가 결재 뒤 검색에 노출됨. 7일 지난 BLOCKED 는 목록 API 없음 → EXTRA_IDS)
+EXTRA=$( { get /v1/library; echo; get /v1/admin/in-review; echo; get "/v1/approvals?status=PENDING"; echo; get /v1/review-queue; } | python3 -c 'import json,sys,re
 seed=set(json.load(open(sys.argv[1])).values())|set(sys.argv[3].split())
 seen=set()
 for line in sys.stdin:
   if not line.strip(): continue
   for x in json.loads(line).get("items",[]):
-    if x["doc_id"] not in seed and x["doc_id"] not in seen: seen.add(x["doc_id"]); print(x["doc_id"], x.get("lifecycle",""), x.get("title","")[:40], file=sys.stderr); print(x["doc_id"])
+    if x["doc_id"] not in seed and x["doc_id"] not in seen: seen.add(x["doc_id"]); print(x["doc_id"], x.get("lifecycle") or x.get("kind",""), (x.get("title") or "")[:40], file=sys.stderr); print(x["doc_id"])
 for d in sys.argv[2].split():
   if not re.fullmatch(r"doc_[0-9A-Z]{26}", d): print(d, "doc_id 형식 아님, 제외", file=sys.stderr)
   elif d in seed: print(d, "시드·KEEP 문서라 제외", file=sys.stderr)
