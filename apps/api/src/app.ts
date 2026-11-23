@@ -97,6 +97,8 @@ export interface Deps {
   /** Change Impact 수정 초안 (AI팀 steps/impact-draft.ts: impactPrompt → 모델 → checkImpactDraft). 없으면 UNKNOWN 으로만 저장 */
   /** Gateway 안에서 일어난 거부(AgentCore Policy·interceptor). API 감사 DB 밖이라 Gateway 로그에서 읽는다 (P1 데모 06, 11/20). sub 는 넘기지 않는다 */
   gatewayDenials?(since: string): Promise<{ at: string; role: string; tool: string; reason: string; trace_id: string }[]>;
+  /** 조문 ID → 원문·표기·더 새 개정본 같은 조문 (knowhow-deps clauseGetter). 재검토 사유 상자 */
+  clause?(provision_id: string): Promise<import('./steps/knowhow.ts').Clause | undefined>;
   draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string; /** 개정 규정 이름 → 초안 괄호 인용에 붙임 (AI팀 11/20) */ law_name?: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
@@ -593,6 +595,28 @@ export function createApp(deps: Deps) {
         on_provision: r.provision_id ? { supports: (c.SUPPORTS ?? 0) + (c.SUPPLEMENTS ?? 0), conflicts: c.CONFLICTS ?? 0, unclear: c.INSUFFICIENT ?? 0 } : null };
     });
   }
+  // 재검토 사유 상자 (프론트 8차, 총괄 11/23): 근거 조문이 개정돼 재검토 중인 게시 문서 — 어느 조문이 어떻게 바뀌었고 본문 어느 문장이 인용했는지.
+  // 주장 status_reason 'provision_revised:{새 조문 ID}' 우선, 없으면 freshness_reason.provisions(영향 분석이 표시한 인용 조문)
+  async function reviewReason(d: DocumentRecord, claims: { provision_id: string | null; quote: string | null; statement: string; status: string; status_reason: string | null }[]) {
+    if (d.lifecycle !== 'PUBLISHED' || d.freshness !== 'REVIEW_REQUIRED') return null;
+    const c = claims.find((r) => r.status === 'REVIEW_REQUIRED' && r.status_reason?.startsWith('provision_revised:'));
+    const oldId = c?.provision_id ?? d.freshness_reason?.provisions[0];
+    const get = (id?: string) => (id && deps.clause ? deps.clause(id).catch(() => undefined) : Promise.resolve(undefined));
+    const before = await get(oldId);
+    const newId = c?.status_reason?.slice('provision_revised:'.length) || before?.newer?.provision_id || before?.current?.provision_id;
+    const after = newId && newId !== oldId ? await get(newId) : undefined;
+    const label = before?.label ?? after?.label ?? '';
+    const path = /제\s*\d.*$/.exec(label)?.[0] ?? '';
+    return {
+      law_name: label.slice(0, label.length - path.length).trim() || d.freshness_reason?.law_name || null,
+      provision_label: path || null,
+      revision_effective_from: after?.effective_from || d.freshness_reason?.effective_from || null,
+      before_text: before?.text ?? null,
+      after_text: after ? (after.status === 'DELETED' ? '' : after.text) : null, // '' = 개정본에서 삭제된 조문
+      cited_sentence: c ? c.quote ?? c.statement : null,
+      open_change_requests: (d.change_requests ?? []).filter((r) => r.status === 'OPEN' && r.source === 'IMPACT').length,
+    };
+  }
   // 관리자: 지식 부채 (게시 문서 주장 기준). knowledge_debt 뷰 그대로
   app.get('/v1/admin/knowledge-debt', async (c) => {
     need(c, APPROVERS);
@@ -1065,7 +1089,7 @@ export function createApp(deps: Deps) {
       ...ratingOf(myRt), my_stars: myRt?.mine ?? null,
       rejection_reason: d.owner === a.sub || hasRole(a, APPROVERS) ? await rejectionReason(d) : null,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
-      claims: await docClaimsView(d),
+      ...await (async () => { const cl = await docClaimsView(d); return { claims: cl, review_reason: await reviewReason(d, cl) }; })(),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
       clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) })),
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),

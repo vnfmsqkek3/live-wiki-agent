@@ -457,6 +457,24 @@ test('주장: 상세에 문서 주장 + 같은 조문 게시 주장의 지지·�
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/knowledge-debt')).json()) as { healthy: number }).healthy, 3);
 });
 
+test('재검토 사유 상자: 근거 조문 개정으로 재검토 중인 게시 문서 → 규정·조항·개정 전후·인용 문장·열린 수정 제안 (프론트 8차 11/23)', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, findings: [], created_at: '', updated_at: '', acl_groups: ['ALL'], lifecycle: 'PUBLISHED' as const, document_type: 'KNOWHOW' as const };
+  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '노하우', freshness: 'REVIEW_REQUIRED',
+    change_requests: [{ id: 'cr_1', by: 'system:impact', at: '', before: 'b', request: 'r', verdict: 'UNKNOWN', ai_reason: '', status: 'OPEN', source: 'IMPACT', law: 'L', path: 'ARTICLE:5', requested_by: 'u' }] as never });
+  await t.store.putDoc({ ...base, doc_id: 'doc_C', title: '현행', freshness: 'CURRENT' });
+  const OLD = 'SYN-LOAN-001@2026-11-01/ARTICLE:5/PARAGRAPH:1', NEW = 'SYN-LOAN-001@2027-01-01/ARTICLE:5/PARAGRAPH:1';
+  t.deps.claims = {
+    list: async () => [{ claim_id: 'doc_R#1', seq: 1, statement: '한도는 3억원', page: 1, provision_id: OLD, relation: 'SUPPORTS', reason: '', quote: '한도는 3억원까지 영업점장 전결', verified: true, status: 'REVIEW_REQUIRED', status_reason: `provision_revised:${NEW}` }],
+    counts: async () => new Map(), debt: async () => ({ conflicts: 0, review_required: 1, unverified: 0, healthy: 0, docs_needing_attention: 1 }),
+  };
+  const clauses: Record<string, { text: string; effective_from: string }> = { [OLD]: { text: '한도는 3억원 이하', effective_from: '2026-11-01' }, [NEW]: { text: '한도는 2억원 이하', effective_from: '2027-01-01' } };
+  t.deps.clause = async (id) => clauses[id] && { provision_id: id, label: '하나은행 기업여신 심사규정 제5조제1항', status: 'ACTIVE', ...clauses[id] };
+  const r = ((await (await t.call('user', 'GET', '/v1/library/doc_R')).json()) as { review_reason: unknown }).review_reason;
+  assert.deepEqual(r, { law_name: '하나은행 기업여신 심사규정', provision_label: '제5조제1항', revision_effective_from: '2027-01-01', before_text: '한도는 3억원 이하', after_text: '한도는 2억원 이하', cited_sentence: '한도는 3억원까지 영업점장 전결', open_change_requests: 1 });
+  assert.equal(((await (await t.call('user', 'GET', '/v1/library/doc_C')).json()) as { review_reason: unknown }).review_reason, null);
+});
+
 test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·original.md), 규정 불가, 내 검토 중 문서는 그 자리 재분석, 고칠 것 남으면 게시 요청 잠금', async () => {
   const t = setup();
   const put: string[] = [];
