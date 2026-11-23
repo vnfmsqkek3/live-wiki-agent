@@ -75,6 +75,8 @@ function ReviewView() {
 
   if (err) return <p className="error" role="alert">{err}</p>;
   if (!r) return <p className="note">분석 결과를 불러오는 중입니다.</p>;
+  // 게시된 문서를 주소로 직접 열면 검토 화면 대신 안내 (엔드유저 17차: '작성자 검토 필요'와 비활성 게시 요청이 보임)
+  if (r.lifecycle === 'PUBLISHED') return <p className="notice" role="status">이미 게시된 문서입니다. 검토할 것이 없습니다. <a href={`/library?id=${encodeURIComponent(id)}`}>문서 보기</a></p>;
 
   const changed = type && type !== r.classification?.document_type;
   const rejected = r.authority_status === 'REJECTED'; // 사람 반려도 lifecycle은 BLOCKED (엔드유저 11/20)
