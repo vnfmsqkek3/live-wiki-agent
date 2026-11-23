@@ -959,4 +959,4 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .reason-box { margin: 8px 0 12px; padding: 12px 14px; border: 1px solid var(--danger); border-left-width: 4px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); font-size: .88rem; overflow-wrap: anywhere; }
 .reason-box p { margin: 0 0 4px; } .reason-box p:last-child { margin: 0; }
 .reason-head { display: flex; align-items: center; gap: 4px; font-weight: 750; font-size: .95rem; } .reason-head svg { width: 16px; height: 16px; }
-.reason-box b { margin-right: 4px; } .reason-box del, .reason-box ins { color: var(--ink); }
+.reason-box b { margin-right: 4px; } .reason-box .num { white-space: nowrap; } .reason-box del, .reason-box ins { color: var(--ink); }
