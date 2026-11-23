@@ -7,6 +7,13 @@ import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type LibraryCard, type SearchItem } from '../lib/api';
 import { FreshnessFlag, Popularity, Scheduled, Seal } from '../seal';
 import { PageThumb } from '../page-thumb';
+import { ModeTabs } from '../mode-tabs';
+
+/** 첫 화면 예시 질문 (데모 01·05 포함). 누르면 바로 검색 */
+const EXAMPLES = ['담보평가 시 확인 절차는?', '제12조제2항제3호가목', '해외송금 증빙 한도', '고액 현금 인출 기준', '개인정보 보관 기간'];
+const TYPE_LABEL: Record<string, string> = { REGULATION: '규정', KNOWHOW: '노하우', MANUAL: '매뉴얼' };
+const DETAIL_LABEL: Record<string, string> = { business: '업무', dept: '부서', date_from: '일자부터', date_to: '일자까지', authority_status: '검증', freshness: '최신성' };
+const VALUE_LABEL: Record<string, string> = { VERIFIED: '검증됨', UNVERIFIED: '미검증', CURRENT: '현행', REVIEW_REQUIRED: '재검토 필요' };
 
 // 문서 종류로 거른다 (태그는 AI가 붙인 자유 문구라 필터로 쓰면 0건이 되기 쉽다)
 const FILTERS = [['', '전체'], ['REGULATION', '규정'], ['KNOWHOW', '노하우'], ['MANUAL', '매뉴얼']] as const;
@@ -21,7 +28,7 @@ function DetailFilters({ value, options, onApply }: { value: Detail; options: { 
   const n = DETAIL.filter((k) => value[k]).length;
   const set = (k: keyof Detail) => (e: { target: { value: string } }) => setD((x) => ({ ...x, [k]: e.target.value || undefined }));
   return (
-    <details className="detail-filter" open={n > 0}>
+    <details className="detail-filter">
       <summary>세부 필터{n > 0 && <span className="note"> {n}개 적용</span>}</summary>
       <div className="filter-grid">
         <label className="lbl">업무<select className="field" value={d.business ?? ''} onChange={set('business')}><option value="">전체</option>{options.business.map((b) => <option key={b}>{b}</option>)}</select></label>
@@ -123,22 +130,26 @@ function Results() {
     router.push(`/search?q=${encodeURIComponent(nq)}${nt ? `&type=${nt}` : ''}${DETAIL.filter((k) => nd[k]).map((k) => `&${k}=${encodeURIComponent(nd[k]!)}`).join('')}`);
   return (
     <>
+      <ModeTabs now="search" q={q} />
       <form className="search-row" role="search" onSubmit={(e) => { e.preventDefault(); nav(input.trim(), type); }}>
         <input className="field lg" type="search" aria-label="검색어" placeholder="찾을 기준이나 업무 (비우면 전체 문서)" value={input}
           onChange={(e) => { setInput(e.target.value); if (!e.target.value.trim() && q) router.replace(`/search?${type ? `type=${type}` : ''}${dq}`); }} />
         <div className="actions"><button className="btn solid" type="submit">검색</button></div>
       </form>
+      {!q && <div className="examples"><p className="note">이렇게 물어보세요</p><div className="chips">{EXAMPLES.map((x) => <button key={x} type="button" className="chip ex" onClick={() => { setInput(x); nav(x, type); }}>{x}</button>)}</div></div>}
       <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
         {FILTERS.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => nav(q, v)}>{l}</button>)}
       </div>
       <DetailFilters value={detail} options={options} onApply={(d) => nav(q, type, d)} /></div>
+      {DETAIL.some((k) => detail[k]) && <div className="chips on-filters" aria-label="켜진 필터">{DETAIL.filter((k) => detail[k]).map((k) => <button key={k} type="button" className="chip" aria-label={`${DETAIL_LABEL[k]} 필터 해제`} onClick={() => nav(q, type, { ...detail, [k]: undefined })}>{DETAIL_LABEL[k]}: {VALUE_LABEL[detail[k]!] ?? detail[k]} ×</button>)}</div>}
       {err && <p className="error" role="alert">{err}</p>}
       {!q ? (
         recent === null ? <p className="note">불러오는 중입니다.</p> : recent.length === 0 ? <p className="note">볼 수 있는 게시 문서가 아직 없습니다.</p> : (
           <>
-            <p className="note">전체 게시 문서 {recent.length}건 (최근 변경 순). 검색어를 넣으면 관련도 순으로 좁혀집니다.</p>
-            <PaginatedList label="전체 게시 문서" pageKey="page" className="ledger result-list">
-              {recent.map((i) => (
+            {([['최근 게시', recent.slice(0, 6)], ['자주 찾는 규정', recent.filter((i) => i.document_type === 'REGULATION').sort((a, b) => (b.rating?.count ?? 0) - (a.rating?.count ?? 0)).slice(0, 4)]] as const).filter(([, l]) => l.length).map(([h, l]) => <section key={h} aria-label={h}>
+            <h2 className="section">{h}</h2>
+            <ul className="ledger card-grid result-list">
+              {l.map((i) => (
                 <li className="entry" key={i.doc_id}>
                   <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
                   <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
@@ -147,7 +158,8 @@ function Results() {
                   {i.summary && <p className="card-summary">{i.summary}</p>}
                 </li>
               ))}
-            </PaginatedList>
+            </ul></section>)}
+            <p className="note"><a href="/library">전체 게시 문서 {recent.length}건 보기 →</a></p>
           </>
         )
       ) : items === null ? <p className="note">찾는 중입니다.</p> : <>{rewritten && (
@@ -160,7 +172,8 @@ function Results() {
           </div>
         </div>
       )}{ items.length === 0 && related.length === 0 && !err ? (
-        <p className="note">열람 권한이 있는 승인 문서 중에 맞는 결과가 없습니다. 다른 표현으로 찾거나 종류를 '전체'로 바꿔 보세요.</p>
+        <div className="notice" role="status" style={{ display: 'block' }}><p style={{ margin: 0 }}><strong>맞는 승인 문서가 없습니다.</strong> 이렇게 바꿔 보세요.</p>
+          <ul><li>짧은 낱말로: '해외송금 한도'</li><li>조문 번호로: '제12조제2항'</li>{type && <li><button type="button" className="linklike" onClick={() => nav(q, '')}>문서 종류를 '전체'로</button></li>}<li><a href={`/guide?q=${encodeURIComponent(q)}`}>업무 가이드에 물어보기</a></li></ul></div>
       ) : (
         <>
           {items.length ? <p className="note">열람 권한이 있는 승인 문서 {items.length}건, 관련도 높은 순</p> : (() => {
@@ -172,8 +185,9 @@ function Results() {
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
                 <Seal i={{ ...i, freshness: i.freshness }} />
+                <span className="kind-tag">{TYPE_LABEL[i.document_type] ?? '문서'}</span>
                 <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
-                                <FreshnessFlag freshness={i.freshness} />
+                <FreshnessFlag freshness={i.freshness} />
                 <dl>
                   {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
                   {i.business_path && i.business_path.length > 0 && <><dt>업무</dt><dd>{i.business_path.join(' › ')}</dd></>}
@@ -210,5 +224,5 @@ function Results() {
 }
 
 export default function SearchPage() {
-  return <><PageHeader title="검색" description="필요한 기준을 찾고, 근거와 시행일을 함께 확인하세요." action={<a className="btn" href="/guide">업무 가이드</a>} /><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
+  return <><PageHeader title="검색" description="승인된 규정·노하우에서 기준을 찾고, 근거와 시행일을 함께 확인하세요." /><Suspense fallback={<p className="note">불러오는 중입니다.</p>}><Results /></Suspense></>;
 }

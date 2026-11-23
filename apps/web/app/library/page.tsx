@@ -12,6 +12,7 @@ import { isAdmin } from '../lib/roles';
 import { api, ApiError, getSession, isCheck, dateLine, type ExternalLaw, type CategoryNode, type LibraryCard, type LibraryDoc, type Mark, type VersionDiff, type VersionItem, markViewed } from '../lib/api';
 import { FreshnessFlag, Popularity, Scheduled, Seal, Upcoming } from '../seal';
 import { WikiEditor } from '../wiki-editor';
+import { LibraryTree } from '../library-tree';
 import { CardBoundary } from '../card-boundary';
 import { isRowText, rowAsTable } from '../clarify';
 import { Icon } from '../icons';
@@ -120,6 +121,10 @@ function List() {
   const sp = useSearchParams();
   const type = sp.get('type') ?? '';
   const category = sp.get('category') ?? ''; // 업무 분류 칸 (AI 자동 분류, 하위 칸 포함)
+  const only = ONLY[sp.get('only') ?? '']; // 결재함 숫자 카드에서 온 필터
+  const view = sp.get('view') === 'tree' ? 'tree' : 'cards'; // 보기: 카드 / 폴더 (사용자 11/23)
+  const sort = sp.get('sort') === 'rating' ? 'rating' : 'recent'; // 정렬: 최신 / 별점 높은 순
+  const setParam = (k: string, v: string) => { const n = new URLSearchParams(sp.toString()); if (v) n.set(k, v); else n.delete(k); router.push(`/library${n.size ? `?${n}` : ''}`); };
   const [items, setItems] = useState<LibraryCard[] | null>(null);
   const [cats, setCats] = useState<CategoryNode[]>([]);
   const [err, setErr] = useState('');
@@ -128,9 +133,9 @@ function List() {
   useEffect(() => {
     setItems(null); setErr('');
     api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, category)}`)
-      .then((r) => setItems(r.items))
+      .then((r) => setItems(only ? r.items.filter(only.f) : r.items))
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 열어 주세요.' : e.message); setItems([]); });
-  }, [type, category]);
+  }, [type, category, only]);
   const go = (t: string, c: string) => router.push(`/library${qs(t, c) ? `?${qs(t, c)}` : ''}`);
   // 1단계 칸 → 고르면 그 아래 칸. 문서가 있는 칸만 (고른 칸은 늘 보임)
   const sel = cats.find((x) => x.category_id === category);
@@ -142,6 +147,12 @@ function List() {
     <>
       <div className="filter-row"><div className="filter" role="group" aria-label="문서 종류">
         {TYPES.map(([v, l]) => <button key={l} aria-pressed={type === v} onClick={() => go(v, category)}>{l}</button>)}
+      </div>
+      <div className="filter" role="group" aria-label="보기"><span className="filter-lbl" aria-hidden="true">보기</span>
+        <button aria-pressed={view === 'cards'} onClick={() => setParam('view', '')}>카드</button><button aria-pressed={view === 'tree'} onClick={() => setParam('view', 'tree')}>폴더</button>
+      </div>
+      <div className="filter" role="group" aria-label="정렬"><span className="filter-lbl" aria-hidden="true">정렬</span>
+        <button aria-pressed={sort === 'recent'} onClick={() => setParam('sort', '')}>최신순</button><button aria-pressed={sort === 'rating'} onClick={() => setParam('sort', 'rating')}>별점 높은 순</button>
       </div>
       </div>
       {level1.length > 0 && (
@@ -155,11 +166,13 @@ function List() {
           </div>}
         </nav>
       )}{err && <p className="error" role="alert">{err}</p>}
+      {only && <p className="notice" role="status">{only.label} 문서만 보고 있습니다. <Link href="/library">전체 보기</Link></p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
+        view === 'tree' ? <LibraryTree items={sorted(items, sort)} /> :
         <PaginatedList label="문서보관함" className="ledger card-grid library-grid">
-          {items.map((d) => (
+          {sorted(items, sort).map((d) => (
             <li className="entry" key={d.doc_id}>
               <Seal i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link><Scheduled date={d.effective_from} /></h3>
@@ -292,6 +305,17 @@ function ExternalLaws({ id }: { id: string }) {
     </section>
   );
 }
+
+/** 별점 높은 순: 평균 → 평가 수 → 최신. 평가 없는 문서는 뒤로 (서버는 페이지 나눔 없이 전부 줌, 백엔드 11/23) */
+const sorted = (l: LibraryCard[], sort: string) => sort !== 'rating' ? l : [...l].sort((a, b) =>
+  (b.rating?.avg ?? -1) - (a.rating?.avg ?? -1) || (b.rating?.count ?? 0) - (a.rating?.count ?? 0) || b.updated_at.localeCompare(a.updated_at));
+
+/** 결재함 숫자 카드 필터 (?only=). conflict는 문서 단위 근사(고칠 곳 있는 문서) — 주장 단위 목록은 없음 */
+const ONLY: Record<string, { label: string; f: (d: LibraryCard) => boolean }> = {
+  review: { label: '근거 개정으로 재검토 중인', f: (d) => d.freshness === 'REVIEW_REQUIRED' },
+  unverified: { label: '근거 확인이 필요한', f: (d) => d.authority_status === 'UNVERIFIED' },
+  conflict: { label: '규정과 어긋난 곳이 있는', f: (d) => d.mark_count > 0 },
+};
 
 const REVIEW_STATE: Record<string, string> = {
   BLOCKED: '보안 검사에서 자동 차단된 문서입니다. 결재할 필요는 없고, 올린 사람에게 고치는 방법이 안내되었습니다.',
@@ -633,6 +657,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <header className="document-header">
       <Seal size="full" i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
+      {d.lifecycle === 'PUBLISHED' && <p className="doc-rating">{d.rating?.count ? <span aria-label={`평균 ${d.rating.avg.toFixed(1)}점, ${d.rating.count}명 평가`}><span aria-hidden="true">★ <b className="num">{d.rating.avg.toFixed(1)}</b> ({d.rating.count}명 평가)</span></span>
+        : <>아직 평가 없음 · <button type="button" className="linklike" onClick={() => [...document.querySelectorAll<HTMLButtonElement>('button.detail-card')].find((b) => b.textContent?.startsWith('평점'))?.click()}>평가하기</button></>}</p>}
       <Scheduled date={d.effective_from} /><FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} /><Upcoming u={d.upcoming} /><p className="note">{d.freshness_reason && d.freshness === 'REVIEW_REQUIRED' ? '' : d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={() => setPrinting(true)} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
       </header>
       {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}
