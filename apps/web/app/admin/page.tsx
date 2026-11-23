@@ -4,7 +4,7 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
+import { api, ApiError, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
 import { readable } from '../lib/readable';
 import { Icon } from '../icons';
@@ -52,7 +52,7 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
 
 /** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
 /** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
-type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string; revision?: CrRevision; apply_after?: string | null };
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string; revision?: CrRevision; apply_after?: string | null; superseded?: boolean };
 /** IMPACT 수정 요청의 개정 시행일·현행 값 (총괄 11/23: 시행 예정 개정을 '현행과 다른 틀린 제안'으로 오해) */
 function Revision({ r }: { r: CrRevision }) {
   const soon = r.effective_from! > todayKst();
@@ -86,7 +86,8 @@ function ChangeRequests() {
       <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
-          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}</p>
+          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}{i.superseded && <span className="kind-tag own">이전 버전</span>}</p>
+          {i.superseded && <p className="note">이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만들거나 반려로 닫아 주세요.</p>}
           {i.revision?.effective_from && <Revision r={i.revision} />}
           <blockquote className="basis"><p>{i.before}</p></blockquote>
           {i.request && <p><strong>요청:</strong> {readable(i.request)}</p>}
@@ -95,7 +96,7 @@ function ChangeRequests() {
           <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
           <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
           <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
-          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim() || !!notYet(i)} title={notYet(i) ? `${notYet(i)}부터 반영할 수 있습니다` : undefined} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
+          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim() || !!notYet(i) || !!i.superseded} title={notYet(i) ? `${notYet(i)}부터 반영할 수 있습니다` : undefined} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
           {manual[i.id] && <p className="error" role="alert">본문에서 이 문장을 찾지 못해 초안으로 반영할 수 없습니다. <Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>문서를 열어 [위키에서 고치기]로 직접 고쳐 주세요.</Link></p>}
         </li>
       ))}</ol>

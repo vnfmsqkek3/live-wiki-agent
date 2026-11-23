@@ -7,11 +7,12 @@ import { ReviewItems } from '../review-items';
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, dateLine, getSession, isCheck, type Finding, type Fix, type Review } from '../lib/api';
+import { api, ApiError, dateLine, getSession, isCheck, type Finding, type Fix, type Progress, type Review } from '../lib/api';
 import { can } from '../lib/roles';
 import { WikiEditor } from '../wiki-editor';
 import { RefSuggestions, withReference } from '../ref-suggestions';
 import { IssueList, PageFacts, VersionLink } from '../issues';
+import { Bar } from '../progress-bar';
 const VERDICT: Record<string, [string, string]> = {
   SUPPORTED: ['근거 규정과 맞습니다', 'var(--verified)'],
   CONFLICT: ['규정과 충돌하는 내용이 있습니다', 'var(--danger)'],
@@ -38,7 +39,7 @@ function ReviewView() {
   const [submitted, setSubmitted] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editInit, setEditInit] = useState<string | null>(null); // 고치기 편집기 (AI 제안 적용본)
-  const [pct, setPct] = useState<number | null>(null);
+  const [prog, setProg] = useState<Progress | null>(null);
   const [fixState, setFixState] = useState<Record<string, string>>({}); // 제안대로 고치기 결과 (사용자 지적 11/18: 눌렀는지 알 수 없었다)
   const [keep, setKeep] = useState<Record<string, string>>({});
   const [cur, setCur] = useState<string | null>(null); // 편집기의 지금 글
@@ -55,9 +56,9 @@ function ReviewView() {
         // 새로고침이 무한 반복돼 요청이 폭증했다(11/18 dev: WAF 차단·빈 화면). 바뀐 게 없으면 간격을 2.5→10초로 늘린다
         if (x.lifecycle === 'QUARANTINED' && !x.workflow_failure) { // 멈춘 실행은 기다리지 않는다
           let wait = 2500, last = -1, n = 0;
-          const tick = () => api<{ total: number; done: number; finished: boolean; halted: boolean }>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
+          const tick = () => api<Progress>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
             .then(async (p) => {
-              setPct(p.total ? Math.round((p.done / p.total) * 100) : 0);
+              setProg(p);
               if (p.finished || p.halted) {
                 const y = await api<Review>('GET', `/v1/documents/${encodeURIComponent(id)}/review`);
                 if (y.lifecycle !== 'QUARANTINED') { setR(y); setType(y.classification?.document_type ?? ''); return; }
@@ -173,7 +174,11 @@ function ReviewView() {
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
       {held && <p className="error">공식 원본과 내용이 다른 조문이 있어 게시 요청이 보류됐습니다. 관리자가 출처를 확인한 뒤 진행됩니다.</p>}
       {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); setMsg('다시 분석을 시작했습니다. 잠시 뒤 화면이 바뀝니다.'); setTimeout(() => location.reload(), 4000); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
-      {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
+      {/* 분석 중: 등록 화면과 같은 진행바 + 지금 단계 이름 (사용자 11/23) */}
+      {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <section className="progress" aria-label="분석 진행">
+        <Bar label={prog ? `AI 검사 중 (${prog.done}/${prog.total})` : 'AI 검사를 시작하는 중'} value={prog?.total ? prog.done / prog.total : 0} text={prog?.steps.find((s) => s.state === 'running')?.label.concat(' 중')} />
+        <p className="note">끝나면 고칠 것이 이 화면에 나옵니다.</p>
+      </section>}
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} base={r.text} focus={editFocus} onText={setCur} onCancel={() => { setEditInit(null); setCur(null); setFixState({}); }} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}

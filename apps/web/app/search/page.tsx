@@ -146,7 +146,7 @@ function Results() {
       {!q ? (
         recent === null ? <p className="note">불러오는 중입니다.</p> : recent.length === 0 ? <p className="note">볼 수 있는 게시 문서가 아직 없습니다.</p> : (
           <>
-            {([['최근 게시', recent.slice(0, 6)], ['자주 찾는 규정', recent.filter((i) => i.document_type === 'REGULATION').sort((a, b) => (b.rating?.count ?? 0) - (a.rating?.count ?? 0)).slice(0, 4)]] as const).filter(([, l]) => l.length).map(([h, l]) => <section key={h} aria-label={h}>
+            {([['최근 게시', recent.slice(0, 6)], ['자주 찾는 규정', recent.filter((i, n) => n >= 6 && i.document_type === 'REGULATION').sort((a, b) => (b.rating?.count ?? 0) - (a.rating?.count ?? 0)).slice(0, 4)]] as const).filter(([, l]) => l.length).map(([h, l]) => <section key={h} aria-label={h}>
             <h2 className="section">{h}</h2>
             <ul className="ledger card-grid result-list">
               {l.map((i) => (

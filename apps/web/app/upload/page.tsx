@@ -5,6 +5,7 @@ import { Icon } from '../icons';
 import { useEffect, useState } from 'react';
 import { api, ApiError, uploadFile, type Progress } from '../lib/api';
 import { IssueList } from '../issues';
+import { Bar } from '../progress-bar';
 
 const ACCEPT = '.pdf,.docx,.hwpx,.png,.jpg,.jpeg';
 const MAX = 50 * 1024 * 1024;
@@ -107,15 +108,5 @@ export default function Upload() {
       </div></div><aside className="support-panel"><h2 className="section">등록 절차</h2>      <div className="upload-overview"><div><Icon name="upload" /><strong>1. 문서 등록</strong><span>파일과 열람 범위를 정합니다.</span></div><div><Icon name="shield" /><strong>2. 자동 검사</strong><span>보안·개인정보·근거를 확인합니다.</span></div><div><Icon name="approval" /><strong>3. 검토와 승인</strong><span>사람이 확인해야 게시됩니다.</span></div></div>
 <h2 className="section">지원 형식</h2><p className="note">PDF · DOCX · HWPX · PNG · JPG<br /><span className="num">50</span>MB 이하</p></aside></div>
     </>
-  );
-}
-
-function Bar({ label, value, danger }: { label: string; value: number; danger?: boolean }) {
-  const pct = Math.round(Math.min(1, Math.max(0, value)) * 100);
-  return (
-    <div className="bar-wrap">
-      <span className="note">{label} · <span className="num">{pct}</span>%</span>
-      <div className={`bar${danger ? ' danger' : ''}`} role="progressbar" aria-label={label} aria-valuemin={0} aria-valuemax={100} aria-valuenow={pct}><span style={{ width: `${pct}%` }} /></div>
-    </div>
   );
 }

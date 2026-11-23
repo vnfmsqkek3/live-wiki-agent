@@ -30,7 +30,8 @@ export function fingerprints(): { id: string; lines: string[] }[] {
 }
 
 /** seedDocIds: 시드 매핑의 prod doc_id. 주면 검색 결과에서 시드 밖 문서(오늘 QA·데모 업로드)를 빼고 잰다 (데모 초기화 전 간섭 제외, 인프라 요청 11/20) */
-export interface LiveDeps { raw: Retriever; search: ReturnType<typeof searchTools>; seedDocIds?: Set<string> }
+/** cite: 인용 측정용 검색 (없으면 search_wiki). prod는 시드 규정 문서만 대상으로 retrieve_evidence(doc_ids) */
+export interface LiveDeps { raw: Retriever; search: ReturnType<typeof searchTools>; seedDocIds?: Set<string>; cite?: ReturnType<typeof searchTools>["search_wiki"] }
 
 /** 승인 전·차단 문서 KB 노출: 필터 없이 조회해 고유 문장 30자가 들어간 청크가 하나라도 있으면 노출 */
 export async function measureVisibility(raw: Retriever) {
@@ -60,7 +61,7 @@ export async function measureLive(d: LiveDeps) {
   const cite = { total: 0, hit: 0, forbidden: [] as string[], misses: [] as string[] };
   for (const c of jsonl<CiteCase>("citation.jsonl")) {
     // 시드만 볼 때는 10건을 받아 시드 밖 문서를 빼고 앞 5건 (QA 업로드가 상위를 차지해도 시드 기준 Recall@5)
-    const r = await d.search.search_wiki({ query: c.question, as_of: c.as_of, top_k: d.seedDocIds ? 10 : 5 }, USER);
+    const r = await (d.cite ?? d.search.search_wiki)({ query: c.question, as_of: c.as_of, top_k: d.seedDocIds ? 10 : 5 }, USER);
     const ids = r.items.filter((x) => !d.seedDocIds || d.seedDocIds.has(x.doc_id)).slice(0, 5).map((x) => x.provision_id);
     cite.total++;
     if (c.expected_provision_ids.some((p) => ids.includes(p))) cite.hit++; else cite.misses.push(`${c.id}: ${r.search_status} [${ids.join(", ")}]`);
@@ -149,7 +150,12 @@ if (import.meta.main) {
   const search = { ...local, search_wiki: viaLambda };
   // SEED_IDS=seed-doc-ids.json (데이터팀 시드 매핑, git 미추적). 주면 시드 밖 문서(QA 업로드)를 빼고 잰다. 없으면 manifest 기준 분모 + 제목 매핑
   const seed = process.env["SEED_IDS"] ? JSON.parse(readFileSync(process.env["SEED_IDS"], "utf8")) as Record<string, string> : undefined;
-  const r = await measureLive({ raw: new BedrockRetriever(kb), search, ...(seed ? { seedDocIds: new Set(Object.values(seed)) } : {}) });
+  // 인용 측정은 시드 규정 문서(F-*·G-REG-*·G-REV-*) 안에서만 검색: QA 게시 문서가 1위면 1위×RERANK_RATIO 컷에 규정 조항이 잘려 사후 필터로 못 막음 (총괄 11/23, CT-04).
+  // retrieve_evidence(doc_ids)는 search_wiki와 같은 run() 경로(#109·#163), 질의 재작성만 없음
+  const regIds = seed ? Object.entries(seed).filter(([k]) => /^(F-|G-REG-|G-REV-)/u.test(k)).map(([, v]) => v) : [];
+  const evidence = invoke("hanaeum-mvp-lambda-mcp-search", "search___retrieve_evidence");
+  const cite = regIds.length ? (((a: Record<string, unknown>, u: unknown) => evidence({ ...a, doc_ids: regIds }, u)) as unknown as typeof local.search_wiki) : undefined;
+  const r = await measureLive({ raw: new BedrockRetriever(kb), search, ...(seed ? { seedDocIds: new Set(Object.values(seed)) } : {}), ...(cite ? { cite } : {}) });
   // trace_impact는 AUTHOR·REG_APPROVER 전용. 그래프는 Neptune(VPC)이라 배포된 graph Lambda로 호출
   const trace = invoke("hanaeum-mvp-lambda-mcp-graph", "graph___trace_impact");
   const im = await measureImpactLive((a) => trace(a, { sub: "eval-author", groups: ["AUTHOR"], dept: "여신" }) as never, seed);
@@ -158,7 +164,7 @@ if (import.meta.main) {
   console.log(`| 정확 조문 검색 | 19/20 | ${r.clause.correct}/${r.clause.total} | ${r.clause.correct >= 19 ? "통과" : "미달"} |`);
   console.log(`| 삭제 조항 오인용 | 0 | ${r.deletionMis} | ${r.deletionMis === 0 ? "통과" : "미달"} |`);
   console.log(`| 승인 전·차단 문서 KB 노출 | 0 | ${r.visibility.visible.length}/${r.visibility.checked} ${r.visibility.visible.join(",")} | ${r.visibility.visible.length === 0 ? "통과" : "미달"} |`);
-  console.log(`| 근거 인용 (근거 검색 Recall@5) | 19/20 | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | ${r.cite.hit >= 19 && !r.cite.forbidden.length ? "통과" : "미달"} |`);
+  console.log(`| 근거 인용 (근거 검색 Recall@5${cite ? ", 시드 규정 범위 retrieve_evidence·질의 재작성 없음. 가이드 경로 인용은 AI팀 측정" : ""}) | 19/20 | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | ${r.cite.hit >= 19 && !r.cite.forbidden.length ? "통과" : "미달"} |`);
   console.log(`| 검색 실패 판정 (UNVERIFIED를 부재로 단정) | 0 | 단정 ${r.unverified.asserted.length}, 무관 근거 ${r.unverified.spurious.length} (UNVERIFIED ${r.unverified.ok}/${r.unverified.total}) ${[...r.unverified.asserted, ...r.unverified.spurious].join(",")} | ${r.unverified.asserted.length === 0 && r.unverified.spurious.length === 0 ? "통과" : "미달"} |`);
   console.log(`| 변경 영향 탐지 (실그래프) | 지정 전부 | ${im.detected}/${im.expected}, 오탐 ${im.falsePos.length}${im.excluded.length ? ` (미게시 제외: ${im.excluded.join(",")})` : ""} | ${im.detected === im.expected && !im.falsePos.length ? "통과" : "미달"} |`);
   for (const f of r.clause.fails) console.log("  조문 실패", f);

@@ -395,6 +395,25 @@ test("related 통합 (PR #46 리뷰): 핵심어 없는 조각·그림 설명(인
   assert.ok(r.related!.every((x) => /여신심사위원회|본부|개인정보/u.test(`${x.title} ${x.snippet}`.replace(/\s+/gu, ""))));
 });
 
+test("search_wiki: 얕은 근거(1위 < 기준+0.05)여도 삭제 항이 질의에 맞으면 같은 조 현행 항을 앞에 (CT-04 경계, 총괄 11/23)", async () => {
+  const { retriever, states } = setup();
+  // prod 11/23 실측: 현행 검색 1위가 다른 조 0.32(기준 0.30 바로 위) → 근거 있음이라 이력 보충이 안 돌아 제15조제1항이 관련(weak)에만
+  const current = (f?: RetrievalFilter) => JSON.stringify(f ?? {}).includes("effective_to");
+  const art15 = (h: { metadata: Record<string, unknown> }) => String(h.metadata["provision_id"]).includes("/ARTICLE:15");
+  const stub = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => (!current(f) ? h : art15(h) ? { ...h, weak: true } : { ...h, score: 0.32 })) };
+  const t = searchTools({ retriever: stub, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15", rewrite: false }, user) as unknown as { items: { provision_id: string; replaces?: string }[] };
+  assert.ok(r.items.some((x) => !x.provision_id.includes("/ARTICLE:15")), "얕은 근거가 실제로 있는 상황: " + JSON.stringify(r.items.map((x) => x.provision_id)));
+  assert.equal(r.items[0]!.provision_id, "SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:1");
+  assert.equal(r.items[0]!.replaces, "SYN-LOAN-001@2026-11-01/ARTICLE:15/PARAGRAPH:2");
+  assert.ok(!r.items.some((x) => x.provision_id.startsWith("SYN-LOAN-001@2026-11-01")));
+  // 1위가 충분히 높으면(기준+0.05 이상) 지금처럼 이력 검색 안 함
+  const strong = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => (!current(f) ? h : art15(h) ? { ...h, weak: true } : { ...h, score: 0.6 })) };
+  const t2 = searchTools({ retriever: strong, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r2 = await t2.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15", rewrite: false }, user) as unknown as { items: { replaces?: string }[] };
+  assert.ok(r2.items.every((x) => !x.replaces));
+});
+
 test("search_wiki: 삭제된 항이 질의에 맞으면 같은 조 현행 항을 근거로 (데이터QA CT-04 11/20), 삭제 항은 내보내지 않음", async () => {
   const { retriever, states } = setup();
   // prod 실측 재현: 현행만 찾으면 제15조제1항 0.289(근거 기준 미달=weak), 이력 포함이면 삭제된 F-001 제15조제2항 0.785

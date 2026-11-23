@@ -1,5 +1,5 @@
 import Link from 'next/link';
-import { useId } from 'react';
+import { useId, type ReactNode } from 'react';
 import { Icon } from './icons';
 import { getSession, type FreshnessReason, type LibraryCard, type SearchItem } from './lib/api';
 import { isAdmin } from './lib/roles';
@@ -82,6 +82,8 @@ export function Popularity({ r }: { r?: { avg: number; count: number } }) {
   return r ? <span className="meta">평점 <span className="num">{r.avg.toFixed(1)}</span> · {r.count}명</span> : null;
 }
 
+/** 「이름」: 전각 괄호 글리프의 안쪽 여백 때문에 '「 이름 」'처럼 띄어 보이는 것을 줄인다 (사용자 11/23, 데이터에는 공백 없음) */
+export const Q = ({ children }: { children: ReactNode }) => <span className="q"><span className="ql">「</span>{children}<span className="qr">」</span></span>;
 export const todayKst = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'Asia/Seoul' });
 const soon = (date?: string | null): date is string => !!date && date > todayKst();
 const md = (date: string) => `${+date.slice(5, 7)}월 ${+date.slice(8, 10)}일`;
@@ -110,14 +112,15 @@ export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: Searc
   // 이유가 있으면 빨간 경고 상자 하나로: 제목 + '재검토 사유' (엔드유저·사용자 11/23). 날짜는 있는 것만 문장에 넣는다
   return <div className="reason-box" role="note" aria-labelledby={id}>
     <p className="reason-head" id={id}>{flag}</p>
-    <p><b>재검토 사유</b> {r.deleted_doc ? `근거로 쓰던 「${law}」 문서가 삭제되었습니다.`
-      : <>근거 규정 「{law}」{labels.length ? ` ${labels.join(', ')}` : ''}이 {r.effective_from && <><span className="num">{r.effective_from}</span> {soon(r.effective_from) ? '시행 예정인 ' : '시행 '}</>}개정판으로 바뀌었습니다.{r.cited_revision && <> 이 문서는 <span className="num">{r.cited_revision}</span> 판을 근거로 승인되었습니다.</>}{soon(r.effective_from) && ' 시행일 전까지는 현행 조문이 적용됩니다.'}</>}</p>
+    <p><b>재검토 사유</b> {r.deleted_doc ? <>근거로 쓰던 <Q>{law}</Q> 문서가 삭제되었습니다.</>
+      : <>근거 규정 <Q>{law}</Q>{labels.length ? ` ${labels.join(', ')}` : ''}이 {r.effective_from && <><span className="num">{r.effective_from}</span> {soon(r.effective_from) ? '시행 예정인 ' : '시행 '}</>}개정판으로 바뀌었습니다.{r.cited_revision && <> 이 문서는 <span className="num">{r.cited_revision}</span> 판을 근거로 승인되었습니다.</>}{soon(r.effective_from) && ' 시행일 전까지는 현행 조문이 적용됩니다.'}</>}</p>
     {changes.slice(0, max).map((c, i) => <div key={i}>
       {(c.old_text || c.new_text !== undefined) && <p><b>{c.label ?? readable(c.provision_id)}</b> <del>{c.old_text || '(없음)'}</del> → <ins>{c.new_text === '' ? '(개정본에서 삭제)' : c.new_text ?? '(확인 못 함)'}</ins></p>}
       {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text.replace(/^(\d+\.)(?=[^\s\d])/, '$1 ')}</p>}
     </div>)}
     {/* 결재자만 할 수 있는 행동은 결재자에게만 (엔드유저 11/23: 읽는 직원은 할 일이 없음) */}
-    {isAdmin(getSession()?.groups) ? <p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+    {isAdmin(getSession()?.groups) ? <><p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+      {soon(r.effective_from) && <p>수정 반영은 <span className="num">{r.effective_from}</span>부터 가능합니다. 개정 후에도 이 문서를 고칠 필요가 없으면 지금 [변경 없이 유효로 확인하기]를 눌러도 됩니다.</p>}</>
       : <p><b>읽는 분께</b> {soon(r.effective_from) ? <>시행일(<span className="num">{r.effective_from}</span>) 전까지는 현행 기준으로 업무하세요. </> : '바뀐 조문을 먼저 확인하고 업무에 쓰세요. '}담당 결재자가 이 문서를 고칠지 확인하고 있습니다.</p>}
   </div>;
 }

@@ -357,7 +357,8 @@ export function createApp(deps: Deps) {
   const applyAfter = (r: ChangeRequest) => (r.source === 'IMPACT' && r.revision?.effective_from && r.revision.effective_from > todayKst() ? r.revision.effective_from : null);
   app.get('/v1/admin/change-requests', async (c) => {
     need(c, APPROVERS);
-    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED', apply_after: applyAfter(r) })))
+    // 삭제된 문서의 열린 제안은 처리할 대상이 아니다 (demo-reset 뒤 K-001 CR 3건 남음, 데이터 11/23)
+    const items = (await store.listDocs()).filter((d) => d.lifecycle !== 'DELETED').flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED', apply_after: applyAfter(r), superseded: d.freshness === 'SUPERSEDED' })))
       .sort((x, y) => y.at.localeCompare(x.at));
     return c.json({ items });
   });
@@ -367,13 +368,15 @@ export function createApp(deps: Deps) {
     const b = (await c.req.json().catch(() => ({}))) as { decision?: unknown; reason?: unknown; after?: unknown };
     const d = await store.getDoc(c.req.param('doc'));
     const cr = d?.change_requests?.find((r) => r.id === c.req.param('id'));
-    if (!d || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
+    if (!d || d.lifecycle === 'DELETED' || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
     const at = new Date().toISOString(); const reason = String(b.reason ?? '').trim().slice(0, 200);
     let next: Partial<ChangeRequest>;
     if (b.decision === 'REJECT') {
       if (!reason) throw new ApiError('VALIDATION', '반려 사유를 적어 주세요');
       next = { status: 'REJECTED', decision_reason: mask(reason, detectPii(reason)) };
     } else if (b.decision === 'APPLY') {
+      // 대체된 이전 버전 기준 제안: 반영하면 이전 버전에서 갈라진 새 버전이 생긴다 → 막고 다시 만들게 (총괄 11/23, 숨기거나 옮기지 않음)
+      if (d.freshness === 'SUPERSEDED') throw new ApiError('CONFLICT', '이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만드세요');
       const eff = applyAfter(cr);
       if (eff) throw new ApiError('CONFLICT', `${eff} 시행 예정 개정에 따른 수정입니다. ${eff}부터 반영할 수 있습니다`);
       const after = String(b.after ?? cr.after ?? '').trim();
@@ -484,6 +487,8 @@ export function createApp(deps: Deps) {
     const next: DocumentRecord = {
       ...d, lifecycle: 'DELETED', deleted_reason: d.lifecycle === 'DELETED' ? d.deleted_reason ?? b.reason : b.reason,
       deleted_by: d.deleted_by ?? a.sub, delete_workflow_id: newId.wf(), updated_at: at,
+      // 열린 수정 제안은 닫는다 (결재함에 남던 K-001 CR, 총괄·데이터 11/23)
+      ...(d.change_requests?.some((r) => r.status === 'OPEN') ? { change_requests: d.change_requests.map((r) => (r.status === 'OPEN' ? { ...r, status: 'REJECTED' as const, decided_by: a.sub, decided_at: at, decision_reason: '문서 삭제' } : r)) } : {}),
       ...(d.purge ? { purge: { ...d.purge, deleted_at: undefined, review_required: undefined } } : {}),
     };
     await store.putDoc(next);
