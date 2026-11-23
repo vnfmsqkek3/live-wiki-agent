@@ -164,7 +164,7 @@ if (import.meta.main) {
   console.log(`| 정확 조문 검색 | 19/20 | ${r.clause.correct}/${r.clause.total} | ${r.clause.correct >= 19 ? "통과" : "미달"} |`);
   console.log(`| 삭제 조항 오인용 | 0 | ${r.deletionMis} | ${r.deletionMis === 0 ? "통과" : "미달"} |`);
   console.log(`| 승인 전·차단 문서 KB 노출 | 0 | ${r.visibility.visible.length}/${r.visibility.checked} ${r.visibility.visible.join(",")} | ${r.visibility.visible.length === 0 ? "통과" : "미달"} |`);
-  console.log(`| 근거 인용 (근거 검색 Recall@5) | 19/20 | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | ${r.cite.hit >= 19 && !r.cite.forbidden.length ? "통과" : "미달"} |`);
+  console.log(`| 근거 인용 (근거 검색 Recall@5${cite ? ", 시드 규정 범위 retrieve_evidence·질의 재작성 없음. 가이드 경로 인용은 AI팀 측정" : ""}) | 19/20 | ${r.cite.hit}/${r.cite.total}, 금지 근거 반환 ${r.cite.forbidden.length} | ${r.cite.hit >= 19 && !r.cite.forbidden.length ? "통과" : "미달"} |`);
   console.log(`| 검색 실패 판정 (UNVERIFIED를 부재로 단정) | 0 | 단정 ${r.unverified.asserted.length}, 무관 근거 ${r.unverified.spurious.length} (UNVERIFIED ${r.unverified.ok}/${r.unverified.total}) ${[...r.unverified.asserted, ...r.unverified.spurious].join(",")} | ${r.unverified.asserted.length === 0 && r.unverified.spurious.length === 0 ? "통과" : "미달"} |`);
   console.log(`| 변경 영향 탐지 (실그래프) | 지정 전부 | ${im.detected}/${im.expected}, 오탐 ${im.falsePos.length}${im.excluded.length ? ` (미게시 제외: ${im.excluded.join(",")})` : ""} | ${im.detected === im.expected && !im.falsePos.length ? "통과" : "미달"} |`);
   for (const f of r.clause.fails) console.log("  조문 실패", f);
