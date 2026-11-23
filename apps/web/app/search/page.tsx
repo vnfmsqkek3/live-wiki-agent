@@ -5,13 +5,12 @@ import { PageHeader } from '../page-header';
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
 import { api, ApiError, type LibraryCard, type SearchItem } from '../lib/api';
-import { FreshnessFlag, Popularity, Scheduled, Seal } from '../seal';
+import { FreshnessFlag, KindTag, Popularity, Scheduled, Seal } from '../seal';
 import { PageThumb } from '../page-thumb';
 import { ModeTabs } from '../mode-tabs';
 
 /** 첫 화면 예시 질문 (데모 01·05 포함). 누르면 바로 검색 */
 const EXAMPLES = ['담보평가 시 확인 절차는?', '제12조제2항제3호가목', '해외송금 증빙 한도', '고액 현금 인출 기준', '개인정보 보관 기간'];
-const TYPE_LABEL: Record<string, string> = { REGULATION: '규정', KNOWHOW: '노하우', MANUAL: '매뉴얼' };
 const DETAIL_LABEL: Record<string, string> = { business: '업무', dept: '부서', date_from: '일자부터', date_to: '일자까지', authority_status: '검증', freshness: '최신성' };
 const VALUE_LABEL: Record<string, string> = { VERIFIED: '검증됨', UNVERIFIED: '미검증', CURRENT: '현행', REVIEW_REQUIRED: '재검토 필요' };
 
@@ -185,7 +184,7 @@ function Results() {
             {items.map((i, n) => (
               <li className="entry" key={`${i.doc_id}-${n}`}>
                 <Seal i={{ ...i, freshness: i.freshness }} />
-                <span className="kind-tag">{TYPE_LABEL[i.document_type] ?? '문서'}</span>
+                <KindTag type={i.document_type} />
                 <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
