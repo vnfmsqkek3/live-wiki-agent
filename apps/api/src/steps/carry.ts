@@ -6,7 +6,7 @@
 import { createHash } from 'node:crypto';
 import type { Finding } from '../contracts.ts';
 
-export interface ReviewCarry { text: string; /** 이전 검사에서 규정 비교(노하우 검증)를 했는가. 안 했으면 처음 나온 충돌은 올린 사람이 처리 */ validated?: boolean; items: { code: string; key: string; status: 'OPEN' | 'DISMISSED' | 'ACK'; reason?: string; by?: string; at?: string }[] }
+export interface ReviewCarry { text: string; /** 이전 검사에서 규정 비교(노하우 검증)를 했는가. 안 했으면 처음 나온 충돌은 올린 사람이 처리 */ validated?: boolean; items: { code: string; key: string; status: 'OPEN' | 'DISMISSED' | 'ACK'; reason?: string; by?: string; at?: string; /** 서버 전용 표식: 승인된 수정 요청 반영(ackItem 만 붙임, 사용자 사유로는 못 만듦) */ cr_applied?: true }[] }
 const norm = (s: string) => s.replace(/\s+/g, ' ').trim();
 // 줄은 남기고 줄 안 공백만 접는다 (표 행·줄 단위 대조용)
 const normLines = (s: string) => s.split('\n').map((l) => l.replace(/\s+/g, ' ').trim()).filter(Boolean).join('\n');
@@ -34,7 +34,7 @@ const keyOf = (f: Finding) => h(`${f.code}|${textOf(f)}`);
 /** 관리자가 승인해 반영한 수정 요청의 확인 사유 (app.ts 수정 요청 반영 → applyCarry 가 알아본다) */
 export const CR_APPLIED = '수정 요청 반영(관리자 승인)';
 /** 이미 내린 결정을 새 버전에 미리 잇는다 (예: 관리자가 승인해 반영한 수정 요청으로 바뀐 문장의 '중요 문장 삭제' — 11/19 팀 계정 G4) */
-export const ackItem = (code: string, text: string, by: string, reason: string): ReviewCarry['items'][number] => ({ code, key: h(`${code}|${text}`), status: 'ACK', reason, by, at: new Date().toISOString() });
+export const ackItem = (code: string, text: string, by: string, reason: string): ReviewCarry['items'][number] => ({ code, key: h(`${code}|${text}`), status: 'ACK', reason, by, at: new Date().toISOString(), ...(reason === CR_APPLIED ? { cr_applied: true as const } : {}) });
 
 export function makeCarry(oldText: string, findings: Finding[], validated = false): ReviewCarry {
   return {
@@ -64,7 +64,7 @@ export function applyCarry(c: ReviewCarry | undefined, findings: Finding[]): Fin
       return t && norm(c.text).includes(t) ? [] : [f]; // 고치지 않은 문장의 새 질문은 만들지 않는다
     }
     // 승인된 수정 요청으로 바뀐 문장은 '빠진 중요 문장'이 아니라 바뀐 문장: LOW 안내로 ('되돌려 주세요'가 개정 반영을 되돌리라고 읽힘, G-KREV-02 11/23)
-    if (prev?.status === 'ACK' && ack && !f.acknowledged && f.code === 'EDIT_REMOVED_KEY_SENTENCE' && prev.reason === CR_APPLIED) {
+    if (prev?.status === 'ACK' && ack && !f.acknowledged && f.code === 'EDIT_REMOVED_KEY_SENTENCE' && prev.cr_applied) { // 사유 문자열이 아니라 서버 표식으로 (작성자가 같은 사유를 적어도 강등 안 됨, 인프라 리뷰 #160)
       return [{ ...f, fix_hint: undefined, acknowledged: ack, severity: 'LOW' as const, message: '승인된 수정 요청으로 바뀐 문장', user_message: `승인된 수정 요청으로 바뀐 문장입니다 (이전 문장: "${textOf(f).slice(0, 80)}")` }];
     }
     if (prev?.status === 'ACK' && ack && !f.acknowledged) return [{ ...f, acknowledged: ack }];
