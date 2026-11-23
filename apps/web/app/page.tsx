@@ -89,7 +89,7 @@ export default function Home() {
             <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
             <h3 className="doc-title"><Link className="card-link" prefetch={false} href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link><Scheduled date={i.effective_from} /></h3>
             <div className="meta">{i.business_path.join(' › ') || '업무 미분류'} · 변경 <span className="num">{i.updated_at.slice(0, 10)}</span></div>
-            <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} max={1} /><Upcoming u={i.upcoming} />
+            <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} compact /><Upcoming u={i.upcoming} />
             {i.summary && <p className="note card-summary">{i.summary}</p>}
             {i.tags.length > 0 && <p className="meta">{i.tags.slice(0, 3).map((t) => `#${t}`).join(' ')}</p>}
             <Popularity r={i.rating} />
@@ -103,7 +103,7 @@ export default function Home() {
             <Seal i={{ authority_status: i.authority_status, document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
             <h3 className="doc-title"><Link className="card-link" prefetch={false} href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link><Scheduled date={i.effective_from} /></h3>
             <Popularity r={i.rating} />
-            <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} max={1} /><Upcoming u={i.upcoming} />
+            <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} compact /><Upcoming u={i.upcoming} />
           </li>)}
         </PaginatedList>
       </section>}
