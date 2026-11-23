@@ -93,12 +93,13 @@ hanaeum-terraform/bootstrap/tfstate.sh                       # State 버킷, 계
 terraform -chdir=hanaeum-terraform/envs/prod init
 terraform -chdir=hanaeum-terraform/envs/prod apply
 terraform -chdir=hanaeum-terraform/envs/prod output web_url  # 접속 주소 (CloudFront)
-hanaeum-terraform/scripts/prod-infra-check.sh                # I1~I8 배포 확인
+DOC=<공개 게시 doc_id> hanaeum-terraform/scripts/prod-infra-check.sh   # I1~I8 배포 확인 (I8에 DOC 필요)
+workflows/scripts/smoke-agentcore.sh prod                    # 문서 처리 smoke
 ```
 
 - 빈 계정 기준 약 450개 리소스이고, CodeBuild 빌드를 포함해 수십 분 걸립니다.
 - DB 마이그레이션과 AgentCore Gateway 스키마 재동기화도 apply 안에서 실행됩니다.
-- 코드 변경 반영: `envs/prod/main.tf`의 빌드 커밋 변수(`lambda_refs`, `webapp_source_ref`, `agents_source_ref`, `ocr_source_ref`)를 push된 커밋으로 지정해 apply합니다.
+- 코드 변경 반영: `envs/prod/main.tf`의 빌드 커밋 변수(`lambda_refs`, `webapp_source_ref`, `agents_source_ref`, `ocr_source_ref`, 파이프라인 고정 시 `pipeline_runtime_image_tag`)를 push된 커밋으로 지정해 apply합니다.
 
 ### 삭제 후 재배포
 
