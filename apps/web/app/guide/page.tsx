@@ -2,6 +2,7 @@
 import { readable } from '../lib/readable';
 import { PageThumb } from '../page-thumb';
 import { PageHeader } from '../page-header';
+import { ModeTabs } from '../mode-tabs';
 // 03 AI 업무 가이드: 승인 문서만 근거로 단계별 가이드. 단계마다 근거 조문·시행일. 참고용 고지.
 import { useRouter, useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
@@ -40,6 +41,7 @@ function GuideView() {
   return (
     <>
       <PageHeader title="업무 가이드" description="업무 상황을 질문하시면 승인된 문서를 근거로 절차를 안내합니다." action={<button className="btn solid" type="submit" form="guide-form">가이드 만들기</button>} />
+      <ModeTabs now="guide" q={q} />
       <div className="layout-a guide-layout"><div className="primary"><form id="guide-form" onSubmit={(e) => { e.preventDefault(); if (input.trim()) router.push(`/guide?q=${encodeURIComponent(input.trim())}`); }}>
         <input className="field lg" type="search" aria-label="질문" placeholder="예: 담보 4억원 기업여신은 누가 승인하나요?" value={input} onChange={(e) => setInput(e.target.value)} maxLength={1000} />
         <p className="note" style={{ marginTop: 8 }}>개인정보는 입력하지 마세요. 입력하더라도 AI에 전달하기 전에 가립니다.</p>
