@@ -659,7 +659,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
   const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + reviewFindings(d).length : 0) + (d.suggestions?.length ?? 0);
   const canRequest = d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION'; // 대체된 옛 판은 최신 버전에서 고친다
-  const canWikiEdit = canRequest && isAdmin(getSession()?.groups); // 사용자 결정 11/23 B: 위키 수정은 결재자만, 일반 사용자는 수정 요청
+  // 사용자 결정 11/23 B: 위키 수정은 결재자만. 서버 판정(can_wiki_edit, 백엔드 #186)을 우선 — 화면 결재자 그룹(운영자 포함)과 서버 APPROVERS가 달라 403 방지
+  const canWikiEdit = d.can_wiki_edit ?? (canRequest && isAdmin(getSession()?.groups));
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
