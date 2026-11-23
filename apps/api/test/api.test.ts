@@ -457,22 +457,29 @@ test('주장: 상세에 문서 주장 + 같은 조문 게시 주장의 지지·�
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/knowledge-debt')).json()) as { healthy: number }).healthy, 3);
 });
 
-test('재검토 사유 상자: 근거 조문 개정으로 재검토 중인 게시 문서 → 규정·조항·개정 전후·인용 문장·열린 수정 제안 (프론트 8차 11/23)', async () => {
+test('재검토 이유 보충·시행 예정 개정판 (프론트 8차 11/23): 수정 제안 없는 재검토는 주장 provision_revised 로 changes 1건(상세만), 같은 묶음의 시행일 > 오늘 게시본은 upcoming', async () => {
   const t = setup();
-  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, findings: [], created_at: '', updated_at: '', acl_groups: ['ALL'], lifecycle: 'PUBLISHED' as const, document_type: 'KNOWHOW' as const };
-  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '노하우', freshness: 'REVIEW_REQUIRED',
-    change_requests: [{ id: 'cr_1', by: 'system:impact', at: '', before: 'b', request: 'r', verdict: 'UNKNOWN', ai_reason: '', status: 'OPEN', source: 'IMPACT', law: 'L', path: 'ARTICLE:5', requested_by: 'u' }] as never });
-  await t.store.putDoc({ ...base, doc_id: 'doc_C', title: '현행', freshness: 'CURRENT' });
-  const OLD = 'SYN-LOAN-001@2026-11-01/ARTICLE:5/PARAGRAPH:1', NEW = 'SYN-LOAN-001@2027-01-01/ARTICLE:5/PARAGRAPH:1';
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, findings: [], created_at: '', updated_at: '', acl_groups: ['ALL'], lifecycle: 'PUBLISHED' as const };
+  const fr = { law_id: 'SYN-LOAN-001', law_name: '기업여신 심사규정', cited_revision: '', current_revision: '', effective_from: '', provisions: [], at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '노하우', document_type: 'KNOWHOW', freshness: 'REVIEW_REQUIRED', freshness_reason: fr });
+  const OLD = 'SYN-LOAN-001@2026-11-01/ARTICLE:5/PARAGRAPH:1', NEW = 'SYN-LOAN-001@2099-01-01/ARTICLE:5/PARAGRAPH:1';
   t.deps.claims = {
     list: async () => [{ claim_id: 'doc_R#1', seq: 1, statement: '한도는 3억원', page: 1, provision_id: OLD, relation: 'SUPPORTS', reason: '', quote: '한도는 3억원까지 영업점장 전결', verified: true, status: 'REVIEW_REQUIRED', status_reason: `provision_revised:${NEW}` }],
     counts: async () => new Map(), debt: async () => ({ conflicts: 0, review_required: 1, unverified: 0, healthy: 0, docs_needing_attention: 1 }),
   };
-  const clauses: Record<string, { text: string; effective_from: string }> = { [OLD]: { text: '한도는 3억원 이하', effective_from: '2026-11-01' }, [NEW]: { text: '한도는 2억원 이하', effective_from: '2027-01-01' } };
-  t.deps.clause = async (id) => clauses[id] && { provision_id: id, label: '하나은행 기업여신 심사규정 제5조제1항', status: 'ACTIVE', ...clauses[id] };
-  const r = ((await (await t.call('user', 'GET', '/v1/library/doc_R')).json()) as { review_reason: unknown }).review_reason;
-  assert.deepEqual(r, { law_name: '하나은행 기업여신 심사규정', provision_label: '제5조제1항', revision_effective_from: '2027-01-01', before_text: '한도는 3억원 이하', after_text: '한도는 2억원 이하', cited_sentence: '한도는 3억원까지 영업점장 전결', open_change_requests: 1 });
-  assert.equal(((await (await t.call('user', 'GET', '/v1/library/doc_C')).json()) as { review_reason: unknown }).review_reason, null);
+  const cl: Record<string, { text: string; effective_from: string }> = { [OLD]: { text: '한도는 3억원 이하', effective_from: '2026-11-01' }, [NEW]: { text: '한도는 2억원 이하', effective_from: '2099-01-01' } };
+  t.deps.clause = async (id) => cl[id] && { provision_id: id, label: '하나은행 기업여신 심사규정 제5조제1항', status: 'ACTIVE', ...cl[id] };
+  const d = (await (await t.call('user', 'GET', '/v1/library/doc_R')).json()) as { freshness_reason: { effective_from: string; open_change_requests: number; changes: unknown[] } };
+  assert.deepEqual(d.freshness_reason.changes, [{ provision_id: NEW, label: '제5조제1항', kind: 'MODIFIED', old_text: '한도는 3억원 이하', new_text: '한도는 2억원 이하', cited_text: '한도는 3억원까지 영업점장 전결' }]);
+  assert.deepEqual([d.freshness_reason.effective_from, d.freshness_reason.open_change_requests], ['2099-01-01', 0]);
+
+  // 규정 v1(시행 중)·v2(2099 시행 예정) 같은 law_id 묶음 → v1 카드에 upcoming = v2
+  const reg = { ...base, document_type: 'REGULATION' as const, law_id: 'SYN-REV-001', freshness: 'CURRENT' as const };
+  await t.store.putDoc({ ...reg, doc_id: 'doc_V1', title: '규정 v1', effective_from: '2026-11-01', revision_id: '2026-11-01' });
+  await t.store.putDoc({ ...reg, doc_id: 'doc_V2', title: '규정 v2', effective_from: '2099-01-01', revision_id: '2099-01-01' });
+  const v1 = (await (await t.call('user', 'GET', '/v1/library/doc_V1')).json()) as { upcoming: unknown };
+  assert.deepEqual(v1.upcoming, { doc_id: 'doc_V2', version_no: 2, effective_from: '2099-01-01' });
+  assert.equal(((await (await t.call('user', 'GET', '/v1/library/doc_V2')).json()) as { upcoming: unknown }).upcoming, null);
 });
 
 test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·original.md), 규정 불가, 내 검토 중 문서는 그 자리 재분석, 고칠 것 남으면 게시 요청 잠금', async () => {
@@ -697,7 +704,7 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   t.deps.putOriginal = async () => {};
   const ev = (span: string, kind = 'MODIFIED') => ({ cited_provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12', evidence_span: span, change: { path: 'ARTICLE:12', kind, old_text: '한도는 5억 원', new_text: '한도는 3억 원' } });
   const tokens: string[] = [];
-  t.deps.traceImpact = async (a, tok) => { tokens.push(tok); return { law_id: 'SYN-LOAN-001', impacted: [{ doc_id, evidence: [ev('1. 여신 한도는 5억 원 이하로 심사한다.'), ev('본문에 없는 문장입니다')] }] }; };
+  t.deps.traceImpact = async (a, tok) => { tokens.push(tok); return { law_id: 'SYN-LOAN-001', old_revision: '2026-11-01', new_revision: '2027-01-01', impacted: [{ doc_id, evidence: [ev('1. 여신 한도는 5억 원 이하로 심사한다.'), ev('본문에 없는 문장입니다')] }] }; };
   await t.store.putDoc({ ...d, doc_id: 'doc_01M7MEH5136HE3JJ68AD8M0REG', law_id: 'SYN-LOAN-001', law_name: '하나은행 기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED' } as never);
   const seen: { old_clause: string; new_clause: string; law_name?: string }[] = [];
   t.deps.draftImpact = async (i) => { seen.push(i); return { verdict: 'APPROPRIATE', after: '1. 여신 한도는 3억 원 이하로 심사한다.', reason: '조문 한도 변경' }; };
@@ -718,13 +725,19 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   // 문서는 그대로(게시 유지) + 재검토 표시. 다시 눌러도 새로 만들지 않음
   const after1 = (await t.store.getDoc(doc_id))!;
   assert.deepEqual([after1.lifecycle, after1.freshness], ['PUBLISHED', 'REVIEW_REQUIRED']);
+  // 재검토 이유 (프론트 8차): 개정 내용·인용 문장·열린 수정 제안 수. Registry 표기가 없으면 경로·개정 ID 날짜
+  const fr = ((await (await t.call('user', 'GET', `/v1/library/${doc_id}`)).json()) as { freshness_reason: { effective_from: string; open_change_requests: number; changes: Record<string, string>[] } }).freshness_reason;
+  assert.deepEqual([fr.effective_from, fr.open_change_requests, fr.changes.length], ['2027-01-01', 2, 2]);
+  assert.deepEqual(fr.changes[0], { provision_id: 'SYN-LOAN-001@2027-01-01/ARTICLE:12', label: '제12조', kind: 'MODIFIED', old_text: '한도는 5억 원', new_text: '한도는 3억 원', cited_text: '1. 여신 한도는 5억 원 이하로 심사한다.' });
   const again = await t.call('approver', 'POST', '/v1/admin/impact/draft', body);
   assert.equal(again.status, 200);
   assert.deepEqual(((await again.json()) as { items: { id: string }[] }).items.map((x) => x.id), r.items.map((x) => x.id));
 
   // 결재함에 올라감 → 반영 → 새 버전은 검사 대기(QUARANTINED), 승인 전이라 일반 사용자 보관함에 없음
-  const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; source?: string }[] };
+  const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; source?: string; revision?: Record<string, string> }[] };
   assert.equal(list.items.filter((x) => x.source === 'IMPACT').length, 2);
+  assert.deepEqual(list.items[0]!.revision, { provision_id: 'SYN-LOAN-001@2027-01-01/ARTICLE:12', law_name: '하나은행 기업여신 심사규정', label: '제12조', kind: 'MODIFIED',
+    old_text: '한도는 5억 원', new_text: '한도는 3억 원', effective_from: '2027-01-01', current_effective_from: '2026-11-01' });
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.items[0]!.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.lifecycle, 'QUARANTINED');
