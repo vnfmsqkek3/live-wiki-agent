@@ -82,6 +82,8 @@ export const RERANK_RATIO = 0.4;
 /** 관련 가능 문서 하한 (11/17 실측: "개인정보 수집" 같은 짧은 자연어 질의는 관련 조문이어도 1위 0.13~0.26, 무관 질의는 0.017~0.094.
  *  0.30 미만은 근거로 단정하지 않되 버리지도 않고 related로 보여 준다). ponytail: 고정값, 평가 세트 늘면 재보정 */
 export const RELATED_MIN = 0.10;
+/** 1위가 RERANK_TOP1_MIN + 이 값 미만이면 "얕은 근거" — 삭제·개정 옛 항 이력 보충을 근거 없음과 같이 시도 (CT-04 경계 0.32, 총괄 11/23) */
+export const SHALLOW_MARGIN = 0.05;
 
 export class BedrockRetriever implements Retriever {
   private readonly c: BedrockAgentRuntimeClient;
@@ -344,14 +346,17 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     // 검색 결과 0건은 "없음"이 아니라 "확인 불가" (docs/01 8.7). 근거 기준 미달(weak)은 UNVERIFIED + related(참고)로만
     let top = kept.filter((r) => !r.weak).slice(0, k);
     // 근거 없음인데 지금은 삭제·개정된 옛 항이 질의에 맞으면(예: "A등급 LTV 가산" ↔ 삭제된 제15조제2항) 같은 조의 현행 항을 근거로 올린다.
-    // 옛 항 자체는 근거로 내보내지 않는다(현행 아님). 현행 항은 이미 관련(weak)으로 찾은 것만 → 새 근거를 만들지 않음. ponytail: 근거 없음일 때만 이력 검색 1회 추가
-    if (!top.length && !o.includeHistory && kept.some((r) => r.weak)) {
+    // 옛 항 자체는 근거로 내보내지 않는다(현행 아님). 현행 항은 이미 관련(weak)으로 찾은 것만 → 새 근거를 만들지 않음.
+    // 근거 없음 + 얕은 근거(1위 < 기준+SHALLOW_MARGIN: 경계라 질의 재작성마다 결과가 바뀜, CT-04 11/23)일 때 이력 검색 1회 추가. 올린 현행 항은 앞에, 기존 근거는 뒤에
+    const shallow = top.length > 0 && Math.max(...top.map((r) => r.score)) < RERANK_TOP1_MIN + SHALLOW_MARGIN;
+    if ((!top.length || shallow) && !o.includeHistory && kept.some((r) => r.weak)) {
       const ho = { ...o, includeHistory: true };
       const hh = await deps.retriever.retrieve(cleanQuery(q.text), buildFilter(actor, ho));
       const old = revalidate(hh, await deps.states.get([...new Set(hh.map((h) => String(h.metadata["doc_id"])))]), actor, ho).kept.find((r) => !r.weak && r.historical);
       const article = (pid: string) => `${pid.split("@")[0]}/${pid.split("/")[1]}`; // SYN-LOAN-001/ARTICLE:15
-      if (old) top = kept.filter((r) => r.weak && r.historical !== true && article(r.provision_id) === article(old.provision_id)).slice(0, k)
-        .map((r) => { const y: Result = { ...r, replaces: old.provision_id }; delete y.weak; return y; });
+      const up = old ? kept.filter((r) => r.weak && r.historical !== true && article(r.provision_id) === article(old.provision_id))
+        .map((r) => { const y: Result = { ...r, replaces: old.provision_id }; delete y.weak; return y; }) : [];
+      if (up.length) top = [...up, ...top].slice(0, k);
     }
     // 관련 가능 문서는 질의 핵심어가 조각(제목·본문·분류)에 하나라도 있고, 인용 가능한 조각일 때만 (그림 설명만으로는 만들지 않음).
     // 점수 하한을 올리지 않는 이유: 11/17 실측 관련 질의 1위 0.13~0.26 → 0.20이면 진짜 관련 문서도 숨음 (yoyo0704 실측 11/18, 과천 그림 설명이 "개인정보"에 걸림)
