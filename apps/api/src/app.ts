@@ -1116,7 +1116,7 @@ export function createApp(deps: Deps) {
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
-      can_delete: canDelete(a, d),
+      can_delete: canDelete(a, d), is_owner: d.owner === a.sub, // 작성자 행동 막대 판단 (can_delete 가 게시 문서에서 false 가 된 뒤, 프론트 11/23)
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
         lifecycle: d.lifecycle,

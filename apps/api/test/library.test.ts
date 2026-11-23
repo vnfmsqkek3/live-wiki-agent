@@ -163,11 +163,13 @@ test('문서 삭제: 작성자 본인·관리자만, DELETED·사유·감사 후
   assert.equal((await t.del('author', '/v1/documents/REG')).status, 403);
   // 사용자 결정 11/23: 작성자는 게시 전만. 자기 게시 문서는 403·can_delete false, 결재자는 삭제 가능
   await t.store.putDoc({ ...(await t.store.getDoc('KH'))!, doc_id: 'MINE_PUB', owner: 'u-author', lifecycle: 'PUBLISHED' });
-  assert.equal(((await (await t.get('author', '/v1/library/MINE_PUB')).json()) as { can_delete: boolean }).can_delete, false);
+  const mine = (await (await t.get('author', '/v1/library/MINE_PUB')).json()) as { can_delete: boolean; is_owner: boolean };
+  assert.deepEqual([mine.can_delete, mine.is_owner], [false, true]);
   const own = await t.del('author', '/v1/documents/MINE_PUB');
   assert.equal(own.status, 403);
   assert.match(((await own.json()) as { error: { message: string } }).error.message, /결재자만/);
-  assert.equal(((await (await t.get('approver', '/v1/library/MINE_PUB')).json()) as { can_delete: boolean }).can_delete, true);
+  const adm = (await (await t.get('approver', '/v1/library/MINE_PUB')).json()) as { can_delete: boolean; is_owner: boolean };
+  assert.deepEqual([adm.can_delete, adm.is_owner], [true, false]);
   assert.equal((await t.del('approver', '/v1/documents/MINE_PUB')).status, 202);
 });
 
