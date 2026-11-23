@@ -127,9 +127,10 @@ function List() {
   const setParam = (k: string, v: string) => { const n = new URLSearchParams(sp.toString()); if (v) n.set(k, v); else n.delete(k); router.push(`/library${n.size ? `?${n}` : ''}`); };
   const [items, setItems] = useState<LibraryCard[] | null>(null);
   // 업무 칩 숫자는 서버 누적값(doc_count) 대신 지금 볼 수 있는 문서 카드 수 — 폴더 보기와 같은 기준 (엔드유저 13차: 칩 '여신 3' vs 폴더 '여신 6')
-  const [all, setAll] = useState<LibraryCard[]>([]);
-  useEffect(() => { api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => setAll(r.items)).catch(() => setAll([])); }, []);
-  const count = (x: CategoryNode) => all.filter((d) => (!type || d.document_type === type) && (d.category_path === x.path || d.category_path?.startsWith(`${x.path}/`))).length;
+  const [all, setAll] = useState<LibraryCard[] | null>(null);
+  useEffect(() => { api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => setAll(r.items)).catch(() => setAll(null)); }, []);
+  // 목록을 받기 전·실패 시에는 서버 값(doc_count)으로 (QA #180: 칩이 전부 숨음)
+  const count = (x: CategoryNode) => !all ? x.doc_count : all.filter((d) => (!type || d.document_type === type) && (d.category_path === x.path || d.category_path?.startsWith(`${x.path}/`))).length;
   const [cats, setCats] = useState<CategoryNode[]>([]);
   const [err, setErr] = useState('');
   const qs = (t: string, c: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(c ? [['category', c]] : [])]).toString();
