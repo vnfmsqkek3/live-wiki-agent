@@ -174,12 +174,12 @@ export function humanize(t: string, lawNames: Map<string, string>): string {
     .replace(/\bfreshness(?:가|이)/gi, '최신성이').replace(/\bfreshness(?:는|은)/gi, '최신성은').replace(/\bfreshness(?:를|을)/gi, '최신성을').replace(/\bfreshness\b/gi, '최신성').replace(/\bauthority\b/gi, '검증 상태')
     // '심사역은 (담보물) 감정평가서를 포함한 다음 서류' → '심사역은 다음 서류' (한 호를 앞세워 포함 관계처럼 읽힘, 엔드유저 데모 05). 프롬프트 규칙을 어길 때 대비
     .replace(/(\S+(?:은|는))\s+(?:\S+\s+)?\S+(?:을|를)\s*포함한\s*(다음|아래)/g, '$1 $2')
-    // 시스템 사정 문구(도구 호출 한도 등)는 고장으로 읽힘 (엔드유저 8차) → 사용자 말로
-    .replace(/[^.。\n]*(?:도구|Tool|툴)?\s*(?:호출|조회)\s*한도[^.。\n]*[.。]?/g, '일부 조문은 직접 확인하지 못했습니다. ')
     .replace(/\bNOT_FOUND_VERIFIED\b/g, '조문 없음(확인됨)').replace(/\bREVIEW_REQUIRED\b/g, '재검토 필요').replace(/\bACCESS_DENIED\b/g, '열람 권한 없음')
     .replace(/([가-힣A-Za-z][가-힣A-Za-z ]{1,19})\s*\(\1\)/g, '$1'); // '재검토 필요(재검토 필요)' 중복
 }
 
+/** uncertainty 의 시스템 사정 문구(도구 호출 한도 등)는 고장으로 읽힘 (엔드유저 8차) → 사용자 말로. 단계 본문은 건드리지 않는다('신용정보 조회 한도는 1일 3회', 백엔드 리뷰 #161) */
+export const hideSystem = (t: string) => t.replace(/[^.。\n]*(?:(?:도구|Tool|툴)\s*(?:호출|조회)?\s*(?:한도|횟수|상한)|(?:호출|조회)\s*한도\s*초과로)[^.。\n]*[.。]?/gi, '일부 조문은 직접 확인하지 못했습니다. ').trim();
 /** 근거 없어 뺀 단계: 본문은 보이지 않고(틀린 문장 노출 방지, 총괄 결정 11/20) 주제 낱말 + 건수만 */
 export function droppedNote(texts: string[]): string {
   const topic = (t: string) => t.replace(/\([^)]*\)/g, ' ').split(/\s+/).filter((w) => !/\d/.test(w)).map((w) => w.replace(/[^가-힣A-Za-z]/g, '').replace(/(으로|에서|에게|까지|부터|이|가|을|를|은|는|의|에|로|와|과|도|만)$/, ''))
@@ -372,7 +372,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   const human = (t: string) => humanize(t, lawNames);
   for (const st of steps) st.text = human(st.text);
   for (const sec of sections) { sec.title = human(sec.title); sec.note = human(sec.note); }
-  draft.uncertainty = human(draft.uncertainty ?? '');
+  draft.uncertainty = hideSystem(human(draft.uncertainty ?? ''));
   // 시행 예정 개정 한 줄 (인용한 규정만, 10초 상한, 실패는 생략)
   const cited = [...new Set(steps.flatMap((st) => st.sources).map((e) => e.provision ? e.provision.replace(/\s*제\s*\d.*$/, '').trim() : '').filter(Boolean))];
   const soon = deps.upcoming && cited.length ? await Promise.race([deps.upcoming(cited).catch(() => []), new Promise<{ law: string; effective_from: string }[]>((r) => setTimeout(() => r([]), 10_000))]) : [];

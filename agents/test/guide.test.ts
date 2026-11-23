@@ -324,7 +324,11 @@ test('조 전체 조회 결과의 하위 항·호도 각자 provision_id 로 인
 
 test('엔드유저 8차: 시스템 사정 문구 숨김·상위/하위 조문 중복 출처는 상위만', async () => {
   const { humanize, topSources } = await import('../src/guide.ts');
-  const t = humanize('제10조제2항은 도구 조회 한도 초과로 확인하지 못하였음 — 원문을 확인할 것. 대출 한도는 5억원이다.', new Map());
+  const { hideSystem } = await import('../src/guide.ts');
+  const t = hideSystem('제10조제2항은 도구 조회 한도 초과로 확인하지 못하였음 — 원문을 확인할 것. 대출 한도는 5억원이다.');
+  assert.equal(humanize('신용정보 조회 한도는 1일 3회이다.', new Map()), '신용정보 조회 한도는 1일 3회이다.', '단계 본문의 정상 문장은 그대로');
+  assert.match(hideSystem('제10조제2항 등 추가 항의 내용은 조회 한도 초과로 확인하지 못하였습니다.'), /^일부 조문은 직접 확인하지 못했습니다/);
+  assert.equal(hideSystem('신용정보 조회 한도는 1일 3회이다.'), '신용정보 조회 한도는 1일 3회이다.', '도구 낱말 없으면 그대로');
   assert.equal(humanize('심사역은 담보물 감정평가서를 포함한 다음 서류를 징구한다: ① 재무제표', new Map()), '심사역은 다음 서류를 징구한다: ① 재무제표');
   assert.equal(humanize('심사역은 담보물감정평가서를 포함한 아래 서류를 받는다.', new Map()), '심사역은 아래 서류를 받는다.');
   assert.doesNotMatch(t, /한도 초과/); assert.match(t, /일부 조문은 직접 확인하지 못했습니다/); assert.match(t, /대출 한도는 5억원이다/);
