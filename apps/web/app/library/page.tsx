@@ -446,7 +446,7 @@ function DocActions({ d, canWikiEdit, onEdit, onPrint }: { d: LibraryDoc; canWik
   const main = prim === 'cr' ? <Link className="btn solid" href="/admin#cr-h" title="이 문서에 들어온 수정 요청을 결재함에서 확인합니다"><Icon name="approval" />수정 요청 보기</Link>
     : prim === 'wiki' ? wiki(true) : prim === 'req' ? <ChangeRequest id={d.doc_id} primary /> : null;
   return (
-    <div className={`doc-actions no-print${more ? ' open' : ''}`} role="group" aria-label="문서 작업">
+    <div className={`doc-actions no-print${more || !main ? ' open' : ''}`} role="group" aria-label="문서 작업">
       {main}
       <div className="sec" id="doc-more">
         {canWikiEdit && prim !== 'wiki' && wiki(false)}
