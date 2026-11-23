@@ -960,3 +960,22 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .reason-box p { margin: 0 0 4px; } .reason-box p:last-child { margin: 0; }
 .reason-head { display: flex; align-items: center; gap: 4px; font-weight: 750; font-size: .95rem; } .reason-head svg { width: 16px; height: 16px; }
 .reason-box b { margin-right: 4px; } .reason-box .num { white-space: nowrap; } .reason-box del, .reason-box ins { color: var(--ink); }
+/* 결재함 '지금 할 일' (사용자 11/23): 요약 한 줄 + 위험 순서 숫자 카드. 0은 흐리게 */
+.todo-now { margin: 8px 0 24px; }
+.todo-now .section { margin-top: 0; }
+.todo-line { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; justify-content: space-between; padding: 12px 16px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); }
+.todo-line p { margin: 0; font-weight: 650; }
+.todo-line .zero, .stat-cards .zero { opacity: .55; }
+.stat-cards { list-style: none; padding: 0; margin: 12px 0 0; display: grid; grid-template-columns: repeat(auto-fit, minmax(118px, 1fr)); gap: 8px; }
+.stat-cards a { display: flex; flex-direction: column; gap: 2px; padding: 12px 14px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); color: var(--ink-700); text-decoration: none; font-size: var(--fs-small); min-height: 44px; }
+.stat-cards a:hover, .stat-cards a:focus-visible { border-color: var(--green-700); }
+.stat-cards strong { font-size: var(--fs-h2); font-weight: 750; color: var(--navy-900); }
+.stat-cards .bad strong { color: var(--coral-700); } .stat-cards .ref strong { color: var(--ink-500); }
+.stat-cards .zero strong { color: var(--ink-500); }
+.tools { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--rule); }
+@media (max-width: 480px) { .stat-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+#queue-h { margin-bottom: 0; } #queue-h + .approval-categories, #queue-h + .approval-categories .approval-category-group > .section:first-child { margin-top: 8px; }
+.stat-cards li { display: flex; } .stat-cards a { flex: 1; word-break: keep-all; }
+/* 결재함 보완 A (총괄 11/23): 넓은 화면 카드 폭, 소제목은 작게 (h2 '결재할 문서'와 겹쳐 보이지 않게) */
+.admin-grid { grid-template-columns: repeat(auto-fit, minmax(min(100%, 380px), 1fr)) !important; grid-auto-rows: auto; }
+.section.sub { font-size: var(--fs-h3); color: var(--ink-700); margin: 16px 0 8px; }
