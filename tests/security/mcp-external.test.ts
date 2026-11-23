@@ -6,6 +6,7 @@ import { test, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
 import { detectPii } from '@hanaeum/pii';
+import { EXTERNAL_TOOLS } from '../../mcp/gateway-interceptor/src/index.ts';
 
 const env = (k: string) => { const v = process.env[k]; if (!v) throw new Error(`missing env ${k} (ssm-env.sh 먼저)`); return v; };
 const aws = (...args: string[]) => execFileSync('aws', [...args, '--output', 'json'], { encoding: 'utf8' });
@@ -28,7 +29,8 @@ async function mcp(method: string, params: Record<string, unknown> = {}, tok: st
 const call = (name: string, args: Record<string, unknown>) => mcp('tools/call', { name, arguments: args });
 /** Tool 결과 본문 (Lambda 반환 JSON). 인터셉터 거부는 JSON-RPC error */
 const out = (b: Awaited<ReturnType<typeof mcp>>['body']) => { try { return JSON.parse(b.result?.content?.[0]?.text ?? '{}') as Record<string, unknown>; } catch { return {}; } };
-const denied = (b: Awaited<ReturnType<typeof mcp>>['body']) => /forbidden|unauthenticated/.test(b.error?.message ?? '');
+// 거부 = 결과 없이 JSON-RPC 오류. 인터셉터(forbidden·unauthenticated), Gateway JWT 검사(insufficient_scope 등), Cedar 정책(-32002 Policy evaluation denied)
+const denied = (b: Awaited<ReturnType<typeof mcp>>['body']) => !b.result && /forbidden|unauthenticated|insufficient_scope|unauthorized|invalid_token|Policy evaluation denied/i.test(b.error?.message ?? '');
 
 function sql(q: string) {
   const r = JSON.parse(aws('rds-data', 'execute-statement', '--resource-arn', env('DB_CLUSTER_ARN'), '--secret-arn', env('DB_SECRET_ARN'), '--database', env('DB_NAME'), '--sql', q)) as { records?: { stringValue?: string }[][] };
@@ -41,7 +43,8 @@ before(async () => {
     body: new URLSearchParams({ grant_type: 'client_credentials', scope: s.scope }) });
   token = ((await r.json()) as { access_token?: string }).access_token ?? '';
   assert.ok(token, '외부 클라이언트 토큰');
-  docs.public = process.env.DOC_PUBLIC ?? sql("SELECT doc_id FROM documents WHERE lifecycle='PUBLISHED' AND freshness<>'SUPERSEDED' AND 'ALL'=ANY(acl_groups) ORDER BY updated_at DESC LIMIT 1");
+  // 시행 전 개정본(effective_from 미래)은 오늘 기준 조회에서 NOT_FOUND 가 정상 → 시행 중인 문서만
+  docs.public = process.env.DOC_PUBLIC ?? sql("SELECT doc_id FROM documents WHERE lifecycle='PUBLISHED' AND freshness<>'SUPERSEDED' AND 'ALL'=ANY(acl_groups) AND coalesce(attrs->>'effective_from','') <= to_char(now(),'YYYY-MM-DD') ORDER BY updated_at DESC LIMIT 1");
   docs.unpublished = process.env.DOC_UNPUBLISHED ?? sql("SELECT doc_id FROM documents WHERE lifecycle IN ('IN_REVIEW','PENDING_APPROVAL','QUARANTINED') ORDER BY updated_at DESC LIMIT 1");
   docs.dept = process.env.DOC_DEPT ?? sql("SELECT doc_id FROM documents WHERE lifecycle='PUBLISHED' AND NOT ('ALL'=ANY(acl_groups)) ORDER BY updated_at DESC LIMIT 1");
 });
@@ -64,6 +67,8 @@ test('읽기 도구만 허용: search_wiki·get_wiki_document 는 결과, 쓰기
   // 게시·규정 승인 도구는 Gateway 에 아예 없다 (사람만 Backend API 로)
   const tl = (await mcp('tools/list')).body.result?.tools?.map((t) => t.name) ?? [];
   assert.ok(!tl.some((n) => /publish|approve/.test(n)), tl.join(','));
+  // Cedar forbid(외부 클라이언트는 읽기 11개 외 거부, P1 11/20)가 걸리면 도구 목록도 11개만. EXPECT_EXTERNAL_POLICY=1 일 때 검사
+  if (process.env.EXPECT_EXTERNAL_POLICY === '1') assert.deepEqual(tl.map((n) => n.split('___').pop()).sort(), [...EXTERNAL_TOOLS].sort(), tl.join(','));
 });
 
 test('ACL: 공개 게시 문서만. 미게시·부서 ACL 문서는 NOT_FOUND, 위조 __actor 도 무시', async () => {
@@ -89,5 +94,6 @@ test('응답에 원문 PII 없음: 검색·정리본에 주민등록번호·카�
     (await call('search___search_wiki', { query: '고객 주민등록번호 계좌' })).raw,
     ...(docs.public ? [(await call('search___get_wiki_document', { doc_id: docs.public })).raw] : []),
   ];
-  for (const b of bodies) assert.deepEqual(detectPii(b.replace(/\\n/g, '\n')).map((x) => x.type), [], '원문 PII 형식');
+  // 검색 score 실수의 소수부(16자리)가 카드 형식에 걸린다 → 점수 숫자는 빼고 본다
+  for (const b of bodies) assert.deepEqual(detectPii(b.replace(/\\n/g, '\n').replace(/\\?"score\\?":[\d.e-]+/g, '')).map((x) => x.type), [], '원문 PII 형식');
 });

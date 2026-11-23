@@ -9,6 +9,7 @@ import type { DocState, DocStates } from "./search.ts";
 import { createHash } from "node:crypto";
 const sha = (s: string) => createHash("sha256").update(s, "utf8").digest("hex");
 import { buildFilter, inCategory, searchTools, MemoryRetriever, MemoryDocStates } from "./index.ts";
+import type { RetrievalFilter } from "@aws-sdk/client-bedrock-agent-runtime";
 
 const FIX = new URL("../../../tests/fixtures/", import.meta.url);
 const H = (c: string) => "sha256:" + c.repeat(64);
@@ -337,7 +338,7 @@ test("get_wiki_document: 게시본을 쪽별로 (본문 TEXT, 글자 없는 캡�
   const st = { doc_id: DOC, lifecycle: "PUBLISHED", authority_status: "UNVERIFIED", freshness: "CURRENT", acl_groups: ["ALL"], published_content_hash: sha("CONTENT"), version: 2, effective_from: 20260101, effective_to: 99991231 } as DocState;
   const s2 = { get: async (ids: string[]) => new Map(ids.includes(DOC) ? [[DOC, st]] : []) } as unknown as DocStates;
   const meta: Record<string, unknown> = { title: "과천 매뉴얼", document_type: "MANUAL", category_path: "총무/사무기기" };
-  st.published_content_hash = sha(content);
+  st.published_content_hash = `sha256:${sha(content)}`; // Promote 가 기록하는 실제 형식
   let body = content;
   const t = searchTools({ retriever, states: s2, regulation: regulationTools(fixtureClauseStore()), published: { get: async () => ({ content: body, meta }) } });
   const r = await t.get_wiki_document({ doc_id: DOC }, user) as unknown as { version: number; category_path: string; page_count: number; pages: { page: number; markdown: string; source: string; ai_summary?: string }[] };
@@ -392,4 +393,62 @@ test("related 통합 (PR #46 리뷰): 핵심어 없는 조각·그림 설명(인
   assert.ok(r.related?.length, "핵심어 있는 조각은 남음");
   assert.ok(r.related!.every((x) => x.provision_id !== "K-001#fig9"), "그림 설명은 관련 문서로 안 나감");
   assert.ok(r.related!.every((x) => /여신심사위원회|본부|개인정보/u.test(`${x.title} ${x.snippet}`.replace(/\s+/gu, ""))));
+});
+
+test("search_wiki 표시 순서: 재검토 필요 문서는 −0.10 — 점수 차 작으면 현행 규정이 위, 0.1 넘게 앞서면 그대로 (총괄 11/23)", async () => {
+  const { retriever, states } = setup();
+  const kh = [...states.docs.values()].find((d) => d.doc_id.startsWith("K-"))!.doc_id;
+  states.docs.set(kh, { ...states.docs.get(kh)!, freshness: "REVIEW_REQUIRED" });
+  // 노하우 점수 = 규정 1위 + gap (규정끼리 순서는 그대로)
+  const withGap = (gap: number) => ({ retrieve: async (q: string, f?: RetrievalFilter) => {
+    const hs = await retriever.retrieve(q, f);
+    const reg = Math.max(...hs.filter((h) => h.metadata["doc_id"] !== kh).map((h) => h.score));
+    return hs.map((h) => (h.metadata["doc_id"] === kh ? { ...h, score: reg + gap } : h));
+  } });
+  const ask = async (gap: number) => (await searchTools({ retriever: withGap(gap), states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) })
+    .search_wiki({ query: "본부 여신심사위원회 승인 기준 금액", as_of: "2026-12-15", rewrite: false }, user) as unknown as { items: { doc_id: string; freshness: string; score: number }[] }).items;
+  const near = await ask(0.05);
+  assert.ok(near.some((x) => x.doc_id === kh), "재검토 노하우도 근거에 남음(판정 그대로)");
+  assert.notEqual(near[0]!.doc_id, kh, "점수 차 0.05면 현행 규정이 1위");
+  assert.ok(near[0]!.score < near.find((x) => x.doc_id === kh)!.score, "점수는 원래 값 그대로 내보냄");
+  const far = await ask(0.15);
+  assert.equal(far[0]!.doc_id, kh, "0.1 넘게 앞서면 재검토 노하우가 그대로 1위");
+});
+
+test("search_wiki: 얕은 근거(1위 < 기준+0.05)여도 삭제 항이 질의에 맞으면 같은 조 현행 항을 앞에 (CT-04 경계, 총괄 11/23)", async () => {
+  const { retriever, states } = setup();
+  // prod 11/23 실측: 현행 검색 1위가 다른 조 0.32(기준 0.30 바로 위) → 근거 있음이라 이력 보충이 안 돌아 제15조제1항이 관련(weak)에만
+  const current = (f?: RetrievalFilter) => JSON.stringify(f ?? {}).includes("effective_to");
+  const art15 = (h: { metadata: Record<string, unknown> }) => String(h.metadata["provision_id"]).includes("/ARTICLE:15");
+  const stub = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => (!current(f) ? h : art15(h) ? { ...h, weak: true } : { ...h, score: 0.32 })) };
+  const t = searchTools({ retriever: stub, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15", rewrite: false }, user) as unknown as { items: { provision_id: string; replaces?: string }[] };
+  assert.ok(r.items.some((x) => !x.provision_id.includes("/ARTICLE:15")), "얕은 근거가 실제로 있는 상황: " + JSON.stringify(r.items.map((x) => x.provision_id)));
+  assert.equal(r.items[0]!.provision_id, "SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:1");
+  assert.equal(r.items[0]!.replaces, "SYN-LOAN-001@2026-11-01/ARTICLE:15/PARAGRAPH:2");
+  assert.ok(!r.items.some((x) => x.provision_id.startsWith("SYN-LOAN-001@2026-11-01")));
+  // 1위가 충분히 높으면(기준+0.05 이상) 지금처럼 이력 검색 안 함
+  const strong = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => (!current(f) ? h : art15(h) ? { ...h, weak: true } : { ...h, score: 0.6 })) };
+  const t2 = searchTools({ retriever: strong, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r2 = await t2.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15", rewrite: false }, user) as unknown as { items: { replaces?: string }[] };
+  assert.ok(r2.items.every((x) => !x.replaces));
+});
+
+test("search_wiki: 삭제된 항이 질의에 맞으면 같은 조 현행 항을 근거로 (데이터QA CT-04 11/20), 삭제 항은 내보내지 않음", async () => {
+  const { retriever, states } = setup();
+  // prod 실측 재현: 현행만 찾으면 제15조제1항 0.289(근거 기준 미달=weak), 이력 포함이면 삭제된 F-001 제15조제2항 0.785
+  const current = (f?: RetrievalFilter) => JSON.stringify(f ?? {}).includes("effective_to");
+  const stub = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => (current(f) ? { ...h, weak: true } : h)) };
+  const t = searchTools({ retriever: stub, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r = await t.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15" }, user) as unknown as { search_status: string; items: { provision_id: string; replaces?: string }[]; related?: { provision_id: string }[] };
+  assert.equal(r.search_status, "FOUND");
+  assert.ok(r.items.length > 0 && r.items.every((x) => x.provision_id.startsWith("SYN-LOAN-001@2026-12-01/ARTICLE:15")), JSON.stringify(r.items.map((x) => x.provision_id)));
+  assert.ok(r.items.some((x) => x.provision_id === "SYN-LOAN-001@2026-12-01/ARTICLE:15/PARAGRAPH:1"));
+  assert.equal(r.items[0]!.replaces, "SYN-LOAN-001@2026-11-01/ARTICLE:15/PARAGRAPH:2");
+  assert.ok(![...r.items, ...(r.related ?? [])].some((x) => x.provision_id.startsWith("SYN-LOAN-001@2026-11-01")), "삭제·과거 항은 근거·참고 어디에도 없음");
+  // 이력 포함 검색에서도 근거 기준 미달(옛 항도 질의와 무관)이면 보충하지 않음: 근거 없음 그대로
+  const allWeak = { retrieve: async (q: string, f?: RetrievalFilter) => (await retriever.retrieve(q, f)).map((h) => ({ ...h, weak: true })) };
+  const t2 = searchTools({ retriever: allWeak, states, regulation: regulationTools(fixtureClauseStore(), { today: () => 20261216 }) });
+  const r2 = await t2.search_wiki({ query: "신용등급 A 차주 LTV 가산", as_of: "2026-12-15" }, user) as unknown as { search_status: string; items: unknown[] };
+  assert.equal(r2.search_status, "UNVERIFIED"); assert.equal(r2.items.length, 0);
 });

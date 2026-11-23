@@ -58,9 +58,9 @@ export function card(d: DocumentRecord, visible: DocumentRecord[]) {
     doc_id: d.doc_id, title: d.title, document_type: d.document_type ?? d.classification?.document_type, lifecycle: d.lifecycle, dept: d.dept,
     business_path: d.classification?.business_path ?? [], tags: d.classification?.tags ?? [], summary: d.summary ?? null,
     authority_status: d.authority_status, freshness: d.freshness, effective_from: d.effective_from ?? null,
-    uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: d.freshness_reason ?? null, edited: d.source === 'WIKI_EDIT', has_original_upload: !!d.original_upload,
+    uploaded_at: d.created_at, updated_at: d.updated_at, freshness_reason: freshnessView(d), edited: d.source === 'WIKI_EDIT', has_original_upload: !!d.original_upload,
     mark_count: markCount(d), related: related(d, visible),
-    doc_dates: d.doc_dates ?? [], version_no: d.version_no ?? null, superseded_by: d.superseded_by ?? null,
+    doc_dates: d.doc_dates ?? [], version_no: d.version_no ?? null, superseded_by: d.superseded_by ?? null, upcoming: upcoming(d, visible),
   };
 }
 
@@ -117,7 +117,12 @@ export function verification(d: DocumentRecord, approval?: { approver_sub?: stri
     for (const j of kv?.items ?? []) if (j.relation !== 'UNRELATED') basis.push({ what: '근거 조문', label: j.label, result: `${REL[j.relation] ?? j.relation}${j.verified_quote ? '' : ' (인용 원문 확인 안 됨)'}`, statement: j.statement, ...(j.reason ? { reason: j.reason } : {}), relation: j.relation, ...(j.quote ? { quote: j.quote } : {}) });
     for (const o of kv?.outdated ?? []) basis.push({ what: '개정 전 인용', label: o.label, result: '현행 조문으로 재검토 필요' });
   } else {
-    method = '규정 대조 대상이 아닌 문서(매뉴얼 등): 자동 보안·개인정보 검사 후 사람 승인';
+    // 매뉴얼도 본문이 인용한 외부 법령은 원문과 대조한다 (MANUAL 외부 대조 #81). 결과(다름·생략)가 있으면 그 사실을 보인다 (MX-002 11/20)
+    const ext = d.findings.filter((f) => f.code === 'KNOWHOW_EXTERNAL_MISMATCH' || f.code === 'KNOWHOW_EXTERNAL_SKIPPED');
+    method = ext.length ? '본문이 인용한 외부 법령을 국가법령정보센터 원문과 대조(참고, 미검증) + 자동 보안·개인정보 검사 후 사람 승인'
+      : '규정 대조 대상이 아닌 문서(매뉴얼 등): 자동 보안·개인정보 검사 후 사람 승인';
+    for (const f of ext) basis.push({ what: '외부 법령', label: '본문이 인용한 외부 법령', result: f.code === 'KNOWHOW_EXTERNAL_MISMATCH' ? '외부 법령과 다름(확인 필요)' : '원문을 가져오지 못해 대조 못 함',
+      ...(f.location?.excerpt ? { statement: f.location.excerpt } : {}), reason: f.user_message ?? f.message });
   }
   return {
     method, basis,
@@ -158,6 +163,26 @@ const typeOf = (d: DocumentRecord) => d.document_type ?? d.classification?.docum
 /** 묶음 키: 작성자가 연결한 series_id, 공식 규정은 Registry law_id(공식 근거라 자동), 그 밖은 문서 자신 */
 export const seriesKey = (d: DocumentRecord) => d.series_id ?? (typeOf(d) === 'REGULATION' && d.law_id ? `LAW#${d.law_id}` : d.doc_id);
 const day = (s?: string) => (s ? String(s).slice(0, 10) : '');
+// 시행일이 없으면 개정 ID(날짜 형식)를 시행일로 본다 (Registry revision_id = 'YYYY-MM-DD')
+const fromOf = (d: DocumentRecord) => day(d.effective_from) || (/^\d{4}-\d{2}-\d{2}/.test(d.revision_id ?? '') ? day(d.revision_id) : '');
+/** 오늘(KST) YYYY-MM-DD. '시행 예정' 판단 (프론트와 같은 기준) */
+export const todayKst = (now = Date.now()) => new Date(now + 9 * 3_600_000).toISOString().slice(0, 10);
+/** 같은 묶음의 시행 예정 게시본(시행일 > 오늘 KST) 중 가장 이른 것 (프론트 8차: v2 가 v1 카드에 묶여 안 보임).
+ *  ponytail: 카드마다 visible 전체 순회 O(n²) — 문서 수천 건이면 groupSeries 를 한 번 만들어 넘긴다 */
+export function upcoming(d: DocumentRecord, visible: DocumentRecord[], today = todayKst()) {
+  const key = seriesKey(d);
+  const ord = orderVersions([d, ...visible.filter((x) => x.doc_id !== d.doc_id && seriesKey(x) === key)]);
+  const next = ord.filter(({ d: x }) => x.doc_id !== d.doc_id && x.lifecycle === 'PUBLISHED' && fromOf(x) > today).sort((a, b) => fromOf(a.d).localeCompare(fromOf(b.d)))[0];
+  return next ? { doc_id: next.d.doc_id, version_no: next.version_no, effective_from: fromOf(next.d) } : null;
+}
+/** 재검토 이유 (프론트 8차 11/23): freshness_reason + 열린 영향 수정 제안(IMPACT)의 개정 내용. 없으면 null */
+export function freshnessView(d: DocumentRecord) {
+  const fr = d.freshness_reason;
+  if (!fr) return null;
+  const open = (d.change_requests ?? []).filter((r) => r.status === 'OPEN' && r.source === 'IMPACT');
+  const changes = open.flatMap((r) => (r.revision ? [{ provision_id: r.revision.provision_id, label: r.revision.label, kind: r.revision.kind, old_text: r.revision.old_text, new_text: r.revision.new_text, cited_text: r.before }] : []));
+  return { ...fr, effective_from: fr.effective_from || open.find((r) => r.revision?.effective_from)?.revision?.effective_from || '', changes, open_change_requests: open.length };
+}
 /** 묶음 안 버전 순서(오래된 것 → 새것): 규정은 시행일·개정 ID, 그 밖은 version_no·등록일. version_no가 없으면 순서대로 매긴다 */
 export function orderVersions(series: DocumentRecord[]) {
   const key = (d: DocumentRecord) => typeOf(d) === 'REGULATION' ? `${day(d.effective_from) || day(d.revision_id)}|${d.revision_id ?? ''}` : `${String(d.version_no ?? 1).padStart(4, '0')}|${d.created_at}`;
@@ -167,8 +192,7 @@ export function orderVersions(series: DocumentRecord[]) {
 export function representative(series: DocumentRecord[], today = new Date().toISOString().slice(0, 10)) {
   const ord = orderVersions(series).map((x) => x.d);
   const pub = ord.filter((d) => d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED');
-  // 시행일이 없으면 개정 ID(날짜 형식)를 시행일로 본다 (Registry revision_id = 'YYYY-MM-DD')
-  const from = (d: DocumentRecord) => day(d.effective_from) || (/^\d{4}-\d{2}-\d{2}/.test(d.revision_id ?? '') ? day(d.revision_id) : '');
+  const from = fromOf;
   const inForce = pub.filter((d) => (!from(d) || from(d) <= today) && (!d.effective_to || day(d.effective_to) >= today));
   return inForce.at(-1) ?? pub.at(-1) ?? ord.at(-1)!;
 }

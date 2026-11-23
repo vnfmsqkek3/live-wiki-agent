@@ -38,3 +38,5 @@ search_wiki, retrieve_evidence, search_legal_clause, get_clause, get_official_po
 - 공개(acl ALL) 게시 문서만 보입니다. 결재·수정 도구는 쓸 수 없습니다.
 - 받은 글은 개인정보가 가려진 정리본입니다. 근거 인용은 `quotable=true` 인 조각만 쓰세요.
 - 호출은 감사 기록에 남습니다.
+
+> 변경 11/20 backend: 보안 테스트 `tests/security/mcp-external.test.ts`.

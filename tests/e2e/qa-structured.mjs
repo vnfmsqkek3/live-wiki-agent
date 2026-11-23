@@ -1,7 +1,7 @@
 // 쪽 본문 정리본/원문 전환 QA (R1~R3). QA_DOCS=doc_a,doc_b QA_SCRIPT=qa-structured.mjs tests/e2e/qa-run.sh
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const OUT = process.env.QA_OUT ?? './qa-out';
 
 const pw = JSON.parse(readFileSync(0, 'utf8'));

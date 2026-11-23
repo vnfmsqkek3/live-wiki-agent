@@ -531,6 +531,32 @@ resource "aws_cloudfront_distribution" "this" {
   viewer_certificate { cloudfront_default_certificate = true }
 }
 
+# CloudFront 접근 로그 v2 → CloudWatch Logs (11/20 D01 '첫 검색 60초' 가 서버에 안 닿은 요청으로 추정됐는데 대조할 로그가 없었음)
+resource "aws_cloudwatch_log_group" "cdn" {
+  name              = "/cloudfront/${var.n.prefix}-cdn${var.n.suffix}"
+  retention_in_days = 14
+  kms_key_id        = var.kms_key_arn
+}
+
+resource "aws_cloudwatch_log_delivery_source" "cdn" {
+  name         = "${var.n.prefix}-cdn-access${var.n.suffix}"
+  log_type     = "ACCESS_LOGS"
+  resource_arn = aws_cloudfront_distribution.this.arn
+}
+
+resource "aws_cloudwatch_log_delivery_destination" "cdn" {
+  name          = "${var.n.prefix}-cdn-access${var.n.suffix}"
+  output_format = "json"
+  delivery_destination_configuration {
+    destination_resource_arn = aws_cloudwatch_log_group.cdn.arn
+  }
+}
+
+resource "aws_cloudwatch_log_delivery" "cdn" {
+  delivery_source_name     = aws_cloudwatch_log_delivery_source.cdn.name
+  delivery_destination_arn = aws_cloudwatch_log_delivery_destination.cdn.arn
+}
+
 output "url" { value = "https://${aws_cloudfront_distribution.this.domain_name}" }
 output "api_task_role_arn" { value = aws_iam_role.api.arn }
 output "codebuild_project" { value = aws_codebuild_project.app.name }

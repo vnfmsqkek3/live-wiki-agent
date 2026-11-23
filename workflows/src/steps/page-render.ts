@@ -16,8 +16,11 @@ export const MIN_FIGURE_PX = 48; // ponytail: 이보다 작은 그림(글머리 
 export const MIN_CHARS = 50;
 export const MAX_BROKEN_RATIO = 0.2;
 export const RENDER_WIDTH = 2000;
+export const GRAPHICS_MIN_CURVES = 8;
 
-export type OcrTarget = { page_index: number; key: string; width: number; height: number; reason: string; has_images: boolean };
+/** graphics: 그림 개인정보 확인 대상 쪽 신호 (총괄 11/20: OCR 이 그림으로 못 본 쪽의 선 그림 서명·명함 빈틈). 백엔드 isFigurePage 가 OCR figures 와 함께 본다
+ *  scan: 이미지만 있고 글자 층이 없는 쪽(스캔·사진 PDF). 백엔드가 이 쪽은 PII 가림 상자·서명 낱말로 그림 쪽을 더 본다 (총괄 11/23: 이미지로만 된 쪽의 서명·명함·자필 놓침) */
+export type OcrTarget = { page_index: number; key: string; width: number; height: number; reason: string; has_images: boolean; graphics: boolean; scan: boolean };
 export type OcrTargets = { doc_id: string; page_count: number; pages: OcrTarget[] };
 
 // U+FFFD(대체 문자), 제어문자, 사설 영역 = 깨진 문자
@@ -35,13 +38,14 @@ type Rendered = { png: Uint8Array; width: number; height: number };
 export type Pdf = {
   pageCount: number;
   pageText: (i: number) => Promise<string>;
-  hasImages: (i: number) => Promise<boolean>;
+  inspect: (i: number) => Promise<{ has_images: boolean; graphics: boolean; scan: boolean }>;
   render: (i: number) => Promise<Rendered>;
 };
 
 export async function openPdf(data: Uint8Array): Promise<Pdf> {
   const { getDocument, OPS } = await import("pdfjs-dist/legacy/build/pdf.mjs");
   const imageOps = new Set<number>([OPS.paintImageXObject, OPS.paintInlineImageXObject, OPS.paintImageMaskXObject, OPS.paintImageXObjectRepeat]);
+  const textOps = new Set<number>([OPS.showText, OPS.showSpacedText, OPS.nextLineShowText, OPS.nextLineSetSpacingShowText]);
   const doc = await getDocument({ data, disableFontFace: true }).promise;
   return {
     pageCount: doc.numPages,
@@ -49,7 +53,22 @@ export async function openPdf(data: Uint8Array): Promise<Pdf> {
       const tc = await (await doc.getPage(i + 1)).getTextContent();
       return tc.items.map((it) => ("str" in it ? it.str : "")).join("");
     },
-    hasImages: async (i) => (await (await doc.getPage(i + 1)).getOperatorList()).fnArray.some((f) => imageOps.has(f)),
+    // 쪽당 operator list 1번. constructPath 인자 = [그리기 op, [경로 데이터], minMax], 경로 데이터는 DrawOPS(0 moveTo·1 lineTo +2, 2 curveTo +6, 3 quadratic +4, 4 close) (pdfjs 6.5.438 실측, 테스트로 고정)
+    // ponytail: 휴리스틱 graphics = 곡선 8개 이상(선 그림 서명·외곽선 글자, 직선 표·둥근 상자 1개=4곡선은 제외) || 글자 층이 있는 쪽의 이미지(디지털 문서의 서명·명함 그림).
+    // 글자 층 없는 이미지 쪽(스캔)은 false → 지금처럼 OCR figures 가 판정 (쪽마다 그림 분석이 돌지 않게, 총괄 11/20). 놓침이 보이면 곡선 기준·스캔 처리부터 조정
+    inspect: async (i) => {
+      const ol = await (await doc.getPage(i + 1)).getOperatorList();
+      let curves = 0, images = false, text = false;
+      ol.fnArray.forEach((f, k) => {
+        if (imageOps.has(f)) images = true;
+        else if (textOps.has(f)) text = true;
+        else if (f === OPS.constructPath) {
+          const d = (ol.argsArray[k] as [number, ArrayLike<number>[]])[1]?.[0] ?? [];
+          for (let j = 0; j < d.length;) { const o = d[j]!; if (o === 2) { curves++; j += 7; } else if (o === 3) { curves++; j += 5; } else if (o === 4) j += 1; else j += 3; }
+        }
+      });
+      return { has_images: images, graphics: curves >= GRAPHICS_MIN_CURVES || (images && text), scan: images && !text };
+    },
     render: async (i) => {
       const page = await doc.getPage(i + 1);
       const base = page.getViewport({ scale: 1 });
@@ -115,19 +134,19 @@ export function makeHandler(d: Deps) {
       const pdf = await d.openPdf(converted ?? await d.get(e.bucket, key));
       out.page_count = pdf.pageCount;
       for (let i = 0; i < pdf.pageCount; i++) {
-        const has_images = await pdf.hasImages(i);
+        const { has_images, graphics, scan } = await pdf.inspect(i);
         const reason = "all";
         const r = await pdf.render(i);
         const pk = `${pagesDir}/${String(i).padStart(4, "0")}.png`;
         await d.put(e.bucket, pk, r.png, "image/png");
-        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason, has_images });
+        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason, has_images, graphics, scan });
       }
     } else if (ext === "png" || ext === "jpg" || ext === "jpeg") {
       // (ConvertToPdf 배포 전 호환) 이미지는 work/pages/ 로 복사해 OCR 대상으로. OCR(SageMaker) Role 은 원본 경로를 읽지 않는다
       out.page_count = 1;
       const pk = `${pagesDir}/0000.${ext === "jpeg" ? "jpg" : ext}`;
       await d.put(e.bucket, pk, await d.get(e.bucket, key), ext === "png" ? "image/png" : "image/jpeg");
-      out.pages.push({ page_index: 0, key: pk, width: 0, height: 0, reason: "image", has_images: true });
+      out.pages.push({ page_index: 0, key: pk, width: 0, height: 0, reason: "image", has_images: true, graphics: true, scan: true });
     } else if (ext === "docx" || ext === "hwpx") {
       // (ConvertToPdf 가 변환하지 못한 경우 호환) 본문 글은 TextLayerExtract(let522mj). 여기서는 그림만. 손상 파일은 TextLayerExtract 가 차단 사유로 안내
       let figs: OfficeFigure[] = [];
@@ -149,7 +168,7 @@ export function makeHandler(d: Deps) {
         if (!r) continue;
         const pk = `${pagesDir}/${String(i).padStart(4, "0")}.png`;
         await d.put(e.bucket, pk, r.png, "image/png");
-        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason: "embedded_images", has_images: true });
+        out.pages.push({ page_index: i, key: pk, width: r.width, height: r.height, reason: "embedded_images", has_images: true, graphics: true, scan: false });
       }
     }
 

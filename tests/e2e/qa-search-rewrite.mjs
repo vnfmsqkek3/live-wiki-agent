@@ -1,7 +1,7 @@
 // 검색 질의 재구성 화면 QA (Q1~Q4): 이 검색어로 찾았습니다·추천 질의 칩·원래 질의로 찾기. QA_SCRIPT=qa-search-rewrite.mjs tests/e2e/qa-run.sh
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const OUT = process.env.QA_OUT ?? './qa-out';
 
 const pw = JSON.parse(readFileSync(0, 'utf8'));

@@ -7,11 +7,12 @@ import { ReviewItems } from '../review-items';
 import { Icon } from '../icons';
 import { useSearchParams } from 'next/navigation';
 import { Suspense, useEffect, useState } from 'react';
-import { api, ApiError, dateLine, getSession, type Finding, type Fix, type Review } from '../lib/api';
+import { api, ApiError, dateLine, getSession, isCheck, type Finding, type Fix, type Progress, type Review } from '../lib/api';
 import { can } from '../lib/roles';
 import { WikiEditor } from '../wiki-editor';
 import { RefSuggestions, withReference } from '../ref-suggestions';
 import { IssueList, PageFacts, VersionLink } from '../issues';
+import { Bar } from '../progress-bar';
 const VERDICT: Record<string, [string, string]> = {
   SUPPORTED: ['근거 규정과 맞습니다', 'var(--verified)'],
   CONFLICT: ['규정과 충돌하는 내용이 있습니다', 'var(--danger)'],
@@ -38,7 +39,7 @@ function ReviewView() {
   const [submitted, setSubmitted] = useState(false);
   const [editTitle, setEditTitle] = useState<string | null>(null);
   const [editInit, setEditInit] = useState<string | null>(null); // 고치기 편집기 (AI 제안 적용본)
-  const [pct, setPct] = useState<number | null>(null);
+  const [prog, setProg] = useState<Progress | null>(null);
   const [fixState, setFixState] = useState<Record<string, string>>({}); // 제안대로 고치기 결과 (사용자 지적 11/18: 눌렀는지 알 수 없었다)
   const [keep, setKeep] = useState<Record<string, string>>({});
   const [cur, setCur] = useState<string | null>(null); // 편집기의 지금 글
@@ -55,9 +56,9 @@ function ReviewView() {
         // 새로고침이 무한 반복돼 요청이 폭증했다(11/18 dev: WAF 차단·빈 화면). 바뀐 게 없으면 간격을 2.5→10초로 늘린다
         if (x.lifecycle === 'QUARANTINED' && !x.workflow_failure) { // 멈춘 실행은 기다리지 않는다
           let wait = 2500, last = -1, n = 0;
-          const tick = () => api<{ total: number; done: number; finished: boolean; halted: boolean }>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
+          const tick = () => api<Progress>('GET', `/v1/documents/${encodeURIComponent(id)}/progress`)
             .then(async (p) => {
-              setPct(p.total ? Math.round((p.done / p.total) * 100) : 0);
+              setProg(p);
               if (p.finished || p.halted) {
                 const y = await api<Review>('GET', `/v1/documents/${encodeURIComponent(id)}/review`);
                 if (y.lifecycle !== 'QUARANTINED') { setR(y); setType(y.classification?.document_type ?? ''); return; }
@@ -76,8 +77,15 @@ function ReviewView() {
   if (!r) return <p className="note">분석 결과를 불러오는 중입니다.</p>;
 
   const changed = type && type !== r.classification?.document_type;
-  const blocked = r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED';
-  const uncertain = r.findings.filter((f) => f.severity !== 'LOW').length;
+  const rejected = r.authority_status === 'REJECTED'; // 사람 반려도 lifecycle은 BLOCKED (엔드유저 11/20)
+  const blocked = !rejected && (r.trust_gate_result === 'QUARANTINED' || r.lifecycle === 'BLOCKED');
+  // 공식 원본과 다른 규정은 출처 확인 전까지 게시 요청 불가 (서버 submit 409, 엔드유저 D02 11/20)
+  const held = r.findings.some((f) => f.code === 'REGISTRY_MISMATCH' && f.severity === 'HIGH');
+  const checks = r.findings.filter((f) => isCheck(f.code));
+  const kept = (r.fixes ?? []).filter((f) => f.acknowledged && f.code === 'KNOWHOW_CONFLICT'); // '그대로 사용'한 충돌 (엔드유저 11/20 K-002)
+  const fixIds = new Set((r.fixes ?? []).map((f) => f.finding_id));
+  const none = kept.length ? `규정과 어긋난 문장 ${kept.length}건은 그대로 사용(승인자 판단).` : checks.length ? '게시를 막는 문장은 없습니다.' : '규정과 어긋난 문장은 없습니다.';
+  const uncertain = r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code) && !fixIds.has(f.finding_id)).length;
   const clarifyOpen = (r.clarify ?? []).filter((c) => c.blocking && c.status === 'OPEN');
   const reviewOpen = (r.reviews ?? []).filter((x) => !x.acknowledged);
   const fixOpen = (r.fixes ?? []).filter((f) => !f.acknowledged);
@@ -127,9 +135,9 @@ function ReviewView() {
       await api('POST', `/v1/documents/${encodeURIComponent(id)}/submit`); setSubmitted(true);
       // 결재 권한이 있으면 바로 결재함으로 (사용자 지적 11/18). 아니면 안내만
       if (can(getSession()?.groups, '/admin')) { setMsg('게시를 요청했습니다. 결재함으로 이동합니다.'); setTimeout(() => { location.href = '/admin'; }, 800); }
-      else setMsg('게시를 요청했습니다. 규정 승인자가 결재하면 검색에 나타납니다.');
+      else setMsg('게시를 요청했습니다. 승인자가 결재하면 검색에 나타납니다.');
     }
-    catch (e) { setMsg((e as ApiError).message || '지금 상태에서는 게시를 요청할 수 없습니다.'); }
+    catch (e) { setMsg((e as ApiError).message.replace(/^[a-z ]+: /, '') || '지금 상태에서는 게시를 요청할 수 없습니다.'); } // 서버 영문 코드 접두어('source mismatch: ') 제거
   }
 
   return (
@@ -144,13 +152,13 @@ function ReviewView() {
           <li className={blocked || r.lifecycle === 'QUARANTINED' ? '' : r.lifecycle === 'IN_REVIEW' && !submitted ? 'now' : 'done'}>고칠 것·확인{open.length > 0 && <b className="num"> {open.length}</b>}</li>
           <li className={submitted || r.lifecycle === 'PENDING_APPROVAL' ? 'now' : ''}>게시 요청</li>
         </ol>
-        <button className="btn solid" onClick={submit} disabled={blocked || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{open.length ? `남은 일 ${open.length}건` : '검토 마치고 게시 요청'}</button>
+        <button className="btn solid" onClick={submit} disabled={blocked || rejected || held || submitted || r.lifecycle !== 'IN_REVIEW' || open.length > 0}>{held ? '출처 확인 대기' : open.length ? `남은 일 ${open.length}건` : '검토 마치고 게시 요청'}</button>
         <p aria-live="polite" className="note submit-msg">{msg}</p>
         {/* 왜 게시 요청이 안 되는지 바로 보이게 (사용자 지적 11/18: 다 고쳤다고 생각했는데 막힘) */}
         {r.lifecycle === 'IN_REVIEW' && open.length > 0 && <ul className="note blockers" aria-label="게시 요청을 막는 항목">
           {fixOpen.map((f) => <li key={f.finding_id}><a href={`#fx-${f.finding_id}`}>고칠 것: {f.excerpt.slice(0, 40)}…</a></li>)}
           {clarifyOpen.map((c) => <li key={c.finding_id}>확인 필요: {c.question.slice(0, 40)}…</li>)}
-          {reviewOpen.map((x) => <li key={x.finding_id}>개인정보 확인: {x.message.slice(0, 40)}…</li>)}
+          {reviewOpen.length > 0 && <li><a href="#review-items">개인정보 확인 {reviewOpen.length}건</a></li>}
         </ul>}
       </div>
       <div className="layout-a review-layout"><div className="primary">
@@ -158,27 +166,44 @@ function ReviewView() {
       {r.version && <section className="edit-diff" aria-labelledby="rv-diff-h">
         <h2 className="section" id="rv-diff-h">v{r.version.previous.version_no}에서 바뀐 부분 <b className="num">{r.version.count}곳</b></h2>
         {r.version.changes.length > 0 && <ol className="diff-lines">{r.version.changes.slice(0, 30).map((c, n) => (
-          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.new_page ?? c.old_page ?? ''}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
+          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.where}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
         ))}{r.version.count > 30 && <li className="note">외 {r.version.count - 30}곳</li>}</ol>}
       </section>}
       {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
+      {rejected && <p className="error">승인자가 반려했습니다{r.rejection_reason ? `: ${r.rejection_reason}` : '.'} 내용을 고친 파일을 새로 올리면 다시 검사와 결재를 받습니다.</p>}
       {blocked && <p className="error">보안 검사에서 차단되어 게시할 수 없습니다. 아래 '확인할 내용'에 쪽·사유가 있습니다.</p>}
+      {held && <p className="error">공식 원본과 내용이 다른 조문이 있어 게시 요청이 보류됐습니다. 관리자가 출처를 확인한 뒤 진행됩니다.</p>}
       {r.workflow_failure && r.can_edit && <div className="actions"><button type="button" className="btn solid" onClick={async () => { try { await api('POST', `/v1/documents/${encodeURIComponent(id)}/analyze`); setMsg('다시 분석을 시작했습니다. 잠시 뒤 화면이 바뀝니다.'); setTimeout(() => location.reload(), 4000); } catch (e) { setMsg((e as ApiError).message); } }}>다시 분석하기</button></div>}
-      {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <p className="notice" role="status">AI가 검사하고 있습니다{pct !== null ? ` (${pct}%)` : ''}. 끝나면 고칠 것이 이 화면에 나옵니다.</p>}
+      {/* 분석 중: 등록 화면과 같은 진행바 + 지금 단계 이름 (사용자 11/23) */}
+      {r.lifecycle === 'QUARANTINED' && !r.workflow_failure && <section className="progress" aria-label="분석 진행">
+        <Bar label={prog ? `AI 검사 중 (${prog.done}/${prog.total})` : 'AI 검사를 시작하는 중'} value={prog?.total ? prog.done / prog.total : 0} text={prog?.steps.find((s) => s.state === 'running')?.label.concat(' 중')} />
+        <p className="note">끝나면 고칠 것이 이 화면에 나옵니다.</p>
+      </section>}
       {editInit !== null && <WikiEditor docId={r.doc_id} initial={editInit} base={r.text} focus={editFocus} onText={setCur} onCancel={() => { setEditInit(null); setCur(null); setFixState({}); }} note="저장하면 이 문서를 고친 내용으로 AI가 다시 검사합니다." />}
       {r.lifecycle === 'IN_REVIEW' && <ReviewItems docId={r.doc_id} items={r.reviews ?? []} canFix={canFix} onEdit={() => setEditInit(r.text!)}
         onAcked={(ids, reason) => setR((x) => x && { ...x, reviews: x.reviews!.map((y) => (ids.includes(y.finding_id) ? { ...y, acknowledged: true, reason } : y)) })} />}
       {r.lifecycle === 'IN_REVIEW' && <ClarifyList items={r.clarify ?? []} docId={r.doc_id} text={cur ?? r.text} canFix={canFix}
         onDismissed={(fid, reason) => setR((x) => x && { ...x, clarify: x.clarify!.map((c) => (c.finding_id === fid ? { ...c, status: 'DISMISSED', dismiss_reason: reason, blocking: false } : c)) })} />}
-      {r.lifecycle === 'IN_REVIEW' && (
+      {checks.length > 0 && <section aria-labelledby="chk-h" className="fix-list">
+        <h2 className="section" id="chk-h">근거 확인이 필요한 문장 {checks.length}건 <span className="note">확인 필요 · 승인자에게도 보입니다</span></h2>
+        <ol className="fixes">{checks.map((f) => (
+          <li key={f.finding_id} className="fix sev-MEDIUM">
+            {f.location?.excerpt && <blockquote className="basis"><p>{f.location.excerpt}</p></blockquote>}
+            <p>{f.user_message ?? f.message}</p>
+            {f.fix_hint && <p><strong>수정 제안</strong> {f.fix_hint.replace(/^확인 후 이렇게 고쳐 주세요:\s*/, '')}</p>}
+          </li>
+        ))}</ol>
+        {canFix && <div className="actions"><button type="button" className="btn" onClick={() => setEditInit(r.text!)}>본문 고치기</button></div>}
+      </section>}
+      {r.lifecycle === 'IN_REVIEW' && !held && (
         <section aria-labelledby="fix-h" className="fix-list">
           {/* 다른 할 일(확인 필요·개인정보 확인)이 있으면 '고칠 것이 없습니다'를 크게 쓰지 않는다 (11/18 dev 시험) */}
-          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">규정과 어긋난 문장은 없습니다.</p>}
+          {fixOpen.length || !((r.clarify ?? []).length || (r.reviews ?? []).length) ? <h2 className="section" id="fix-h">{fixOpen.length ? `고칠 것 ${fixOpen.length}건` : kept.length ? `규정과 어긋난 문장 ${kept.length}건 · 그대로 사용` : checks.length ? `확인 필요 ${checks.length}건` : '고칠 것이 없습니다'}</h2> : <p className="note" id="fix-h">{none}</p>}
           {/* 확인할 내용이 남아 있으면 '검토할 게 없다'로 읽히지 않게 (11/18 사용자 보고) */}
           {/* 확인할 내용(게시를 막지 않음)은 여기서 바로 무엇인지·할 일을 보여 준다 (사용자 지적 11/18: 자세히에서 입력칸을 찾았다) */}
-          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>규정과 어긋난 문장은 없습니다. 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
-            <ul>{r.findings.filter((f) => f.severity !== 'LOW').map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
-          {!open.length && uncertain === 0 && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
+          {!open.length && uncertain > 0 && <div className="notice"><p style={{ margin: 0 }}>{none} 아래 <strong>참고 {uncertain}건</strong>은 게시 요청을 막지 않으며, 입력할 것은 없습니다. 승인자에게 함께 보입니다.</p>
+            <ul>{r.findings.filter((f) => f.severity !== 'LOW' && !isCheck(f.code) && !fixIds.has(f.finding_id)).map((f) => <li key={f.finding_id}>{f.user_message ?? f.message}{f.fix_hint ? <span className="note"> — {f.fix_hint}</span> : null}</li>)}</ul></div>}
+          {!open.length && uncertain === 0 && !checks.length && !kept.length && <p className="note">AI 검사를 통과했습니다. 게시를 요청하면 승인자가 확인합니다.</p>}
           <ol className="fixes">{(r.fixes ?? []).map((f) => (
             <li key={f.finding_id} id={`fx-${f.finding_id}`} className={`fix${f.acknowledged ? ' done' : ''}`}>
               <p className="fix-head">{f.code === 'KNOWHOW_CONFLICT' ? '규정과 어긋난 문장' : '수정에서 지운 중요 문장'}{f.acknowledged && (f.code === 'KNOWHOW_CONFLICT' ? ` · 그대로 사용(${f.ack_reason ?? ''}) — 승인자가 판단` : ' · 의도한 삭제로 확인함')}</p>
@@ -202,10 +227,10 @@ function ReviewView() {
         </section>
       )}
       <RefSuggestions items={r.suggestions ?? []} onInsert={canFix ? (sg) => setEditInit(withReference(r.text!, sg)) : undefined} />
+      <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
       <details className="more"><summary>자세히: 검사별 결과</summary>
       <IssueList docId={r.doc_id} />
-      <VersionLink docId={r.doc_id} canEdit={!!r.can_edit} />
-      {!blocked && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
+      {!blocked && !held && r.trust_gate_result === 'REVIEW_REQUIRED' && <p className="mock">확인이 필요한 항목이 {uncertain}건 있습니다. 아래 내용을 확인한 뒤 게시를 요청하세요.</p>}
 
 
       {r.knowhow_validation && (() => {
@@ -271,7 +296,7 @@ function ReviewView() {
       )}
 
       </details>
-      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
+      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked || rejected ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : rejected ? '반려됨 · 수정 필요' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : rejected ? '반려 사유를 확인하고 고친 파일을 새로 올려 주세요.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
       {editTitle === null ? (
         <>
           <h2 className="section">문서 제목</h2><p>{r.title}</p>
@@ -297,7 +322,7 @@ function ReviewView() {
             <strong>{TYPES.find(([v]) => v === r.classification!.document_type)?.[1]}</strong>
           </p>
         ) : <p style={{ margin: 0 }}>AI가 종류를 정하지 못했습니다. 직접 골라 주세요.</p>}
-        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale}</p>}
+        {r.classification?.rationale && r.classification.source !== 'HUMAN' && <p className="note" style={{ marginTop: 6 }}>{r.classification.rationale.replace(/\b(REGULATION|KNOWHOW|MANUAL)\b/g, (k) => TYPES.find(([v]) => v === k)![1])}</p>}
         <label className="lbl" htmlFor="ty">바꿀 종류</label>
         <select id="ty" className="field" value={type} onChange={(e) => setType(e.target.value)} disabled={submitted}>
           <option value="" disabled>선택</option>

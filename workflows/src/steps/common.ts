@@ -10,7 +10,7 @@ export type Finding = {
   location?: FindingLocation; user_message?: string; fix_hint?: string;
 };
 export type StepStatus = "OK" | "REVIEW_REQUIRED" | "BLOCKED" | "PENDING";
-export type StepOutput = { status: StepStatus; output_key?: string; findings?: Finding[] };
+export type StepOutput = { status: StepStatus; output_key?: string; findings?: Finding[]; /** ImageDescribe: 쪽 → 그림 사람 정보 판정 */ figure_pii?: Record<number, "NONE" | "PRESENT" | "UNSURE"> };
 export type StepInput = {
   workflow_id: string; doc_id: string; version: number; bucket: string; prefix: string;
   actor: { sub: string; groups: string[] };

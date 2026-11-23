@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { guide, MOCK_EVIDENCE, type GuideDraft } from '../src/guide.ts';
+import { applyLawNames, citableFrom, guide, unnamedLaws, MOCK_EVIDENCE, type Evidence, type GuideDraft } from '../src/guide.ts';
 
 const deps = (draft: GuideDraft, seen: string[] = []) => ({
   model: 'test-model',
@@ -28,7 +28,7 @@ test('출처가 근거에 없는 단계는 버리고 수를 알린다 (근거 �
   assert.equal(r.steps.length, 1);
   assert.equal(r.steps[0]!.sources[0]!.provision, '기업여신 심사규정 제12조제2항');
   assert.equal(r.dropped_steps, 2);
-  assert.match(r.uncertainty, /2개 단계는 제외/);
+  assert.match(r.uncertainty, /관련 2건은 근거를 찾지 못해 뺐습니다/);
 });
 
 test('근거가 없으면 모델을 부르지 않고 NO_EVIDENCE', async () => {
@@ -206,4 +206,133 @@ test('Guardrails 출력 검사: 탐지 값은 가리고, 차단이면 답변을 
   assert.equal(blocked.steps.length, 0);
   assert.ok(!JSON.stringify(blocked.steps).includes('hunter2'));
   await assert.rejects(guide('접속 방법', { ...deps(draft), guard: async () => { throw new Error('guardrail down'); } }));
+});
+
+test('withAsOf: 기준일을 받는 Tool에 as_of가 없을 때만 채운다', async () => {
+  const { withAsOf } = await import('../src/guide.ts');
+  assert.deepEqual(withAsOf('search___search_wiki', { query: 'q' }, '2026-12-15'), { query: 'q', as_of: '2026-12-15' });
+  assert.deepEqual(withAsOf('regulation___get_clause', { law: 'l', as_of: '2025-01-01' }, '2026-12-15'), { law: 'l', as_of: '2025-01-01' }, '모델이 정한 기준일은 그대로');
+  assert.deepEqual(withAsOf('regulation___resolve_reference', { provision_id: 'p' }, '2026-12-15'), { provision_id: 'p' }, 'as_of 없는 Tool은 그대로');
+  assert.deepEqual(withAsOf('search___search_wiki', { query: 'q' }), { query: 'q' }, '기준일 미지정이면 그대로');
+});
+
+test('1차 검색 0건: Tool 검색 가능하면 Agent가 다시 찾고, 찾은 근거로만 답한다 (QA 데모 05)', async () => {
+  const found = MOCK_EVIDENCE[0]!;
+  let prompt = '';
+  const draft = async (p: string) => { prompt = p; return { steps: [{ text: '본부 승인을 받는다', sources: [found.doc_id] }, { text: '근거 없는 단계', sources: ['nope'] }], uncertainty: '', evidence: [found], tool_calls: [] }; };
+  const r = await guide('담보평가 시 확인 절차는?', { search: async () => [], draft, model: 'm', toolSearch: true });
+  assert.match(prompt, /1차 검색 근거가 없다/);
+  assert.equal(r.status, 'OK');
+  assert.equal(r.steps.length, 1, '출처 없는 단계는 빠짐');
+  const none = await guide('q', { search: async () => [], draft: async () => ({ steps: [{ text: 'x', sources: ['nope'] }], uncertainty: '', evidence: [], tool_calls: [] }), model: 'm', toolSearch: true });
+  assert.equal(none.status, 'NO_EVIDENCE');
+  assert.match(none.uncertainty!, /근거를 찾지 못/);
+  let called = false;
+  const off = await guide('q', { search: async () => [], draft: async () => { called = true; return { steps: [], uncertainty: '' }; }, model: 'm' });
+  assert.equal(off.status, 'NO_EVIDENCE'); assert.equal(called, false, 'Tool 없으면 기존처럼 바로 끝');
+});
+
+test('불확실 안내의 내부 상태 용어는 사용자 문구로 (QA M05 nit)', async () => {
+  const r = await guide('q', { search: async () => MOCK_EVIDENCE, draft: async () => ({ steps: [{ text: '본부 승인', sources: [MOCK_EVIDENCE[0]!.doc_id] }], uncertainty: '검색 결과가 UNVERIFIED 상태로, related 조문으로만 확인됨' }), model: 'm' });
+  assert.ok(!/UNVERIFIED|related/.test(r.uncertainty!), r.uncertainty);
+  assert.match(r.uncertainty!, /확인되지 않은 상태.*참고 조문/);
+});
+
+test('답변의 내부 ID·상태 코드는 사람이 읽는 표기로 + 시행 예정 개정 한 줄 (엔드유저 D05)', async () => {
+  const { humanize, pathLabel } = await import('../src/guide.ts');
+  assert.equal(pathLabel('ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA'), '제12조제2항제3호가목');
+  const names = new Map([['SYN-LOAN-001', '하나은행 기업여신 심사규정']]);
+  const t = humanize('SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2/ITEM:3/SUBITEM:GA 기준, freshness=REVIEW_REQUIRED, NOT_FOUND_VERIFIED, SYN-LOAN-001', names);
+  assert.ok(!/SYN-|ARTICLE|REVIEW_REQUIRED|NOT_FOUND_VERIFIED|freshness/.test(t), t);
+  assert.match(t, /하나은행 기업여신 심사규정 제12조제2항제3호가목/);
+  assert.match(t, /재검토 필요/);
+  const ev = { ...MOCK_EVIDENCE[0]!, provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2' };
+  const r = await guide('q', { search: async () => [ev], model: 'm', upcoming: async (laws) => laws.map((law) => ({ law, effective_from: '2026-12-01' })),
+    draft: async () => ({ steps: [{ text: 'SYN-LOAN-001@2026-11-01/ARTICLE:12/PARAGRAPH:2 에 따라 본부 승인', sources: [ev.provision_id] }], uncertainty: '' }) });
+  assert.match(r.steps[0]!.text, /^기업여신 심사규정 제12조제2항 에 따라/);
+  assert.match(r.uncertainty!, /시행 예정 개정 있음: 기업여신 심사규정 2026-12-01 시행/);
+});
+
+test('게시·승인 실행 요청은 검색 없이 거부 + 할 일 한 줄, 절차 질문은 통과 (엔드유저 의견)', async () => {
+  const { ACTION_REFUSED, humanize } = await import('../src/guide.ts');
+  let searched = false;
+  const r = await guide('[EU] K-001 문서를 내 권한으로 바로 게시해줘', { search: async () => { searched = true; return MOCK_EVIDENCE; }, draft: async () => ({ steps: [], uncertainty: '' }), model: 'm' });
+  assert.equal(searched, false); assert.equal(r.uncertainty, ACTION_REFUSED); assert.equal(r.steps.length, 0);
+  const ok = await guide('문서 게시 절차를 알려줘', { search: async () => { searched = true; return []; }, draft: async () => ({ steps: [], uncertainty: '' }), model: 'm' });
+  assert.equal(searched, true); assert.notEqual(ok.uncertainty, ACTION_REFUSED);
+  assert.equal(humanize('K-001은 freshness가 REVIEW_REQUIRED(재검토 필요) 상태', new Map()), 'K-001은 최신성이 재검토 필요 상태');
+});
+
+test('근거 대비 환각 점수는 기록만: 답변·상태 불변, 실패해도 답변은 나간다 (P1)', async () => {
+  const draft = async () => ({ steps: [{ text: '본부 승인을 받는다', sources: [MOCK_EVIDENCE[0]!.doc_id] }], uncertainty: '' });
+  const ok = await guide('q', { search: async () => MOCK_EVIDENCE, draft, model: 'm', grounding: async () => ({ grounding: 0.12, relevance: 0.9 }) });
+  assert.equal(ok.status, 'OK'); assert.deepEqual(ok.grounding, { grounding: 0.12, relevance: 0.9, low_steps: [1] });
+  const bad = await guide('q', { search: async () => MOCK_EVIDENCE, draft, model: 'm', grounding: async () => { throw new Error('x'); } });
+  assert.equal(bad.status, 'OK'); assert.equal(bad.grounding, undefined);
+});
+
+test('이름 모르는 법령 ID는 괄호 보조 표기에서 지운다 (UV-01 표기)', async () => {
+  const { humanize } = await import('../src/guide.ts');
+  assert.equal(humanize('가상여신거래법(SYN-VLOAN-001, 2026-11-01 버전)은 등록됨', new Map()), '가상여신거래법(2026-11-01 버전)은 등록됨');
+  assert.equal(humanize('가상여신거래법(SYN-VLOAN-001)은', new Map()), '가상여신거래법은');
+  assert.equal(humanize('SYN-LOAN-001 기준', new Map([['SYN-LOAN-001', '기업여신 심사규정']])), '기업여신 심사규정 기준');
+});
+
+test('뺀 단계는 본문 대신 주제 낱말 + 건수 (숫자·조건 노출 없음)', async () => {
+  const { droppedNote } = await import('../src/guide.ts');
+  const n = droppedNote(['감정평가서 발급일이 6개월을 초과하면 재발급을 요청한다.', '1억원 이하는 승인 없이 처리한다.']);
+  assert.ok(!/억원|6개월|승인 없이|재발급을 요청/.test(n), n); // 건수(2건) 외 숫자·조건·본문 없음
+  assert.match(n, /「감정평가서」/);
+  assert.match(n, /2건은 근거를 찾지 못해 뺐습니다/);
+});
+
+test('조문 조회 근거(법령 ID)는 같은 개정본 규정 문서의 doc_id·제목·규정명으로 표기 (프론트 7차 11/23)', async () => {
+  const doc = { doc_id: 'doc_REG1', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', title: '[SYNTHETIC] 기업여신 심사규정', snippet: '제14조 ① 현장 실사', provision: '기업여신 심사규정 제14조제1항', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND' } as Evidence;
+  const clause = citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1', original_text: '심사역은 다음 각 호의 서류를 받아야 한다.', path_label: '제10조제1항', law_id: 'SYN-LOAN-001' })[0]!;
+  const r = await guide('q', { search: async () => [doc], draft: async () => ({ steps: [{ text: '서류 세 가지를 받는다', sources: [clause.provision_id!] }], uncertainty: '', evidence: [clause] }), model: 'm' });
+  const s = r.steps[0]!.sources[0]!;
+  assert.equal(s.doc_id, 'doc_REG1'); assert.equal(s.title, '[SYNTHETIC] 기업여신 심사규정'); assert.equal(s.provision, '기업여신 심사규정 제10조제1항');
+  assert.equal(s.provision_id, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1');
+});
+
+test('조문 조회 근거 제목: 같은 응답에 규정 문서가 없으면 Tool 인자 규정 이름. 법령 ID 인자는 쓰지 않음', () => {
+  const r = { search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1', original_text: 'x', path_label: '제10조제1항', law_id: 'SYN-LOAN-001' };
+  const a = citableFrom(r, '기업여신 심사규정')[0]!;
+  assert.equal(a.title, '기업여신 심사규정'); assert.equal(a.provision, '기업여신 심사규정 제10조제1항');
+  const b = citableFrom(r, 'SYN-LOAN-001')[0]!;
+  assert.equal(b.title, 'SYN-LOAN-001'); assert.equal(b.provision, '제10조제1항');
+});
+
+test('법령 ID로만 표기된 조문 근거는 Registry 규정 이름으로 (8차)', () => {
+  const e = citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1', original_text: 'x', path_label: '제10조제1항', law_id: 'SYN-LOAN-001' }, 'SYN-LOAN-001');
+  assert.deepEqual(unnamedLaws(e), ['SYN-LOAN-001']);
+  applyLawNames(e, new Map([['SYN-LOAN-001', '하나은행 기업여신 심사규정']]));
+  assert.equal(e[0]!.title, '하나은행 기업여신 심사규정'); assert.equal(e[0]!.provision, '하나은행 기업여신 심사규정 제10조제1항');
+  assert.equal(e[0]!.provision_id, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1'); assert.deepEqual(unnamedLaws(e), []);
+});
+
+test('조 전체 조회 결과의 하위 항·호도 각자 provision_id 로 인용 근거 (Tool 상한 대비, 8차)', () => {
+  const B = 'SYN-LOAN-001@2026-11-01/ARTICLE:10';
+  const ev = citableFrom({ search_status: 'FOUND', provision_id: B, path_label: '제10조', law_id: 'SYN-LOAN-001', original_text: '(심사 서류)', children: [
+    { provision_id: `${B}/PARAGRAPH:1`, path_label: '제10조제1항', status: 'ACTIVE', original_text: '심사역은 다음 각 호의 서류를 받아야 한다.' },
+    { provision_id: `${B}/PARAGRAPH:1/ITEM:1`, path_label: '제10조제1항제1호', status: 'ACTIVE', original_text: '최근 3년간 재무제표' },
+    { provision_id: `${B}/PARAGRAPH:2`, path_label: '제10조제2항', status: 'ACTIVE', original_text: '감정평가서는 6개월 이내의 것이어야 한다.' },
+    { provision_id: `${B}/PARAGRAPH:3`, path_label: '제10조제3항', status: 'DELETED', original_text: '삭제' }] }, '기업여신 심사규정');
+  assert.deepEqual(ev.map((e) => e.provision_id), [B, `${B}/PARAGRAPH:1`, `${B}/PARAGRAPH:1/ITEM:1`, `${B}/PARAGRAPH:2`]);
+  assert.match(ev[1]!.snippet, /다음 각 호.*최근 3년간 재무제표/); assert.equal(ev[3]!.provision, '기업여신 심사규정 제10조제2항');
+});
+
+test('엔드유저 8차: 시스템 사정 문구 숨김·상위/하위 조문 중복 출처는 상위만', async () => {
+  const { humanize, topSources } = await import('../src/guide.ts');
+  const { hideSystem } = await import('../src/guide.ts');
+  const t = hideSystem('제10조제2항은 도구 조회 한도 초과로 확인하지 못하였음 — 원문을 확인할 것. 대출 한도는 5억원이다.');
+  assert.equal(humanize('신용정보 조회 한도는 1일 3회이다.', new Map()), '신용정보 조회 한도는 1일 3회이다.', '단계 본문의 정상 문장은 그대로');
+  assert.match(hideSystem('제10조제2항 등 추가 항의 내용은 조회 한도 초과로 확인하지 못하였습니다.'), /^일부 조문은 직접 확인하지 못했습니다/);
+  assert.equal(hideSystem('신용정보 조회 한도는 1일 3회이다.'), '신용정보 조회 한도는 1일 3회이다.', '도구 낱말 없으면 그대로');
+  assert.equal(humanize('심사역은 담보물 감정평가서를 포함한 다음 서류를 징구한다: ① 재무제표', new Map()), '심사역은 다음 서류를 징구한다: ① 재무제표');
+  assert.equal(humanize('심사역은 담보물감정평가서를 포함한 아래 서류를 받는다.', new Map()), '심사역은 아래 서류를 받는다.');
+  assert.doesNotMatch(t, /한도 초과/); assert.match(t, /일부 조문은 직접 확인하지 못했습니다/); assert.match(t, /대출 한도는 5억원이다/);
+  const e = (provision_id: string) => ({ doc_id: provision_id, provision_id, title: 't', snippet: 's' }) as Evidence;
+  const B = 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1';
+  assert.deepEqual(topSources([e(B), e(`${B}/ITEM:1`), e('SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2')]).map((x) => x.provision_id), [B, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2']);
 });

@@ -111,6 +111,7 @@ const judge = async (t: string, clauses: Clause[]) => {
   return { items: r.value.items, model: r.model };
 };
 
+const suggestTmp = async (items: Parameters<typeof suggestPrompt>[0]) => (await structured<{ suggestions: string[] }>('HAIKU', SUGGEST_SYSTEM, suggestPrompt(items), 'submit_suggestions', SUGGEST_SCHEMA as unknown as Record<string, unknown>)).value.suggestions;
 const sets = JSON.parse(readFileSync(join(dir, '../evaluations/cases/sets.json'), 'utf8')) as Record<string, string[]>;
 const conflict5 = sets.knowhow_conflict_5!;
 const cases: [string, string][] = [
@@ -124,19 +125,30 @@ const real = process.env.REAL === '1' ? await realDeps() : undefined;
 console.log(`모드: ${real ? '실제 (규정 저장소·KB 검색)' : '임시 (fixture 파서·2-gram 검색)'}`);
 let conflictHit = 0;
 let falsePositive = 0;
+let basisFp = 0;
 const suggestions: string[] = [];
 console.log('| 문서 | 기대 | 판정 | 결과 | 근거 |\n|---|---|---|---|---|');
 for (const [id, expected] of cases) {
   const raw = read(fileOf(id)).replace(/^---\n[\s\S]*?\n---\n/, ''); // 작성자 선언 cites는 쓰지 않는다 (본문만)
   const text = mask(raw, detectPii(raw));
-  const r = await validateKnowhow(text, real ?? { extractCitations, getClause: async (pid) => clauseIndex.get(pid), searchClauses, judge });
+  const r = await validateKnowhow(text, real ?? { extractCitations, getClause: async (pid) => clauseIndex.get(pid), searchClauses, judge, ...(process.env.RECHECK ? { suggest: suggestTmp } : {}) });
   const v = r.validation.verdict;
   const ok = expected === 'NOT_CONFLICT' ? v !== 'CONFLICT' : v === expected;
   if (conflict5.includes(id) && v === 'CONFLICT') conflictHit++;
   if (expected === 'NOT_CONFLICT' && v === 'CONFLICT') falsePositive++;
   const why = r.validation.items.find((j) => j.relation === 'CONFLICTS') ?? r.validation.items[0];
-  console.log(`| ${id} | ${expected} | ${v} | ${ok ? '✅' : '❌'} | ${why ? `${why.label}: ${why.reason}`.replace(/\|/g, '/').slice(0, 90) : r.validation.outdated[0]?.label ?? '-'} |`);
+  const mis = r.findings.filter((f) => f.code === 'KNOWHOW_BASIS_MISMATCH').length; // 근거와 다름 (11/20, 원본 오탐 확인용)
+  if (expected === 'NOT_CONFLICT' || expected === 'SUPPORTED') basisFp += mis;
+  console.log(`| ${id} | ${expected} | ${v} | ${ok ? '✅' : '❌'} | ${why ? `${why.label}: ${why.reason}`.replace(/\|/g, '/').slice(0, 90) : r.validation.outdated[0]?.label ?? '-'}${mis ? ` · 근거와 다름 ${mis}` : ''} |`);
+  // RECHECK=1: AI 수정 제안을 본문에 적용해 다시 판정 (엔드유저 D03 ② '제안대로 고치기'가 재검사에서 다시 걸림)
+  if (process.env.RECHECK && r.validation.items.some((j) => j.suggestion)) {
+    let fixed = text;
+    for (const j of r.validation.items.filter((x) => x.suggestion)) fixed = fixed.includes(j.statement) ? fixed.replace(j.statement, j.suggestion!) : fixed;
+    const r2 = await validateKnowhow(fixed, real ?? { extractCitations, getClause: async (pid) => clauseIndex.get(pid), searchClauses, judge, ...(process.env.RECHECK ? { suggest: suggestTmp } : {}) });
+    console.log(`  └ 재검사 ${id}: ${r2.validation.verdict} · ${r2.findings.map((f) => f.code).join(' ') || '-'}${fixed === text ? ' (문장 위치 못 찾음)' : ''}`);
+    for (const j of r2.validation.items.filter((x) => x.relation !== 'SUPPORTS' && x.relation !== 'SUPPLEMENTS')) console.log(`    · ${j.relation} ${j.label} | ${j.statement.slice(0, 50)} | ${j.reason.slice(0, 90)}`);
+  }
   if (process.env.SHOW_FIX) for (const j of r.validation.items.filter((x) => x.suggestion)) suggestions.push(`- ${id} [${j.relation}] "${j.statement}" → "${j.suggestion}"`);
 }
 if (suggestions.length) console.log(`\n수정 문장 (suggestion)\n${suggestions.join('\n')}`);
-console.log(`\n노하우 충돌 탐지: ${conflictHit}/5 (기준 4/5 이상: ${conflictHit >= 4 ? '통과' : '미달'}) · 정상 노하우 오탐: ${falsePositive}/5`);
+console.log(`\n노하우 충돌 탐지: ${conflictHit}/5 (기준 4/5 이상: ${conflictHit >= 4 ? '통과' : '미달'}) · 정상 노하우 오탐: ${falsePositive}/5 · 정상·일치 문서 근거와 다름 경고: ${basisFp}건`);

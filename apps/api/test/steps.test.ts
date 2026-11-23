@@ -429,6 +429,18 @@ test('carry ackItem: 관리자가 반영한 수정 요청의 원래 문장은 �
   carry.items.push(...sentences('1. 신청서는 IT인프라팀 팀장의 승인을 받은 뒤 접수한다.').map((s) => ackItem('EDIT_REMOVED_KEY_SENTENCE', s.slice(0, 160), 'u-admin', '수정 요청 반영(관리자 승인)')));
   const out = applyCarry(carry, f);
   assert.equal(out[0]!.acknowledged?.by, 'u-admin');
+  // 승인된 수정 요청으로 바뀐 문장은 '되돌려 주세요'가 아니라 LOW 안내 (G-KREV-02 왕복 11/23)
+  assert.equal(out[0]!.severity, 'LOW');
+  assert.equal(out[0]!.fix_hint, undefined);
+  assert.match(out[0]!.user_message!, /^승인된 수정 요청으로 바뀐 문장입니다/);
+  // 사람이 '의도한 삭제'로 확인한 것은 그대로(MEDIUM·안내 유지)
+  const own = makeCarry(before, []);
+  own.items.push(...sentences('1. 신청서는 IT인프라팀 팀장의 승인을 받은 뒤 접수한다.').map((s) => ackItem('EDIT_REMOVED_KEY_SENTENCE', s.slice(0, 160), 'u-author', '의도한 삭제')));
+  assert.equal(applyCarry(own, editReview(before, after).findings)[0]!.severity, 'MEDIUM');
+  // 작성자가 사유에 CR_APPLIED 문자열을 그대로 적어도(사용자 확인 → makeCarry) 강등 안 됨
+  const { CR_APPLIED } = await import('../src/steps/carry.ts');
+  const forged = editReview(before, after).findings.map((x) => ({ ...x, acknowledged: { by: 'u-author', at: 't', reason: CR_APPLIED } }));
+  assert.equal(applyCarry(makeCarry(before, forged), editReview(before, after).findings)[0]!.severity, 'MEDIUM');
 });
 
 test('allocate: 같은 문장·종류에서 겹치는 질문은 짧은 쪽 하나만 (11/19 팀 계정 C1)', async () => {
@@ -453,4 +465,32 @@ test('외부 법령 조문 전부(데이터팀 합의 11/20): externalLawRefs �
   assert.deepEqual(m3, [{ law_name: L, clauses: [{ clause: '제9-9조제1항', sub: ['제8호', '제9호'] }, { clause: '제9-4조제1항' }] }]);
   // 옛 모양(clause 하나)·조문 없는 언급도 그대로
   assert.deepEqual(groupLaws(flatRefs([{ law_name: '전자금융거래법' }, { law_name: '은행법', clause: '제5조' }])), [{ law_name: '전자금융거래법', clauses: [] }, { law_name: '은행법', clauses: [{ clause: '제5조' }] }]);
+});
+
+test('PiiScan: 비밀값은 쪽마다가 아니라 문서당 한 건 + 쪽 목록 (사용자 피드백 11/20)', async () => {
+  const { piiScan } = await import('../src/steps/pii.ts');
+  const g = async (t: string) => ({ text: t, detected: 1, entities: [{ type: 'PASSWORD', match: t.match(/Pw\d+/)![0] }] });
+  const r = await piiScan([0, 2, 5].map((page) => ({ page, text: `관리자 비밀번호 Pw${page}123` })), g);
+  const s = r.findings!.filter((f) => f.code === 'SECRET_MASKED');
+  assert.equal(s.length, 1);
+  assert.match(s[0]!.user_message!, /1·3·6쪽에 .* 비밀값 3건/);
+  assert.ok(r.masked.every((m) => m.text.includes('[비밀값]')), '가림은 쪽마다 그대로');
+});
+
+test('TrustGate 형식만 다름(총괄 결정 11/20): 공백·줄바꿈만 다르면 VERIFIED + LOW FORMAT_ONLY_DIFF, 숫자 하나·누락 조문이면 그대로 HIGH', () => {
+  const run = (clauses: Record<string, string>) => trustGate({ doc: { classification: cls('REGULATION'), content_hash: 'X', findings: [] }, claimed: { law_id: 'SYN-LOAN-001', clauses, other_chars: 30 }, registry: reg });
+  const fmt = run({ 'ARTICLE:7': '3 억원\n이상', 'ARTICLE:8': ' x ' });
+  assert.deepEqual([fmt.result, fmt.authority_status, fmt.findings.map((f) => [f.severity, f.code])], ['PASS', 'VERIFIED', [['LOW', 'FORMAT_ONLY_DIFF']]]);
+  for (const c of [{ 'ARTICLE:7': '3억원 이하', 'ARTICLE:8': 'x' }, { 'ARTICLE:7': '3억원 이상' }, { 'ARTICLE:7': '3억원 이상', 'ARTICLE:8': 'x', 'ARTICLE:9': 'y' }] as Record<string, string>[]) {
+    const r = run(c);
+    assert.deepEqual([r.authority_status, r.findings[0]!.code, r.findings[0]!.severity], ['UNVERIFIED', 'REGISTRY_MISMATCH', 'HIGH'], JSON.stringify(c));
+  }
+  assert.equal(run({}).findings[0]!.code, 'REGISTRY_MISMATCH', '조문을 못 뽑았으면 형식만 다름으로 보지 않음');
+});
+
+test('TrustGate 형식만 다름: 조문 밖 글자가 많거나 모르면 적용 안 함(조문 밖 위조 방지, AI 리뷰 #139)', () => {
+  const run = (other_chars?: number) => trustGate({ doc: { classification: cls('REGULATION'), content_hash: 'X', findings: [] }, claimed: { law_id: 'SYN-LOAN-001', clauses: { 'ARTICLE:7': '3억원 이상', 'ARTICLE:8': 'x' }, ...(other_chars === undefined ? {} : { other_chars }) }, registry: reg });
+  assert.equal(run(200).authority_status, 'VERIFIED');
+  assert.deepEqual([run(201).authority_status, run(201).findings[0]!.code], ['UNVERIFIED', 'REGISTRY_MISMATCH']);
+  assert.equal(run().findings[0]!.code, 'REGISTRY_MISMATCH', '조문 밖 글자 수를 모르면 fail-closed');
 });

@@ -3,7 +3,7 @@
 import { createServer, type IncomingMessage } from 'node:http';
 import { z } from 'zod';
 import { AfterToolCallEvent, Agent, BedrockModel, BeforeToolCallEvent, McpClient } from '@strands-agents/sdk';
-import { ALLOWED_TOOLS, GUIDE_SYSTEM, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, citableFrom, guide, toolBudget, type Evidence, type ToolCall } from './guide.ts';
+import { ALLOWED_TOOLS, AS_OF_RE, GUIDE_SYSTEM, withAsOf, GuideDraft, MOCK_EVIDENCE, TOOL_PROGRESS, applyLawNames, citableFrom, guide, toolBudget, unnamedLaws, type Evidence, type ToolCall } from './guide.ts';
 
 const env = (k: string) => {
   const v = process.env[k];
@@ -18,13 +18,13 @@ async function readJson(req: IncomingMessage): Promise<Record<string, unknown>> 
 }
 
 /** Gateway search Tool 호출. 사용자 JWT를 그대로 전달 → interceptor가 __actor 주입 → Tool이 ACL 강제 */
-async function searchViaGateway(query: string, authorization: string, opts: { expand?: 'section' } = {}): Promise<Evidence[]> {
+async function searchViaGateway(query: string, authorization: string, opts: { expand?: 'section'; as_of?: string } = {}): Promise<Evidence[]> {
   const client = new McpClient({ url: env('GATEWAY_URL'), headers: { authorization } });
   try {
     const name = process.env.SEARCH_TOOL ?? 'search___search_wiki';
     const tool = (await client.listTools()).find((t) => t.name === name);
     if (!tool) throw new Error(`tool not found: ${name}`);
-    const r = (await client.callTool(tool, { query, top_k: 5, ...(opts.expand ? { expand: opts.expand } : {}) })) as { content?: { type: string; text?: string }[] };
+    const r = (await client.callTool(tool, { query, top_k: 5, ...(opts.expand ? { expand: opts.expand } : {}), ...(opts.as_of ? { as_of: opts.as_of } : {}) })) as { content?: { type: string; text?: string }[] };
     const text = r.content?.find((c) => c.type === 'text')?.text ?? '{}';
     // expand:"section" (let522mj PR #43): 걸린 장(최대 2)의 조각을 쪽 순서로 더 준다. 장 조각을 앞에(절차가 이어지도록)
     const out = JSON.parse(text) as { items?: Evidence[]; expanded?: { items?: Evidence[] }[] };
@@ -32,6 +32,39 @@ async function searchViaGateway(query: string, authorization: string, opts: { ex
   } finally {
     await client.disconnect();
   }
+}
+
+/** 인용 규정의 시행 예정 버전 (regulation get_official_policy versions, 사용자 JWT). 기준일 이후 시행 + VERIFIED 만 */
+/** 법령 ID → Registry 규정 이름 (get_official_policy law_name). 실패한 법령은 빠진다 */
+async function lawNames(client: McpClient, ids: string[]) {
+  const m = new Map<string, string>();
+  if (!ids.length) return m;
+  const tool = (await client.listTools()).find((t) => t.name === 'regulation___get_official_policy');
+  if (!tool) return m;
+  for (const id of ids) {
+    const r = (await client.callTool(tool, { law: id })) as { content?: { type: string; text?: string }[] };
+    const n = (JSON.parse(r.content?.find((c) => c.type === 'text')?.text ?? '{}') as { law_name?: unknown }).law_name;
+    if (typeof n === 'string' && n.trim()) m.set(id, n.trim().slice(0, 80));
+  }
+  return m;
+}
+
+async function upcomingViaGateway(laws: string[], authorization: string, asOf?: string) {
+  const ymd = (v: unknown) => String(v ?? '').replace(/\D/g, '').slice(0, 8);
+  const today = ymd(asOf ?? new Date().toISOString());
+  const client = new McpClient({ url: env('GATEWAY_URL'), headers: { authorization } });
+  try {
+    const tool = (await client.listTools()).find((t) => t.name === 'regulation___get_official_policy');
+    if (!tool) return [];
+    const out: { law: string; effective_from: string }[] = [];
+    for (const law of laws.slice(0, 3)) {
+      const r = (await client.callTool(tool, { law, ...(asOf ? { as_of: asOf } : {}) })) as { content?: { type: string; text?: string }[] };
+      const o = JSON.parse(r.content?.find((c) => c.type === 'text')?.text ?? '{}') as { versions?: { effective_from: unknown; authority_status?: string }[] };
+      const next = (o.versions ?? []).filter((v) => v.authority_status === 'VERIFIED' && ymd(v.effective_from) > today).map((v) => ymd(v.effective_from)).sort()[0];
+      if (next) out.push({ law, effective_from: `${next.slice(0, 4)}-${next.slice(4, 6)}-${next.slice(6, 8)}` });
+    }
+    return out;
+  } finally { await client.disconnect(); }
 }
 
 /** 2단계: 근거 묶음을 받은 Agent가 허용 목록의 Gateway Tool을 골라 더 확인한 뒤 구조화 출력 (사용자 결정 권고안 B).
@@ -47,6 +80,21 @@ async function expandWithModel(query: string, evidence: { id: string; title: str
 }
 
 /** 답변 출력 검사: Guardrails ApplyGuardrail OUTPUT (모델 추론 아님). 탐지 값·차단 여부만 */
+/** 근거 대비 환각 점수 (P1 도입안 1). GROUNDING_GUARDRAIL_ID(contextual grounding 필터만, 임계값 0 = 차단 안 함)로 점수만 받는다. 본문은 로그에 남기지 않음 */
+async function groundingScore(answer: string, sources: string, query: string) {
+  const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
+  const r = await new BedrockRuntimeClient({ region: env('AWS_REGION') }).send(new ApplyGuardrailCommand({
+    guardrailIdentifier: env('GROUNDING_GUARDRAIL_ID'), guardrailVersion: process.env.GROUNDING_GUARDRAIL_VERSION ?? 'DRAFT', source: 'OUTPUT', outputScope: 'FULL',
+    content: [{ text: { text: sources, qualifiers: ['grounding_source'] } }, { text: { text: query, qualifiers: ['query'] } }, { text: { text: answer, qualifiers: ['guard_content'] } }],
+  }));
+  const f = (r.assessments ?? []).flatMap((a) => a.contextualGroundingPolicy?.filters ?? []);
+  const score = (t: string) => f.find((x) => x.type === t)?.score;
+  const g = score('GROUNDING'); const rel = score('RELEVANCE');
+  if (g === undefined || rel === undefined) return undefined;
+  console.log(JSON.stringify({ msg: 'grounding', grounding: g, relevance: rel })); // 점수만
+  return { grounding: g, relevance: rel };
+}
+
 async function guardWithGuardrail(text: string) {
   const { ApplyGuardrailCommand, BedrockRuntimeClient } = await import('@aws-sdk/client-bedrock-runtime');
   const r = await new BedrockRuntimeClient({ region: env('AWS_REGION') }).send(new ApplyGuardrailCommand({
@@ -60,7 +108,7 @@ async function guardWithGuardrail(text: string) {
   return { blocked: [...hits, ...others].some((e) => e.action === 'BLOCKED'), matches: [...new Set(hits.map((e) => e.match ?? '').filter(Boolean))] };
 }
 
-async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void }) {
+async function draftWithModel(prompt: string, ctx: { authorization?: string; progress?: (t: string) => void; asOf?: string }) {
   const model = new BedrockModel({ region: env('AWS_REGION'), modelId: env('MODEL_SONNET'), maxTokens: 8192 });
   const client = process.env.GATEWAY_URL && ctx.authorization
     ? new McpClient({ url: env('GATEWAY_URL'), headers: { authorization: ctx.authorization }, toolFilters: { allowed: [...ALLOWED_TOOLS] } })
@@ -74,6 +122,7 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
     if (!ev.toolUse.name.includes('___')) return; // SDK 내부 Tool(structured_output)은 기록·진행 문구 없음
     const why = budget.check(ev.toolUse.name, ev.toolUse.input);
     if (why) { ev.cancel = why; return; }
+    ev.toolUse.input = withAsOf(ev.toolUse.name, ev.toolUse.input, ctx.asOf) as typeof ev.toolUse.input;
     started.set(ev.toolUse.toolUseId, Date.now());
     ctx.progress?.(TOOL_PROGRESS[ev.toolUse.name.split('___').pop() ?? ''] ?? '관련 정보를 확인하는 중입니다');
   });
@@ -83,11 +132,13 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
     tool_calls.push({ name: ev.toolUse.name, ok: ev.result.status === 'success' && !ev.error, ms: Date.now() - t0 });
     for (const c of ev.result.content) {
       const raw = 'text' in c && typeof c.text === 'string' ? c.text : 'json' in c ? JSON.stringify((c as { json: unknown }).json) : '';
-      try { evidence.push(...citableFrom(JSON.parse(raw))); } catch { /* JSON 아님 */ }
+      try { evidence.push(...citableFrom(JSON.parse(raw), typeof (ev.toolUse.input as { law?: unknown })?.law === 'string' ? (ev.toolUse.input as { law: string }).law : undefined)); } catch { /* JSON 아님 */ }
     }
   });
   try {
     const r = await agent.invoke(prompt);
+    // 이름 Map 만 경쟁시키고 적용은 그 뒤 동기로 (늦게 끝난 조회가 응답 뒤 evidence 를 바꾸지 않게, 백엔드 리뷰 #156)
+    if (client) applyLawNames(evidence, await Promise.race([lawNames(client, unnamedLaws(evidence).slice(0, 3)).catch(() => new Map<string, string>()), new Promise<Map<string, string>>((ok) => setTimeout(() => ok(new Map()), 5_000))]));
     return { ...(r.structuredOutput as GuideDraft), evidence, tool_calls };
   } finally {
     await client?.disconnect().catch(() => {});
@@ -101,13 +152,16 @@ createServer(async (req, res) => {
     if (req.method === 'POST' && req.url === '/invocations') {
       const b = await readJson(req);
       if (typeof b.prompt !== 'string' || !b.prompt.trim() || b.prompt.length > 1000) return send(400, { error: 'prompt: 1~1000자' });
+      // as_of: 평가 기준일 고정용(선택). 없으면 Tool이 오늘로 판단
+      if (b.as_of !== undefined && (typeof b.as_of !== 'string' || !AS_OF_RE.test(b.as_of))) return send(400, { error: 'as_of: YYYY-MM-DD' });
+      const asOf = b.as_of as string | undefined;
       const auth = req.headers['authorization'];
       const search = process.env.GATEWAY_URL
-        ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, o); }
+        ? (q: string, o?: { expand?: 'section' }) => { if (typeof auth !== 'string') throw new Error('no authorization'); return searchViaGateway(q, auth, { ...o, ...(asOf ? { as_of: asOf } : {}) }); }
         : async () => MOCK_EVIDENCE; // ponytail: Gateway search Tool(let522mj) 연동 전 mock
       const authorization = typeof auth === 'string' ? auth : undefined;
-      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel } : {}),
-        ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
+      const deps = { search, draft: (p: string) => draftWithModel(p, { authorization, asOf }), model: env('MODEL_SONNET'), ...(process.env.GATEWAY_URL ? { expand: expandWithModel, toolSearch: true, ...(typeof auth === 'string' ? { upcoming: (laws: string[]) => upcomingViaGateway(laws, auth, asOf) } : {}) } : {}),
+        ...(process.env.GUARDRAIL_ID ? { guard: guardWithGuardrail } : {}), ...(process.env.GROUNDING_GUARDRAIL_ID ? { grounding: groundingScore } : {}) }; // 검사 실패는 예외 → 답변 안 보냄 (fail-closed)
       // Accept: text/event-stream → 진행 문구를 먼저 보내고 결과를 마지막에 (AgentCore Runtime SSE 응답)
       if (String(req.headers['accept'] ?? '').includes('text/event-stream')) {
         res.writeHead(200, { 'content-type': 'text/event-stream', 'cache-control': 'no-cache', connection: 'keep-alive' });
@@ -115,7 +169,7 @@ createServer(async (req, res) => {
         // CloudFront는 60초 동안 바이트가 없으면 끊는다 → 15초마다 SSE 주석 (yoyo0704)
         const ping = setInterval(() => res.write(': ping\n\n'), 15_000);
         const progress = (text: string) => ev('progress', { text });
-        try { ev('result', await guide(b.prompt, { ...deps, draft: (p: string) => draftWithModel(p, { authorization, progress }), progress })); }
+        try { ev('result', await guide(b.prompt, { ...deps, draft: (p: string) => draftWithModel(p, { authorization, progress, asOf }), progress })); }
         catch (e) { console.error(JSON.stringify({ err: (e as Error).name })); ev('error', { message: '가이드를 만들지 못했습니다' }); }
         finally { clearInterval(ping); }
         return res.end();

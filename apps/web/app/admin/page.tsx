@@ -4,27 +4,48 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type DocChange, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
+import { api, ApiError, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
-import { accountLabel } from '../lib/roles';
+import { readable } from '../lib/readable';
 import { Icon } from '../icons';
-import { Seal } from '../seal';
+import { FreshnessFlag, Scheduled, Seal, todayKst } from '../seal';
 
-interface Item { approval_id: string; doc_id: string; own?: boolean; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string; kept?: { text: string; reason: string; system: boolean }[] }
+interface Item { approval_id: string; doc_id: string; own?: boolean; title?: string; detail?: string; stage?: number; lifecycle?: string; workflow_failure?: { step: string; error: string }; version?: { version_no?: number; previous_title: string; changes_count: number; changes?: DocChange[] }; summary_line?: string | null; source?: string; kept?: { text: string; reason: string; system: boolean }[]; checks_count?: number; checks?: { code: string; text: string; message: string }[]; effective_from?: string | null; freshness?: LibraryCard['freshness']; freshness_reason?: FreshnessReason | null }
 interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_MISMATCH' | 'BLOCKED'; findings: { message: string; user_message?: string; evidence_ref: string }[] }
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
 
-/** 지식 부채 (게시 문서 주장 기준, interfaces 10.2): 지금 손봐야 할 지식이 얼마나 쌓였나 */
-function KnowledgeDebt() {
+/** 지금 할 일 (사용자 11/23 '글만 많아 무엇을 할지 모름'): 요약 한 줄 + 행동 버튼, 숫자 카드는 위험 순서.
+ *  지식 수치는 게시 문서 주장 기준(interfaces 10.2). 0은 흐리게 */
+function TodoNow({ pending, source }: { pending: number | null; source: number | null }) {
   const [k, setK] = useState<Record<string, number> | null>(null);
-  useEffect(() => { api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null)); }, []);
-  if (!k) return null;
-  const rows: [string, string, string][] = [['conflicts', '규정과 어긋난 주장', 'bad'], ['review_required', '근거 개정으로 재검토', 'bad'], ['unverified', '근거 확인 필요', 'wait'], ['healthy', '근거 확인된 주장', 'ok'], ['docs_needing_attention', '손봐야 할 문서', 'bad']];
+  const [reviewDocs, setReviewDocs] = useState<number | null>(null);
+  useEffect(() => {
+    api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null));
+    // 요약·행동 버튼은 문서 단위 (총괄 11/23: '재검토 12'(주장)와 목록 2건(문서)이 달라 보임)
+    api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => setReviewDocs(r.items.filter((d) => d.freshness === 'REVIEW_REQUIRED').length)).catch(() => setReviewDocs(null));
+  }, []);
+  const review = reviewDocs;
+  const cards: { n: number | null; label: string; href: string; tone: string }[] = [
+    { n: k?.conflicts ?? null, label: '규정과 어긋난 주장', href: '/library?only=conflict', tone: 'bad' },
+    { n: source, label: '출처 확인 필요', href: '#source-h', tone: 'bad' },
+    { n: pending, label: '게시 승인 대기', href: '#pending-h', tone: 'wait' },
+    { n: k?.review_required ?? null, label: '재검토 주장 (근거 개정)', href: '/library?only=review', tone: 'bad' },
+    { n: k?.unverified ?? null, label: '근거 확인 필요 주장', href: '/library?only=unverified', tone: 'wait' },
+    { n: k?.healthy ?? null, label: '확인된 주장 (참고)', href: '/library', tone: 'ref' },
+  ];
+  const next = [[source, '출처 확인하기', '#source-h'], [pending, '결재하기', '#pending-h'], [review, '재검토 문서 보기', '/library?only=review']].find(([n]) => !!n) as [number, string, string] | undefined;
+  const part = (n: number | null, label: string) => <span className={n ? '' : 'zero'}>{label} <b className="num">{n ?? '–'}</b></span>;
   return (
-    <section aria-labelledby="debt-h" className="debt">
-      <h2 className="section" id="debt-h">지식 상태</h2>
-      <dl className="debt-grid">{rows.map(([key, label, tone]) => <div key={key} className={`debt-cell ${tone}`}><dt>{label}</dt><dd className="num">{k[key] ?? 0}</dd></div>)}</dl>
+    <section aria-labelledby="todo-h" className="todo-now">
+      <h2 className="section" id="todo-h">지금 할 일</h2>
+      <div className="todo-line">
+        {next || pending === null ? <p>{part(pending, '결재 대기')} · {part(source, '출처 확인 필요')} · {part(review, '재검토 문서')}</p> : <p>지금 결재할 문서가 없습니다.</p>}
+        {next && <a className="btn solid" href={next[2]}>{next[1]}</a>}
+      </div>
+      <ul className="stat-cards" aria-label="위험한 순서">{cards.map((c) => (
+        <li key={c.label} className={`${c.tone}${c.n ? '' : ' zero'}`}><a href={c.href}><strong className="num">{c.n ?? '–'}</strong><span>{c.label}</span></a></li>
+      ))}</ul>
     </section>
   );
 }
@@ -36,7 +57,18 @@ function ApprovalBox({ approved }: { stage?: number; approved?: boolean }) {
 
 /** 게시 요청 전 (사용자 결정 11/18 권고 ①): 작성자가 검토 중인 문서. 게시 요청을 눌러야 위 '게시 승인 대기'로 온다 */
 /** 위키 수정 요청 (사용자 결정 11/18): AI 판단·초안을 보고 [초안으로 새 버전 만들기] 한 번 → 새 버전 검토 화면(AI 검사 → 본인 결재) 또는 반려 */
-type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string };
+type CR = { id: string; doc_id: string; title: string; before: string; request: string; verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string | null; ai_reason?: string; at: string; source?: string; law?: string; path?: string; revision?: CrRevision; apply_after?: string | null; superseded?: boolean };
+/** IMPACT 수정 요청의 개정 시행일·현행 값 (총괄 11/23: 시행 예정 개정을 '현행과 다른 틀린 제안'으로 오해) */
+function Revision({ r }: { r: CrRevision }) {
+  const soon = r.effective_from! > todayKst();
+  return <p className="notice" style={{ display: 'block' }}>
+    <strong>{r.effective_from} 시행{soon ? ' 예정' : ''} 개정 반영 초안</strong>{r.label && <> · {r.law_name} {r.label}</>}
+    {r.old_text && <><br />현행{r.current_effective_from ? `(${r.current_effective_from}판)` : ''}은 「{r.old_text}」{r.new_text && <>, 개정 후 「{r.new_text}」</>}</>}
+    {soon && <><br />{r.effective_from}부터 반영할 수 있습니다. 그 전까지는 현행 조문이 맞으므로 [초안으로 새 버전 만들기]는 잠겨 있습니다.</>}
+  </p>;
+}
+/** 시행일 전 개정에서 나온 수정 요청은 반영 불가 (총괄 11/23 왕복). 기준은 백엔드 apply_after(#160), 없던 옛 API면 개정 시행일로 */
+const notYet = (i: CR) => i.apply_after ?? (i.revision?.effective_from && i.revision.effective_from > todayKst() ? i.revision.effective_from : null);
 function ChangeRequests() {
   const [items, setItems] = useState<CR[] | null>(null);
   const [edit, setEdit] = useState<Record<string, string>>({}); const [why, setWhy] = useState<Record<string, string>>({});
@@ -49,25 +81,27 @@ function ChangeRequests() {
       const r = await api<{ new_doc_id: string | null }>('POST', `/v1/admin/change-requests/${encodeURIComponent(i.doc_id)}/${encodeURIComponent(i.id)}`, { decision, reason: why[i.id] ?? '', after: edit[i.id] ?? i.after ?? '' });
       if (r.new_doc_id) { location.href = `/review?id=${encodeURIComponent(r.new_doc_id)}`; return; }
       setItems((x) => x && x.filter((y) => y.id !== i.id));
-    } catch (e) { const x = e as ApiError; if (decision === 'APPLY' && x.status === 409) setManual((m) => ({ ...m, [i.id]: true })); else setMsg(x.message); }
+    } catch (e) { const x = e as ApiError; if (decision === 'APPLY' && x.status === 409 && !/시행/.test(x.message)) setManual((m) => ({ ...m, [i.id]: true })); else setMsg(x.message); }
   }
   if (!items?.length) return null;
   const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
   return (
     <section aria-labelledby="cr-h" className="fix-list">
-      <h2 className="section" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h2>
+      <h3 className="section sub" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h3>
       <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
-          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}</p>
+          <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}{i.superseded && <span className="kind-tag own">이전 버전</span>}</p>
+          {i.superseded && <p className="note">이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만들거나 반려로 닫아 주세요.</p>}
+          {i.revision?.effective_from && <Revision r={i.revision} />}
           <blockquote className="basis"><p>{i.before}</p></blockquote>
-          {i.request && <p><strong>요청:</strong> {i.request}</p>}
+          {i.request && <p><strong>요청:</strong> {readable(i.request)}</p>}
           {!i.after && i.source === 'IMPACT' && <p className="danger-text">AI 초안 없음: 바꿀 문장을 직접 쓰거나 문서에서 직접 고치세요.</p>}
-          {i.ai_reason && <p className="note">AI 의견: {i.ai_reason}</p>}
+          {i.ai_reason && <p className="note">AI 의견: {readable(i.ai_reason)}</p>}
           <label className="lbl" htmlFor={`cr-a-${i.id}`}>바꿀 문장{i.after ? ' (AI 초안, 고쳐도 됩니다)' : ''}</label>
           <textarea id={`cr-a-${i.id}`} className="field" rows={2} value={edit[i.id] ?? i.after ?? ''} onChange={(e) => setEdit((x) => ({ ...x, [i.id]: e.target.value }))} />
           <input className="field" aria-label="의견(반려 시 필수)" placeholder="의견 한 줄 (반려할 때는 필수)" maxLength={200} value={why[i.id] ?? ''} onChange={(e) => setWhy((x) => ({ ...x, [i.id]: e.target.value }))} />
-          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim()} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
+          <div className="actions"><button type="button" className="btn solid" disabled={!(edit[i.id] ?? i.after ?? '').trim() || !!notYet(i) || !!i.superseded} title={notYet(i) ? `${notYet(i)}부터 반영할 수 있습니다` : undefined} onClick={() => decide(i, 'APPLY')}>초안으로 새 버전 만들기</button><button type="button" className="btn" onClick={() => decide(i, 'REJECT')}>반려</button></div>
           {manual[i.id] && <p className="error" role="alert">본문에서 이 문장을 찾지 못해 초안으로 반영할 수 없습니다. <Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>문서를 열어 [위키에서 고치기]로 직접 고쳐 주세요.</Link></p>}
         </li>
       ))}</ol>
@@ -77,7 +111,7 @@ function ChangeRequests() {
 }
 
 function InReview() {
-  const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number }[] | null>(null);
+  const [items, setItems] = useState<{ doc_id: string; title: string; lifecycle: string; own: boolean; open: number; source_mismatch?: boolean }[] | null>(null);
   useEffect(() => { api<{ items: NonNullable<typeof items> }>('GET', '/v1/admin/in-review').then((r) => setItems(r.items)).catch(() => setItems([])); }, []);
   if (!items?.length) return null;
   return (
@@ -87,7 +121,7 @@ function InReview() {
         <li key={i.doc_id}>
           <Link href={i.own ? `/review?id=${encodeURIComponent(i.doc_id)}` : `/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link>
           {i.own && <span className="kind-tag own">본인 문서</span>}
-          <span className="note">{i.lifecycle === 'QUARANTINED' ? 'AI 검사 중' : i.open ? `남은 일 ${i.open}건` : '게시 요청만 남음'}</span>
+          <span className="note">{i.lifecycle === 'QUARANTINED' ? 'AI 검사 중' : i.lifecycle === 'BLOCKED' ? '차단됨 (게시 불가)' : i.source_mismatch ? '출처 확인 대기 (게시 요청 불가)' : i.open ? `남은 일 ${i.open}건` : '게시 요청만 남음'}</span>
           {i.own && i.lifecycle === 'IN_REVIEW' && <Link className="btn" href={`/review?id=${encodeURIComponent(i.doc_id)}`} prefetch={false}>검토 화면에서 게시 요청</Link>}
         </li>
       ))}</ul>
@@ -105,10 +139,8 @@ export default function Admin() {
   const markViewed = (id: string) => { markViewedDoc(id); setViewed(viewedDocs()); };
   const [err, setErr] = useState('');
   const [msg, setMsg] = useState('');
-  const [role, setRole] = useState('');
   const [after, setAfter] = useState<Item[]>([]);
   useEffect(() => {
-    setRole(accountLabel(getSession()?.groups as Role[] | undefined));
     // 승인 뒤 아직 게시되지 않은 문서 (게시 중이거나 실패). 실패면 단계·사유를 보여 준다
     Promise.all(['APPROVED', 'USED'].map((st) => api<{ items: Item[] }>('GET', `/v1/approvals?status=${st}`).then((r) => r.items).catch(() => [] as Item[])))
       .then((x) => setAfter(x.flat().filter((i) => i.lifecycle && i.lifecycle !== 'PUBLISHED' && i.lifecycle !== 'DELETED')));
@@ -137,50 +169,38 @@ export default function Admin() {
   const blocked = mismatch.filter((m) => m.kind === 'BLOCKED');
   return (
     <>
-      <PageHeader title="결재함" description="출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요." action={<Link className="btn" href="/library">문서보관함</Link>} />
-      {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
+      <PageHeader title="결재함" description="위험한 것부터 처리하세요. 승인은 문서를 열어 본 뒤에 할 수 있습니다." action={<Link className="btn" href="/library">문서보관함</Link>} />
       {err && <p className="error" role="alert">{err}</p>}
-      {/* 할 일 숫자와 지식 상태를 첫 화면에 함께 (Fable A안 11/18: 카드가 쌓이면 맨 아래 지식 상태가 안 보임) */}
-      <div className="admin-status">
-        <div className="counts">
-          <a href="#pending-h"><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></a>
-          <a href="#source-h"><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></a>
-        </div>
-        <KnowledgeDebt />
-      </div>
+      <TodoNow pending={items ? pending.length : null} source={items ? source.filter((m) => !done[m.doc_id]).length : null} />
 
-      {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
-      <div className="actions ops-row" role="group" aria-label="운영 도구">
-        <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
-        <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
-        <Link className="btn" href="/admin/evals"><Icon name="clock" />Agent 평가</Link>
-      </div>
+      <h2 className="section" id="queue-h">결재할 문서</h2>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
         <div className="approval-category-group" aria-label="결재할 일">
-          {source.length > 0 && <h2 className="section" id="source-h">출처 확인이 먼저 필요한 문서</h2>}
+          {source.length > 0 && <h3 className="section sub" id="source-h">출처 확인이 먼저 필요한 문서</h3>}
           <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                 <span className="flag"><Icon name="alert" />출처 확인 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
-                {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
-                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. '다른 곳 보기'에서 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
+                {i.findings.map((f, n) => <p key={n} className="quote">{readable(f.message)}</p>)}
                 {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <><input className="field" aria-label="반려 사유" maxLength={300} placeholder="반려 사유 (예: 공식 원본과 승인 기준 금액이 다름)" value={opinion[i.doc_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.doc_id]: e.target.value }))} /><div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div></>}
               </li>
             ))}
           </PaginatedList>
 
-          <h2 className="section" id="pending-h">게시 승인 대기</h2>
+          <h3 className="section sub" id="pending-h">게시 승인 대기</h3>
           {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
           <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (
               <li className="entry" key={i.approval_id} style={{ paddingRight: 16 }}>
                 {/* 규칙 3: 한 줄 요약 + 바뀐 부분 + 승인·반려. 나머지는 '자세히' (AI 검사를 통과한 것만 여기 온다) */}
-                <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : '새 문서'} · {i.kept?.length ? `승인자 판단 ${i.kept.length}건` : 'AI 검사 통과'}</span>
+                <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : i.version ? '새 버전' : '새 문서'} · {i.kept?.length ? `승인자 판단 ${i.kept.length}건` : i.checks_count ? `확인 필요 ${i.checks_count}건` : 'AI 검사 통과'}</span>
                 {i.own && <span className="kind-tag own" title="관리자 본인이 올린 문서입니다. 승인하면 자기 승인으로 기록됩니다.">본인 문서</span>}
-                <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link></h3>
+                <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link><Scheduled date={i.effective_from} /></h3>
+                {i.freshness && <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} compact />}
                 {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
+                {i.checks?.length ? <div className="kept-conflicts"><p className="danger-text"><strong>근거 확인이 필요한 문장 {i.checks_count ?? i.checks.length}건 — 승인자 확인</strong></p><ul>{i.checks.map((c, n) => <li key={n}>{c.text}<span className="note"> — {c.message}</span></li>)}</ul></div> : null}
                 {i.kept?.length ? <div className="kept-conflicts"><p className="danger-text"><strong>규정과 어긋난 문장 {i.kept.length}건 — 승인자 판단</strong></p><ul>{i.kept.map((k, n) => <li key={n}>{k.text}<span className="note"> — {k.system ? '재검사에서 새로 나옴(고치지 않은 문장)' : `올린 사람: 그대로 사용(${k.reason})`}</span></li>)}</ul></div> : null}
                 {i.version?.changes?.length ? (
                   <ul className="mini-changes" aria-label="바뀐 부분">{i.version.changes.slice(0, 3).map((c, n) => (
@@ -215,7 +235,7 @@ export default function Admin() {
           <InReview />
           <details className="admin-more" open={after.some((x) => !!x.workflow_failure)}>
             <summary>진행·참고: 승인 뒤 게시 진행 <b className="num">{after.length}</b>건{blocked.length ? <> · 자동 차단 <b className="num">{blocked.length}</b>건(최근 7일)</> : null}</summary>
-          <h2 className="section">승인 뒤 게시 진행</h2>
+          <h3 className="section">승인 뒤 게시 진행</h3>
           {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
             <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger admin-rows">
               {after.map((i) => (
@@ -231,7 +251,7 @@ export default function Admin() {
           )}
           {blocked.length > 0 && (
             <>
-              <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
+              <h3 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h3>
               <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
               <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger admin-rows">
                 {blocked.map((i) => (
@@ -248,6 +268,14 @@ export default function Admin() {
         </div>
       </div>
 
+      <section aria-labelledby="tools-h" className="tools">
+        <h2 className="section" id="tools-h">도구</h2>
+        <div className="actions ops-row" role="group" aria-label="운영 도구">
+          <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
+          <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
+          <Link className="btn" href="/admin/evals"><Icon name="clock" />Agent 평가</Link>
+        </div>
+      </section>
     </>
   );
 }

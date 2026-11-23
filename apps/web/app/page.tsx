@@ -7,7 +7,7 @@ import { useRouter } from 'next/navigation';
 import { useEffect, useState } from 'react';
 import { api, getSession, MOCK, type LibraryCard, type Session } from './lib/api';
 import { isAdmin } from './lib/roles';
-import { FreshnessFlag, Seal } from './seal';
+import { FreshnessFlag, Popularity, Scheduled, Seal, Upcoming } from './seal';
 
 export default function Home() {
   const router = useRouter();
@@ -41,6 +41,9 @@ export default function Home() {
   // 추천 = 근거 확인(VERIFIED)·현행 문서 먼저, 그다음 최근 변경. 평점·인기와 섞지 않는다 (docs/02 P1 '인기와 신뢰성 분리')
   const rank = (i: LibraryCard) => (i.authority_status === 'VERIFIED' ? 0 : 2) + (i.freshness === 'CURRENT' ? 0 : 1);
   const recommended = [...items].sort((a, b) => rank(a) - rank(b) || b.updated_at.localeCompare(a.updated_at));
+  // 인기 = 평점 평균·인원 순. 검증 여부와 무관하게 따로 보여 준다
+  // ponytail: 3명 미만은 뒤로(1명 5.0이 6명 4.5보다 위로 가지 않게, QA nit). 문서가 늘면 베이즈 평균으로
+  const popular = items.filter((i) => i.rating).sort((a, b) => Number(b.rating!.count >= 3) - Number(a.rating!.count >= 3) || b.rating!.avg - a.rating!.avg || b.rating!.count - a.rating!.count);
   // 태그는 AI가 붙인 자유 문구라 필터가 아닌 검색어로 쓴다 (search API 주석). ponytail: 게시 문서 태그 빈도 상위 8개
   const tags = Object.entries(items.flatMap((i) => i.tags).reduce<Record<string, number>>((m, t) => ({ ...m, [t]: (m[t] ?? 0) + 1 }), {}))
     .sort((a, b) => b[1] - a[1]).slice(0, 8).map(([t]) => t);
@@ -84,11 +87,23 @@ export default function Home() {
         <PaginatedList label="추천 Wiki" pageSize={3} className="ledger card-grid">
           {recommended.map((i) => <li className="entry" key={i.doc_id}>
             <Seal i={{ authority_status: i.authority_status === 'VERIFIED' ? 'VERIFIED' : 'UNVERIFIED', document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
-            <h3 className="doc-title"><Link className="card-link" prefetch={false} href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link></h3>
+            <h3 className="doc-title"><Link className="card-link" prefetch={false} href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link><Scheduled date={i.effective_from} /></h3>
             <div className="meta">{i.business_path.join(' › ') || '업무 미분류'} · 변경 <span className="num">{i.updated_at.slice(0, 10)}</span></div>
-            <FreshnessFlag freshness={i.freshness} />
+            <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} compact /><Upcoming u={i.upcoming} />
             {i.summary && <p className="note card-summary">{i.summary}</p>}
             {i.tags.length > 0 && <p className="meta">{i.tags.slice(0, 3).map((t) => `#${t}`).join(' ')}</p>}
+            <Popularity r={i.rating} />
+          </li>)}
+        </PaginatedList>
+      </section>}
+      {popular.length > 0 && <section className="home-recent" aria-labelledby="popular-title">
+        <div className="section-heading"><h2 className="section" id="popular-title">평점 높은 문서</h2><span className="note">사용자 평점순 · 검증 여부와 별개</span></div>
+        <PaginatedList label="평점 높은 문서" pageKey="popular_page" pageSize={3} className="ledger card-grid">
+          {popular.map((i) => <li className="entry" key={i.doc_id}>
+            <Seal i={{ authority_status: i.authority_status, document_type: i.document_type ?? 'KNOWHOW', lifecycle: i.lifecycle, freshness: i.freshness, mark_count: i.mark_count }} />
+            <h3 className="doc-title"><Link className="card-link" prefetch={false} href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</Link><Scheduled date={i.effective_from} /></h3>
+            <Popularity r={i.rating} />
+            <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} compact /><Upcoming u={i.upcoming} />
           </li>)}
         </PaginatedList>
       </section>}

@@ -4,7 +4,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { basename, resolve } from 'node:path';
 
-const BASE = process.env.QA_BASE ?? 'https://d3k1kbwh1nvr8d.cloudfront.net';
+const BASE = process.env.QA_BASE ?? 'https://d2d8uulvhqvx4w.cloudfront.net';
 const OUT = process.env.QA_OUT ?? './qa-out';
 const FILES = (process.env.QA_FILES ?? 'tests/fixtures/documents/pdf/K-001.pdf').split(',').map((f) => resolve(f.trim()));
 const pw = JSON.parse(readFileSync(0, 'utf8'));
@@ -128,8 +128,8 @@ for (const file of FILES) {
   check('L1', locked === 'locked', `열어 보기 전 승인 버튼 ${locked}`);
   await go('/admin', 5000);
   const approved = await findAcrossPages(`(() => { const li = [...document.querySelectorAll('li.entry')].find((x) => x.innerText.includes(${JSON.stringify(title)})); if (!li) return false; const b = [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '승인'); if (!b) return 'nobutton'; [...li.querySelectorAll('button')].find((x) => x.textContent.trim() === '원문과 근거 조문을 확인함')?.click(); setTimeout(() => b.click(), 300); return 'clicked'; })()`); // 결재 의견은 카드 입력란(11/18, prompt 대신)
-  await sleep(4000);
-  const adminMsg = await ev("document.querySelector('p[aria-live]')?.textContent ?? ''");
+  // 결재 API가 4초를 넘길 때가 있어(7차 smoke: 승인·게시는 됐는데 문구 빈칸) 문구가 뜰 때까지 기다린다
+  const adminMsg = (await until(() => ev("document.querySelector('p[aria-live]')?.textContent ?? ''"), 30_000, 500)) ?? '';
   check('F5', approved === 'clicked' && /승인했습니다/.test(adminMsg), `admin 탭 ${a.tabs.join('·')} · 결재함 ${approved} · ${adminMsg.slice(0, 80)}`, await shot(`${tag}-F5-admin`));
 
   // F6 게시 완료

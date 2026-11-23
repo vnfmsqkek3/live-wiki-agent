@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
-import { trustGate, type RegistryEntry } from './steps/trust-gate.ts';
+import { outsideChars, trustGate, type RegistryEntry } from './steps/trust-gate.ts';
 import { validateExternal, validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
@@ -39,6 +39,8 @@ export interface LambdaDeps {
   purge?(prefix: string): Promise<number>;
   /** 마스킹 페이지 (Finding 쪽 번호 찾기) */
   maskedPages?(d: DocumentRecord): Promise<{ page: number; text: string }[]>;
+  /** ImageDescribe 가 masked/segments/{쪽}.json figures[].people 에 남긴 그림별 판정 (NONE|PRESENT|UNSURE). 없으면 그림 개인정보 확인을 풀지 않는다 */
+  figurePeople?(doc_id: string, page_index: number): Promise<string[] | undefined>;
 }
 
 /** 단계 6·7·8 의존성. 6은 work/(원본 등급)을 읽고, 7·8은 masked/만 읽는다 (8은 모델 호출 Role, 원본 읽기 거부) */
@@ -100,15 +102,20 @@ export function makePiiScan(deps: SegmentDeps) {
   };
 }
 
+// 서명 낱말 + 명함 신호(전화·이메일 모양). 가림 대상이 아니라(사용자 결정 11/17) 그림 쪽 판단에만 쓴다
+const SIGN_WORDS = /서명|자필|날인|인감|명함|signature|\d{2,3}-\d{3,4}-\d{4}|[\w.+-]+@[\w-]+\.[\w.]+/i;
+
 /** 그림이 있는 페이지: OCR 블록 중 개인정보 bbox를 검게 칠한 masked/pages/{nnnn}.png (ImageDescribe의 유일한 입력).
  *  얼굴·서명 같은 이미지 개인정보는 글자로 판정할 수 없어 페이지 단위 PII_IMAGE_REVIEW(사람 확인). OCR이 없는 페이지는 이미지를 만들지 않는다 */
 async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Finding[]> {
   if (!deps.getBytes || !deps.putBytes) return [];
-  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
+  const targets = await deps.getJson<{ pages: { page_index: number; reason: string; has_images?: boolean; graphics?: boolean; scan?: boolean }[] }>(`${doc_id}/work/pages/ocr_targets.json`).catch(() => undefined);
   const ocr = await deps.getJson<{ pages: (OcrPage & { figures?: { label: string }[] })[] }>(`${doc_id}/work/ocr/result.json`).catch(() => undefined);
   // 그림 쪽 기준 (사용자 결정 11/17, 비전 중복 줄이기): OCR 쪽에 figures 키가 있으면 사진·그림·차트·도장 영역이 있는 쪽만.
   // 없으면(이전 OCR) has_images || reason==='image'. 글자·표만 있는 쪽은 masked/pages를 만들지 않아 ImageDescribe가 빠진다
-  const isFigurePage = (p: { page_index: number; reason: string; has_images?: boolean }) => {
+  // + PageRender 의 graphics(래스터 이미지 또는 곡선 8개 이상: 선 그림 서명·외곽선 명함, 총괄 지시 11/20) — OCR 이 그림으로 못 본 쪽도 그림 쪽
+  const isFigurePage = (p: { page_index: number; reason: string; has_images?: boolean; graphics?: boolean }) => {
+    if (p.graphics === true) return true;
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
     return o && Array.isArray(o.figures) ? o.figures.length > 0 : !!p.has_images || p.reason === 'image';
   };
@@ -118,17 +125,22 @@ async function maskPageImages(deps: SegmentDeps, doc_id: string): Promise<Findin
   for (const p of targets?.pages ?? []) {
     const n = String(p.page_index).padStart(4, '0');
     const o = ocr?.pages.find((x) => x.page_index === p.page_index);
-    const fig = isFigurePage(p);
+    // scan(이미지만 있고 글자 층 없는 쪽, 데이터 #147): 구조 신호로는 서명·명함·자필 쪽과 설정 화면·흐름도를 못 가른다 →
+    // 글자 개인정보 상자가 있거나 OCR 글자에 서명 낱말이 있으면 그림 쪽, OCR 이 없으면 확인 불가라 그림 쪽(fail-closed). 모델 호출 추가 없음 (데이터·총괄 11/23)
+    // ponytail: 낱말 없는 선 서명 스캔은 못 잡음 — 놓침이 다시 보이면 scan 쪽 전부 그림 쪽(쪽마다 ImageDescribe 1회)
+    let fig = isFigurePage(p) || (p.scan === true && !o);
     if (!o) {
       if (fig) out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 위치 정보가 없어 그림 속 개인정보를 가리지 못했습니다. AI 그림 분석에서 제외, 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
       continue;
     }
     const boxes = await piiBoxes(o, deps.guardrail);
+    // 글자 블록 0개(얼굴 사진·선 서명만)도 확인 불가라 그림 쪽 (인프라 리뷰 #155)
+    if (!fig && p.scan === true) fig = !o.blocks.length || boxes.length > 0 || SIGN_WORDS.test(o.blocks.map((b) => b.text).join(' '));
     const png = blackout(await deps.getBytes(`${doc_id}/work/pages/${n}.png`), boxes, o);
     await deps.putBytes(`${doc_id}/masked/view/${n}.png`, png, 'image/png');
     if (!fig) continue;
     await deps.putBytes(`${doc_id}/masked/pages/${n}.png`, png, 'image/png');
-    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 } });
+    out.push({ finding_id: newId.fnd(), step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: `${p.page_index + 1}쪽 그림: 글자 개인정보 ${boxes.length}곳 가림. 얼굴·서명 등 그림 속 개인정보는 사람 확인 필요`, evidence_ref: `page:${p.page_index}`, location: { page: p.page_index + 1 }, details: { boxes: boxes.length } });
   }
   return out;
 }
@@ -374,6 +386,22 @@ export function makeFileStructureCheck(deps: LambdaDeps) {
   };
 }
 
+/** PII_IMAGE_REVIEW 해제 조건(모두 만족): 아직 열림 · 가림 0곳(details.boxes===0) · 그 쪽 figures 1개 이상 · 전부 people='NONE'.
+ *  ImageDescribe 실패·꺼짐·UNSURE·읽기 실패는 그대로 둬 사람이 확인한다. 지우지 않고 시스템 확인으로 남겨 기록이 보인다 */
+export async function releaseFigureChecks(d: DocumentRecord, deps: Pick<LambdaDeps, 'figurePeople'>): Promise<{ doc: DocumentRecord; pages: number[] }> {
+  if (!deps.figurePeople) return { doc: d, pages: [] };
+  const pages: number[] = [];
+  const findings = await Promise.all(d.findings.map(async (f) => {
+    const n = /^page:(\d+)$/.exec(f.evidence_ref)?.[1];
+    if (f.code !== 'PII_IMAGE_REVIEW' || f.acknowledged || f.details?.['boxes'] !== 0 || n === undefined) return f;
+    const people = await deps.figurePeople!(d.doc_id, Number(n)).catch(() => undefined);
+    if (!people?.length || !people.every((x) => x === 'NONE')) return f;
+    pages.push(Number(n) + 1);
+    return { ...f, acknowledged: { by: 'system:image-describe', at: now(), reason: '그림 분석: 얼굴·서명·도장·신분증 등 없음, 글자 개인정보 가림 0곳' } };
+  }));
+  return { doc: { ...d, findings }, pages: pages.sort((a, b) => a - b) };
+}
+
 /** 단계 9. Registry 대조는 let522mj Registry 연동 전까지 미등록으로 처리 (REGULATION이면 REVIEW_REQUIRED) */
 export function makeTrustGate(deps: LambdaDeps) {
   return async (i: StepInput): Promise<StepOutput> => {
@@ -381,9 +409,15 @@ export function makeTrustGate(deps: LambdaDeps) {
     // Registry 대조: 해시가 기준본과 같으면 그 개정본. 아니면 REGULATION으로 분류된 문서만 본문 머리말로 주장 개정본을 찾는다
     // (노하우 머리말의 규정명 언급을 '공식 규정 주장'으로 오인하지 않기 위해)
     let match = deps.registry && d.content_hash ? await deps.registry(d.content_hash) : {};
-    if (deps.registry && !match.registry && d.classification?.document_type === 'REGULATION' && deps.maskedText)
-      match = await deps.registry(d.content_hash ?? '', await deps.maskedText(d));
-    const g = trustGate({ doc: d, claimed: match.claimed, registry: match.registry });
+    let otherChars: number | undefined;
+    if (deps.registry && !match.registry && d.classification?.document_type === 'REGULATION' && deps.maskedText) {
+      const text = await deps.maskedText(d);
+      match = await deps.registry(d.content_hash ?? '', text);
+      // 형식만 다름 판정용: 조문 밖 글자 수 (Registry 와 비교할 수 없는 부분이 작을 때만 인정)
+      const cl = match.claimed?.clauses;
+      if (cl) otherChars = outsideChars(text, cl);
+    }
+    const g = trustGate({ doc: d, claimed: match.claimed && { ...match.claimed, ...(otherChars !== undefined ? { other_chars: otherChars } : {}) }, registry: match.registry });
     const reg = g.authority_status === 'VERIFIED' && match.registry ? match.registry : undefined;
     let result = g.result;
     let findings = g.findings;
@@ -425,7 +459,10 @@ export function makeTrustGate(deps: LambdaDeps) {
       ...(reg.law_name ? { law_name: reg.law_name } : {}), ...(reg.effective_to ? { effective_to: reg.effective_to } : {}), ...(reg.registry_doc_no ? { registry_doc_no: reg.registry_doc_no } : {}),
     } : {};
     if (deps.maskedPages && findings.some((f) => f.location?.excerpt && !f.location.page)) findings = withPages(findings, await deps.maskedPages(d));
-    await deps.store.putDoc({ ...addFindings(d, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
+    // 그림 개인정보 확인: 가림 0곳 + 그 쪽 그림 전부 '없음 확실'이면 시스템이 확인 처리 (fail-closed, 총괄 승인 11/20)
+    const fig = await releaseFigureChecks(d, deps);
+    if (fig.pages.length) await deps.store.audit({ at: now(), actor: 'system:trust-gate', action: 'FIGURE_PII_CHECKED', resource: d.doc_id, result: 'OK', trace_id: i.workflow_id, detail: { pages: fig.pages } });
+    await deps.store.putDoc({ ...addFindings(fig.doc, findings), ...extra, ...regFields, trust_gate_result: result, authority_status: g.authority_status });
     // 주장 저장: 실패해도 검증 결과(문서 기록)는 남는다. 쪽은 마스킹본에서 문장 앞부분으로 찾는다
     const kv = extra.knowhow_validation;
     if (kv && deps.saveClaims) {

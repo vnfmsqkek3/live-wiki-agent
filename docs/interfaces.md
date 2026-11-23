@@ -32,28 +32,32 @@
 | `role` | `USER` / `AUTHOR` / `REG_APPROVER` / `SECURITY_REVIEWER` / `PLATFORM_OPERATOR` (Cognito 그룹명과 동일) |
 | `index_group` | `legal-clauses` / `wiki-knowledge` / `official-manuals` |
 
-외부 법령 대조 Finding (11/20, 노하우 검증, AI엔지니어팀 구현): `KNOWHOW_EXTERNAL_MISMATCH`(MEDIUM, 외부·미검증 근거(국가법령정보센터 공식본)와 불일치, 게시 차단·잠금 아님, `fix_hint`에 수정 제안), `KNOWHOW_EXTERNAL_SKIPPED`(LOW, 외부 조회 실패·60초 초과·지시문 의심으로 대조 생략). 외부 법령 인식은 `externalLawRefs`(괄호 표기 + 줄 첫머리·여는 괄호 뒤 한 낱말 법령명, `…규정`·가지번호 `제9-5조` 포함), 행정규칙(`…규정·고시·훈령·예규·지침`)은 law.go.kr `/행정규칙/` 경로. 가지번호 `제n-m조`는 `제n조의m`과 같은 `ARTICLE:n-m`.
+외부 법령 대조 Finding (11/20, 노하우 검증, AI엔지니어팀 구현): `KNOWHOW_EXTERNAL_MISMATCH`(MEDIUM, 외부·미검증 근거(국가법령정보센터 공식본)와 불일치, 게시 차단·잠금 아님, `fix_hint`에 수정 제안), `KNOWHOW_EXTERNAL_SKIPPED`(LOW, 외부 조회 실패·60초 초과·지시문 의심으로 대조 생략). 외부 법령 인식은 `externalLawRefs`(괄호 표기 + 줄 첫머리·여는 괄호 뒤 한 낱말 법령명, `…규정`·가지번호 `제9-5조` 포함), 행정규칙(`…규정·고시·훈령·예규·지침`)은 law.go.kr `/행정규칙/` 경로. 가지번호 `제n-m조`는 `제n조의m`과 같은 `ARTICLE:n-m`, `제n-m조의k`는 `ARTICLE:n-m-k`.
+
+형식만 다름 Finding (11/20, 총괄 결정, 백엔드): `FORMAT_ONLY_DIFF`(LOW) — 규정 파일 해시는 Registry와 다르지만 공백·줄바꿈만 제거하면 조문 전부 일치하고 추가·누락이 없으며, 조문 밖 글자(공백·조 제목 `제n조(…)`·항 번호 ①·줄 머리 호 번호 `1.` 제외)가 200자 이하일 때(고정 상한, 모르면 적용 안 함). `authority_status=VERIFIED`. 글자·숫자가 하나라도 다르면 `REGISTRY_MISMATCH`(HIGH). 조문 비교(`diffClauses`)도 공백·줄바꿈 무시.
+시행 예정 개정 일치 Finding (11/23, 총괄 지시, AI엔지니어팀): `KNOWHOW_UPCOMING_MATCH`(LOW) — 현행 조문과 충돌한 문장이 같은 조문의 시행 예정 VERIFIED 개정판과 일치(개정판으로 재판정, 인용이 개정판 원문에 있어야 인정). 충돌·잠금 아님, `knowhow_validation.items[]`의 그 문장은 `relation=SUPPORTS`, `provision_id`=개정판 조문(주장도 개정판에 묶임). 재판정 실패·불일치면 `KNOWHOW_CONFLICT` 그대로.
+근거 불일치 Finding (11/20, 사용자 피드백, AI엔지니어팀): `KNOWHOW_BASIS_MISMATCH`(MEDIUM, 문서가 그 문장에서 든 조문과 내용이 다름, 게시 차단·잠금 아님, `fix_hint` '근거로 든 조항과 다른 내용으로 보입니다. 해당 부분을 다시 확인하세요.'). `knowhow_validation.items[].basis`(모델 판정이 INSUFFICIENT·UNRELATED일 때만): `CITED` 문서가 그 문장·줄에서 그 조 번호를 듦 → 근거와 다름 / `NONE` 검색으로 붙은 조문 → 화면에 근거로 표시하지 않음. 없으면 기존과 같음.
 
 ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 하나 이상을 넣는다. 검색 Tool은 사용자 신원에서 `["ALL", ...groups, "DEPT#{dept}"]`를 만들어 `listContains`로 대조한다.
 
-## 3. S3 레이아웃 (Owner yoyo0704)
+## 3. S3 레이아웃 (Owner infra)
 
 | 버킷 | 키 | 읽기 권한 |
 |---|---|---|
-| `hanaeum-mvp-s3-quarantine[-닉네임]` | `{doc_id}/original.{ext}` | 단계 Lambda (모델 호출 Role 제외) |
+| `hanaeum-mvp-s3-quarantine` | `{doc_id}/original.{ext}` | 단계 Lambda (모델 호출 Role 제외) |
 | | `{doc_id}/work/{document.pdf, text_layer.json, pages/, ocr/, segments/}` | 동일 (원본 등급). `document.pdf` = ConvertToPdf 결과 |
 | | `{doc_id}/masked/segments/{n}.json` | 모델 호출 Role 허용 |
 | | `{doc_id}/masked/summaries/{n}.json`, `{doc_id}/masked/summary.json` (PageSummarize, 쪽별 요약·메타데이터) | 모델 호출 Role·API |
-| `hanaeum-mvp-s3-published[-닉네임]` | `{legal\|knowledge}/{doc_id}/{file}` + `{file}.metadata.json` | KB 데이터 소스, search Tool |
-| `hanaeum-mvp-s3-artifact[-닉네임]` | `kb-intermediate/`, `evaluations/` | 해당 Lambda |
-| `hanaeum-mvp-s3-log[-닉네임]` | 접근 로그 | 운영 |
+| `hanaeum-mvp-s3-published` | `{legal\|knowledge}/{doc_id}/{file}` + `{file}.metadata.json` | KB 데이터 소스, search Tool |
+| `hanaeum-mvp-s3-artifact` | `kb-intermediate/`, `evaluations/` | 해당 Lambda |
+| `hanaeum-mvp-s3-log` | 접근 로그 | 운영 |
 
-## 4. 환경변수 (Owner yoyo0704)
+## 4. 환경변수 (Owner infra)
 
 | 이름 | 예 | 사용처 |
 |---|---|---|
 | `AWS_REGION` | `us-east-1` | 전체 |
-| `HANAEUM_ENV` | `dev-yoyo0704` / `prod` | 리소스 이름 접미사 결정 |
+| `HANAEUM_ENV` | `prod` | SSM 경로 `/hanaeum-mvp/{env}/`. 11/20부터 prod 단일 환경 (`scripts/setup-env.sh` 기본값) |
 | `TABLE_DOCUMENTS` 등 `TABLE_*` | `hanaeum-mvp-ddb-documents` | API·Lambda. 7종: DOCUMENTS, REGULATIONS, FINDINGS, APPROVALS, FEEDBACK, AUDIT_EVENTS, WORKFLOWS |
 | `BUCKET_QUARANTINE`, `BUCKET_PUBLISHED`, `BUCKET_ARTIFACT` | | |
 | `KB_ID`, `KB_DS_LEGAL_ID`, `KB_DS_KNOWLEDGE_ID` | | let522mj 코드 |
@@ -65,7 +69,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `COGNITO_USER_POOL_ID`, `COGNITO_CLIENT_ID` | | API·Web. access token claim: `sub`, `cognito:groups`, `dept`(Pre Token V2) |
 | `OCR_ENDPOINT_NAME` | | OCR 단계 |
 
-값은 Terraform output → SSM Parameter Store `/hanaeum-mvp/{env}/{name}` → 각 런타임이 읽음. `.env.example`에 이름만 둔다. 공유 dev는 `env=dev`(리소스 접미사 `-dev`).
+값은 Terraform output → SSM Parameter Store `/hanaeum-mvp/{env}/{name}` → 각 런타임이 읽음. `.env.example`에 이름만 둔다. prod 단일 환경(사용자 결정 11/20, 계정 566533524321): 리소스 접미사 없음, `env=prod`. dev·개인 dev는 만들지 않는다.
 
 | 인프라 규칙 | 내용 |
 |---|---|
@@ -108,16 +112,16 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 |---|---|---|
 | MalwareCheck | — | GuardDuty 태그 `GuardDutyMalwareScanStatus`. THREATS_FOUND→BLOCKED, UNSUPPORTED·FAILED→REVIEW_REQUIRED, 15분 무응답→예외 |
 | ConvertToPdf | `{doc}/work/document.pdf` | 사용자 결정 11/17 "모든 형식을 PDF 로 변환한 뒤 전부 OCR". 컨테이너 Lambda(LibreOffice, `services/convert-pdf`). PDF 복사·PNG/JPG 1장=1쪽·DOCX LibreOffice·HWPX LibreOffice+H2Orestart(실패 시 산출물 없이 OK → 기존 XML 방식)·TXT/MD 변환 없음. DOCX 실패·0쪽 = BLOCKED(`CONVERT_FAILED`·`CONVERT_EMPTY`), 300쪽 초과 = REVIEW_REQUIRED. 매크로 실행·외부 링크 갱신 끔. 오케스트레이터 순서 file_structure_check → **convert_to_pdf** → text_layer_extract·page_render |
-| PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason,has_images}]}` | **`work/document.pdf`(없으면 원본 PDF)의 모든 쪽** 렌더링(가로 2000px, `reason:"all"`, 11/17 전부 OCR 결정). 이전 기준(글자 수 < 50·깨진 문자 > 20%·그림)은 쓰지 않음. 이미지는 원본이 대상. DOCX·HWPX는 안에 든 그림을 쪽별로 이어 붙인 PNG(`reason:"embedded_images"`, 쪽 번호는 TextLayerExtract와 동일). 읽을 수 없는 그림 형식(EMF·WMF 등)은 Finding `FIGURE_FORMAT_UNSUPPORTED`(MEDIUM, 쪽 위치) |
+| PageRender | `{doc}/work/pages/{nnnn}.png`, `{doc}/work/pages/ocr_targets.json` `{doc_id, page_count, pages:[{page_index,key,width,height,reason,has_images,graphics,scan}]}` (graphics: 그림 개인정보 확인 대상 쪽 = 곡선 8개 이상 || 글자 층 있는 쪽의 이미지, 스캔 쪽은 false·이미지 업로드·embedded_images 는 true, 11/20. scan: 이미지만 있고 글자 층 없는 쪽, 이미지 업로드 true·embedded_images false, 11/23) | **`work/document.pdf`(없으면 원본 PDF)의 모든 쪽** 렌더링(가로 2000px, `reason:"all"`, 11/17 전부 OCR 결정). 이전 기준(글자 수 < 50·깨진 문자 > 20%·그림)은 쓰지 않음. 이미지는 원본이 대상. DOCX·HWPX는 안에 든 그림을 쪽별로 이어 붙인 PNG(`reason:"embedded_images"`, 쪽 번호는 TextLayerExtract와 동일). 읽을 수 없는 그림 형식(EMF·WMF 등)은 Finding `FIGURE_FORMAT_UNSUPPORTED`(MEDIUM, 쪽 위치) |
 | PageSummarize | `{doc}/masked/summaries/{nnnn}.json` `{doc_id, page_index, page, summary, keywords[≤8], clause_refs[], page_type, char_count, figure_count, segment_key, model, generated_at}`, `{doc}/masked/summary.json` `{doc_id, version, page_count, pages[]}` | 입력은 masked/segments(text + figures)만, MODEL_HAIKU. clause_refs는 본문에 실제로 있는 조문 표기만. 판정은 바꾸지 않음(OK). 오케스트레이터 순서 InjectionScan → PageSummarize → Classify (env `PAGE_SUMMARIZE=on`) |
 | PurgeDocument | — | 문서 삭제 흐름 전용(사용자 결정 11/17 B). Documents `lifecycle=DELETED` 일 때만, `published/{legal,knowledge}/{doc_id}/`·`quarantine/{doc_id}/` 모든 버전·삭제 마커 삭제. 아니면 예외 `NotDeleted` |
 | OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존). **11/17 PP-StructureV3(표·레이아웃, 모든 업로드)**: 줄마다 레이아웃 `label`(doc_title·paragraph_title·text·table·figure 등)·표 안이면 `table_id`(`p{쪽}-t{n}`), `reading_order` 는 레이아웃 순서, 페이지 `tables:[{table_id,bbox,html}]`, `figures:[{label,bbox}]`(image·figure·chart·seal 영역 = Sonnet 비전 대상, 표·글자는 제외) 추가(없으면 이전과 같음) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
 
-### 6.0 문서 삭제 흐름 (사용자 결정 11/17 B)
+### 6.0 문서 삭제 흐름 (사용자 결정 11/17 B, 권한은 11/23 변경)
 
 | 순서 | 주체 | 동작 |
 |---|---|---|
-| 1 | API `DELETE /v1/documents/{id}` (dhxorb96) | 작성자 본인 또는 관리자. 감사 `DOCUMENT_DELETE` → `lifecycle=DELETED`, `deleted_reason`·`deleted_by` (이 시점부터 검색·보관함·가이드 제외) → `InvokeAgentRuntime({action:"delete"})` |
+| 1 | API `DELETE /v1/documents/{id}` (dhxorb96) | 결재자(REG_APPROVER·SECURITY_REVIEWER)는 모든 문서, 작성자 본인은 게시 전(PUBLISHED 아님) 문서만(사용자 결정 11/23: 게시 문서를 작성자 혼자 내리지 못함, 작성자는 403). 상세 `can_delete` 같은 기준. 감사 `DOCUMENT_DELETE` → `lifecycle=DELETED`, `deleted_reason`·`deleted_by` (이 시점부터 검색·보관함·가이드 제외) → `InvokeAgentRuntime({action:"delete"})` |
 | 2 | 오케스트레이터 `deleteGraph` (dhxorb96) | `purge_document` → `kb_ingest`(재색인, KB 에서 제거) → `graph_upsert`(`action:"delete"`) |
 | 3 | `graph_upsert` `action:"delete"` (let522mj) | Documents `lifecycle=DELETED` 확인 후 Neptune `deleteDoc(doc_id)` |
 | 남김 | — | Documents META(이력)·Approvals·AuditEvents (감사) |
@@ -203,11 +207,12 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18), `clarify[]`(확인 필요 6.5: `{finding_id, blocking, severity, kind, item, page, before, question, suggestions[], status, dismiss_reason}`), `text` 는 정리본 기준 |
 | `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | EDIT_REMOVED_KEY_SENTENCE '의도한 삭제' / CLARIFY_NEEDED '해당 없음' `{reason}`(필수, PII 마스킹, 감사 CLARIFY_DISMISS) |
 | `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
-| `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
+| `DELETE /v1/documents/{id}` | 결재자(모든 문서)·올린 사람(게시 전만) | 삭제 흐름 (6.0) |
 | `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
-| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지) |
+| `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지. PLATFORM_OPERATOR만 예외: `self_approved`·감사 SELF_APPROVAL, 11/18) |
 | `GET /v1/library` | USER+ | 문서 묶음 카드. `?category=`(하위 포함)·`type`·세부 필터, 카드 `category_path` |
 | `GET /v1/library/{id}` | 권한 내 | 상세: `pages[].structured`(AI 정리본)·`structured_source`(TEXT\|VISION)·`clause_groups`, `image_pages`, `claims`, `category_path`·`category_id`, `verification.basis[].statement·reason·relation` |
+| `GET /v1/library/{id}/external-laws` | 상세를 볼 수 있는 사람 | 본문이 인용한 외부 법령(내부 규정 저장소에 없는 것) 법령당 1건: `{law_name, clause?, result, error?, clauses:[{clause, sub?, result, error?}]}`. `clauses`는 조·항 단위(호·목은 `sub`), 본문 등장 순, 법령·조문 각 최대 10. `clause`·`result`는 첫 조문(하위 호환). 원문은 `regulation___fetch_official_law`(UNVERIFIED) (11/20 데이터팀 합의) |
 | `GET /v1/library/{id}/pages` | 문서를 볼 수 있는 사람 | 원본 보기: 모든 쪽 `masked/view/{nnnn}.png`(개인정보만 가림) presigned GET 5분 `[{page,url}]` |
 | `GET /v1/library/{id}/pages/{n}/image` | 문서를 볼 수 있는 사람 | 개인정보 가린 쪽 이미지(masked/pages) |
 | `GET /v1/categories` · `PATCH /v1/categories/{id}` · `POST /v1/categories/{id}/merge` | USER+ / 결재자 | 업무 분류 트리(볼 수 있는 게시 문서 수) / 이름 수정·병합 (10.1) |
@@ -228,7 +233,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 
 Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash, author_sub, approver_sub?, status(PENDING|APPROVED|REJECTED|USED), reason?, decided_at, used_by?`
 - 결정 후 재개는 AgentCore 오케스트레이터 `InvokeAgentRuntime({action:"resume", decision, input})` (6.1). `task_token`은 폐기(Step Functions 폐기 11/16) — 이전 레코드에 남은 값은 무시하고 응답에서 숨긴다
-- 승인 시 조건부 쓰기: `status = PENDING` AND `approver_sub ≠ author_sub` AND 현재 객체의 `s3_version_id`·`content_hash`가 레코드와 일치.
+- 승인 시 조건부 쓰기: `status = PENDING` AND `approver_sub ≠ author_sub`(PLATFORM_OPERATOR 자기 승인은 `self_approved=true`로만 허용) AND 현재 객체의 `s3_version_id`·`content_hash`가 레코드와 일치.
 - Promote 단계는 `APPROVED` → `USED`로 조건부 전환 후에만 진행 (재사용·중복 callback 차단).
 
 ## 8. 버전 고정표 (M0에 기입)
@@ -239,6 +244,7 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | Terraform / AWS provider | Terraform ≥1.14 (최신 1.17.2) / aws `~> 6.73`, archive `~> 2.7`, random `~> 3.7` (`.terraform.lock.hcl`) | yoyo0704 |
 | PaddleOCR 이미지·모델 | paddleocr 3.7.0 (11/18 컨테이너 빌드 시 확정) | yoyo0704 |
 | Strands Agents TS SDK | `@strands-agents/sdk` 1.25.0 (Node 24 컨테이너, MCP·structured output 지원 확인) | dhxorb96 |
+| ADOT Node 자동 계측 | `@aws/aws-distro-opentelemetry-node-autoinstrumentation` 0.14.0 (agents 컨테이너 `node --require …/register`, AgentCore Observability span) | ai |
 | Backend 프레임워크 | Hono 4.13.18 + `@hono/node-server` 2.1.8, `aws-jwt-verify` 5.2.1, AWS SDK v3 3.1169.0, 테스트 `node:test` (TypeScript는 root 6.0.3) | dhxorb96 |
 | Next.js | 16.4.6 (React 19.3.1) | dhxorb96 |
 | zod | 4.6.7 | let522mj |
@@ -246,7 +252,7 @@ Approvals 레코드: `approval_id, doc_id, version, s3_version_id, content_hash,
 | AWS SDK v3 (`@aws-sdk/client-*`, `lib-dynamodb`) | 3.1169.0 | let522mj |
 | `@smithy/signature-v4` / `@aws-crypto/sha256-js` (Neptune SigV4) | 5.7.5 / 5.2.0 | let522mj |
 | TypeScript / ESLint / Vitest | typescript 6.0.3 (typescript-eslint가 7.x 미지원), eslint 10.15.0, typescript-eslint 8.72.2, vitest 5.1.0 | yoyo0704 |
-| Bedrock 모델 inference profile ID (Haiku/Sonnet/Opus 5.5, Titan V2, Cohere Rerank 3.5) | **5.5 미허용으로 임시 대체**: `us.anthropic.claude-haiku-4-5-20251001-v1:0` / `us.anthropic.claude-sonnet-4-6` / `us.anthropic.claude-opus-4-6-v1`, `amazon.titan-embed-text-v2:0`, `cohere.rerank-v3-5:0` (트러블슈팅 11/16) | yoyo0704 |
+| Bedrock 모델 inference profile ID (Haiku/Sonnet/Opus 5.5, Titan V2, Cohere Rerank 3.5) | **5.5 미허용으로 임시 대체**: `us.anthropic.claude-haiku-4-5-20251001-v1:0` / `us.anthropic.claude-sonnet-4-6` / `us.anthropic.claude-opus-4-6-v1`, `amazon.titan-embed-text-v2:0`, `cohere.rerank-v3-5:0` (트러블슈팅 11/16. prod 계정 566533524321에서 11/20 재확인: Haiku·Sonnet 5.5 Converse 거부) | infra |
 
 ## 9. 신원 전달 (Owner dhxorb96, M0 실험으로 확정)
 
@@ -363,8 +369,33 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-18 | let522mj | 3(Finding, SegmentBuild) | SegmentBuild `LOW_OCR_CONFIDENCE`(MEDIUM) finding 제거. 95% 미만 쪽은 ImageDescribe가 Vision으로 다시 읽음 (사용자 결정 11/18 17시, yoyo0704 전달). `NO_TEXT`(HIGH)·구조 경고와 segments의 `avg_confidence`·`low_confidence`는 유지 |
 | 2026-11-19 | let522mj | 3(Finding, SegmentBuild·GraphUpsert)·regulation-server | GraphUpsert(규정): 파싱 이슈가 있어도 승인된 게시라 조문 저장소·그래프에 적재하고 이슈 finding은 안내로 남김(`status=REVIEW_REQUIRED`, 게시는 계속). 구조 이슈(`STRUCTURE_ISSUES`: 번호 역행·중복·소속 없는 문장·빈 조문)면 `parse_ok=false`, 노하우 주장 재검토 표시를 생략하고 `CLAIM_REVIEW_SKIPPED`(LOW). 인용 이슈만이면 `parse_ok=true`. `putLaw`는 같은 버전 재적재 시 새 결과에 없는 조문 항목을 지움. `parse_reviewed` 입력 제거(설정하는 곳 없음). SegmentBuild 구조 안내를 번호 역행 외 모든 파싱 이슈로 확대(`STRUCTURE_{코드}`, 번호 역행은 `STRUCTURE_NUMBERING` 유지, 부칙 제외·최대 5건). `get_clause`: 현행 버전이 `parse_ok=false`면 과거 버전에만 있는 조문도 HISTORICAL 대신 UNVERIFIED (yoyo0704 11/19: 이슈가 있으면 KB엔 게시되고 조문 저장소·그래프엔 없는 규정이 생김) |
 | 2026-11-17 | dhxorb96 | 7(Backend API) | 11/17 구현 반영: 업로드·게시 요청 역할 제한 제거(6.2), 위키 수정·의도한 삭제 확인, 업무 분류·질의 재구성·운영 도구·지식 상태·쪽 이미지 API, 상세 응답 필드 |
+| 2026-11-20 | backend | 7·7.1 | `GET /v1/library/{id}/external-laws` 행 추가(clauses[]). 승인 결정·7.1에 PLATFORM_OPERATOR 자기 승인 예외 명시(코드·마이그레이션 008과 일치) (docs 최신화 공지) |
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/documents/{id}/freshness/confirm` 추가 (Change Impact 재승인: 변경 없이 유효). 문서 `freshness_confirmed[]` |
 | 2026-11-20 | backend | 7(Backend API) | `POST /v1/admin/impact/draft` 추가 (Change Impact 수정 초안, AI팀 계약 합의·총괄 승인). 위키 수정 요청에 `source`·`law`·`path`·`requested_by` |
 | 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` 추가 (프론트엔드팀 요청, 화면 08). 평가 실행기는 결과를 감사 기록 `EVALUATION_RUN`으로 남긴다. API 403 감사 기록 `detail`에 `roles`·`reason` 추가 |
 | 2026-11-20 | data | 5(Regulations 키) | 조문 구조화 저장소 키 확정(구현 그대로), GSI 없음 |
 | 2026-11-20 | data | 1(조문 ID)·2(Finding)·regulation-server | 가지번호 `제n-m조` = `ARTICLE:n-m`(parser·clausePath). 외부 법령 인식에 괄호 없는 한 낱말 법령명·`…규정` 추가, 행정규칙 `/행정규칙/` URL·고시 번호 해석. Finding `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_EXTERNAL_SKIPPED` (AI팀 요청, 사용자 결정 11/20 외부 법령 대조). 사용자 문서 fixture M-002·M-003·MX-002·MX-003 (manifest `user_documents`) |
+| 2026-11-20 | infra | 3·4·8 | prod 단일 환경(사용자 결정 11/20): 버킷 `[-닉네임]` 접미사 삭제, `HANAEUM_ENV=prod`, 공유 dev 문구 삭제. 모델 5.5 미허용 재확인(566533524321). 섹션 Owner yoyo0704 → infra |
+| 2026-11-20 | ai | 2(Finding)·6(knowhow_validation) | Finding `KNOWHOW_BASIS_MISMATCH`, `items[].basis`(CITED·NONE) — 사용자 피드백 '판단 못함'과 '근거와 다름' 구분. 판정·게시 판단 불변. 통지: 데이터(marks.ts)·프론트(문서보관함 문구) |
+| 2026-11-20 | data | 1(조문 ID) | 가지번호에 '의'가 붙은 `제n-m조의k` = `ARTICLE:n-m-k` (외국환거래규정 20개 조가 앞 조에 붙던 문제, parser·clausePath·본문 참조 해석) |
+| 2026-11-20 | backend | 7(Backend API) | 사람 확인 필요 항목 노출(MX-002 외부 법령 불일치가 화면에 안 보임): `GET /v1/documents/{id}/review` `checks[]`{finding_id, code, severity, message, excerpt, fix_hint, evidence_ref}, `GET /v1/approvals` 카드 `checks_count`·`checks[]`(최대 5: code, text, message). 대상 코드 MEDIUM `KNOWHOW_EXTERNAL_MISMATCH`·`KNOWHOW_BASIS_MISMATCH`·`KNOWHOW_OUTDATED_CITATION`·`KNOWHOW_NO_BASIS`, LOW `KNOWHOW_EXTERNAL_SKIPPED`·`GUARDRAIL_SKIPPED`(확인하지 못함). 게시 잠금 아님. 문서보관함 검증 정보: 매뉴얼도 외부 법령 대조 결과를 basis에. 단계 라벨 `KNOWHOW_VALIDATION`='근거 대조', `EXTERNAL_LAW_CHECK`='외부 법령 대조'. 통지: 프론트·AI |
+| 2026-11-20 | ai | 8(버전) | ADOT Node 자동 계측 0.14.0 추가 — 가이드·파이프라인 Runtime span 수집(P1 Observability) |
+| 2026-11-20 | data | 평가 | AgentCore Evaluations 정답 데이터셋 `tests/fixtures/evaluations/agentcore-dataset.json` (AgentCore dataset 형식: scenario_id·turns[input, expected_response]·assertions·metadata, expected_trajectory 없음). 46건 = 근거 인용 20·정확 조문 20·검색 실패 판정 6, 질문에 기준일 포함 |
+| 2026-11-20 | backend | 7(Backend API) | 평점(인기, 신뢰성과 분리, P1): `GET /v1/library`·`/v1/library/{id}`·`/v1/search` 문서 항목에 `rating`{avg(소수 1자리), count}(별점 0건이면 생략)·`useful_count`(0이면 생략), 상세에 `my_stars`(없으면 null). feedback 집계. 통지: 프론트 |
+| 2026-11-20 | backend | 7(Backend API) | `GET /v1/admin/evaluations` denials에 Gateway 거부(AgentCore Policy) 합침: 사용자 Gateway vended logs(`GATEWAY_LOG_GROUP`)의 'Policy evaluation denied request' + 같은 trace_id 요청 이벤트에서 tool·역할만(인자·sub 버림). 항목에 `source`('API'|'GATEWAY'), 시간 역순 최대 50. 로그 읽기 실패 시 API 거부만. `POST /v1/admin/impact/draft` 초안 생성에 개정 규정 `law_name` 전달(AI팀 초안 인용에 규정 이름). 통지: 프론트·데이터QA·AI |
+| 2026-11-20 | backend | 2(Finding)·단계 9 | 그림 개인정보 확인 fail-closed 해제(총괄 승인): PiiScan `PII_IMAGE_REVIEW`에 `details.boxes`(글자 개인정보 가림 수). TrustGate가 boxes=0 이고 `masked/segments/{쪽}.json` `figures[].people` 이 1개 이상·전부 `NONE`이면 `acknowledged{by:'system:image-describe'}`로 확인 처리 + 감사 `FIGURE_PII_CHECKED`. UNSURE·없음·읽기 실패·ImageDescribe 꺼짐이면 유지. ImageDescribe(인프라)가 `figures[].people` 기록. 통지: AI·인프라 |
+| 2026-11-20 | backend | 2(Finding)·단계 9 | `FORMAT_ONLY_DIFF`(LOW) 추가, `diffClauses` 공백·줄바꿈 무시(HWPX·OCR 띄어쓰기 오탐 D01). docs/01 5.1 한 줄. 통지: AI·데이터(marks.ts 같은 기준)·프론트 |
+| 2026-11-20 | backend | 7(Backend API)·단계 PiiScan | `GET /v1/documents/{id}/review`·`/v1/library/{id}` `rejection_reason`(string\|null, 반려된 문서의 출처 검토·결재 반려 사유, 개인정보 가림, 상세는 작성자·결재자만). `GET /v1/admin/in-review` 항목 `source_mismatch`(REGISTRY_MISMATCH·출처 검토 전). PiiScan 그림 쪽 판정에 `ocr_targets.json pages[].graphics`(데이터 #142) 추가. 통지: 프론트·데이터 |
+| 2026-11-20 | data | 3(PageRender) | `ocr_targets.json` pages[] 에 `graphics: boolean`(모든 쪽 명시). 백엔드 isFigurePage 가 OCR figures 또는 graphics 면 그림 쪽(PII_IMAGE_REVIEW·ImageDescribe). 총괄 지시: OCR 이 그림으로 못 본 쪽의 선 그림 서명·명함 |
+| 2026-11-23 | data | 3(PageRender) | `ocr_targets.json` pages[] 에 `scan: boolean`(이미지만 있고 글자 층 없는 쪽). 백엔드 maskPageImages 가 scan 쪽은 PII 가림 상자>0 또는 OCR 글자 서명·자필·날인·인감·명함이면 그림 쪽(총괄 11/23 승인, 배포 데모 후). 없으면 지금과 같음. 통지: 백엔드 |
+| 2026-11-23 | data | search_wiki | 삭제·개정 옛 항 이력 보충(#109, `replaces`)을 근거 없음뿐 아니라 얕은 근거(1위 rerank < 0.30+0.05)에도 적용. 올린 현행 항이 items 앞, 기존 근거는 뒤. 응답 형식 변화 없음. 통지: AI·데이터QA (총괄 11/23 CT-04 경계) |
+| 2026-11-23 | data | search_wiki | items 표시 순서: 자른 뒤 `score − 0.10(freshness=REVIEW_REQUIRED)` 로 재정렬(이력 보충 replaces 항은 맨 앞). 근거 판정·컷·#109/#163·내보내는 score 값은 그대로. 같은 경로인 retrieve_evidence·가이드 근거 순서도 같음. 통지: AI·데이터QA·프론트 (총괄 11/23) |
+| 2026-11-23 | backend | 7(Backend API) | 시행 예정 개정·재검토 이유 (프론트 8차 요청, 모두 선택 필드·날짜 YYYY-MM-DD): ① `GET /v1/admin/change-requests` IMPACT 항목 `revision{provision_id(새 개정본 조문), law_name, label('제5조제1항'), kind, old_text, new_text, effective_from(개정판 시행일), current_effective_from(현행판)}` — 영향 초안 생성 때 저장(이전 CR 없음). ② `freshness_reason`(보관함 카드·상세·결재함 items)에 `changes[]{provision_id, label, kind, old_text, new_text('' = 삭제), cited_text}`(OPEN IMPACT CR 의 revision), `effective_from` 채움, `open_change_requests`. 상세만: CR 이 없으면 주장 `provision_revised` 로 Registry 조문 대조 1건. ③ 보관함 카드·상세 `upcoming{doc_id, version_no, effective_from}\|null` = 같은 묶음(seriesKey)의 게시본 중 시행일 > 오늘(KST) 가장 이른 것. 결재함 items `effective_from`·`freshness`·`freshness_reason`. 통지: 프론트 |
+| 2026-11-23 | backend | 2(FORMAT_ONLY_DIFF) | 조문 밖 글자 수에서 조 제목·항 번호·호 번호 제외(양쪽 같은 규칙). 정상 F-001.hwpx 216자→115자(구조 표시 약 100자가 조문 수에 비례해 큰 규정은 늘 초과하던 결함). 상한 200 그대로, 위조 5종 테스트 유지. 통지: AI·인프라 |
+| 2026-11-23 | backend | 7(Backend API) | `GET /v1/admin/in-review?all=1`: 게시·삭제가 아닌 모든 문서(PENDING_APPROVAL·BLOCKED·REJECTED·분석 중 포함, 상한 500). demo-reset 목록용(총괄 11/23). 기본(파라미터 없음)은 IN_REVIEW·QUARANTINED 50건 그대로. 통지: 데이터 |
+| 2026-11-23 | backend | 단계 PiiScan | 그림 쪽 판정에 `ocr_targets.json pages[].scan`(데이터 #147) 추가: scan 쪽은 글자 개인정보 상자 > 0, OCR 글자에 서명·자필·날인·인감·명함 낱말 또는 전화·이메일 모양(가림 대상 아님, 판단에만), OCR 없음(fail-closed) 중 하나면 그림 쪽(PII_IMAGE_REVIEW·ImageDescribe). scan 키가 없으면 지금과 같음. 모델 호출 추가 없음. 통지: 데이터·AI |
+| 2026-11-23 | ai | 2(Finding) | `KNOWHOW_UPCOMING_MATCH`(LOW) 추가 — 시행 예정 개정판 기준으로 미리 고친 노하우가 현행 기준 충돌·수정 제안을 받는 왕복 방지(G-KREV-02). 통지: 백엔드·프론트 |
+| 2026-11-23 | backend | 7(Backend API) | 시행 예정 개정 수정 제안 반영 잠금(G-KREV-02 왕복, 총괄 11/23): `GET /v1/admin/change-requests` 항목 `apply_after`(YYYY-MM-DD\|null) = IMPACT 제안의 `revision.effective_from` 이 오늘(KST) 이후면 그 날짜. `POST /v1/admin/change-requests/{doc}/{id}` APPLY 는 그 날짜 전 409 CONFLICT '{날짜}부터 반영할 수 있습니다'. 반려는 가능. revision 없는 이전 제안은 막지 않음. 통지: 프론트·AI |
+| 2026-11-23 | backend | 7(Backend API) | `DELETE /v1/documents/{id}` 는 열린 수정 제안을 닫는다(REJECTED, decision_reason `문서 삭제`). `GET /v1/admin/change-requests` 는 삭제(DELETED) 문서의 제안을 뺀다(예전 삭제분), 그 제안의 반영·반려는 404 (demo-reset 뒤 남던 K-001 CR, 데이터 요청). 통지: 데이터·프론트 |
+| 2026-11-23 | backend | 7(Backend API) | `GET /v1/admin/change-requests` 항목 `superseded`(boolean, 대체된 이전 버전의 제안 → 화면 '이전 버전'). 그 제안의 APPLY 는 409 '이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만드세요'(반려 가능, 숨기거나 옮기지 않음, 총괄 결정). 통지: 프론트 |
+| 2026-11-23 | backend | 6.0·7(Backend API) | 문서 삭제 권한 변경(사용자 결정 11/23, 11/17 B 변경): 작성자는 게시 전(PUBLISHED 아님) 문서만, PUBLISHED 는 결재자만. 작성자의 게시 문서 DELETE 403 '게시된 문서는 결재자만 삭제할 수 있습니다', 상세 `can_delete` 같은 기준, 상세에 `is_owner`(boolean, 작성자 본인) 추가(프론트 행동 막대). 통지: 프론트·엔드유저 |

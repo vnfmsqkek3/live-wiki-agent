@@ -156,6 +156,16 @@ test("단계 13 입력 구성: 공통 입력만으로 Documents·게시본을 �
   assert.equal(inp.document_type, "KNOWHOW");
 });
 
+test("단계 13 입력: 시행일 없는 노하우는 게시일 기준으로 인용 해석 (미래 개정본 F-002@2026-12-01이 Registry에 있어도 현행 조문, prod 11/20)", async () => {
+  const { MemoryObjectStore, MemoryRecords } = await import("@hanaeum/legal-etl");
+  const { buildUpsertInput } = await import("./index.ts");
+  const s = new MemoryObjectStore(); const r = new MemoryRecords();
+  r.documents.set("K-001", { doc_id: "K-001", version: 1, title: "부동산 담보평가 실무 노하우", document_type: "KNOWHOW", authority_status: "UNVERIFIED", dept: "여신", acl_groups: ["ALL"], published_at: "2026-11-20T04:00:00Z" } as never);
+  await s.put("pub", "knowledge/K-001/content.txt", read("documents/K-001.md"));
+  const inp = await buildUpsertInput({ workflow_id: "wf_x", doc_id: "K-001", version: 1, bucket: "q", prefix: "", actor: { sub: "s", groups: [] } }, r, s, fixtureClauseStore(), "pub");
+  assert.deepEqual(inp.citations!.map((c) => c.provision_id).sort(), frontCites("documents/K-001.md").sort());
+});
+
 test("삭제 흐름(interfaces 6.0): DELETED만 그래프에서 지움, 아니면 NotDeleted, 분류 전 문서는 할 일 없이 OK", async () => {
   const { graph } = await loaded();
   const has = () => [...graph.nodes.values()].some((x) => x.props["doc_id"] === "K-001");
@@ -275,4 +285,21 @@ test("인용 후보 추출: 대괄호 규정명 '[하나은행 기업여신 심�
   const got = (await extractCitations("승인은 [하나은행 기업여신 심사규정] 제12조에 따른다.", store, 20261115)).map((c) => c.provision_id);
   assert.ok(got.some((id) => /ARTICLE:12$/u.test(id)), got.join());
   const t0 = Date.now(); await extractCitations("가 ".repeat(50000), store, 20261115); assert.ok(Date.now() - t0 < 1000, "선형에 가까운 시간");
+});
+
+test("규정 게시: Trusted Registry 원본 버전은 조문 원문을 게시본(OCR·그림 정리본)으로 덮어쓰지 않음 (prod 11/20 엔드유저 D01)", async () => {
+  const graph = new MemoryGraphStore();
+  const clauses = new MemoryClauseStore();
+  const law0 = { law_id: LAW.law_id, law_name: LAW.law_name, revision_id: "2026-11-01" };
+  const official = parseLaw(read("documents/F-001.txt"), { ...law0, effective_from: 20261101 });
+  clauses.put({ ...law0, effective_from: 20261101, effective_to: 99991231, authority_status: "VERIFIED", doc_id: "F-001", content_hash: "sha256:registry-text", pdf_content_hash: "sha256:registry-pdf", acl_groups: ["ALL"], parse_ok: true }, official);
+  // 게시본: OCR 띄어쓰기 손실 + 그림 정리본이 붙은 마스킹 본문
+  const ocr = read("documents/F-001.txt").replace("사업자등록증 사본", "사업자등록증사본").replace("시행한다.", "시행한다. ⟦그림 p0⟧ 쪽 정리(AI, 그림 기준): 표지");
+  const putLaw = async (r: Parameters<MemoryClauseStore["put"]>[0], l: Parameters<MemoryClauseStore["put"]>[1]) => clauses.put(r, l);
+  await graphUpsertStep({ ...base, doc_id: "doc_pub", version: 1, document_type: "REGULATION", title: LAW.law_name, effective_from: 20261101, effective_to: 99991231,
+    content: ocr, content_hash: "sha256:published-content", law: { ...LAW, revision_id: "2026-11-01" } }, graph, Object.assign(clauses, { putLaw }));
+  const after = (await clauses.provisions(LAW.law_id, "2026-11-01"))!;
+  assert.deepEqual(after.map((p) => p.normalized_text), official.provisions.map((p) => p.normalized_text), "Registry 원문 유지");
+  assert.equal((await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!.parse_ok, true, "구조 판정도 Registry 것");
+  assert.equal((await clauses.revisions(LAW.law_id)).find((x) => x.revision_id === "2026-11-01")!.doc_id, "doc_pub", "게시 문서 연결은 갱신");
 });

@@ -1,6 +1,6 @@
 import { changePrompt, type ChangeRequest } from './steps/change-request.ts';
 import { groupLaws } from './steps/external-laws.ts';
-import { ackItem, makeCarry } from './steps/carry.ts';
+import { ackItem, CR_APPLIED, makeCarry } from './steps/carry.ts';
 import { sentences } from './steps/edit-review.ts';
 import { Hono, type Context } from 'hono';
 import { cors } from 'hono/cors';
@@ -8,7 +8,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/legal-parser';
-import { card, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
+import { card, freshnessView, todayKst, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
 import { currentRevisions } from './steps/freshness.ts';
@@ -17,8 +17,8 @@ import {
   type Actor, type ApprovalRecord, type DocumentRecord, type Finding, type Role,
 } from './contracts.ts';
 import { ApiError } from './errors.ts';
-import type { Store } from './store.ts';
-import { FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
+import type { Rating, Store } from './store.ts';
+import { CHECK_CODES, checkView, FIX_CODES, hasSourceMismatch, isOpenFix, REVIEW_CODES, submitForApproval } from './submit.ts';
 import { detectPii, mask } from './steps/pii-detect.ts';
 import { buildDocPages } from './steps/structure.ts';
 import { composePrompt, fallbackAfter, keepsRest, safeSuggestion, type ClarifyKind } from './steps/clarify.ts';
@@ -95,7 +95,11 @@ export interface Deps {
   /** 위키 수정 요청 판단 (Haiku) */
   judgeChange?(prompt: string): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   /** Change Impact 수정 초안 (AI팀 steps/impact-draft.ts: impactPrompt → 모델 → checkImpactDraft). 없으면 UNKNOWN 으로만 저장 */
-  draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
+  /** Gateway 안에서 일어난 거부(AgentCore Policy·interceptor). API 감사 DB 밖이라 Gateway 로그에서 읽는다 (P1 데모 06, 11/20). sub 는 넘기지 않는다 */
+  gatewayDenials?(since: string): Promise<{ at: string; role: string; tool: string; reason: string; trace_id: string }[]>;
+  /** 조문 ID → 원문·표기·더 새 개정본 같은 조문 (knowhow-deps clauseGetter). 재검토 사유 상자 */
+  clause?(provision_id: string): Promise<import('./steps/knowhow.ts').Clause | undefined>;
+  draftImpact?(i: { before: string; old_clause: string; new_clause: string; path: string; kind: string; context: string; /** 개정 규정 이름 → 초안 괄호 인용에 붙임 (AI팀 11/20) */ law_name?: string }): Promise<{ verdict: 'APPROPRIATE' | 'INAPPROPRIATE' | 'UNKNOWN'; after?: string; reason: string }>;
   structuredPages?(doc_id: string): Promise<Map<number, { markdown: string; source: 'TEXT' | 'VISION' | 'AI' }>>;
 }
 
@@ -126,8 +130,12 @@ const clarifyView = (det: Record<string, unknown>) => {
   return { ...det, ...(typeof det['before'] === 'string' ? { before: figRefs(det['before'] as string, pg) } : {}), ...(sg ? { suggestions: sg } : {}) };
 };
 const plainFinding = <F extends Finding>(f: F): F => ({ ...f, message: plainMessage(f) });
+/** 평점(인기)은 결재·검증(신뢰성)과 따로: rating{avg,count}(별점 0건이면 생략)·useful_count (P1 추천·평점, 프론트 요청 11/20) */
+const ratingOf = (r?: Rating) => ({ ...(r?.count ? { rating: { avg: r.avg, count: r.count } } : {}), ...(r?.useful_count ? { useful_count: r.useful_count } : {}) });
 
 const APPROVERS: Role[] = ['REG_APPROVER', 'SECURITY_REVIEWER'];
+/** 문서 삭제 권한 (사용자 결정 11/23, 11/17 B 변경): 결재자는 모두, 작성자는 게시 전(PUBLISHED 아님)만 — 승인받아 게시된 지식은 혼자 내리지 못한다 */
+const canDelete = (a: Actor, d: DocumentRecord) => hasRole(a, APPROVERS) || (d.owner === a.sub && d.lifecycle !== 'PUBLISHED');
 /** 고칠 곳 하나를 가리키는 키 (해당 없음 기록용). 재분석해도 같은 문장·종류면 같은 키 */
 export const markKey = (m: Pick<Mark, 'kind' | 'reason'> & { original?: string | null }) => `${m.kind}|${m.original ?? m.reason}`.slice(0, 400);
 /** 공백만 다른 같은 문장을 본문에서 찾아 본문 쪽 글자를 돌려준다 (없으면 undefined) */
@@ -137,6 +145,9 @@ export const looseFind = (text: string, s: string) => {
   return new RegExp(chars.map((c) => c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s*'), 'u').exec(text)?.[0];
 };
 const quarantineKey = (d: Pick<DocumentRecord, 'doc_id' | 'ext'>) => `${d.doc_id}/original.${d.ext}`;
+
+/** 조문 경로 → 사람 표기 (ARTICLE:12/PARAGRAPH:1 → 제12조제1항). Registry 표기를 못 읽었을 때만 */
+const pathLabel = (p: string) => p.split('/').map((seg) => { const [k, n] = seg.split(':'); return k === 'ARTICLE' ? `제${n}조` : k === 'PARAGRAPH' ? `제${n}항` : k === 'ITEM' ? `제${n}호` : k === 'SUBITEM' ? `${n}목` : ''; }).join('') || p;
 
 export function createApp(deps: Deps) {
   const app = new Hono<Env>();
@@ -343,9 +354,13 @@ export function createApp(deps: Deps) {
     await audit(c, 'CHANGE_REQUEST', d.doc_id);
     return c.json({ id: cr.id, verdict: cr.verdict, after: cr.after ?? null, ai_reason: cr.ai_reason }, 201);
   });
+  // 시행 예정 개정판에서 나온 영향 수정 제안은 시행일 전 반영 불가 (총괄 11/23 G-KREV-02 왕복: 반영본을 현행판 기준 검증이 되돌리라고 함).
+  // 시행일(YYYY-MM-DD, KST 오늘보다 뒤)이면 그 날짜, 아니면 null. revision 없는 이전 제안은 판단 불가라 null(막지 않음)
+  const applyAfter = (r: ChangeRequest) => (r.source === 'IMPACT' && r.revision?.effective_from && r.revision.effective_from > todayKst() ? r.revision.effective_from : null);
   app.get('/v1/admin/change-requests', async (c) => {
     need(c, APPROVERS);
-    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED' })))
+    // 삭제된 문서의 열린 제안은 처리할 대상이 아니다 (demo-reset 뒤 K-001 CR 3건 남음, 데이터 11/23)
+    const items = (await store.listDocs()).filter((d) => d.lifecycle !== 'DELETED').flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED', apply_after: applyAfter(r), superseded: d.freshness === 'SUPERSEDED' })))
       .sort((x, y) => y.at.localeCompare(x.at));
     return c.json({ items });
   });
@@ -355,20 +370,24 @@ export function createApp(deps: Deps) {
     const b = (await c.req.json().catch(() => ({}))) as { decision?: unknown; reason?: unknown; after?: unknown };
     const d = await store.getDoc(c.req.param('doc'));
     const cr = d?.change_requests?.find((r) => r.id === c.req.param('id'));
-    if (!d || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
+    if (!d || d.lifecycle === 'DELETED' || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
     const at = new Date().toISOString(); const reason = String(b.reason ?? '').trim().slice(0, 200);
     let next: Partial<ChangeRequest>;
     if (b.decision === 'REJECT') {
       if (!reason) throw new ApiError('VALIDATION', '반려 사유를 적어 주세요');
       next = { status: 'REJECTED', decision_reason: mask(reason, detectPii(reason)) };
     } else if (b.decision === 'APPLY') {
+      // 대체된 이전 버전 기준 제안: 반영하면 이전 버전에서 갈라진 새 버전이 생긴다 → 막고 다시 만들게 (총괄 11/23, 숨기거나 옮기지 않음)
+      if (d.freshness === 'SUPERSEDED') throw new ApiError('CONFLICT', '이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만드세요');
+      const eff = applyAfter(cr);
+      if (eff) throw new ApiError('CONFLICT', `${eff} 시행 예정 개정에 따른 수정입니다. ${eff}부터 반영할 수 있습니다`);
       const after = String(b.after ?? cr.after ?? '').trim();
       if (!after || after === cr.before) throw new ApiError('VALIDATION', '바꿀 문장을 적어 주세요');
       if (detectPii(after).length) throw new ApiError('VALIDATION', '개인정보가 들어간 문장은 넣을 수 없습니다');
       const text = await editText(d.doc_id);
       if (!text.includes(cr.before)) throw new ApiError('CONFLICT', '문서가 바뀌어 요청한 부분을 찾지 못했습니다');
       // 관리자가 승인한 변경: 바뀐 원래 문장의 '중요 문장 삭제'는 이 결정으로 확인된 것으로 잇는다 (재검사에서 다시 막지 않음)
-      const acks = sentences(cr.before).map((x) => ackItem('EDIT_REMOVED_KEY_SENTENCE', x.slice(0, 160), a.sub, '수정 요청 반영(관리자 승인)'));
+      const acks = sentences(cr.before).map((x) => ackItem('EDIT_REMOVED_KEY_SENTENCE', x.slice(0, 160), a.sub, CR_APPLIED));
       const r = await editDoc(a, d.doc_id, text.replace(cr.before, after), acks);
       next = { status: 'APPLIED', new_doc_id: r.doc_id, ...(reason ? { decision_reason: mask(reason, detectPii(reason)) } : {}) };
     } else throw new ApiError('VALIDATION', 'decision 은 APPLY 또는 REJECT');
@@ -395,6 +414,13 @@ export function createApp(deps: Deps) {
     return c.json({ workflow_id: doc.workflow_id }, 202);
   });
 
+  /** 사람이 반려한 사유 (작성자 화면 '승인자가 반려했습니다: …', 엔드유저 11/20). 출처 검토 반려 → 결재 반려 최신. 개인정보는 가림 */
+  const rejectionReason = async (d: DocumentRecord) => {
+    if (d.authority_status !== 'REJECTED') return null;
+    const r = d.source_review?.reason ?? (await store.listApprovals('REJECTED')).filter((x) => x.doc_id === d.doc_id)
+      .sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0]?.reason;
+    return r ? mask(r, detectPii(r)) : null;
+  };
   app.get('/v1/documents/:id', async (c) => {
     const d = await loadDoc(c, c.req.param('id'));
     const failure = d.workflow_id && d.lifecycle !== 'PUBLISHED' && deps.workflowFailure ? await deps.workflowFailure(d.workflow_id) : undefined;
@@ -457,12 +483,14 @@ export function createApp(deps: Deps) {
   app.delete('/v1/documents/:id', async (c) => {
     const a = c.get('actor');
     const d = await loadDoc(c, c.req.param('id'));
-    if (d.owner !== a.sub && !hasRole(a, APPROVERS)) throw new ApiError('FORBIDDEN', 'owner or approver only');
+    if (!canDelete(a, d)) throw new ApiError('FORBIDDEN', d.owner === a.sub ? '게시된 문서는 결재자만 삭제할 수 있습니다' : 'owner or approver only');
     const b = await body(c, DeleteBody);
     const at = new Date().toISOString();
     const next: DocumentRecord = {
       ...d, lifecycle: 'DELETED', deleted_reason: d.lifecycle === 'DELETED' ? d.deleted_reason ?? b.reason : b.reason,
       deleted_by: d.deleted_by ?? a.sub, delete_workflow_id: newId.wf(), updated_at: at,
+      // 열린 수정 제안은 닫는다 (결재함에 남던 K-001 CR, 총괄·데이터 11/23)
+      ...(d.change_requests?.some((r) => r.status === 'OPEN') ? { change_requests: d.change_requests.map((r) => (r.status === 'OPEN' ? { ...r, status: 'REJECTED' as const, decided_by: a.sub, decided_at: at, decision_reason: '문서 삭제' } : r)) } : {}),
       ...(d.purge ? { purge: { ...d.purge, deleted_at: undefined, review_required: undefined } } : {}),
     };
     await store.putDoc(next);
@@ -493,8 +521,10 @@ export function createApp(deps: Deps) {
     // 확인 필요 (계약 6.5): 질문·원문·제안·잠금 여부. 화면이 항목별 적용을 모아 /edit 한 번
     // 항목별 확인(개인정보·비밀값): 쪽·사유·처리 여부
     const reviews = d.findings.filter((f) => REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM').map((f) => ({ finding_id: f.finding_id, code: f.code, page: f.location?.page ?? (/^page:(\d+)/.exec(f.evidence_ref ?? '')?.[1] ? Number(/^page:(\d+)/.exec(f.evidence_ref)![1]) : null), message: f.user_message ?? f.message, fix_hint: f.fix_hint ?? null, acknowledged: !!f.acknowledged, reason: f.acknowledged?.reason ?? null }));
+    // 확인 필요 (게시 잠금 아님): 외부 법령과 다름·문서가 든 근거 조문과 다름. 수정 제안은 fix_hint (엔드유저 MX-002 11/20: 화면에 안 보임)
+    const checks = d.findings.filter((f) => CHECK_CODES.has(f.code)).map(checkView);
     const clarify = d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, blocking: isOpenFix(f), severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) }));
-    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
+    return c.json({ fixes: fixes.filter((x) => x.code !== 'CLARIFY_NEEDED'), clarify, reviews, checks, rejection_reason: await rejectionReason(d), suggestions, ...(text !== undefined ? { text } : {}), source: d.source ?? 'UPLOAD', workflow_failure, page_summaries, doc_id: d.doc_id, title: d.title, title_source: d.title_source, doc_date: d.doc_date, doc_dates: d.doc_dates,
       can_edit: d.owner === a.sub && ['QUARANTINED', 'IN_REVIEW'].includes(d.lifecycle), previous_doc_id: d.previous_doc_id, version_no: d.version_no, version: d.previous_doc_id ? await versionDiff(a, d).catch(() => null) : null, lifecycle: d.lifecycle, trust_gate_result: d.trust_gate_result, authority_status: d.authority_status, freshness: d.freshness, classification: d.classification, findings: d.findings.map(plainFinding), knowhow_validation: d.knowhow_validation });
   });
 
@@ -579,6 +609,17 @@ export function createApp(deps: Deps) {
       return { ...r, label: (r.provision_id && labels.get(r.provision_id)) || r.provision_id,
         on_provision: r.provision_id ? { supports: (c.SUPPORTS ?? 0) + (c.SUPPLEMENTS ?? 0), conflicts: c.CONFLICTS ?? 0, unclear: c.INSUFFICIENT ?? 0 } : null };
     });
+  }
+  // 재검토 이유 보충 (프론트 8차 11/23): 영향 수정 제안(IMPACT)이 없는 재검토(GraphUpsert 가 주장을 provision_revised 로 표시)는
+  // 주장의 인용 조문 ↔ 새 개정본 조문을 Registry 에서 읽어 changes 1건. 조문 조회 비용 때문에 상세에서만
+  async function claimChange(claims: { provision_id: string | null; quote: string | null; statement: string; status: string; status_reason: string | null }[]) {
+    const c = claims.find((r) => r.status === 'REVIEW_REQUIRED' && r.status_reason?.startsWith('provision_revised:') && r.provision_id);
+    if (!c || !deps.clause) return undefined;
+    const newId = c.status_reason!.slice('provision_revised:'.length);
+    const [before, after] = await Promise.all([deps.clause(c.provision_id!).catch(() => undefined), deps.clause(newId).catch(() => undefined)]);
+    const path = /제\s*\d.*$/.exec(after?.label ?? before?.label ?? '')?.[0] ?? '';
+    return { change: { provision_id: newId, label: path, kind: !after || after.status === 'DELETED' ? 'DELETED' : 'MODIFIED', old_text: before?.text ?? '', new_text: after && after.status !== 'DELETED' ? after.text : '', cited_text: c.quote ?? c.statement },
+      effective_from: after?.effective_from ?? '' };
   }
   // 관리자: 지식 부채 (게시 문서 주장 기준). knowledge_debt 뷰 그대로
   app.get('/v1/admin/knowledge-debt', async (c) => {
@@ -681,6 +722,8 @@ export function createApp(deps: Deps) {
     const ago = (days: number) => new Date(Date.now() - days * 864e5).toISOString();
     const [run] = await store.listAudit({ since: ago(30), action: 'EVALUATION_RUN', limit: 1 });
     const denied = await store.listAudit({ since: ago(7), result: 'DENIED', limit: 50 });
+    // Gateway 로그를 못 읽어도 화면은 API 거부만으로 보인다
+    const gw = deps.gatewayDenials ? await deps.gatewayDenials(ago(7)).catch(() => []) : [];
     const arr = (v: unknown) => (Array.isArray(v) ? v as Record<string, unknown>[] : []);
     const str = (v: unknown) => (typeof v === 'string' ? v : '');
     const num = (v: unknown) => (typeof v === 'number' ? v : 0);
@@ -689,7 +732,8 @@ export function createApp(deps: Deps) {
       items: arr(run?.detail?.items).map((i) => ({ key: str(i.key), label: str(i.label), target: str(i.target), passed: num(i.passed), total: num(i.total), pass: i.pass === true })),
       failures: arr(run?.detail?.failures).slice(0, 100).map((f) => ({ key: str(f.key), case_id: str(f.case_id), reason: str(f.reason).slice(0, 300) })),
       // 거부 기록에는 사용자 식별값(sub)을 내보내지 않는다. 역할만
-      denials: denied.map((e) => ({ at: e.at, role: (Array.isArray(e.detail?.roles) ? (e.detail!.roles as string[]) : []).join(','), tool: e.action, reason: str(e.detail?.reason), trace_id: e.trace_id })),
+      denials: [...denied.map((e) => ({ at: e.at, role: (Array.isArray(e.detail?.roles) ? (e.detail!.roles as string[]) : []).join(','), tool: e.action, reason: str(e.detail?.reason), trace_id: e.trace_id, source: 'API' })),
+        ...gw.map((g) => ({ ...g, source: 'GATEWAY' }))].sort((x, y) => y.at.localeCompare(x.at)).slice(0, 50),
       trace_url: 'https://console.aws.amazon.com/cloudwatch/home?region=us-east-1#gen-ai-observability/agent-core',
     });
   });
@@ -703,8 +747,10 @@ export function createApp(deps: Deps) {
     if (!law || law.length > 200 || !/^doc_[0-9A-Z]{26}$/.test(doc_id)) throw new ApiError('VALIDATION', 'law(1~200자)·doc_id 필요');
     if (!deps.traceImpact) throw new ApiError('NOT_FOUND', '영향 분석 도구가 연결되지 않았습니다');
     type Ev = { cited_provision_id: string; evidence_span: string; change: { path: string; kind: string; old_text: string; new_text: string } };
-    const r = await deps.traceImpact({ law }, c.get('token')).catch(() => { throw new ApiError('NOT_FOUND', '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다'); }) as { law_id?: string; impacted?: { doc_id: string; evidence?: Ev[] }[] };
+    const r = await deps.traceImpact({ law }, c.get('token')).catch(() => { throw new ApiError('NOT_FOUND', '비교할 이전 개정본이 없거나 등록되지 않은 규정입니다'); }) as { law_id?: string; old_revision?: string; new_revision?: string; impacted?: { doc_id: string; evidence?: Ev[] }[] };
     const hit = r.impacted?.find((i) => i.doc_id === doc_id);
+    // 초안 인용 '(제15조제1항)'에 규정 이름을 붙이도록 Registry 이름을 넘긴다 (사용자 피드백 11/20)
+    const lawName = r.law_id ? (await store.listDocs()).find((x) => x.law_id === r.law_id && x.law_name)?.law_name : undefined;
     const d = await store.getDoc(doc_id);
     if (!hit || !d || d.lifecycle !== 'PUBLISHED' || !canRead(a, d.acl_groups)) throw new ApiError('NOT_FOUND', '이 규정 개정의 영향 문서가 아닙니다');
     const text = await editText(doc_id);
@@ -718,11 +764,19 @@ export function createApp(deps: Deps) {
       const dup = open.find((x) => x.before === (before ?? span) && x.path === ev.change.path);
       if (dup) { out.push(dup); continue; }
       const i = before ? text.indexOf(before) : -1;
-      const j = before && deps.draftImpact ? await deps.draftImpact({ before, old_clause: ev.change.old_text, new_clause: ev.change.new_text, path: ev.change.path, kind: ev.change.kind,
+      const j = before && deps.draftImpact ? await deps.draftImpact({ before, old_clause: ev.change.old_text, new_clause: ev.change.new_text, path: ev.change.path, kind: ev.change.kind, ...(lawName ? { law_name: lawName } : {}),
         context: text.slice(Math.max(0, i - 1500), i + before.length + 1500) }).catch(() => undefined) : undefined;
       // 마지막 방어: AI팀 checkImpactDraft 를 거친 값이어도 PII·무변경이면 버린다
       const after = j?.verdict === 'APPROPRIATE' && j.after?.trim() && j.after.trim() !== before && !detectPii(j.after).length ? j.after.trim() : undefined;
-      const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: 'system:impact', at, before: before ?? span,
+      // 개정 내용(프론트 8차): 조문 표기·시행일은 Registry 조문에서, 없으면 개정 ID(날짜)·경로
+      const newPid = r.law_id && r.new_revision ? `${r.law_id}@${r.new_revision}/${ev.change.path}` : '';
+      const [oc, nc] = deps.clause ? await Promise.all([deps.clause(ev.cited_provision_id).catch(() => undefined), newPid ? deps.clause(newPid).catch(() => undefined) : undefined]) : [];
+      const lbl = nc?.label ?? oc?.label ?? '';
+      const path = /제\s*\d.*$/.exec(lbl)?.[0] ?? '';
+      const ymd = (s?: string) => (/^\d{4}-\d{2}-\d{2}/.test(s ?? '') ? s!.slice(0, 10) : '');
+      const revision = { provision_id: newPid || ev.cited_provision_id, law_name: lbl.slice(0, lbl.length - path.length).trim() || lawName || law, label: path || pathLabel(ev.change.path), kind: ev.change.kind,
+        old_text: ev.change.old_text.slice(0, 2000), new_text: ev.change.new_text.slice(0, 2000), effective_from: nc?.effective_from || ymd(r.new_revision), current_effective_from: oc?.effective_from || ymd(r.old_revision) };
+      const cr: ChangeRequest = { id: newId.fnd().replace('fnd_', 'cr_'), by: 'system:impact', at, before: before ?? span, revision,
         request: mask(`근거 조문 개정(${ev.change.path}, ${ev.change.kind}): ${ev.change.old_text.slice(0, 200)} → ${ev.change.new_text.slice(0, 200)}`, detectPii(ev.change.new_text + ev.change.old_text)),
         verdict: !before ? 'UNKNOWN' : j ? (j.verdict === 'APPROPRIATE' && !after ? 'UNKNOWN' : j.verdict) : 'UNKNOWN', ...(after ? { after } : {}),
         ai_reason: !before ? '본문에서 근거 문장을 찾지 못했습니다' : j?.reason?.slice(0, 300) ?? 'AI 초안을 받지 못했습니다',
@@ -764,9 +818,13 @@ export function createApp(deps: Deps) {
   app.get('/v1/admin/in-review', async (c) => {
     need(c, APPROVERS);
     const me = c.get('actor').sub;
-    const items = (await store.listDocs()).filter((d) => d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED')
-      .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, 50)
-      .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at }));
+    // all=1: 데모 초기화(demo-reset)용 — 게시·삭제가 아닌 모든 문서(결재 대기·차단·분석 중 포함), 상한 500 (총괄 11/23). 화면 기본은 그대로
+    const all = c.req.query('all') === '1';
+    const items = (await store.listDocs()).filter((d) => (all ? d.lifecycle !== 'PUBLISHED' && d.lifecycle !== 'DELETED' : d.lifecycle === 'IN_REVIEW' || d.lifecycle === 'QUARANTINED'))
+      .sort((x, y) => y.updated_at.localeCompare(x.updated_at)).slice(0, all ? 500 : 50)
+      .map((d) => ({ doc_id: d.doc_id, title: d.title, lifecycle: d.lifecycle, own: d.owner === me, open: d.findings.filter(isOpenFix).length, updated_at: d.updated_at,
+        // 출처 불일치면 게시 요청이 409 → '게시 요청만 남음'이 아니라 '출처 확인 대기' (프론트 요청 11/20)
+        source_mismatch: hasSourceMismatch(d) && !d.source_review }));
     return c.json({ items });
   });
 
@@ -810,7 +868,12 @@ export function createApp(deps: Deps) {
       const summary_line = (d?.summary ?? '').split(/(?<=[.다])\s+/u)[0]?.slice(0, 140) || null;
       // 올린 사람이 '그대로 사용'한 규정 충돌·재검사에서 새로 나온 충돌은 승인자가 판단 (사용자 결정 11/18) → 카드에 보인다
       const kept = (d?.findings ?? []).filter((f) => f.code === 'KNOWHOW_CONFLICT' && f.acknowledged).map((f) => ({ text: (f.location?.excerpt ?? '').slice(0, 120), reason: f.acknowledged!.reason ?? '', system: f.acknowledged!.by.startsWith('system:') }));
-      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle, workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
+      // 승인자도 '확인 필요'를 본다 (틀린 매뉴얼 승인 방지, 11/20)
+      const checks = (d?.findings ?? []).filter((f) => CHECK_CODES.has(f.code));
+      return { ...r, task_token: undefined, own: r.author_sub === c.get('actor').sub, title: d?.title, lifecycle: d?.lifecycle,
+        effective_from: d?.effective_from ?? null, freshness: d?.freshness, freshness_reason: d ? freshnessView(d) : null, // 결재 카드 배지·재검토 이유 (프론트 8차)
+        workflow_failure: failure, summary_line, source: d?.source ?? 'UPLOAD', kept,
+        checks_count: checks.length, checks: checks.slice(0, 5).map((f) => ({ code: f.code, text: (f.location?.excerpt ?? '').slice(0, 120), message: f.user_message ?? f.message })),
         ...(v ? { version: { version_no: d!.version_no, previous_title: v.previous.title, changes_count: v.count, changes: v.changes.slice(0, 6) } } : {}) };
     }));
     // 폐기·반려된 문서의 남은 승인 요청은 결재함에 보이지 않게 (승인 대기는 문서도 PENDING_APPROVAL일 때만)
@@ -897,7 +960,8 @@ export function createApp(deps: Deps) {
     const groups = [...groupSeries(vis.filter((d) => d.lifecycle !== 'BLOCKED')).values()];
     const items = groups.map((g) => ({ rep: representative(g), n: g.length })).filter(({ rep }) => matches(rep, f) && inCat(rep.doc_id))
       .sort((x, y) => y.rep.updated_at.localeCompare(x.rep.updated_at)).map(({ rep, n }) => ({ ...card(rep, vis), version_count: n, category_path: cat.pathOf(rep.doc_id) }));
-    return c.json({ items });
+    const rt = await store.ratings?.(c.get('actor').sub);
+    return c.json({ items: items.map((i) => ({ ...i, ...ratingOf(rt?.get(i.doc_id)) })) });
   });
   // 원본 보기 (사용자 요청 11/17 '원본 내용 그대로 png, 쪽별 파일 presigned URL'): 모든 쪽, 개인정보만 가린 이미지.
   // 가리지 않은 원본은 올린 사람·결재자의 원본 다운로드로만. URL 은 로그·감사에 남기지 않는다
@@ -1035,22 +1099,31 @@ export function createApp(deps: Deps) {
     const approval = d.lifecycle === 'PUBLISHED' ? [...await store.listApprovals('USED'), ...await store.listApprovals('APPROVED')].filter((x) => x.doc_id === d.doc_id).sort((x, y) => (y.decided_at ?? '').localeCompare(x.decided_at ?? ''))[0] : undefined;
     const base = card(d, vis);
     const pendingApproval = d.lifecycle === 'PENDING_APPROVAL' && hasRole(a, APPROVERS) ? (await store.listApprovals('PENDING')).find((x) => x.doc_id === d.doc_id) : undefined;
+    const myRt = (await store.ratings?.(a.sub))?.get(d.doc_id);
     return c.json({
       ...base,
+      ...ratingOf(myRt), my_stars: myRt?.mine ?? null,
+      rejection_reason: d.owner === a.sub || hasRole(a, APPROVERS) ? await rejectionReason(d) : null,
       ...await (async () => { const cv = await categoryView(); return { category_path: cv.pathOf(d.doc_id), category_id: cv.docs.get(d.doc_id) ?? null }; })(),
-      claims: await docClaimsView(d),
+      ...await (async () => {
+        const cl = await docClaimsView(d);
+        const fr = base.freshness_reason;
+        const x = fr && !fr.changes.length && d.lifecycle === 'PUBLISHED' ? await claimChange(cl) : undefined;
+        return { claims: cl, ...(fr && x ? { freshness_reason: { ...fr, changes: [x.change], effective_from: fr.effective_from || x.effective_from } } : {}) };
+      })(),
       // 참조 확인(6.4) 참고 제안: 웹에서 확인한 주소. 근거 인용 불가, '정리본에 넣기' 는 위키 수정(6.2)
       clarify: d.findings.filter((f) => f.code === 'CLARIFY_NEEDED' && f.details).map((f) => ({ finding_id: f.finding_id, severity: f.severity, ...clarifyView(f.details as Record<string, unknown>) })),
       suggestions: d.findings.filter((f) => f.code === 'REFERENCE_SUGGESTION' && f.details).map((f) => ({ finding_id: f.finding_id, page: f.location?.page ?? null, ...(f.details as { item: string; reason: string; url: string; title: string; checked_at: string }) })),
       // 그림이 있는 쪽(개인정보 가린 쪽 이미지가 있는 쪽, page_index). 문서 보기에서 글 옆에 쪽 이미지 (사용자 지적 11/17 "그림은 따로 안 보여줘?")
       image_pages: deps.pageImageList ? await deps.pageImageList(d.doc_id).catch(() => []) : [],
-      can_delete: d.owner === a.sub || hasRole(a, APPROVERS),
+      can_delete: canDelete(a, d), is_owner: d.owner === a.sub, // 작성자 행동 막대 판단 (can_delete 가 게시 문서에서 false 가 된 뒤, 프론트 11/23)
       // 결재 대상이면 결재 정보와 확인할 이유(쪽 본문이 없을 때 Finding으로 대신)
       review: d.lifecycle === 'PUBLISHED' || !hasRole(a, APPROVERS) ? undefined : {
         lifecycle: d.lifecycle,
         approval_id: pendingApproval?.approval_id,
         source_mismatch: d.lifecycle === 'IN_REVIEW' && hasSourceMismatch(d) && !d.source_review,
-        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: plainMessage(f), fix_hint: f.fix_hint, page: f.location?.page })),
+        findings: d.findings.filter((f) => f.severity !== 'LOW').map((f) => ({ severity: f.severity, code: f.code, step: f.step, message: plainMessage(f), fix_hint: f.fix_hint, page: f.location?.page,
+          ...(f.acknowledged ? { ack_reason: f.acknowledged.reason ?? '' } : {}) })), // 작성자 '그대로 사용' 사유 → 승인자 상세에 (엔드유저 11/20)
       },
       ...docDatesOf(d, pages),
       verification: verification(d, approval),
@@ -1095,7 +1168,8 @@ export function createApp(deps: Deps) {
     const items = [...groupByDoc((type ? sem.filter((i) => i.document_type === type) : sem) as unknown as { doc_id: string; basis?: string; snippet: string }[]), ...kw];
     const shown = new Set(items.map((i) => i.doc_id));
     const related = groupByDoc(all.filter((i) => i.weak && !shown.has(i.doc_id) && (!type || i.document_type === type)) as unknown as { doc_id: string; basis?: string; snippet: string }[]);
-    return c.json({ items, related, ...(rewritten ? { rewritten } : {}) });
+    const rt = await store.ratings?.(a.sub);
+    return c.json({ items: items.map((i) => ({ ...i, ...ratingOf(rt?.get(i.doc_id)) })), related, ...(rewritten ? { rewritten } : {}) });
   });
 
   app.post('/v1/guides', async (c) => {

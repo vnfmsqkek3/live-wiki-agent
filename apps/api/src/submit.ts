@@ -11,6 +11,11 @@ export const FIX_CODES = new Set(['KNOWHOW_CONFLICT', 'EDIT_REMOVED_KEY_SENTENCE
 /** 게시 요청을 막는 '고칠 것': 확인 필요는 MEDIUM(절차 문장의 담당자·빠진 값)이고 아직 열린 것만 (계약 6.5) */
 /** 항목별 사람 확인(Fable 권고·사용자 요청 11/18): 개인정보·비밀값 MEDIUM 은 항목마다 '그대로 사용(사유)' 또는 수정해야 게시 요청 가능. OCR 신뢰도는 잠그지 않음 */
 export const REVIEW_CODES = new Set(['PII_IMAGE_REVIEW', 'PII_IN_FIGURE', 'PII_GUARDRAIL', 'SECRET_MASKED']);
+/** 사람 확인 필요(게시 잠금 아님): MEDIUM 외부 법령(미검증)과 다름·근거 조문과 다름·개정 전 조문 인용·근거 못 찾음,
+ *  LOW '확인하지 못함'(외부 대조·Guardrails 생략) — 화면이 severity 로 따로 묶는다 (AI팀 합의 11/20) */
+export const CHECK_CODES = new Set(['KNOWHOW_EXTERNAL_MISMATCH', 'KNOWHOW_BASIS_MISMATCH', 'KNOWHOW_OUTDATED_CITATION', 'KNOWHOW_NO_BASIS', 'KNOWHOW_EXTERNAL_SKIPPED', 'GUARDRAIL_SKIPPED']);
+export const checkView = (f: { finding_id: string; code: string; severity: string; message: string; user_message?: string; fix_hint?: string; evidence_ref: string; location?: { excerpt?: string } }) =>
+  ({ finding_id: f.finding_id, code: f.code, severity: f.severity, message: f.user_message ?? f.message, excerpt: f.location?.excerpt ?? '', fix_hint: f.fix_hint ?? null, evidence_ref: f.evidence_ref });
 export const isOpenFix = (f: { code: string; severity: string; acknowledged?: unknown; details?: Record<string, unknown> }) =>
   (FIX_CODES.has(f.code) && !f.acknowledged && !(f.code === 'CLARIFY_NEEDED' && (f.severity !== 'MEDIUM' || f.details?.['status'] !== 'OPEN')))
   || (REVIEW_CODES.has(f.code) && f.severity === 'MEDIUM' && !f.acknowledged);

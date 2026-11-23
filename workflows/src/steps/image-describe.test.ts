@@ -64,7 +64,7 @@ describe("sanitize", () => {
       { kind: "hologram", description: "고객 010-1234-5678 상담 화면 캡처", overlay_text: "연락처 010-9999-0000", intent: "절차 안내" },
     ] }, mask);
     expect(r.pii).toBe(2);
-    expect(r.figures).toEqual([{ kind: "other", description: "고객 [전화번호] 상담 화면 캡처", overlay_text: "연락처 [전화번호]", intent: "절차 안내" }]);
+    expect(r.figures).toEqual([{ kind: "other", description: "고객 [전화번호] 상담 화면 캡처", people: "UNSURE", overlay_text: "연락처 [전화번호]", intent: "절차 안내" }]); // people 누락 → UNSURE
   });
   it("tolerates malformed model output", async () => expect(await sanitize("nope", mask)).toEqual({ figures: [], pii: 0 }));
   it("low-OCR page keeps page_markdown even without figures (vision fallback)", async () => {
@@ -84,13 +84,13 @@ describe("ImageDescribe", () => {
     const w = world({
       "doc_1/masked/pages/0000.png": masked,
       "doc_1/masked/segments/0000.json": { doc_id: "doc_1", page_index: 0, text: "제5조 담보평가" },
-    }, { figures: [{ kind: "screenshot", description: "담보평가 시스템 입력 화면", overlay_text: "감정가 입력", intent: "입력 위치 안내" }] });
+    }, { figures: [{ kind: "screenshot", description: "담보평가 시스템 입력 화면", overlay_text: "감정가 입력", intent: "입력 위치 안내", people: "NONE" }] });
     const out = await w.handler(input);
-    expect(out).toEqual({ status: "OK", output_key: "doc_1/masked/figures/" });
+    expect(out).toEqual({ status: "OK", output_key: "doc_1/masked/figures/", figure_pii: { 1: "NONE" } });
     expect(w.sent).toEqual([masked]); // 텍스트만 부족한 1쪽은 보내지 않음
     expect(w.puts.get("doc_1/masked/segments/0000.json")).toEqual({
       doc_id: "doc_1", page_index: 0, text: "제5조 담보평가",
-      figures: [{ kind: "screenshot", description: "담보평가 시스템 입력 화면", overlay_text: "감정가 입력", intent: "입력 위치 안내" }],
+      figures: [{ kind: "screenshot", description: "담보평가 시스템 입력 화면", overlay_text: "감정가 입력", intent: "입력 위치 안내", people: "NONE" }],
     });
   });
 
@@ -121,6 +121,30 @@ describe("ImageDescribe", () => {
     expect(JSON.stringify(w.puts.get("doc_1/masked/figures/0000.json"))).not.toContain("1234");
   });
 
+});
+
+describe("ImageDescribe people (그림 사람 정보 판정, 총괄 확정 11/20)", () => {
+  const page = (figures: unknown[]) => world({ "doc_1/masked/pages/0002.png": masked }, { figures });
+  it("PRESENT on any figure → PII_IN_FIGURE for that page", async () => {
+    const out = await page([{ kind: "screenshot", description: "화면", people: "NONE" }, { kind: "photo", description: "직원 사진", people: "PRESENT" }]).handler(input);
+    expect(out.figure_pii).toEqual({ 3: "PRESENT" });
+    expect(out.findings?.map((f) => [f.code, f.location?.page])).toEqual([["PII_IN_FIGURE", 3]]);
+  });
+  it("NONE + UNSURE → UNSURE finding; invalid people counts as UNSURE", async () => {
+    const out = await page([{ kind: "screenshot", description: "화면", people: "NONE" }, { kind: "photo", description: "흐린 사진", people: "maybe" }]).handler(input);
+    expect(out.figure_pii).toEqual({ 3: "UNSURE" });
+    expect(out.status).toBe("REVIEW_REQUIRED");
+  });
+  it("all NONE → no finding, verdict recorded per figure in the segment", async () => {
+    const w = page([{ kind: "diagram", description: "흐름도", people: "NONE" }]);
+    const out = await w.handler(input);
+    expect(out).toMatchObject({ status: "OK", figure_pii: { 3: "NONE" } });
+    expect((w.puts.get("doc_1/masked/segments/0002.json") as { figures: { people: string }[] }).figures[0]!.people).toBe("NONE");
+  });
+  it("no figures returned (model failure) → no verdict, PiiScan review stays (fail-closed)", async () => {
+    const out = await page([]).handler(input);
+    expect(out).toEqual({ status: "OK" });
+  });
 });
 
 describe("shared PII rules (@hanaeum/pii)", () => {

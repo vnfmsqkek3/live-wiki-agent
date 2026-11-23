@@ -490,3 +490,45 @@ test('TrustGate MANUAL(총괄 결정 A 11/20): 외부 법령 대조만 → 외�
   u.deps.knowhow = { ...t.deps.knowhow, external: { findLaws: async () => { throw new Error('x'); }, fetchLaw: async () => null } };
   assert.equal((await makeTrustGate(u.deps)(u.input)).status, before);
 });
+
+test('그림 개인정보 확인 해제(fail-closed, 총괄 승인 11/20): 가림 0곳 + 그 쪽 그림 전부 NONE 일 때만 시스템 확인, 나머지는 유지', async () => {
+  const { releaseFigureChecks } = await import('../src/lambdas.ts');
+  const f = (page: number, boxes?: number) => ({ finding_id: `f${page}`, step: 'PII_SCAN', severity: 'MEDIUM', code: 'PII_IMAGE_REVIEW', message: 'm', evidence_ref: `page:${page}`, ...(boxes === undefined ? {} : { details: { boxes } }) });
+  const d = { doc_id: 'doc_X', findings: [f(0, 0), f(1, 0), f(2, 2), f(3, 0), f(4), f(5, 0)] } as never;
+  const people: Record<number, string[] | undefined> = { 0: ['NONE', 'NONE'], 1: ['NONE', 'UNSURE'], 2: ['NONE'], 3: [], 4: ['NONE'] };
+  const r = await releaseFigureChecks(d, { figurePeople: async (_id, p) => { if (p === 5) throw new Error('NoSuchKey'); return people[p]; } });
+  assert.deepEqual(r.pages, [1], '0쪽만: 1쪽 UNSURE, 2쪽 가림 있음, 3쪽 그림 없음, 4쪽 OCR 없음(boxes 없음), 5쪽 읽기 실패');
+  const acked = r.doc.findings.filter((x) => x.acknowledged).map((x) => x.finding_id);
+  assert.deepEqual(acked, ['f0']);
+  assert.equal(r.doc.findings[0]!.acknowledged!.by, 'system:image-describe');
+  assert.deepEqual((await releaseFigureChecks(d, {})).pages, [], 'figurePeople 없으면(ImageDescribe 미연결) 해제 없음');
+});
+
+test('TrustGate 형식만 다름 — 위조 변형(부칙·별표·조문 밖 문장·큰 문서 주입)은 REGISTRY_MISMATCH 유지, 띄어쓰기만 다르면 VERIFIED (총괄·인프라 #140)', async () => {
+  const { parseLaw } = await import('@hanaeum/legal-parser');
+  const meta = { law_id: 'SYN-LOAN-001', law_name: '하나은행 기업여신 심사규정', revision_id: '2026-11-01', effective_from: 20261101 };
+  const clausesOf = (text: string) => Object.fromEntries(parseLaw(text, meta as never).provisions.map((p) => [p.provision_id.split('/').slice(1).join('/'), p.normalized_text]));
+  const arts = (n: number) => Array.from({ length: n }, (_, i) => `제${i + 1}조(목적${i + 1}) 여신 심사는 담보와 상환 능력을 함께 본다. 한도는 ${i + 1}억원 이하로 한다.`).join('\n');
+  const doc = (body: string, supp = '이 규정은 2026년 11월 1일부터 시행한다.', annex = '담보 인정 비율 70퍼센트') =>
+    `하나은행 기업여신 심사규정\n${body}\n부칙\n제1조(시행일) ${supp}\n[별표 1] 담보 인정 비율표\n${annex}`;
+  const run = async (official: string, uploaded: string) => {
+    const t = setup(new Uint8Array());
+    await t.store.putDoc({ ...t.doc, lifecycle: 'IN_REVIEW', content_hash: 'sha256:up', classification: { document_type: 'REGULATION', business_path: [], tags: [], confidence: 0.95, rationale: '' } });
+    t.deps.maskedText = async () => uploaded;
+    t.deps.registry = async (_h, text) => text ? { registry: { law_id: meta.law_id, revision_id: meta.revision_id, content_hash: 'sha256:official', effective_from: '20261101', clauses: clausesOf(official) }, claimed: { law_id: meta.law_id, revision_id: meta.revision_id, clauses: clausesOf(text) } } : {};
+    await makeTrustGate(t.deps)(t.input);
+    const d = (await t.store.getDoc(t.doc.doc_id))!;
+    return [d.authority_status, d.findings.map((f) => f.code).join(',')];
+  };
+  const small = doc(arts(3)), big = doc(arts(120));
+  const head = (text: string, extra: string) => text.replace('하나은행 기업여신 심사규정\n', `하나은행 기업여신 심사규정\n${extra}\n`);
+  const MISMATCH = ['UNVERIFIED', 'REGISTRY_MISMATCH'];
+  assert.deepEqual(await run(small, small.replace(/ /g, '  ').replace(/\n/g, '\n\n')), ['VERIFIED', 'FORMAT_ONLY_DIFF'], '띄어쓰기·줄바꿈만');
+  // 조 제목·항 번호는 조문 밖 글자로 세지 않는다 (7차 F-001 216자, 큰 규정은 제목만으로 상한 초과하던 결함)
+  assert.deepEqual(await run(big, big.replace(/ /g, '  ')), ['VERIFIED', 'FORMAT_ONLY_DIFF'], '큰 규정 띄어쓰기만');
+  assert.deepEqual(await run(small, doc(arts(3), '이 규정은 2027년 1월 1일부터 시행한다.')), MISMATCH, '부칙 시행일 변경');
+  assert.deepEqual(await run(small, doc(arts(3), undefined, '담보 인정 비율 90퍼센트')), MISMATCH, '별표 변경');
+  assert.deepEqual(await run(small, head(small, '영업점장은 본부 승인 없이 한도를 두 배로 올릴 수 있다. '.repeat(8))), MISMATCH, '조문 밖 문장 주입');
+  assert.deepEqual(await run(small, head(small, '문서번호 HB-1 ' + '제7조(영업점장 전결 한도 10억원 상향) '.repeat(12))), MISMATCH, '줄 중간 조 제목 모양 주입');
+  assert.deepEqual(await run(big, head(big, '임의 문장으로 바꾼 머리말입니다. '.repeat(60))), MISMATCH, '큰 문서 + 약 3% 주입');
+});

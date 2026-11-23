@@ -457,6 +457,31 @@ test('주장: 상세에 문서 주장 + 같은 조문 게시 주장의 지지·�
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/knowledge-debt')).json()) as { healthy: number }).healthy, 3);
 });
 
+test('재검토 이유 보충·시행 예정 개정판 (프론트 8차 11/23): 수정 제안 없는 재검토는 주장 provision_revised 로 changes 1건(상세만), 같은 묶음의 시행일 > 오늘 게시본은 upcoming', async () => {
+  const t = setup();
+  const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, findings: [], created_at: '', updated_at: '', acl_groups: ['ALL'], lifecycle: 'PUBLISHED' as const };
+  const fr = { law_id: 'SYN-LOAN-001', law_name: '기업여신 심사규정', cited_revision: '', current_revision: '', effective_from: '', provisions: [], at: '' };
+  await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '노하우', document_type: 'KNOWHOW', freshness: 'REVIEW_REQUIRED', freshness_reason: fr });
+  const OLD = 'SYN-LOAN-001@2026-11-01/ARTICLE:5/PARAGRAPH:1', NEW = 'SYN-LOAN-001@2099-01-01/ARTICLE:5/PARAGRAPH:1';
+  t.deps.claims = {
+    list: async () => [{ claim_id: 'doc_R#1', seq: 1, statement: '한도는 3억원', page: 1, provision_id: OLD, relation: 'SUPPORTS', reason: '', quote: '한도는 3억원까지 영업점장 전결', verified: true, status: 'REVIEW_REQUIRED', status_reason: `provision_revised:${NEW}` }],
+    counts: async () => new Map(), debt: async () => ({ conflicts: 0, review_required: 1, unverified: 0, healthy: 0, docs_needing_attention: 1 }),
+  };
+  const cl: Record<string, { text: string; effective_from: string }> = { [OLD]: { text: '한도는 3억원 이하', effective_from: '2026-11-01' }, [NEW]: { text: '한도는 2억원 이하', effective_from: '2099-01-01' } };
+  t.deps.clause = async (id) => cl[id] && { provision_id: id, label: '하나은행 기업여신 심사규정 제5조제1항', status: 'ACTIVE', ...cl[id] };
+  const d = (await (await t.call('user', 'GET', '/v1/library/doc_R')).json()) as { freshness_reason: { effective_from: string; open_change_requests: number; changes: unknown[] } };
+  assert.deepEqual(d.freshness_reason.changes, [{ provision_id: NEW, label: '제5조제1항', kind: 'MODIFIED', old_text: '한도는 3억원 이하', new_text: '한도는 2억원 이하', cited_text: '한도는 3억원까지 영업점장 전결' }]);
+  assert.deepEqual([d.freshness_reason.effective_from, d.freshness_reason.open_change_requests], ['2099-01-01', 0]);
+
+  // 규정 v1(시행 중)·v2(2099 시행 예정) 같은 law_id 묶음 → v1 카드에 upcoming = v2
+  const reg = { ...base, document_type: 'REGULATION' as const, law_id: 'SYN-REV-001', freshness: 'CURRENT' as const };
+  await t.store.putDoc({ ...reg, doc_id: 'doc_V1', title: '규정 v1', effective_from: '2026-11-01', revision_id: '2026-11-01' });
+  await t.store.putDoc({ ...reg, doc_id: 'doc_V2', title: '규정 v2', effective_from: '2099-01-01', revision_id: '2099-01-01' });
+  const v1 = (await (await t.call('user', 'GET', '/v1/library/doc_V1')).json()) as { upcoming: unknown };
+  assert.deepEqual(v1.upcoming, { doc_id: 'doc_V2', version_no: 2, effective_from: '2099-01-01' });
+  assert.equal(((await (await t.call('user', 'GET', '/v1/library/doc_V2')).json()) as { upcoming: unknown }).upcoming, null);
+});
+
 test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·original.md), 규정 불가, 내 검토 중 문서는 그 자리 재분석, 고칠 것 남으면 게시 요청 잠금', async () => {
   const t = setup();
   const put: string[] = [];
@@ -593,10 +618,35 @@ test('위키 수정 요청(사용자 결정 11/18): 읽는 사람 요청 → AI 
   const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; after: string }[] };
   assert.equal(list.items[0]!.after, '1. 서류는 디지털운영팀이 관리한다.');
   assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT' })).status, 422);
+  // 삭제된 문서의 열린 제안은 목록에서 빠지고 처리도 안 됨 (demo-reset 뒤 남던 K-001 CR, 데이터 11/23). 예전에 삭제돼 OPEN 으로 남은 것도
+  const live = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...live, lifecycle: 'DELETED' });
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
+  assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT', reason: 'x' })).status, 404);
+  await t.store.putDoc(live);
+  // 대체된 이전 버전의 제안: 결재함에 '이전 버전'으로 보이고 반영은 409, 반려는 가능 (총괄 11/23)
+  await t.store.putDoc({ ...live, freshness: 'SUPERSEDED' });
+  const old = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; superseded: boolean }[] };
+  assert.equal(old.items.find((x) => x.id === r.id)!.superseded, true);
+  const sup = await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' });
+  assert.equal(sup.status, 409);
+  assert.match(((await sup.json()) as { error: { message: string } }).error.message, /이전 버전 기준/);
+  await t.store.putDoc(live);
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.previous_doc_id, doc_id); assert.equal(nv.lifecycle, 'QUARANTINED'); assert.ok(nv.review_carry, '새 버전도 이전 결정을 잇는다');
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
+});
+
+test('문서 삭제는 열린 수정 제안을 닫는다(REJECTED·사유 문서 삭제) (총괄·데이터 11/23)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  const cr = (id: string, status: 'OPEN' | 'APPLIED') => ({ id, by: 'u', at: 't', before: 'b', request: 'r', verdict: 'UNKNOWN' as const, status });
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', change_requests: [cr('cr_open', 'OPEN'), cr('cr_done', 'APPLIED')] });
+  assert.equal((await t.call('approver', 'DELETE', `/v1/documents/${doc_id}`, { reason: '정리' })).status, 202);
+  const after = (await t.store.getDoc(doc_id))!.change_requests!;
+  assert.deepEqual(after.map((r) => [r.id, r.status, r.decision_reason ?? null]), [['cr_open', 'REJECTED', '문서 삭제'], ['cr_done', 'APPLIED', null]]);
 });
 
 test('위키 수정·검토 중 다시 분석은 이전 검사 결과를 저장소에서도 지운다 (11/18 dev 시험 D2: 고친 뒤에도 옛 고칠 것이 남음)', async () => {
@@ -679,8 +729,9 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   t.deps.putOriginal = async () => {};
   const ev = (span: string, kind = 'MODIFIED') => ({ cited_provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:12', evidence_span: span, change: { path: 'ARTICLE:12', kind, old_text: '한도는 5억 원', new_text: '한도는 3억 원' } });
   const tokens: string[] = [];
-  t.deps.traceImpact = async (a, tok) => { tokens.push(tok); return { law_id: 'SYN-LOAN-001', impacted: [{ doc_id, evidence: [ev('1. 여신 한도는 5억 원 이하로 심사한다.'), ev('본문에 없는 문장입니다')] }] }; };
-  const seen: { old_clause: string; new_clause: string }[] = [];
+  t.deps.traceImpact = async (a, tok) => { tokens.push(tok); return { law_id: 'SYN-LOAN-001', old_revision: '2026-11-01', new_revision: '2027-01-01', impacted: [{ doc_id, evidence: [ev('1. 여신 한도는 5억 원 이하로 심사한다.'), ev('본문에 없는 문장입니다')] }] }; };
+  await t.store.putDoc({ ...d, doc_id: 'doc_01M7MEH5136HE3JJ68AD8M0REG', law_id: 'SYN-LOAN-001', law_name: '하나은행 기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED' } as never);
+  const seen: { old_clause: string; new_clause: string; law_name?: string }[] = [];
   t.deps.draftImpact = async (i) => { seen.push(i); return { verdict: 'APPROPRIATE', after: '1. 여신 한도는 3억 원 이하로 심사한다.', reason: '조문 한도 변경' }; };
   const body = { law: '기업여신 심사규정', doc_id };
 
@@ -693,19 +744,32 @@ test('변경 영향 수정 초안(데모 04, AI팀 계약 11/20): 서버가 영�
   assert.deepEqual([r.items[0]!.verdict, r.items[0]!.after], ['APPROPRIATE', '1. 여신 한도는 3억 원 이하로 심사한다.']);
   assert.deepEqual([r.items[1]!.verdict, r.items[1]!.after, r.items[1]!.ai_reason], ['UNKNOWN', null, '본문에서 근거 문장을 찾지 못했습니다']);
   assert.equal(seen.length, 1, '찾지 못한 근거는 모델을 부르지 않음');
-  assert.deepEqual([seen[0]!.old_clause, seen[0]!.new_clause], ['한도는 5억 원', '한도는 3억 원']);
+  assert.deepEqual([seen[0]!.old_clause, seen[0]!.new_clause, seen[0]!.law_name], ['한도는 5억 원', '한도는 3억 원', '하나은행 기업여신 심사규정'], '초안 인용에 붙일 규정 이름');
   assert.equal(tokens[0], 'approver', '사용자 토큰으로 trace_impact');
 
   // 문서는 그대로(게시 유지) + 재검토 표시. 다시 눌러도 새로 만들지 않음
   const after1 = (await t.store.getDoc(doc_id))!;
   assert.deepEqual([after1.lifecycle, after1.freshness], ['PUBLISHED', 'REVIEW_REQUIRED']);
+  // 재검토 이유 (프론트 8차): 개정 내용·인용 문장·열린 수정 제안 수. Registry 표기가 없으면 경로·개정 ID 날짜
+  const fr = ((await (await t.call('user', 'GET', `/v1/library/${doc_id}`)).json()) as { freshness_reason: { effective_from: string; open_change_requests: number; changes: Record<string, string>[] } }).freshness_reason;
+  assert.deepEqual([fr.effective_from, fr.open_change_requests, fr.changes.length], ['2027-01-01', 2, 2]);
+  assert.deepEqual(fr.changes[0], { provision_id: 'SYN-LOAN-001@2027-01-01/ARTICLE:12', label: '제12조', kind: 'MODIFIED', old_text: '한도는 5억 원', new_text: '한도는 3억 원', cited_text: '1. 여신 한도는 5억 원 이하로 심사한다.' });
   const again = await t.call('approver', 'POST', '/v1/admin/impact/draft', body);
   assert.equal(again.status, 200);
   assert.deepEqual(((await again.json()) as { items: { id: string }[] }).items.map((x) => x.id), r.items.map((x) => x.id));
 
   // 결재함에 올라감 → 반영 → 새 버전은 검사 대기(QUARANTINED), 승인 전이라 일반 사용자 보관함에 없음
-  const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; source?: string }[] };
+  const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; source?: string; revision?: Record<string, string> }[] };
   assert.equal(list.items.filter((x) => x.source === 'IMPACT').length, 2);
+  assert.deepEqual(list.items[0]!.revision, { provision_id: 'SYN-LOAN-001@2027-01-01/ARTICLE:12', law_name: '하나은행 기업여신 심사규정', label: '제12조', kind: 'MODIFIED',
+    old_text: '한도는 5억 원', new_text: '한도는 3억 원', effective_from: '2027-01-01', current_effective_from: '2026-11-01' });
+  // 시행 예정(2027-01-01) 개정판 기준 제안은 시행일 전 반영 불가 (G-KREV-02 왕복, 총괄 11/23)
+  assert.equal((list.items[0] as { apply_after?: string }).apply_after, '2027-01-01');
+  const early = await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.items[0]!.id}`, { decision: 'APPLY' });
+  assert.equal(early.status, 409);
+  assert.match(((await early.json()) as { error: { message: string } }).error.message, /2027-01-01부터 반영/);
+  const cur = (await t.store.getDoc(doc_id))!; // 시행일이 지났다고 두고 반영
+  await t.store.putDoc({ ...cur, change_requests: cur.change_requests!.map((x) => ({ ...x, revision: x.revision && { ...x.revision, effective_from: '2026-01-01' } })) });
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.items[0]!.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.lifecycle, 'QUARANTINED');
@@ -776,4 +840,82 @@ test('외부 법령 참고(총괄 지시 11/20): 법령당 1건, 인용 조문 �
   const none = (await (await t.call('user', 'GET', `/v1/library/${doc_id}/external-laws`)).json()) as R;
   assert.deepEqual([none.items[0]!.clause, none.items[0]!.clauses], [undefined, []]);
   assert.ok(none.items[0]!.result, '조문 없는 법령도 법령 단위로 조회');
+});
+
+test('확인 필요(checks): 외부 법령·근거 조문과 다름은 잠그지 않고, 작성자 검토·승인자 결재함 모두에 보인다 (MX-002 11/20)', async () => {
+  const t = setup();
+  const { doc_id, approval_id } = await submitted(t);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, findings: [{ finding_id: 'x1', step: 'KNOWHOW_VALIDATION', severity: 'MEDIUM', code: 'KNOWHOW_EXTERNAL_MISMATCH', message: 'm', user_message: '외부 법령과 다름', evidence_ref: 'ext', fix_hint: '30일 이내로 고치세요', location: { excerpt: '60일 이내 신고' } }] as never });
+  const rv = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/review`)).json()) as { fixes: unknown[]; checks: { code: string; excerpt: string; fix_hint: string }[] };
+  assert.deepEqual(rv.fixes, []);
+  assert.deepEqual(rv.checks.map((c) => [c.code, c.excerpt, c.fix_hint]), [['KNOWHOW_EXTERNAL_MISMATCH', '60일 이내 신고', '30일 이내로 고치세요']]);
+  const ap = (await (await t.call('approver', 'GET', '/v1/approvals')).json()) as { items: { approval_id: string; checks_count: number; checks: { text: string }[] }[] };
+  const card = ap.items.find((i) => i.approval_id === approval_id)!;
+  assert.equal(card.checks_count, 1);
+  assert.equal(card.checks[0]!.text, '60일 이내 신고');
+});
+
+test('검증 정보: 매뉴얼도 외부 법령 대조 결과가 있으면 그 사실·다른 문장을 보인다 (MX-002 11/20)', async () => {
+  const { verification } = await import('../src/library.ts');
+  const v = verification({ document_type: 'MANUAL', findings: [{ finding_id: 'x', step: 'KNOWHOW_VALIDATION', severity: 'MEDIUM', code: 'KNOWHOW_EXTERNAL_MISMATCH', message: 'm', user_message: '제9-5조 원문과 다릅니다', evidence_ref: 'EXT:x', location: { excerpt: '60일 이내 신고' } }] } as never);
+  assert.match(v.method, /외부 법령/);
+  assert.deepEqual(v.basis.map((b) => [b.result, b.statement]), [['외부 법령과 다름(확인 필요)', '60일 이내 신고']]);
+  assert.match(verification({ document_type: 'MANUAL', findings: [] } as never).method, /규정 대조 대상이 아닌/);
+});
+
+test('문서보관함 상세(승인자): 작성자가 그대로 사용한 사유가 review.findings 에 ack_reason 으로 (엔드유저 11/20)', async () => {
+  const t = setup();
+  const { doc_id } = await submitted(t);
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, findings: [{ finding_id: 'k1', step: 'KNOWHOW_VALIDATION', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'p', acknowledged: { by: 'author', at: 't', reason: '본부 예외 승인' } }] as never });
+  const r = (await (await t.call('approver', 'GET', `/v1/library/${doc_id}`)).json()) as { review: { findings: { ack_reason?: string }[] } };
+  assert.equal(r.review.findings[0]!.ack_reason, '본부 예외 승인');
+});
+
+test('평점(인기): 목록·상세에 rating{avg,count}·useful_count·내 별점, 별점 없으면 rating 생략 (P1 11/20)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', acl_groups: ['ALL'] } as never);
+  assert.equal(((await (await t.call('user', 'GET', '/v1/library')).json()) as { items: { rating?: unknown }[] }).items[0]!.rating, undefined);
+  assert.equal((await t.call('user', 'POST', '/v1/feedback', { doc_id, stars: 5, useful: true })).status, 200);
+  assert.equal((await t.call('author', 'POST', '/v1/feedback', { doc_id, stars: 4, useful: false })).status, 200);
+  const it = ((await (await t.call('user', 'GET', '/v1/library')).json()) as { items: { rating: { avg: number; count: number }; useful_count: number }[] }).items[0]!;
+  assert.deepEqual([it.rating, it.useful_count], [{ avg: 4.5, count: 2 }, 1]);
+  const det = (await (await t.call('user', 'GET', `/v1/library/${doc_id}`)).json()) as { my_stars: number; rating: { count: number } };
+  assert.deepEqual([det.my_stars, det.rating.count], [5, 2]);
+});
+
+test('평가 화면 denials: Gateway Policy 거부도 API 거부와 함께 시간순, 로그 읽기 실패해도 API 거부는 보임 (P1 11/20)', async () => {
+  const t = setup();
+  assert.equal((await t.call('user', 'GET', '/v1/admin/evaluations')).status, 403);
+  t.deps.gatewayDenials = async () => [{ at: '2099-01-01T00:00:00.000Z', role: 'USER', tool: 'probe___publish_wiki_probe', reason: 'Policy evaluation denied', trace_id: 'tr-1' }];
+  const app = (await import('../src/app.ts')).createApp(t.deps);
+  const get = async () => (await (await app.request('/v1/admin/evaluations', { headers: { authorization: 'Bearer approver' } })).json()) as { denials: { tool: string; source: string }[] };
+  const r = await get();
+  assert.deepEqual(r.denials.map((d) => [d.source, d.tool]), [['GATEWAY', 'probe___publish_wiki_probe'], ['API', 'GET /v1/admin/evaluations']]);
+  t.deps.gatewayDenials = async () => { throw new Error('AccessDenied'); };
+  assert.deepEqual((await get()).denials.map((d) => d.source), ['API']);
+});
+
+test('반려 사유: 작성자 review·문서보관함 상세에 rejection_reason(개인정보 가림), 결재함 검토 대기에 source_mismatch (엔드유저·프론트 11/20)', async () => {
+  const t = setup();
+  const { doc_id, approval_id } = await submitted(t);
+  assert.equal((await t.call('approver', 'POST', `/v1/approvals/${approval_id}/decision`, { decision: 'REJECT', reason: '근거 조문 확인 필요 900101-1234568' })).status, 200);
+  const rv = (await (await t.call('author', 'GET', `/v1/documents/${doc_id}/review`)).json()) as { rejection_reason: string };
+  assert.match(rv.rejection_reason, /^근거 조문 확인 필요/);
+  assert.ok(!rv.rejection_reason.includes('1234568'), '개인정보 가림');
+  const lib = (await (await t.call('author', 'GET', `/v1/library/${doc_id}`)).json()) as { rejection_reason: string };
+  assert.equal(lib.rejection_reason, rv.rejection_reason);
+  const { doc_id: d2 } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const x = (await t.store.getDoc(d2))!;
+  await t.store.putDoc({ ...x, lifecycle: 'IN_REVIEW', findings: [{ finding_id: 'r1', step: 'TRUST_GATE', severity: 'HIGH', code: 'REGISTRY_MISMATCH', message: 'm', evidence_ref: 'e' }] } as never);
+  const ir = (await (await t.call('approver', 'GET', '/v1/admin/in-review')).json()) as { items: { doc_id: string; source_mismatch: boolean }[] };
+  assert.equal(ir.items.find((i) => i.doc_id === d2)!.source_mismatch, true);
+  // demo-reset 용 all=1: 반려 등 게시·삭제가 아닌 문서도 (화면 기본 목록엔 없음, 총괄 11/23)
+  assert.ok(!ir.items.some((i) => i.doc_id === doc_id));
+  const all = (await (await t.call('approver', 'GET', '/v1/admin/in-review?all=1')).json()) as { items: { doc_id: string; lifecycle: string }[] };
+  assert.deepEqual(all.items.map((i) => i.doc_id).sort(), [doc_id, d2].sort());
+  assert.equal((await t.call('author', 'GET', '/v1/admin/in-review?all=1')).status, 403);
 });
