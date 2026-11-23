@@ -4,7 +4,7 @@ import { PageHeader } from '../page-header';
 // 06 관리: 결재란으로 진행 단계 표시. 불일치는 AI가 위조로 단정하지 않고 출처 검토를 요청한다.
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
-import { api, ApiError, getSession, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, type Role, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
+import { api, ApiError, type CrRevision, type DocChange, type FreshnessReason, type LibraryCard, viewedDocs, markViewed as markViewedDoc } from '../lib/api';
 import { APPROVE_CHIPS, decideApproval, rejectSource } from '../lib/decide';
 import { readable } from '../lib/readable';
 import { Icon } from '../icons';
