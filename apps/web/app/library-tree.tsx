@@ -27,6 +27,8 @@ const total = (f: Folder): number => f.docs.length + [...f.subs.values()].reduce
 
 export function LibraryTree({ items }: { items: LibraryCard[] }) {
   const root = build(items);
+  // 같은 이름(규정 v1·v2)이 여럿이면 판을 붙여 구분 (총괄 11/23)
+  const dup = new Set(items.map((d) => d.title).filter((t, i, a) => a.indexOf(t) !== i));
   // 처음에는 1단계 폴더만 펼친다
   const [open, setOpen] = useState<Set<string>>(() => new Set([...root.subs.values()].map((f) => f.path)));
   const ref = useRef<HTMLUListElement>(null);
@@ -56,6 +58,7 @@ export function LibraryTree({ items }: { items: LibraryCard[] }) {
     return (
       <li key={d.doc_id} role="treeitem" tabIndex={-1} className="tree-doc">
         <Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} tabIndex={-1}>{d.title}</Link>
+        {dup.has(d.title) && <span className="note">v{d.version_no ?? 1}{d.effective_from ? ` · ${d.effective_from}판` : ''}</span>}
         <span className="kind-tag">{KIND[d.document_type ?? 'KNOWHOW']}</span>
         <span className={`auth ${tone}`}>{a}</span>
         <Scheduled date={d.effective_from} />
