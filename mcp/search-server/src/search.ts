@@ -84,6 +84,8 @@ export const RERANK_RATIO = 0.4;
 export const RELATED_MIN = 0.10;
 /** 1위가 RERANK_TOP1_MIN + 이 값 미만이면 "얕은 근거" — 삭제·개정 옛 항 이력 보충을 근거 없음과 같이 시도 (CT-04 경계 0.32, 총괄 11/23) */
 export const SHALLOW_MARGIN = 0.05;
+/** 표시 순서 감점: 재검토 필요(REVIEW_REQUIRED) 문서는 이만큼 낮춰 정렬 — 점수 차가 작으면 현행 규정이 위 (엔드유저·총괄 11/23). 근거 판정·컷에는 안 씀 */
+export const REVIEW_PENALTY = 0.10;
 
 export class BedrockRetriever implements Retriever {
   private readonly c: BedrockAgentRuntimeClient;
@@ -362,6 +364,9 @@ export function searchTools(deps: { retriever: Retriever; states: DocStates; reg
     // 점수 하한을 올리지 않는 이유: 11/17 실측 관련 질의 1위 0.13~0.26 → 0.20이면 진짜 관련 문서도 숨음 (yoyo0704 실측 11/18, 과천 그림 설명이 "개인정보"에 걸림)
     const terms = queryTerms(`${rw?.core ?? ""} ${rw?.alternates.join(" ") ?? ""} ${cleanQuery(q.text)}`);
     const related = kept.filter((r) => r.weak && !top.some((t) => t.provision_id === r.provision_id) && r.quotable && hasTerm(`${r.title} ${r.snippet} ${r.category_path ?? ""} ${r.path_label}`, terms)).slice(0, k);
+    // 표시 순서만: 자른 뒤 재검토 필요 문서를 REVIEW_PENALTY 만큼 뒤로 (어떤 문서가 근거인지는 그대로). 이력 보충으로 올린 항(replaces)은 맨 앞 유지
+    const shown = (r: Result) => (r.replaces ? Infinity : r.score - (r.freshness === "REVIEW_REQUIRED" ? REVIEW_PENALTY : 0));
+    top = [...top].sort((a, b) => shown(b) - shown(a));
     const search_status: SearchStatus = !top.length ? "UNVERIFIED" : top.every((r) => r.historical) ? "HISTORICAL" : "FOUND";
     const expanded = o.expand === "section" ? await expandSections(top, q.text, actor, o) : [];
     return { search_status, items: top, ...(related.length ? { related } : {}), ...(expanded.length ? { expanded } : {}), ...(rw ? { rewritten: rw } : {}), dropped_after_revalidation: dropped, pii_masked: q.masked };
