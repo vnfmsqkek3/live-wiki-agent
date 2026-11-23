@@ -3,10 +3,9 @@
 import Link from 'next/link';
 import { useRef, useState, type KeyboardEvent } from 'react';
 import type { LibraryCard } from './lib/api';
-import { FreshnessFlag, Scheduled } from './seal';
+import { FreshnessFlag, KindTag, Scheduled } from './seal';
 
 type Folder = { name: string; path: string; docs: LibraryCard[]; subs: Map<string, Folder> };
-const KIND: Record<string, string> = { REGULATION: '규정', KNOWHOW: '노하우', MANUAL: '매뉴얼' };
 const AUTH: Record<string, [string, string]> = { VERIFIED: ['검증됨', 'ok'], UNVERIFIED: ['미검증', 'wait'], REJECTED: ['반려', 'bad'] };
 
 function build(items: LibraryCard[]): Folder {
@@ -59,7 +58,7 @@ export function LibraryTree({ items }: { items: LibraryCard[] }) {
       <li key={d.doc_id} role="treeitem" tabIndex={-1} className="tree-doc">
         <Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} tabIndex={-1}>{d.title}</Link>
         {dup.has(d.title) && <span className="note">v{d.version_no ?? 1}{d.effective_from ? ` · ${d.effective_from}판` : ''}</span>}
-        <span className="kind-tag">{KIND[d.document_type ?? 'KNOWHOW']}</span>
+        <KindTag type={d.document_type} />
         <span className={`auth ${tone}`}>{a}</span>
         <Scheduled date={d.effective_from} />
         <FreshnessFlag freshness={d.freshness} />
