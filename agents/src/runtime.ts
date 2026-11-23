@@ -137,7 +137,8 @@ async function draftWithModel(prompt: string, ctx: { authorization?: string; pro
   });
   try {
     const r = await agent.invoke(prompt);
-    if (client) await Promise.race([lawNames(client, unnamedLaws(evidence).slice(0, 3)).then((m) => applyLawNames(evidence, m)).catch(() => {}), new Promise((ok) => setTimeout(ok, 5_000))]);
+    // 이름 Map 만 경쟁시키고 적용은 그 뒤 동기로 (늦게 끝난 조회가 응답 뒤 evidence 를 바꾸지 않게, 백엔드 리뷰 #156)
+    if (client) applyLawNames(evidence, await Promise.race([lawNames(client, unnamedLaws(evidence).slice(0, 3)).catch(() => new Map<string, string>()), new Promise<Map<string, string>>((ok) => setTimeout(() => ok(new Map()), 5_000))]));
     return { ...(r.structuredOutput as GuideDraft), evidence, tool_calls };
   } finally {
     await client?.disconnect().catch(() => {});
