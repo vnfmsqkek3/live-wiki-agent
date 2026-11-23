@@ -363,6 +363,31 @@
           "basis": "외국환거래규정 제9-9조제1항"
         }
       ]
+    },
+    {
+      "document_id": "K-005",
+      "file": "documents/K-005.md",
+      "title": "고객 상담 메모 (개인정보 마스킹 확인용)",
+      "document_type": "KNOWHOW",
+      "dept": "수신",
+      "acl_groups": [
+        "ALL"
+      ],
+      "related_regulation": null,
+      "related_clause": null,
+      "expected_kb_visibility": "after_human_approval",
+      "source": "사용자 요청 11/23 (총괄 전달): 가상 개인정보 형식 값으로 마스킹 확인",
+      "expected_pii": {
+        "RRN": 4,
+        "FOREIGNER_NO": 1,
+        "CARD": 2,
+        "ACCOUNT": 2
+      },
+      "expected_pii_note": "전화번호 2건은 가리지 않음(사용자 결정 11/17). 모든 번호 가상: 주민·외국인 번호는 체크섬만 맞고 지역 자리 97·98(미발급 대역), 카드는 공개 테스트 번호",
+      "expected_conflict": false,
+      "upload_file": "documents/pdf/K-005.pdf",
+      "expected_status": "UNVERIFIED",
+      "test_scenario": "업로드 → PiiScan 마스킹(형식별 전부) → 검색·가이드·외부 MCP 응답에 원문 0"
     }
   ]
 }

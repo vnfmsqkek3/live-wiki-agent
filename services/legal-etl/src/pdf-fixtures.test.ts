@@ -35,6 +35,16 @@ test("노하우·공격 PDF: 본문·SYNTHETIC 표시·Injection 문구가 텍�
   assert.match(await pdfText("K-001"), /제14조제1항/u);
 });
 
+test("K-005 마스킹 확인용 PDF: 가상 개인정보가 형식별로 모두 확실(certain) 탐지, 전화번호는 대상 아님 (사용자 요청 11/23)", async () => {
+  const { detectPii } = await import("@hanaeum/pii");
+  const text = await pdfText("K-005");
+  assert.match(text, /SYNTHETIC/u);
+  const spans = detectPii(text);
+  const count: Record<string, number> = {};
+  for (const s of spans) { assert.equal(s.certain, true, text.slice(s.start, s.end)); count[s.type] = (count[s.type] ?? 0) + 1; }
+  assert.deepEqual(count, { RRN: 4, FOREIGNER_NO: 1, CARD: 2, ACCOUNT: 2 });
+});
+
 // 13항 9번: 업로드 허용 형식 DOCX·HWPX도 실제로 처리한다 (부풀림 금지). ConvertToPdf 배포 전 호환 경로(XML 글자)
 for (const ext of ["docx", "hwpx"] as const) {
   for (const id of ["F-001", "F-003"]) {
