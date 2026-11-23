@@ -5,7 +5,7 @@ import { createHash } from 'node:crypto';
 import { newId, type DocumentRecord, type Finding, type StepOutput } from './contracts.ts';
 import type { Store } from './store.ts';
 import { fileStructureCheck, typeDetection, type FileKind } from './steps/file-checks.ts';
-import { squash, trustGate, type RegistryEntry } from './steps/trust-gate.ts';
+import { outsideChars, trustGate, type RegistryEntry } from './steps/trust-gate.ts';
 import { validateExternal, validateKnowhow, type KnowhowDeps } from './steps/knowhow.ts';
 import { piiScan, type GuardrailCheck } from './steps/pii.ts';
 import { injectionScan } from './steps/injection.ts';
@@ -415,7 +415,7 @@ export function makeTrustGate(deps: LambdaDeps) {
       match = await deps.registry(d.content_hash ?? '', text);
       // 형식만 다름 판정용: 조문 밖 글자 수 (Registry 와 비교할 수 없는 부분이 작을 때만 인정)
       const cl = match.claimed?.clauses;
-      if (cl) otherChars = Math.max(0, squash(text).length - Object.values(cl).reduce((n, t) => n + squash(t).length, 0));
+      if (cl) otherChars = outsideChars(text, cl);
     }
     const g = trustGate({ doc: d, claimed: match.claimed && { ...match.claimed, ...(otherChars !== undefined ? { other_chars: otherChars } : {}) }, registry: match.registry });
     const reg = g.authority_status === 'VERIFIED' && match.registry ? match.registry : undefined;
