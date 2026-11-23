@@ -618,6 +618,12 @@ test('위키 수정 요청(사용자 결정 11/18): 읽는 사람 요청 → AI 
   const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; after: string }[] };
   assert.equal(list.items[0]!.after, '1. 서류는 디지털운영팀이 관리한다.');
   assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT' })).status, 422);
+  // 삭제된 문서의 열린 제안은 목록에서 빠지고 처리도 안 됨 (demo-reset 뒤 남던 K-001 CR, 데이터 11/23)
+  const live = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...live, lifecycle: 'DELETED' });
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
+  assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT', reason: 'x' })).status, 404);
+  await t.store.putDoc(live);
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.previous_doc_id, doc_id); assert.equal(nv.lifecycle, 'QUARANTINED'); assert.ok(nv.review_carry, '새 버전도 이전 결정을 잇는다');

@@ -357,7 +357,8 @@ export function createApp(deps: Deps) {
   const applyAfter = (r: ChangeRequest) => (r.source === 'IMPACT' && r.revision?.effective_from && r.revision.effective_from > todayKst() ? r.revision.effective_from : null);
   app.get('/v1/admin/change-requests', async (c) => {
     need(c, APPROVERS);
-    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED', apply_after: applyAfter(r) })))
+    // 삭제된 문서의 열린 제안은 처리할 대상이 아니다 (demo-reset 뒤 K-001 CR 3건 남음, 데이터 11/23)
+    const items = (await store.listDocs()).filter((d) => d.lifecycle !== 'DELETED').flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED', apply_after: applyAfter(r) })))
       .sort((x, y) => y.at.localeCompare(x.at));
     return c.json({ items });
   });
@@ -367,7 +368,7 @@ export function createApp(deps: Deps) {
     const b = (await c.req.json().catch(() => ({}))) as { decision?: unknown; reason?: unknown; after?: unknown };
     const d = await store.getDoc(c.req.param('doc'));
     const cr = d?.change_requests?.find((r) => r.id === c.req.param('id'));
-    if (!d || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
+    if (!d || d.lifecycle === 'DELETED' || !cr || cr.status !== 'OPEN') throw new ApiError('NOT_FOUND', '처리할 수 있는 수정 요청이 아닙니다');
     const at = new Date().toISOString(); const reason = String(b.reason ?? '').trim().slice(0, 200);
     let next: Partial<ChangeRequest>;
     if (b.decision === 'REJECT') {
