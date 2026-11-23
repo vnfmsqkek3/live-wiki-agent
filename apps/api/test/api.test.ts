@@ -489,22 +489,29 @@ test('위키 수정: 게시 노하우 → 새 버전(WIKI_EDIT·previous·origin
   const base = { version: 1, owner: 'u-other', dept: 'd', ext: 'pdf', authority_status: 'VERIFIED' as const, freshness: 'CURRENT' as const, findings: [], created_at: '', updated_at: '' };
   await t.store.putDoc({ ...base, doc_id: 'doc_K', title: '시재 마감 노하우', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW' });
   await t.store.putDoc({ ...base, doc_id: 'doc_R', title: '규정', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'REGULATION' });
-  assert.equal((await t.call('user', 'POST', '/v1/documents/doc_R/edit', { markdown: '# 규정' })).status, 409);
+  assert.equal((await t.call('approver', 'POST', '/v1/documents/doc_R/edit', { markdown: '# 규정' })).status, 409);
   await t.store.putDoc({ ...base, doc_id: 'doc_OLD', title: '옛 판', acl_groups: ['ALL'], lifecycle: 'PUBLISHED', document_type: 'KNOWHOW', freshness: 'SUPERSEDED' });
-  assert.equal((await t.call('user', 'POST', '/v1/documents/doc_OLD/edit', { markdown: '# 옛 판' })).status, 409); // 대체된 판은 최신에서 고친다
-  const r = await t.call('user', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감\n1. 마감 30분 전 시재표 출력' });
+  assert.equal((await t.call('approver', 'POST', '/v1/documents/doc_OLD/edit', { markdown: '# 옛 판' })).status, 409); // 대체된 판은 최신에서 고친다
+  // 게시 문서 새 버전은 결재자만 (사용자 결정 11/23 B): 사용자는 403 + [수정 요청] 안내, 상세 can_wiki_edit 같은 기준
+  const denied = await t.call('user', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감' });
+  assert.equal(denied.status, 403);
+  assert.match(((await denied.json()) as { error: { message: string } }).error.message, /수정 요청/);
+  assert.equal(((await (await t.call('user', 'GET', '/v1/library/doc_K')).json()) as { can_wiki_edit: boolean }).can_wiki_edit, false);
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/library/doc_K')).json()) as { can_wiki_edit: boolean }).can_wiki_edit, true);
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/library/doc_R')).json()) as { can_wiki_edit: boolean }).can_wiki_edit, false);
+  const r = await t.call('approver', 'POST', '/v1/documents/doc_K/edit', { markdown: '## 시재 마감\n1. 마감 30분 전 시재표 출력' });
   assert.equal(r.status, 201);
   const { doc_id, new_version } = (await r.json()) as { doc_id: string; new_version: boolean };
   const nd = (await t.store.getDoc(doc_id))!;
-  assert.ok(new_version && nd.owner === 'u-user' && nd.source === 'WIKI_EDIT' && nd.previous_doc_id === 'doc_K' && nd.ext === 'md' && nd.lifecycle === 'QUARANTINED');
+  assert.ok(new_version && nd.owner === 'u-approver' && nd.source === 'WIKI_EDIT' && nd.previous_doc_id === 'doc_K' && nd.ext === 'md' && nd.lifecycle === 'QUARANTINED');
   assert.deepEqual(put, [`${doc_id}/original.md`]);
   // 분석이 끝나 고칠 것이 남은 상태 → 게시 요청 잠김 → 그 자리에서 고쳐 다시 분석
   await t.store.putDoc({ ...nd, lifecycle: 'IN_REVIEW', trust_gate_result: 'REVIEW_REQUIRED', s3_version_id: 'v1', content_hash: 'sha256:x',
     findings: [{ finding_id: 'f1', step: 'TRUST_GATE', severity: 'HIGH', code: 'KNOWHOW_CONFLICT', message: 'm', evidence_ref: 'e' }] });
-  const s = await t.call('user', 'POST', `/v1/documents/${doc_id}/submit`);
+  const s = await t.call('approver', 'POST', `/v1/documents/${doc_id}/submit`);
   assert.equal(s.status, 409);
   assert.match(JSON.stringify(await s.json()), /고칠 것·확인할 것 1건/);
-  const again = (await (await t.call('user', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: '## 고친 본문' })).json()) as { doc_id: string; new_version: boolean };
+  const again = (await (await t.call('approver', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: '## 고친 본문' })).json()) as { doc_id: string; new_version: boolean };
   assert.equal(again.doc_id, doc_id); assert.equal(again.new_version, false);
   assert.equal((await t.store.getDoc(doc_id))!.findings.length, 0);
   assert.equal((await t.call('author', 'POST', `/v1/documents/${doc_id}/edit`, { markdown: 'x' })).status, 404); // 남의 검토 중 문서
