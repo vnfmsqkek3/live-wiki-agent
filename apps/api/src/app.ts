@@ -485,6 +485,8 @@ export function createApp(deps: Deps) {
     const next: DocumentRecord = {
       ...d, lifecycle: 'DELETED', deleted_reason: d.lifecycle === 'DELETED' ? d.deleted_reason ?? b.reason : b.reason,
       deleted_by: d.deleted_by ?? a.sub, delete_workflow_id: newId.wf(), updated_at: at,
+      // 열린 수정 제안은 닫는다 (결재함에 남던 K-001 CR, 총괄·데이터 11/23)
+      ...(d.change_requests?.some((r) => r.status === 'OPEN') ? { change_requests: d.change_requests.map((r) => (r.status === 'OPEN' ? { ...r, status: 'REJECTED' as const, decided_by: a.sub, decided_at: at, decision_reason: '문서 삭제' } : r)) } : {}),
       ...(d.purge ? { purge: { ...d.purge, deleted_at: undefined, review_required: undefined } } : {}),
     };
     await store.putDoc(next);
