@@ -27,6 +27,8 @@ function GuideView() {
   }, [q]);
 
   const docs = g ? [...new Map(g.steps.flatMap((s) => s.sources).map((e) => [e.doc_id || e.provision, e])).values()] : [];
+  // 근거 출처: 문서마다 한 줄, 인용한 조문은 모두 (엔드유저 12:4x: 조문 5개 인용인데 같은 규정 문서라 1건만 보임)
+  const cites = docs.map((d) => ({ d, provs: [...new Set(g!.steps.flatMap((s) => s.sources).filter((e) => (e.doc_id || e.provision) === (d.doc_id || d.provision)).map((e) => (e.provision ?? '').replace(/^.*?(?=제\s*\d)/, '')).filter(Boolean))] }));
   // 근거 0건이거나 게시·승인 요청 거절이면 '확인이 더 필요한 부분'을 맨 위에 (엔드유저 ⑧ 11/20: 근거 1건이어도 거절이 아래에 묻힘)
   const top = !!g?.uncertainty && (!docs.length || (/게시|승인/.test(g.uncertainty) && /할 수 없|불가/.test(g.uncertainty)));
   async function useful() {
@@ -89,7 +91,7 @@ function GuideView() {
           <p className="meta" style={{ marginTop: 16 }}>AI 생성 안내입니다. 근거 문서를 확인해 주세요.</p>
         </>
       )}
-      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{docs.length ? <ul className="source-list">{docs.map((d) => <li key={d.doc_id || d.provision}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{d.provision?.startsWith(d.title) ? d.provision.slice(d.title.length).trim() : d.provision}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
+      </div><aside className="support-panel"><h2 className="section">근거 출처</h2>{cites.length ? <ul className="source-list">{cites.map(({ d, provs }) => <li key={d.doc_id || d.provision}>{d.doc_id ? <a href={`/library?id=${encodeURIComponent(d.doc_id)}`}>{d.title}</a> : d.title}<p className="note">{provs.join(', ')}{d.effective_from && <> · <span className="num">{d.effective_from}</span> 시행</>}</p></li>)}</ul> : <p className="note">질문하면 승인된 문서의 근거가 여기에 표시됩니다.</p>}</aside></div>
     </>
   );
 }
