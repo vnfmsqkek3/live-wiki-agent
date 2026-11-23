@@ -105,7 +105,7 @@ export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: Searc
   const labels = changes.length ? changes.map((c) => c.label ?? readable(c.provision_id)) : (r?.provisions ?? []).map(readable);
   const flag = <><Icon name="alert" />근거 규정이 바뀌어 재검토 중</>;
   if (!r) return <span className="flag">{flag}</span>;
-  const law = r.law_name.trim();
+  const law = (r.law_name ?? '').trim();
   // 이유가 있으면 빨간 경고 상자 하나로: 제목 + '재검토 사유' (엔드유저·사용자 11/23). 날짜는 있는 것만 문장에 넣는다
   return <div className="reason-box" role="note" aria-labelledby={id}>
     <p className="reason-head" id={id}>{flag}</p>
