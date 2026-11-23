@@ -19,14 +19,19 @@ const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&fr
  *  지식 수치는 게시 문서 주장 기준(interfaces 10.2). 0은 흐리게 */
 function TodoNow({ pending, source }: { pending: number | null; source: number | null }) {
   const [k, setK] = useState<Record<string, number> | null>(null);
-  useEffect(() => { api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null)); }, []);
-  const review = k?.review_required ?? null;
+  const [reviewDocs, setReviewDocs] = useState<number | null>(null);
+  useEffect(() => {
+    api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null));
+    // 요약·행동 버튼은 문서 단위 (총괄 11/23: '재검토 12'(주장)와 목록 2건(문서)이 달라 보임)
+    api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => setReviewDocs(r.items.filter((d) => d.freshness === 'REVIEW_REQUIRED').length)).catch(() => setReviewDocs(null));
+  }, []);
+  const review = reviewDocs;
   const cards: { n: number | null; label: string; href: string; tone: string }[] = [
     { n: k?.conflicts ?? null, label: '규정과 어긋난 주장', href: '/library?only=conflict', tone: 'bad' },
     { n: source, label: '출처 확인 필요', href: '#source-h', tone: 'bad' },
     { n: pending, label: '게시 승인 대기', href: '#pending-h', tone: 'wait' },
-    { n: review, label: '근거 개정 재검토', href: '/library?only=review', tone: 'bad' },
-    { n: k?.unverified ?? null, label: '근거 확인 필요', href: '/library?only=unverified', tone: 'wait' },
+    { n: k?.review_required ?? null, label: '재검토 주장 (근거 개정)', href: '/library?only=review', tone: 'bad' },
+    { n: k?.unverified ?? null, label: '근거 확인 필요 주장', href: '/library?only=unverified', tone: 'wait' },
     { n: k?.healthy ?? null, label: '확인된 주장 (참고)', href: '/library', tone: 'ref' },
   ];
   const next = [[source, '출처 확인하기', '#source-h'], [pending, '결재하기', '#pending-h'], [review, '재검토 문서 보기', '/library?only=review']].find(([n]) => !!n) as [number, string, string] | undefined;
@@ -35,7 +40,7 @@ function TodoNow({ pending, source }: { pending: number | null; source: number |
     <section aria-labelledby="todo-h" className="todo-now">
       <h2 className="section" id="todo-h">지금 할 일</h2>
       <div className="todo-line">
-        {next || pending === null ? <p>{part(pending, '결재 대기')} · {part(source, '출처 확인 필요')} · {part(review, '재검토')}</p> : <p>지금 결재할 문서가 없습니다.</p>}
+        {next || pending === null ? <p>{part(pending, '결재 대기')} · {part(source, '출처 확인 필요')} · {part(review, '재검토 문서')}</p> : <p>지금 결재할 문서가 없습니다.</p>}
         {next && <a className="btn solid" href={next[2]}>{next[1]}</a>}
       </div>
       <ul className="stat-cards" aria-label="위험한 순서">{cards.map((c) => (

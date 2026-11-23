@@ -13,6 +13,10 @@ const paths = {
   clock: 'M12 3a9 9 0 1 0 0 18 9 9 0 0 0 0-18ZM12 7v5l3 2',
   arrow: 'M4 12h16m-6-6 6 6-6 6',
   user: 'M12 3a4 4 0 1 0 0 8 4 4 0 0 0 0-8ZM4 21v-2a8 8 0 0 1 16 0v2',
+  edit: 'M4 20h4L19 9l-4-4L4 16v4ZM13 7l4 4',
+  download: 'M12 3v12m-5-5 5 5 5-5M4 19h16',
+  message: 'M4 4h16v12H8l-4 4V4ZM8 9h8M8 12h5',
+  more: 'M5 12h.01M12 12h.01M19 12h.01',
 } as const;
 export type IconName = keyof typeof paths;
 export function Icon({ name, ...props }: SVGProps<SVGSVGElement> & { name: IconName }) {

@@ -314,7 +314,7 @@ const sorted = (l: LibraryCard[], sort: string) => sort !== 'rating' ? l : [...l
 const ONLY: Record<string, { label: string; f: (d: LibraryCard) => boolean }> = {
   review: { label: '근거 개정으로 재검토 중인', f: (d) => d.freshness === 'REVIEW_REQUIRED' },
   unverified: { label: '근거 확인이 필요한', f: (d) => d.authority_status === 'UNVERIFIED' },
-  conflict: { label: '규정과 어긋난 곳이 있는', f: (d) => d.mark_count > 0 },
+  conflict: { label: '고칠 곳(규정 충돌·개인정보 등)이 있는', f: (d) => d.mark_count > 0 },
 };
 
 const REVIEW_STATE: Record<string, string> = {
@@ -427,17 +427,40 @@ function Download({ id, edited, hasOriginal, onPrint }: { id: string; edited?: b
       document.body.appendChild(a); a.click(); a.remove();
     } catch (e) { setMsg((e as ApiError).status === 404 ? '원본 파일이 없습니다. 검증 실패나 삭제로 지워진 문서입니다.' : (e as ApiError).message); }
   }
-  if (!edited) return <><button type="button" className="btn" onClick={() => go()}>원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
+  if (!edited) return <><button type="button" className="btn" onClick={() => go()} title="처음 올린 파일 그대로 받기"><Icon name="download" />원본 다운로드</button>{msg && <p className="note" role="status">{msg}</p>}</>;
   return <>
-    <button type="button" className="btn" onClick={() => go()} title="위키에서 고친 글(마크다운, 개인정보 가림)">수정본 다운로드(.md)</button>
+    <button type="button" className="btn" onClick={() => go()} title="위키에서 고친 글(마크다운, 개인정보 가림)"><Icon name="download" />수정본 다운로드 (.md)</button>
     {hasOriginal && <button type="button" className="btn" onClick={() => go('original')} title="위키에서 고치기 전 처음 올린 파일">처음 올린 원본</button>}
     <button type="button" className="btn" onClick={() => (onPrint ? onPrint() : window.print())} title="정리본을 PDF 로 저장(인쇄 창에서 'PDF로 저장')">정리본 PDF 저장</button>
     {msg && <p className="note" role="status">{msg}</p>}
   </>;
 }
 
+/** 문서 상세 행동 막대 (사용자 11/23): 역할별 주 버튼 1개만 채움색, 나머지 테두리, 다운로드는 오른쪽 보조. 좁은 화면은 주 버튼 + [⋯] */
+function DocActions({ d, canWikiEdit, onEdit, onPrint }: { d: LibraryDoc; canWikiEdit: boolean; onEdit: () => void; onPrint: () => void }) {
+  const [more, setMore] = useState(false);
+  const admin = isAdmin(getSession()?.groups);
+  const owner = !!d.can_delete && !admin; // can_delete = 작성자 또는 결재자
+  const prim = admin && d.freshness === 'REVIEW_REQUIRED' ? 'cr' : canWikiEdit ? (admin || owner ? 'wiki' : 'req') : null;
+  const wiki = (solid: boolean) => <button type="button" className={`btn${solid ? ' solid' : ''}`} onClick={onEdit} title="새 버전 초안을 만들어 결재를 요청합니다"><Icon name="edit" />위키에서 고치기</button>;
+  const main = prim === 'cr' ? <Link className="btn solid" href="/admin#cr-h" title="이 문서에 들어온 수정 요청을 결재함에서 확인합니다"><Icon name="approval" />수정 요청 보기</Link>
+    : prim === 'wiki' ? wiki(true) : prim === 'req' ? <ChangeRequest id={d.doc_id} primary /> : null;
+  return (
+    <div className={`doc-actions no-print${more || !main ? ' open' : ''}`} role="group" aria-label="문서 작업">
+      {main}
+      <div className="sec" id="doc-more">
+        {canWikiEdit && prim !== 'wiki' && wiki(false)}
+        {canWikiEdit && prim !== 'req' && <ChangeRequest id={d.doc_id} />}
+        <span className="push" aria-hidden="true" />
+        <Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={onPrint} />
+      </div>
+      {main && <button type="button" className="btn more-btn" aria-expanded={more} aria-controls="doc-more" aria-label="작업 더보기" onClick={() => setMore((x) => !x)}><Icon name="more" /></button>}
+    </div>
+  );
+}
+
 /** 위키 수정 요청 (사용자 결정 11/18): 고칠 부분(본문에서 골라 붙여넣기) + 고칠 내용 → AI 판단과 초안을 붙여 관리자에게 */
-function ChangeRequest({ id }: { id: string }) {
+function ChangeRequest({ id, primary }: { id: string; primary?: boolean }) {
   const [open, setOpen] = useState(false);
   const [before, setBefore] = useState(''); const [req, setReq] = useState('');
   const [busy, setBusy] = useState(false); const [msg, setMsg] = useState('');
@@ -451,7 +474,7 @@ function ChangeRequest({ id }: { id: string }) {
     } catch (e) { setMsg((e as ApiError).message); }
     setBusy(false);
   }
-  if (!open) return <button type="button" className="btn" onMouseDown={(e) => e.preventDefault()} onClick={pick} title="본문에서 고칠 부분을 드래그해 고른 뒤 누르면 자동으로 채워집니다">수정 요청</button>;
+  if (!open) return <button type="button" className={`btn${primary ? ' solid' : ''}`} onMouseDown={(e) => e.preventDefault()} onClick={pick} title="작성자·결재자에게 고칠 점을 전달합니다 (본문에서 드래그해 고른 뒤 누르면 자동으로 채워짐)"><Icon name="message" />수정 요청</button>;
   return (
     <div className="change-req" role="group" aria-label="수정 요청">
       <label className="lbl" htmlFor="cr-before">고칠 부분 (본문에서 드래그해 고른 뒤 [수정 요청]을 누르면 채워집니다)</label>
@@ -659,7 +682,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
       {d.lifecycle === 'PUBLISHED' && <p className="doc-rating">{d.rating?.count ? <span aria-label={`평균 ${d.rating.avg.toFixed(1)}점, ${d.rating.count}명 평가`}><span aria-hidden="true">★ <b className="num">{d.rating.avg.toFixed(1)}</b> ({d.rating.count}명 평가)</span></span>
         : <>아직 평가 없음 · <button type="button" className="linklike" onClick={() => [...document.querySelectorAll<HTMLButtonElement>('button.detail-card')].find((b) => b.textContent?.startsWith('평점'))?.click()}>평가하기</button></>}</p>}
-      <Scheduled date={d.effective_from} /><FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} /><Upcoming u={d.upcoming} /><p className="note">{d.freshness_reason && d.freshness === 'REVIEW_REQUIRED' ? '' : d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<div className="actions no-print"><Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={() => setPrinting(true)} />{canWikiEdit && <button type="button" className="btn" onClick={() => setEditing('')}>위키에서 고치기</button>}</div>{canWikiEdit && <div className="no-print"><ChangeRequest id={d.doc_id} /></div>}{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
+      <Scheduled date={d.effective_from} /><FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} /><Upcoming u={d.upcoming} /><p className="note">{d.freshness_reason && d.freshness === 'REVIEW_REQUIRED' ? '' : d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<DocActions d={d} canWikiEdit={canWikiEdit} onEdit={() => setEditing('')} onPrint={() => setPrinting(true)} />{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
       </header>
       {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}
 
