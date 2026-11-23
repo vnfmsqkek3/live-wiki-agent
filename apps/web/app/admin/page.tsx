@@ -72,7 +72,7 @@ function ChangeRequests() {
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
           <p className="fix-head"><Link href={`/library?id=${encodeURIComponent(i.doc_id)}&from=admin`} prefetch={false}>{i.title}</Link> · <span className={`kind-tag${i.verdict === 'APPROPRIATE' ? '' : ' own'}`}>{V[i.verdict]}</span>{i.source === 'IMPACT' && <span className="kind-tag">규정 개정 영향{i.law ? ` · ${i.law}` : ''}</span>}{i.superseded && <span className="kind-tag own">이전 버전</span>}</p>
-          {i.superseded && <p className="note">새 버전이 나와 대체된 문서의 제안입니다. 반영할 수 없고, 반려로 닫아 주세요.</p>}
+          {i.superseded && <p className="note">이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만들거나 반려로 닫아 주세요.</p>}
           {i.revision?.effective_from && <Revision r={i.revision} />}
           <blockquote className="basis"><p>{i.before}</p></blockquote>
           {i.request && <p><strong>요청:</strong> {readable(i.request)}</p>}
