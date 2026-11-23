@@ -149,6 +149,9 @@ if (import.meta.main) {
   const search = { ...local, search_wiki: viaLambda };
   // SEED_IDS=seed-doc-ids.json (데이터팀 시드 매핑, git 미추적). 주면 시드 밖 문서(QA 업로드)를 빼고 잰다. 없으면 manifest 기준 분모 + 제목 매핑
   const seed = process.env["SEED_IDS"] ? JSON.parse(readFileSync(process.env["SEED_IDS"], "utf8")) as Record<string, string> : undefined;
+  // 시드가 있으면 검색 자체를 시드 문서 안에서만 (doc_ids): QA 게시 문서가 1위면 근거 기준·RERANK_RATIO 판정이 바뀌어 사후 필터로는 못 막음 (총괄 11/23, CT-04 04:04).
+  // 인용·UNVERIFIED 둘 다. 사후 필터(seedDocIds)는 doc_ids 미지원 배포에서도 안전하게 그대로 둔다
+  if (seed) search.search_wiki = ((a: Record<string, unknown>, u: never) => viaLambda({ ...a, doc_ids: Object.values(seed) } as never, u)) as typeof local.search_wiki;
   const r = await measureLive({ raw: new BedrockRetriever(kb), search, ...(seed ? { seedDocIds: new Set(Object.values(seed)) } : {}) });
   // trace_impact는 AUTHOR·REG_APPROVER 전용. 그래프는 Neptune(VPC)이라 배포된 graph Lambda로 호출
   const trace = invoke("hanaeum-mvp-lambda-mcp-graph", "graph___trace_impact");
