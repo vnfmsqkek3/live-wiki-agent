@@ -618,10 +618,27 @@ test('위키 수정 요청(사용자 결정 11/18): 읽는 사람 요청 → AI 
   const list = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; after: string }[] };
   assert.equal(list.items[0]!.after, '1. 서류는 디지털운영팀이 관리한다.');
   assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT' })).status, 422);
+  // 삭제된 문서의 열린 제안은 목록에서 빠지고 처리도 안 됨 (demo-reset 뒤 남던 K-001 CR, 데이터 11/23). 예전에 삭제돼 OPEN 으로 남은 것도
+  const live = (await t.store.getDoc(doc_id))!;
+  await t.store.putDoc({ ...live, lifecycle: 'DELETED' });
+  assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
+  assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT', reason: 'x' })).status, 404);
+  await t.store.putDoc(live);
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.previous_doc_id, doc_id); assert.equal(nv.lifecycle, 'QUARANTINED'); assert.ok(nv.review_carry, '새 버전도 이전 결정을 잇는다');
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
+});
+
+test('문서 삭제는 열린 수정 제안을 닫는다(REJECTED·사유 문서 삭제) (총괄·데이터 11/23)', async () => {
+  const t = setup();
+  const { doc_id } = (await (await t.call('author', 'POST', '/v1/documents/upload-url', upload)).json()) as { doc_id: string };
+  const d = (await t.store.getDoc(doc_id))!;
+  const cr = (id: string, status: 'OPEN' | 'APPLIED') => ({ id, by: 'u', at: 't', before: 'b', request: 'r', verdict: 'UNKNOWN' as const, status });
+  await t.store.putDoc({ ...d, lifecycle: 'PUBLISHED', change_requests: [cr('cr_open', 'OPEN'), cr('cr_done', 'APPLIED')] });
+  assert.equal((await t.call('approver', 'DELETE', `/v1/documents/${doc_id}`, { reason: '정리' })).status, 202);
+  const after = (await t.store.getDoc(doc_id))!.change_requests!;
+  assert.deepEqual(after.map((r) => [r.id, r.status, r.decision_reason ?? null]), [['cr_open', 'REJECTED', '문서 삭제'], ['cr_done', 'APPLIED', null]]);
 });
 
 test('위키 수정·검토 중 다시 분석은 이전 검사 결과를 저장소에서도 지운다 (11/18 dev 시험 D2: 고친 뒤에도 옛 고칠 것이 남음)', async () => {
