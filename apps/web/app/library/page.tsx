@@ -443,11 +443,11 @@ function Download({ id, edited, hasOriginal, onPrint }: { id: string; edited?: b
 }
 
 /** 문서 상세 행동 막대 (사용자 11/23): 역할별 주 버튼 1개만 채움색, 나머지 테두리, 다운로드는 오른쪽 보조. 좁은 화면은 주 버튼 + [⋯] */
-function DocActions({ d, canWikiEdit, onEdit, onPrint }: { d: LibraryDoc; canWikiEdit: boolean; onEdit: () => void; onPrint: () => void }) {
+function DocActions({ d, canWikiEdit, canRequest, onEdit, onPrint }: { d: LibraryDoc; canWikiEdit: boolean; canRequest: boolean; onEdit: () => void; onPrint: () => void }) {
   const [more, setMore] = useState(false);
   const admin = isAdmin(getSession()?.groups);
-  const owner = !!(d.is_owner ?? d.can_delete) && !admin; // is_owner(백엔드 11/23) 없으면 옛 기준 can_delete(작성자 또는 결재자). 게시 문서 삭제는 admin만이라 can_delete로는 작성자를 못 가림
-  const prim = admin && d.freshness === 'REVIEW_REQUIRED' ? 'cr' : canWikiEdit ? (admin || owner ? 'wiki' : 'req') : null;
+  // 사용자 결정 11/23 B: [위키에서 고치기]는 결재자만. 일반 사용자는 본인 문서 포함 [수정 요청]이 주 버튼
+  const prim = admin && d.freshness === 'REVIEW_REQUIRED' ? 'cr' : canWikiEdit ? 'wiki' : canRequest ? 'req' : null;
   const wiki = (solid: boolean) => <button type="button" className={`btn${solid ? ' solid' : ''}`} onClick={onEdit} title="새 버전 초안을 만들어 결재를 요청합니다"><Icon name="edit" />위키에서 고치기</button>;
   const main = prim === 'cr' ? <Link className="btn solid" href="/admin#cr-h" title="이 문서에 들어온 수정 요청을 결재함에서 확인합니다"><Icon name="approval" />수정 요청 보기</Link>
     : prim === 'wiki' ? wiki(true) : prim === 'req' ? <ChangeRequest id={d.doc_id} primary /> : null;
@@ -455,8 +455,8 @@ function DocActions({ d, canWikiEdit, onEdit, onPrint }: { d: LibraryDoc; canWik
     <div className={`doc-actions no-print${more || !main ? ' open' : ''}`} role="group" aria-label="문서 작업">
       {main}
       <div className="sec" id="doc-more">
-        {canWikiEdit && prim !== 'wiki' && (admin || owner) && wiki(false)} {/* 권고 A: 일반 사용자는 남의 문서를 [수정 요청]으로만 (사용자 결정 대기) */}
-        {canWikiEdit && prim !== 'req' && <ChangeRequest id={d.doc_id} />}
+        {canWikiEdit && prim !== 'wiki' && wiki(false)}
+        {canRequest && prim !== 'req' && <ChangeRequest id={d.doc_id} />}
         <span className="push" aria-hidden="true" />
         <Download id={d.doc_id} edited={d.edited} hasOriginal={d.has_original_upload} onPrint={onPrint} />
       </div>
@@ -658,7 +658,8 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const range = (g: { pages: number[] }) => { const a = g.pages.map(nth).filter((x) => x > 0); return a.length > 1 ? `${Math.min(...a)}~${Math.max(...a)}` : `${a[0] ?? 1}`; };
   const showImages = images; // 정리본 탭은 늘 글: 정리본이 없는 쪽은 가린 본문 글자 (쪽 이미지로 바꾸지 않음, 사용자 지적 11/18)
   const reasonCount = (d.review ? d.pages.reduce((n, pg) => n + pg.marks.filter((m) => m.severity !== 'LOW').length, 0) + d.doc_marks.length + reviewFindings(d).length : 0) + (d.suggestions?.length ?? 0);
-  const canWikiEdit = d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION'; // 대체된 옛 판은 최신 버전에서 고친다
+  const canRequest = d.lifecycle === 'PUBLISHED' && d.freshness !== 'SUPERSEDED' && (d.document_type ?? 'KNOWHOW') !== 'REGULATION'; // 대체된 옛 판은 최신 버전에서 고친다
+  const canWikiEdit = canRequest && isAdmin(getSession()?.groups); // 사용자 결정 11/23 B: 위키 수정은 결재자만, 일반 사용자는 수정 요청
   const numbered = (page?.marks ?? []).filter((m) => m.severity !== 'LOW').map((m, i) => ({ m, n: i + 1 }));
   const notes = (page?.marks ?? []).filter((m) => m.severity === 'LOW');
   const go = (i: number) => { setP(i); setActive(0); };
@@ -666,7 +667,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const body = d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n');
   const editAt = canWikiEdit ? (text: string, to?: string) => { const ai = !!to && body.includes(text); setFixOpen(false); setEditFocus(ai ? to : text); setEditing(ai ? body.replace(text, to!) : ''); setTimeout(() => document.getElementById('wiki-editor')?.scrollIntoView({ block: 'start' }), 0); } : undefined;
   // 수정 버튼이 없는 이유를 카드에 적는다 (규정은 위키 수정 불가: 공식 원본 파일로만 바뀐다)
-  const fixLocked = canWikiEdit ? undefined : d.freshness === 'SUPERSEDED' ? '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요.' : (d.document_type ?? 'KNOWHOW') === 'REGULATION' ? '규정은 이 화면에서 고칠 수 없습니다. 공식 원본 파일을 다시 올리면 AI가 공식 원본과 대조해 검증합니다.' : d.lifecycle !== 'PUBLISHED' ? '게시 전 문서는 검토 화면에서 고칩니다.' : undefined;
+  const fixLocked = canWikiEdit ? undefined : canRequest ? '위키 수정은 결재자만 할 수 있습니다. 고칠 점은 [수정 요청]으로 알려 주세요.' : d.freshness === 'SUPERSEDED' ? '새 버전으로 대체된 문서입니다. 최신 버전에서 고쳐 주세요.' : (d.document_type ?? 'KNOWHOW') === 'REGULATION' ? '규정은 이 화면에서 고칠 수 없습니다. 공식 원본 파일을 다시 올리면 AI가 공식 원본과 대조해 검증합니다.' : d.lifecycle !== 'PUBLISHED' ? '게시 전 문서는 검토 화면에서 고칩니다.' : undefined;
   const jump = (i: number, n: number) => { setImages(true); setReasonsOpen(false); setFixOpen(true); setP(i); setActive(n); setTimeout(() => document.getElementById(`mark-${n}`)?.scrollIntoView({ block: 'center', behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'instant' : 'smooth' }), 0); };
   // 문서 정보는 머리에서 빼 '한눈에 보기' 패널로 (Fable 재배치안 11/18: 머리는 제목·상태 문장·결재란만)
   const docMeta = (<dl className="meta-grid">
@@ -688,7 +689,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
       {d.lifecycle === 'PUBLISHED' && <p className="doc-rating">{d.rating?.count ? <span aria-label={`평균 ${d.rating.avg.toFixed(1)}점, ${d.rating.count}명 평가`}><span aria-hidden="true">★ <b className="num">{d.rating.avg.toFixed(1)}</b> ({d.rating.count}명 평가)</span></span>
         : <>아직 평가 없음</>} · <button type="button" className="linklike" onClick={() => [...document.querySelectorAll<HTMLButtonElement>('button.detail-card')].find((b) => b.textContent?.startsWith('평점'))?.click()}>평가하기</button></p>}
-      <Scheduled date={d.effective_from} /><FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} /><Upcoming u={d.upcoming} /><p className="note">{d.freshness_reason && d.freshness === 'REVIEW_REQUIRED' ? '' : d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<DocActions d={d} canWikiEdit={canWikiEdit} onEdit={() => setEditing('')} onPrint={() => setPrinting(true)} />{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
+      <Scheduled date={d.effective_from} /><FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} /><Upcoming u={d.upcoming} /><p className="note">{d.freshness_reason && d.freshness === 'REVIEW_REQUIRED' ? '' : d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<DocActions d={d} canWikiEdit={canWikiEdit} canRequest={canRequest} onEdit={() => setEditing('')} onPrint={() => setPrinting(true)} />{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
       </header>
       {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}
 
