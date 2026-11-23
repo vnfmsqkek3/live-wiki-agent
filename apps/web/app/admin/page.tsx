@@ -16,16 +16,32 @@ interface Mismatch { doc_id: string; title: string; dept: string; kind: 'SOURCE_
 /** 결재함 → 문서 상세 (무엇이 왜 문제인지 쪽·밑줄로). 돌아오면 결재함 */
 const detail = (doc_id: string) => `/library?id=${encodeURIComponent(doc_id)}&from=admin`;
 
-/** 지식 부채 (게시 문서 주장 기준, interfaces 10.2): 지금 손봐야 할 지식이 얼마나 쌓였나 */
-function KnowledgeDebt() {
+/** 지금 할 일 (사용자 11/23 '글만 많아 무엇을 할지 모름'): 요약 한 줄 + 행동 버튼, 숫자 카드는 위험 순서.
+ *  지식 수치는 게시 문서 주장 기준(interfaces 10.2). 0은 흐리게 */
+function TodoNow({ pending, source }: { pending: number | null; source: number | null }) {
   const [k, setK] = useState<Record<string, number> | null>(null);
   useEffect(() => { api<Record<string, number>>('GET', '/v1/admin/knowledge-debt').then(setK).catch(() => setK(null)); }, []);
-  if (!k) return null;
-  const rows: [string, string, string][] = [['conflicts', '규정과 어긋난 주장', 'bad'], ['review_required', '근거 개정으로 재검토', 'bad'], ['unverified', '근거 확인 필요', 'wait'], ['healthy', '근거 확인된 주장', 'ok'], ['docs_needing_attention', '손봐야 할 문서', 'bad']];
+  const review = k?.review_required ?? null;
+  const cards: { n: number | null; label: string; href: string; tone: string }[] = [
+    { n: k?.conflicts ?? null, label: '규정과 어긋난 주장', href: '/library?only=conflict', tone: 'bad' },
+    { n: source, label: '출처 확인 필요', href: '#source-h', tone: 'bad' },
+    { n: pending, label: '게시 승인 대기', href: '#pending-h', tone: 'wait' },
+    { n: review, label: '근거 개정 재검토', href: '/library?only=review', tone: 'bad' },
+    { n: k?.unverified ?? null, label: '근거 확인 필요', href: '/library?only=unverified', tone: 'wait' },
+    { n: k?.healthy ?? null, label: '확인된 주장 (참고)', href: '/library', tone: 'ref' },
+  ];
+  const next = [[source, '출처 확인하기', '#source-h'], [pending, '결재하기', '#pending-h'], [review, '재검토 문서 보기', '/library?only=review']].find(([n]) => !!n) as [number, string, string] | undefined;
+  const part = (n: number | null, label: string) => <span className={n ? '' : 'zero'}>{label} <b className="num">{n ?? '–'}</b></span>;
   return (
-    <section aria-labelledby="debt-h" className="debt">
-      <h2 className="section" id="debt-h">지식 상태</h2>
-      <dl className="debt-grid">{rows.map(([key, label, tone]) => <div key={key} className={`debt-cell ${tone}`}><dt>{label}</dt><dd className="num">{k[key] ?? 0}</dd></div>)}</dl>
+    <section aria-labelledby="todo-h" className="todo-now">
+      <h2 className="section" id="todo-h">지금 할 일</h2>
+      <div className="todo-line">
+        {next || pending === null ? <p>{part(pending, '결재 대기')} · {part(source, '출처 확인 필요')} · {part(review, '재검토')}</p> : <p>지금 결재할 문서가 없습니다.</p>}
+        {next && <a className="btn solid" href={next[2]}>{next[1]}</a>}
+      </div>
+      <ul className="stat-cards" aria-label="위험한 순서">{cards.map((c) => (
+        <li key={c.label} className={`${c.tone}${c.n ? '' : ' zero'}`}><a href={c.href}><strong className="num">{c.n ?? '–'}</strong><span>{c.label}</span></a></li>
+      ))}</ul>
     </section>
   );
 }
@@ -67,7 +83,7 @@ function ChangeRequests() {
   const V = { APPROPRIATE: 'AI: 적절', INAPPROPRIATE: 'AI: 부적절', UNKNOWN: 'AI: 판단 못함' } as const;
   return (
     <section aria-labelledby="cr-h" className="fix-list">
-      <h2 className="section" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h2>
+      <h3 className="section" id="cr-h">위키 수정 요청 <b className="num">{items.length}건</b></h3>
       <p className="note">읽는 사람이 낸 수정 요청입니다. 반영하면 고친 새 버전이 만들어지고 AI 검사를 거쳐 결재로 게시됩니다.</p>
       <ol className="fixes">{items.map((i) => (
         <li key={i.id} className="fix">
@@ -150,41 +166,29 @@ export default function Admin() {
   const blocked = mismatch.filter((m) => m.kind === 'BLOCKED');
   return (
     <>
-      <PageHeader title="결재함" description="출처 확인이 필요한 문서를 먼저 확인하고, 근거를 읽은 뒤 결재하세요." action={<Link className="btn" href="/library">문서보관함</Link>} />
+      <PageHeader title="결재함" description="위험한 것부터 처리하세요. 승인은 문서를 열어 본 뒤에 할 수 있습니다." action={<Link className="btn" href="/library">문서보관함</Link>} />
       {role && <p className="meta" style={{ marginTop: -10 }}>{role} 계정으로 보고 있습니다</p>}
       {err && <p className="error" role="alert">{err}</p>}
-      {/* 할 일 숫자와 지식 상태를 첫 화면에 함께 (Fable A안 11/18: 카드가 쌓이면 맨 아래 지식 상태가 안 보임) */}
-      <div className="admin-status">
-        <div className="counts">
-          <a href="#pending-h"><strong>{items ? pending.length : '–'}</strong><span className="meta">게시 승인 대기</span></a>
-          <a href="#source-h"><strong>{items ? source.filter((m) => !done[m.doc_id]).length : '–'}</strong><span className="meta">출처 확인 필요</span></a>
-        </div>
-        <KnowledgeDebt />
-      </div>
+      <TodoNow pending={items ? pending.length : null} source={items ? source.filter((m) => !done[m.doc_id]).length : null} />
 
-      {/* 운영 도구를 위로 (Fable 재배치안 11/18: 규정 변경 영향은 포지셔닝 둘째 축) */}
-      <div className="actions ops-row" role="group" aria-label="운영 도구">
-        <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
-        <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
-        <Link className="btn" href="/admin/evals"><Icon name="clock" />Agent 평가</Link>
-      </div>
+      <h2 className="section" id="queue-h">결재할 문서</h2>
       {/* 카테고리별 가로 카드와 독립 페이지네이션 */}
       <div className="approval-categories">
         <div className="approval-category-group" aria-label="결재할 일">
-          {source.length > 0 && <h2 className="section" id="source-h">출처 확인이 먼저 필요한 문서</h2>}
+          {source.length > 0 && <h3 className="section" id="source-h">출처 확인이 먼저 필요한 문서</h3>}
           <PaginatedList label="출처 확인 필요" pageKey="source_page" pageSize={3} className="ledger card-grid admin-grid">
             {source.map((i) => (
               <li className="entry" key={i.doc_id} style={{ paddingRight: 16 }}>
                 <span className="flag"><Icon name="alert" />출처 확인 필요</span>
                 <h3 className="doc-title"><Link href={detail(i.doc_id)}>{i.title}</Link></h3>
                 {i.findings.map((f, n) => <p key={n} className="quote">{f.message}</p>)}
-                <p className="note">공식 원본과 내용이 다릅니다. 위조로 확정된 것은 아니며, 출처가 확인될 때까지 게시 요청이 막혀 있습니다. '다른 곳 보기'에서 어느 쪽 어느 조문이 다른지 볼 수 있습니다.</p>
+                <p className="note">위조 확정은 아닙니다. 출처가 확인될 때까지 게시 요청이 막혀 있습니다.</p>
                 {done[i.doc_id] ? <p className="meta">반려 처리됨</p> : <><input className="field" aria-label="반려 사유" maxLength={300} placeholder="반려 사유 (예: 공식 원본과 승인 기준 금액이 다름)" value={opinion[i.doc_id] ?? ''} onChange={(e) => setOpinion((x) => ({ ...x, [i.doc_id]: e.target.value }))} /><div className="actions"><Link className="btn" href={detail(i.doc_id)}><Icon name="library" />다른 곳 보기</Link><button className="btn" onClick={() => onRejectSource(i.doc_id)}>반려</button></div></>}
               </li>
             ))}
           </PaginatedList>
 
-          <h2 className="section" id="pending-h">게시 승인 대기</h2>
+          <h3 className="section" id="pending-h">게시 승인 대기</h3>
           {items && pending.length === 0 && <p className="note">결재할 문서가 없습니다.</p>}
           <PaginatedList label="게시 승인 대기" pageKey="pending_page" pageSize={3} className="ledger card-grid admin-grid">
             {pending.map((i) => (
@@ -230,7 +234,7 @@ export default function Admin() {
           <InReview />
           <details className="admin-more" open={after.some((x) => !!x.workflow_failure)}>
             <summary>진행·참고: 승인 뒤 게시 진행 <b className="num">{after.length}</b>건{blocked.length ? <> · 자동 차단 <b className="num">{blocked.length}</b>건(최근 7일)</> : null}</summary>
-          <h2 className="section">승인 뒤 게시 진행</h2>
+          <h3 className="section">승인 뒤 게시 진행</h3>
           {after.length === 0 ? <p className="note">승인한 뒤 아직 게시되지 않은 문서가 없습니다.</p> : (
             <PaginatedList label="승인 뒤 게시 진행" pageKey="after_page" pageSize={3} className="ledger admin-rows">
               {after.map((i) => (
@@ -246,7 +250,7 @@ export default function Admin() {
           )}
           {blocked.length > 0 && (
             <>
-              <h2 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h2>
+              <h3 className="section">보안 검사에서 자동 차단된 문서 <span className="note">최근 7일</span></h3>
               <p className="note">결재할 필요는 없습니다. 올린 사람에게 고치는 방법이 안내되었고, 원본 파일은 삭제되었습니다.</p>
               <PaginatedList label="자동 차단" pageKey="blocked_page" pageSize={3} className="ledger admin-rows">
                 {blocked.map((i) => (
@@ -263,6 +267,14 @@ export default function Admin() {
         </div>
       </div>
 
+      <section aria-labelledby="tools-h" className="tools">
+        <h2 className="section" id="tools-h">도구</h2>
+        <div className="actions ops-row" role="group" aria-label="운영 도구">
+          <Link className="btn" href="/admin/impact"><Icon name="library" />규정 변경 영향</Link>
+          <Link className="btn" href="/admin/runs"><Icon name="clock" />Agent 실행 기록</Link>
+          <Link className="btn" href="/admin/evals"><Icon name="clock" />Agent 평가</Link>
+        </div>
+      </section>
     </>
   );
 }

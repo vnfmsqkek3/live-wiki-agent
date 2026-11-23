@@ -120,6 +120,7 @@ function List() {
   const sp = useSearchParams();
   const type = sp.get('type') ?? '';
   const category = sp.get('category') ?? ''; // 업무 분류 칸 (AI 자동 분류, 하위 칸 포함)
+  const only = ONLY[sp.get('only') ?? '']; // 결재함 숫자 카드에서 온 필터
   const [items, setItems] = useState<LibraryCard[] | null>(null);
   const [cats, setCats] = useState<CategoryNode[]>([]);
   const [err, setErr] = useState('');
@@ -128,9 +129,9 @@ function List() {
   useEffect(() => {
     setItems(null); setErr('');
     api<{ items: LibraryCard[] }>('GET', `/v1/library?${qs(type, category)}`)
-      .then((r) => setItems(r.items))
+      .then((r) => setItems(only ? r.items.filter(only.f) : r.items))
       .catch((e: ApiError) => { setErr(e.status === 401 ? '로그인한 뒤 다시 열어 주세요.' : e.message); setItems([]); });
-  }, [type, category]);
+  }, [type, category, only]);
   const go = (t: string, c: string) => router.push(`/library${qs(t, c) ? `?${qs(t, c)}` : ''}`);
   // 1단계 칸 → 고르면 그 아래 칸. 문서가 있는 칸만 (고른 칸은 늘 보임)
   const sel = cats.find((x) => x.category_id === category);
@@ -155,6 +156,7 @@ function List() {
           </div>}
         </nav>
       )}{err && <p className="error" role="alert">{err}</p>}
+      {only && <p className="notice" role="status">{only.label} 문서만 보고 있습니다. <Link href="/library">전체 보기</Link></p>}
       {items === null ? <p className="note">불러오는 중입니다.</p> : items.length === 0 && !err ? (
         <p className="note">볼 수 있는 문서가 없습니다. 문서를 등록하거나 다른 종류를 골라 보세요.</p>
       ) : (
@@ -292,6 +294,13 @@ function ExternalLaws({ id }: { id: string }) {
     </section>
   );
 }
+
+/** 결재함 숫자 카드 필터 (?only=). conflict는 문서 단위 근사(고칠 곳 있는 문서) — 주장 단위 목록은 없음 */
+const ONLY: Record<string, { label: string; f: (d: LibraryCard) => boolean }> = {
+  review: { label: '근거 개정으로 재검토 중인', f: (d) => d.freshness === 'REVIEW_REQUIRED' },
+  unverified: { label: '근거 확인이 필요한', f: (d) => d.authority_status === 'UNVERIFIED' },
+  conflict: { label: '규정과 어긋난 곳이 있는', f: (d) => d.mark_count > 0 },
+};
 
 const REVIEW_STATE: Record<string, string> = {
   BLOCKED: '보안 검사에서 자동 차단된 문서입니다. 결재할 필요는 없고, 올린 사람에게 고치는 방법이 안내되었습니다.',
