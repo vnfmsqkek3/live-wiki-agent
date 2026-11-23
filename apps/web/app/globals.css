@@ -1013,3 +1013,18 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .chip.ex:hover, .chip.ex:focus-visible { border-color: var(--green-700); color: var(--green-700); }
 .on-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
 .on-filters .chip { min-height: 36px; padding: 4px 12px; border: 1px solid var(--green-700); border-radius: 999px; background: var(--green-050); color: var(--green-700); font: inherit; font-size: var(--fs-small); cursor: pointer; }
+.q .ql { margin-right: -.18em; } .q .qr { margin-left: -.18em; }
+/* 문서 상세 행동 막대 (사용자 11/23) */
+.doc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0; }
+.doc-actions .sec { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; flex: 1; }
+.doc-actions .push { flex: 1; }
+.doc-actions .btn svg { width: 18px; height: 18px; }
+.doc-actions .change-req { flex-basis: 100%; }
+.more-btn { display: none; }
+@media (max-width: 640px) {
+  .doc-actions .sec { display: none; flex-basis: 100%; }
+  .doc-actions.open .sec { display: flex; }
+  .doc-actions .push { display: none; }
+  .more-btn { display: inline-flex; }
+}
+.document-header > .doc-actions { grid-column: 1 / -1; }
