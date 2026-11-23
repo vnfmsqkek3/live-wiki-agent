@@ -8,7 +8,7 @@ import { ulid } from 'ulid';
 import type { z } from 'zod';
 import { canRead, hasRole, type VerifyToken } from './auth.ts';
 import { diffDocuments, previousVersionCandidates, similarity } from '@hanaeum/legal-parser';
-import { card, freshnessView, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
+import { card, freshnessView, todayKst, detailFilter, docDatesOf, groupSeries, orderVersions, representative, seriesKey, keywordItem, matches, similar, verification, type Mark, type Page, clauseGroups } from './library.ts';
 import { blockedReasons, issues, plainMessage, progress } from './progress.ts';
 import { groupByDoc } from './search.ts';
 import { currentRevisions } from './steps/freshness.ts';
@@ -352,9 +352,12 @@ export function createApp(deps: Deps) {
     await audit(c, 'CHANGE_REQUEST', d.doc_id);
     return c.json({ id: cr.id, verdict: cr.verdict, after: cr.after ?? null, ai_reason: cr.ai_reason }, 201);
   });
+  // 시행 예정 개정판에서 나온 영향 수정 제안은 시행일 전 반영 불가 (총괄 11/23 G-KREV-02 왕복: 반영본을 현행판 기준 검증이 되돌리라고 함).
+  // 시행일(YYYY-MM-DD, KST 오늘보다 뒤)이면 그 날짜, 아니면 null. revision 없는 이전 제안은 판단 불가라 null(막지 않음)
+  const applyAfter = (r: ChangeRequest) => (r.source === 'IMPACT' && r.revision?.effective_from && r.revision.effective_from > todayKst() ? r.revision.effective_from : null);
   app.get('/v1/admin/change-requests', async (c) => {
     need(c, APPROVERS);
-    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED' })))
+    const items = (await store.listDocs()).flatMap((d) => (d.change_requests ?? []).filter((r) => r.status === 'OPEN').map((r) => ({ ...r, doc_id: d.doc_id, title: d.title, published: d.lifecycle === 'PUBLISHED', apply_after: applyAfter(r) })))
       .sort((x, y) => y.at.localeCompare(x.at));
     return c.json({ items });
   });
@@ -371,6 +374,8 @@ export function createApp(deps: Deps) {
       if (!reason) throw new ApiError('VALIDATION', '반려 사유를 적어 주세요');
       next = { status: 'REJECTED', decision_reason: mask(reason, detectPii(reason)) };
     } else if (b.decision === 'APPLY') {
+      const eff = applyAfter(cr);
+      if (eff) throw new ApiError('CONFLICT', `${eff} 시행 예정 개정에 따른 수정입니다. ${eff}부터 반영할 수 있습니다`);
       const after = String(b.after ?? cr.after ?? '').trim();
       if (!after || after === cr.before) throw new ApiError('VALIDATION', '바꿀 문장을 적어 주세요');
       if (detectPii(after).length) throw new ApiError('VALIDATION', '개인정보가 들어간 문장은 넣을 수 없습니다');
