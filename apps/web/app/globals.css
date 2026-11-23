@@ -956,6 +956,7 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .kyul.full .kyul-cell { grid-template-rows:auto calc(var(--stamp-full) + 20px) 1fr; }
 /* 시행 예정 배지·재검토 이유 상자 (총괄 11/23) */
 .flag.soon { margin: 0 0 0 6px; padding: 2px 6px; vertical-align: middle; font-size: .75rem; }
-.reason-box { margin: 4px 0 12px; padding: 12px; border: 1px solid var(--ochre); border-radius: 8px; background: var(--sheet, #fff); font-size: .88rem; overflow-wrap: anywhere; }
-.reason-box p { margin: 0 0 4px; } .reason-box p:last-child { margin: 0; color: var(--ink-2); }
-.reason-box b { color: var(--ochre); margin-right: 4px; }
+.reason-box { margin: 8px 0 12px; padding: 12px 14px; border: 1px solid var(--danger); border-left-width: 4px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); font-size: .88rem; overflow-wrap: anywhere; }
+.reason-box p { margin: 0 0 4px; } .reason-box p:last-child { margin: 0; }
+.reason-head { display: flex; align-items: center; gap: 4px; font-weight: 750; font-size: .95rem; } .reason-head svg { width: 16px; height: 16px; }
+.reason-box b { margin-right: 4px; } .reason-box del, .reason-box ins { color: var(--ink); }
