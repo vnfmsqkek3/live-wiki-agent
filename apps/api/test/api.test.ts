@@ -624,6 +624,14 @@ test('위키 수정 요청(사용자 결정 11/18): 읽는 사람 요청 → AI 
   assert.equal(((await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: unknown[] }).items.length, 0);
   assert.equal((await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'REJECT', reason: 'x' })).status, 404);
   await t.store.putDoc(live);
+  // 대체된 이전 버전의 제안: 결재함에 '이전 버전'으로 보이고 반영은 409, 반려는 가능 (총괄 11/23)
+  await t.store.putDoc({ ...live, freshness: 'SUPERSEDED' });
+  const old = (await (await t.call('approver', 'GET', '/v1/admin/change-requests')).json()) as { items: { id: string; superseded: boolean }[] };
+  assert.equal(old.items.find((x) => x.id === r.id)!.superseded, true);
+  const sup = await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' });
+  assert.equal(sup.status, 409);
+  assert.match(((await sup.json()) as { error: { message: string } }).error.message, /이전 버전 기준/);
+  await t.store.putDoc(live);
   const ap = (await (await t.call('approver', 'POST', `/v1/admin/change-requests/${doc_id}/${r.id}`, { decision: 'APPLY' })).json()) as { new_doc_id: string };
   const nv = (await t.store.getDoc(ap.new_doc_id))!;
   assert.equal(nv.previous_doc_id, doc_id); assert.equal(nv.lifecycle, 'QUARANTINED'); assert.ok(nv.review_carry, '새 버전도 이전 결정을 잇는다');
