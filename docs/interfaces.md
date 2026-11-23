@@ -117,11 +117,11 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | PurgeDocument | — | 문서 삭제 흐름 전용(사용자 결정 11/17 B). Documents `lifecycle=DELETED` 일 때만, `published/{legal,knowledge}/{doc_id}/`·`quarantine/{doc_id}/` 모든 버전·삭제 마커 삭제. 아니면 예외 `NotDeleted` |
 | OcrIfNeeded | `{doc}/work/ocr/result.json` (`docs/04` 2.1 스키마, `source:"ocr"`, confidence 보존). **11/17 PP-StructureV3(표·레이아웃, 모든 업로드)**: 줄마다 레이아웃 `label`(doc_title·paragraph_title·text·table·figure 등)·표 안이면 `table_id`(`p{쪽}-t{n}`), `reading_order` 는 레이아웃 순서, 페이지 `tables:[{table_id,bbox,html}]`, `figures:[{label,bbox}]`(image·figure·chart·seal 영역 = Sonnet 비전 대상, 표·글자는 제외) 추가(없으면 이전과 같음) | 대상 페이지만 포함. 저신뢰(블록 < 0.85 → LOW, 페이지 평균 < 0.9 → MEDIUM·REVIEW_REQUIRED) Finding `OCR_LOW_CONFIDENCE` |
 
-### 6.0 문서 삭제 흐름 (사용자 결정 11/17 B)
+### 6.0 문서 삭제 흐름 (사용자 결정 11/17 B, 권한은 11/23 변경)
 
 | 순서 | 주체 | 동작 |
 |---|---|---|
-| 1 | API `DELETE /v1/documents/{id}` (dhxorb96) | 작성자 본인 또는 관리자. 감사 `DOCUMENT_DELETE` → `lifecycle=DELETED`, `deleted_reason`·`deleted_by` (이 시점부터 검색·보관함·가이드 제외) → `InvokeAgentRuntime({action:"delete"})` |
+| 1 | API `DELETE /v1/documents/{id}` (dhxorb96) | 결재자(REG_APPROVER·SECURITY_REVIEWER)는 모든 문서, 작성자 본인은 게시 전(PUBLISHED 아님) 문서만(사용자 결정 11/23: 게시 문서를 작성자 혼자 내리지 못함, 작성자는 403). 상세 `can_delete` 같은 기준. 감사 `DOCUMENT_DELETE` → `lifecycle=DELETED`, `deleted_reason`·`deleted_by` (이 시점부터 검색·보관함·가이드 제외) → `InvokeAgentRuntime({action:"delete"})` |
 | 2 | 오케스트레이터 `deleteGraph` (dhxorb96) | `purge_document` → `kb_ingest`(재색인, KB 에서 제거) → `graph_upsert`(`action:"delete"`) |
 | 3 | `graph_upsert` `action:"delete"` (let522mj) | Documents `lifecycle=DELETED` 확인 후 Neptune `deleteDoc(doc_id)` |
 | 남김 | — | Documents META(이력)·Approvals·AuditEvents (감사) |
@@ -207,7 +207,7 @@ ACL 키 (v0.1): 문서 `acl_groups`에는 `ALL`, 역할명, `DEPT#{부서}` 중 
 | `GET /v1/documents/{id}/review` | 올린 사람·결재자 | `fixes`(고칠 것: KNOWHOW_CONFLICT·EDIT_REMOVED_KEY_SENTENCE + AI 수정 제안), `text`(고칠 본문), Findings, `version`(새 버전이면 직전 버전과 바뀐 곳 `{previous, count, changes[]}`, 못 읽으면 null — 11/18), `clarify[]`(확인 필요 6.5: `{finding_id, blocking, severity, kind, item, page, before, question, suggestions[], status, dismiss_reason}`), `text` 는 정리본 기준 |
 | `POST /v1/documents/{id}/findings/{fid}/ack` | 올린 사람 | EDIT_REMOVED_KEY_SENTENCE '의도한 삭제' / CLARIFY_NEEDED '해당 없음' `{reason}`(필수, PII 마스킹, 감사 CLARIFY_DISMISS) |
 | `POST /v1/documents/{id}/submit` | 올린 사람 | 게시 요청 → Approvals. 고칠 것이 남으면 409 |
-| `DELETE /v1/documents/{id}` | 올린 사람·결재자 | 삭제 흐름 (6.0) |
+| `DELETE /v1/documents/{id}` | 결재자(모든 문서)·올린 사람(게시 전만) | 삭제 흐름 (6.0) |
 | `GET /v1/approvals?status=PENDING` | REG_APPROVER·SECURITY_REVIEWER | 승인 대기 + `summary_line`·`version.changes`(바뀐 부분)·`source` |
 | `POST /v1/approvals/{id}/decision` | REG_APPROVER | `{ decision: APPROVE\|REJECT\|REVALIDATE, reason }` (사람만, 자기 승인 금지. PLATFORM_OPERATOR만 예외: `self_approved`·감사 SELF_APPROVAL, 11/18) |
 | `GET /v1/library` | USER+ | 문서 묶음 카드. `?category=`(하위 포함)·`type`·세부 필터, 카드 `category_path` |
@@ -398,3 +398,4 @@ M0 실험 결과 (2026-11-16, dhxorb96 개인 dev): 위 4구간 전체 성공. �
 | 2026-11-23 | backend | 7(Backend API) | 시행 예정 개정 수정 제안 반영 잠금(G-KREV-02 왕복, 총괄 11/23): `GET /v1/admin/change-requests` 항목 `apply_after`(YYYY-MM-DD\|null) = IMPACT 제안의 `revision.effective_from` 이 오늘(KST) 이후면 그 날짜. `POST /v1/admin/change-requests/{doc}/{id}` APPLY 는 그 날짜 전 409 CONFLICT '{날짜}부터 반영할 수 있습니다'. 반려는 가능. revision 없는 이전 제안은 막지 않음. 통지: 프론트·AI |
 | 2026-11-23 | backend | 7(Backend API) | `DELETE /v1/documents/{id}` 는 열린 수정 제안을 닫는다(REJECTED, decision_reason `문서 삭제`). `GET /v1/admin/change-requests` 는 삭제(DELETED) 문서의 제안을 뺀다(예전 삭제분), 그 제안의 반영·반려는 404 (demo-reset 뒤 남던 K-001 CR, 데이터 요청). 통지: 데이터·프론트 |
 | 2026-11-23 | backend | 7(Backend API) | `GET /v1/admin/change-requests` 항목 `superseded`(boolean, 대체된 이전 버전의 제안 → 화면 '이전 버전'). 그 제안의 APPLY 는 409 '이 제안은 이전 버전 기준입니다. 최신 버전에서 다시 만드세요'(반려 가능, 숨기거나 옮기지 않음, 총괄 결정). 통지: 프론트 |
+| 2026-11-23 | backend | 6.0·7(Backend API) | 문서 삭제 권한 변경(사용자 결정 11/23, 11/17 B 변경): 작성자는 게시 전(PUBLISHED 아님) 문서만, PUBLISHED 는 결재자만. 작성자의 게시 문서 DELETE 403 '게시된 문서는 결재자만 삭제할 수 있습니다', 상세 `can_delete` 같은 기준. 통지: 프론트·엔드유저 |
