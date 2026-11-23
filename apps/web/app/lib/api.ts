@@ -315,15 +315,15 @@ export const MOCK_LIBRARY: LibraryDoc[] = [
     doc_id: 'doc_F001', title: '기업여신 심사규정', document_type: 'REGULATION', lifecycle: 'PUBLISHED', business_path: ['여신'], tags: ['공식규정'],
     version_no: 2, version_count: 2,
     summary: '기업여신 심사 절차와 승인 기준을 정합니다. 3억원 이상은 본부 승인, 부동산 담보는 금액과 관계없이 현장 실사를 해야 합니다.',
-    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', uploaded_at: '2026-11-16T10:50:00Z', updated_at: '2026-11-16T11:13:00Z', mark_count: 0, upcoming: { doc_id: 'doc_F001_v2', version_no: 2, effective_from: '2026-12-01' },
+    authority_status: 'VERIFIED', freshness: 'CURRENT', effective_from: '2026-11-01', uploaded_at: '2026-11-16T10:50:00Z', updated_at: '2026-11-16T11:13:00Z', mark_count: 0, upcoming: { doc_id: 'doc_F001_v2', version_no: 3, effective_from: '2026-12-01' },
     related: [{ doc_id: 'doc_K002', title: '소액 부동산 담보대출 빠른 처리 팁', relation: 'CONFLICTS', reason: '기업여신 심사규정 제14조제1항' }],
     doc_marks: [], pages: [{ page: 0, text: '제12조(승인 기준) ② 담보가액이 3억원 이상인 경우 본부 승인을 받아야 한다.\n\n제14조(현장 실사) ① 담보가 부동산인 경우 심사역은 현장 실사를 반드시 실시하여야 한다.', summary: '부동산 담보의 현장 실사 의무를 정합니다.', marks: [] }],
   },
 ];
 
 // 이전 판은 상세에서 열 수 있지만 보관함에는 대표 판만 표시한다.
-MOCK_LIBRARY.push({ ...MOCK_LIBRARY[1]!, doc_id: 'doc_F001_v2', version_no: 2, effective_from: '2026-12-01', upcoming: null });
-MOCK_LIBRARY.push({ ...MOCK_LIBRARY[0]!, doc_id: 'doc_KREV', title: '외국환 실무 메모 2', freshness: 'REVIEW_REQUIRED', mark_count: 0, freshness_reason: { law_id: 'SYN-FX-001', law_name: '외국환업무 취급규정', cited_revision: '2026-11-01', current_revision: '2026-12-01', effective_from: '2026-12-01', provisions: ['SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1'], at: '2026-11-22T09:00:00Z', open_change_requests: 1,
+MOCK_LIBRARY.push({ ...MOCK_LIBRARY[1]!, doc_id: 'doc_F001_v2', version_no: 3, effective_from: '2026-12-01', upcoming: null });
+MOCK_LIBRARY.push({ ...MOCK_LIBRARY[0]!, doc_id: 'doc_KREV', title: '외국환 실무 메모 2', summary: '해외송금 증빙 없는 송금 한도(미화 5천달러)와 확인 순서를 정리한 메모입니다.', rating: undefined, my_stars: null, freshness: 'REVIEW_REQUIRED', mark_count: 0, freshness_reason: { law_id: 'SYN-FX-001', law_name: '외국환업무 취급규정', cited_revision: '2026-11-01', current_revision: '2026-12-01', effective_from: '2026-12-01', provisions: ['SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1'], at: '2026-11-22T09:00:00Z', open_change_requests: 1,
   changes: [{ provision_id: 'SYN-FX-001@2026-11-01/ARTICLE:5/PARAGRAPH:1', label: '제5조제1항', kind: 'MODIFIED', old_text: '건당 미화 5천달러 이하', new_text: '건당 미화 3천달러 이하', cited_text: '건당 5천달러 이하 송금은 증빙 없이 처리한다.' }] } });
 MOCK_LIBRARY.push({ ...MOCK_LIBRARY[1]!, doc_id: 'doc_F001_old', version_no: 1, freshness: 'SUPERSEDED', effective_from: '2025-01-01', updated_at: '2025-01-01T00:00:00Z', superseded_by: 'doc_F001', summary: '개정 전 승인 기준: 5억원 이상 본부 승인.', pages: [{ page: 0, text: '제12조(승인 기준) ② 담보가액이 5억원 이상인 경우 본부 승인을 받아야 한다.', summary: '개정 전 승인 기준입니다.', marks: [] }] });
 
