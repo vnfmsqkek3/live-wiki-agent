@@ -117,7 +117,8 @@ export function FreshnessFlag({ freshness, reason, max = 3 }: { freshness: Searc
       {c.cited_text && <p><b>이 문서의 문장</b> {c.cited_text.replace(/^(\d+\.)(?=[^\s\d])/, '$1 ')}</p>}
     </div>)}
     {/* 결재자만 할 수 있는 행동은 결재자에게만 (엔드유저 11/23: 읽는 직원은 할 일이 없음) */}
-    {isAdmin(getSession()?.groups) ? <p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+    {isAdmin(getSession()?.groups) ? <><p><b>다음 할 일</b> {r.open_change_requests ? `수정 요청 ${r.open_change_requests}건 결재 대기 · ` : ''}고칠 것이 없으면 &apos;변경 없이 유효&apos;로 확인. 게시는 유지되며 수정 승인 전까지 자동으로 바뀌지 않습니다.</p>
+      {soon(r.effective_from) && <p>수정 반영은 <span className="num">{r.effective_from}</span>부터 가능합니다. 개정 후에도 이 문서를 고칠 필요가 없으면 지금 [변경 없이 유효로 확인하기]를 눌러도 됩니다.</p>}</>
       : <p><b>읽는 분께</b> {soon(r.effective_from) ? <>시행일(<span className="num">{r.effective_from}</span>) 전까지는 현행 기준으로 업무하세요. </> : '바뀐 조문을 먼저 확인하고 업무에 쓰세요. '}담당 결재자가 이 문서를 고칠지 확인하고 있습니다.</p>}
   </div>;
 }
