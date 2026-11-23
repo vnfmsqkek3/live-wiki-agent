@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { guide, MOCK_EVIDENCE, type GuideDraft } from '../src/guide.ts';
+import { citableFrom, guide, MOCK_EVIDENCE, type Evidence, type GuideDraft } from '../src/guide.ts';
 
 const deps = (draft: GuideDraft, seen: string[] = []) => ({
   model: 'test-model',
@@ -284,4 +284,21 @@ test('뺀 단계는 본문 대신 주제 낱말 + 건수 (숫자·조건 노출 
   assert.ok(!/억원|6개월|승인 없이|재발급을 요청/.test(n), n); // 건수(2건) 외 숫자·조건·본문 없음
   assert.match(n, /「감정평가서」/);
   assert.match(n, /2건은 근거를 찾지 못해 뺐습니다/);
+});
+
+test('조문 조회 근거(법령 ID)는 같은 개정본 규정 문서의 doc_id·제목·규정명으로 표기 (프론트 7차 11/23)', async () => {
+  const doc = { doc_id: 'doc_REG1', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:14/PARAGRAPH:1', title: '[SYNTHETIC] 기업여신 심사규정', snippet: '제14조 ① 현장 실사', provision: '기업여신 심사규정 제14조제1항', authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND' } as Evidence;
+  const clause = citableFrom({ search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1', original_text: '심사역은 다음 각 호의 서류를 받아야 한다.', path_label: '제10조제1항', law_id: 'SYN-LOAN-001' })[0]!;
+  const r = await guide('q', { search: async () => [doc], draft: async () => ({ steps: [{ text: '서류 세 가지를 받는다', sources: [clause.provision_id!] }], uncertainty: '', evidence: [clause] }), model: 'm' });
+  const s = r.steps[0]!.sources[0]!;
+  assert.equal(s.doc_id, 'doc_REG1'); assert.equal(s.title, '[SYNTHETIC] 기업여신 심사규정'); assert.equal(s.provision, '기업여신 심사규정 제10조제1항');
+  assert.equal(s.provision_id, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1');
+});
+
+test('조문 조회 근거 제목: 같은 응답에 규정 문서가 없으면 Tool 인자 규정 이름. 법령 ID 인자는 쓰지 않음', () => {
+  const r = { search_status: 'FOUND', provision_id: 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1', original_text: 'x', path_label: '제10조제1항', law_id: 'SYN-LOAN-001' };
+  const a = citableFrom(r, '기업여신 심사규정')[0]!;
+  assert.equal(a.title, '기업여신 심사규정'); assert.equal(a.provision, '기업여신 심사규정 제10조제1항');
+  const b = citableFrom(r, 'SYN-LOAN-001')[0]!;
+  assert.equal(b.title, 'SYN-LOAN-001'); assert.equal(b.provision, '제10조제1항');
 });

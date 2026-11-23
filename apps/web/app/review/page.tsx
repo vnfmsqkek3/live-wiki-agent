@@ -165,7 +165,7 @@ function ReviewView() {
       {r.version && <section className="edit-diff" aria-labelledby="rv-diff-h">
         <h2 className="section" id="rv-diff-h">v{r.version.previous.version_no}에서 바뀐 부분 <b className="num">{r.version.count}곳</b></h2>
         {r.version.changes.length > 0 && <ol className="diff-lines">{r.version.changes.slice(0, 30).map((c, n) => (
-          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.new_page ?? c.old_page ?? ''}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
+          <li key={n} className={c.kind === 'ADDED' ? 'add' : c.kind === 'REMOVED' ? 'del' : 'chg'}><span className="num">{c.where}</span><span>{c.kind !== 'ADDED' && <del>{c.old_text}</del>}{c.kind === 'CHANGED' && ' → '}{c.kind !== 'REMOVED' && <ins>{c.new_text}</ins>}</span></li>
         ))}{r.version.count > 30 && <li className="note">외 {r.version.count - 30}곳</li>}</ol>}
       </section>}
       {r.workflow_failure && <p className="error" role="alert">자동 분석 단계에서 처리가 멈췄습니다. 아래 '확인할 내용'에 사유와 고치는 방법이 있습니다.</p>}
@@ -291,7 +291,7 @@ function ReviewView() {
       )}
 
       </details>
-      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
+      </div><aside className="support-panel">      <div className="review-summary" role="status"><Icon name={blocked || rejected ? 'alert' : 'approval'} /><div><strong>{submitted ? '게시 승인 대기' : rejected ? '반려됨 · 수정 필요' : blocked ? '게시 불가 · 수정 필요' : '작성자 검토 필요'}</strong><p>{submitted ? '승인자가 결재하면 게시됩니다.' : rejected ? '반려 사유를 확인하고 고친 파일을 새로 올려 주세요.' : blocked ? '아래 검사 사유를 확인하고 파일을 수정해 주세요.' : '개인정보 가림과 근거를 확인한 뒤 게시를 요청해 주세요.'}</p></div></div>
       {editTitle === null ? (
         <>
           <h2 className="section">문서 제목</h2><p>{r.title}</p>
