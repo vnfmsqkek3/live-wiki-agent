@@ -310,3 +310,14 @@ test('법령 ID로만 표기된 조문 근거는 Registry 규정 이름으로 (8
   assert.equal(e[0]!.title, '하나은행 기업여신 심사규정'); assert.equal(e[0]!.provision, '하나은행 기업여신 심사규정 제10조제1항');
   assert.equal(e[0]!.provision_id, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1'); assert.deepEqual(unnamedLaws(e), []);
 });
+
+test('조 전체 조회 결과의 하위 항·호도 각자 provision_id 로 인용 근거 (Tool 상한 대비, 8차)', () => {
+  const B = 'SYN-LOAN-001@2026-11-01/ARTICLE:10';
+  const ev = citableFrom({ search_status: 'FOUND', provision_id: B, path_label: '제10조', law_id: 'SYN-LOAN-001', original_text: '(심사 서류)', children: [
+    { provision_id: `${B}/PARAGRAPH:1`, path_label: '제10조제1항', status: 'ACTIVE', original_text: '심사역은 다음 각 호의 서류를 받아야 한다.' },
+    { provision_id: `${B}/PARAGRAPH:1/ITEM:1`, path_label: '제10조제1항제1호', status: 'ACTIVE', original_text: '최근 3년간 재무제표' },
+    { provision_id: `${B}/PARAGRAPH:2`, path_label: '제10조제2항', status: 'ACTIVE', original_text: '감정평가서는 6개월 이내의 것이어야 한다.' },
+    { provision_id: `${B}/PARAGRAPH:3`, path_label: '제10조제3항', status: 'DELETED', original_text: '삭제' }] }, '기업여신 심사규정');
+  assert.deepEqual(ev.map((e) => e.provision_id), [B, `${B}/PARAGRAPH:1`, `${B}/PARAGRAPH:1/ITEM:1`, `${B}/PARAGRAPH:2`]);
+  assert.match(ev[1]!.snippet, /다음 각 호.*최근 3년간 재무제표/); assert.equal(ev[3]!.provision, '기업여신 심사규정 제10조제2항');
+});
