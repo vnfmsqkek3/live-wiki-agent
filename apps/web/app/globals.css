@@ -998,3 +998,18 @@ button.todo-tile { font:inherit; text-align:left; cursor:pointer; }
 .filter-row .filter + .filter { border-left: 1px solid var(--rule); padding-left: 12px; }
 .filter-lbl { align-self: center; font-size: var(--fs-small); color: var(--ink-500); margin-right: 4px; }
 @media (max-width: 640px) { .filter-row .filter + .filter { border-left: 0; padding-left: 0; } }
+/* 검색 / 업무 가이드 탭 (사용자 11/23) */
+.mode-tabs { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin: 0 0 16px; }
+.mode-tabs a { display: flex; flex-direction: column; gap: 2px; padding: 12px 16px; border: 1px solid var(--rule); border-radius: 12px; background: var(--sheet); color: var(--ink-700); text-decoration: none; }
+.mode-tabs a strong { color: var(--navy-900); font-size: 1rem; }
+.mode-tabs a span { font-size: var(--fs-small); }
+.mode-tabs a[aria-current=page] { border-color: var(--green-700); background: var(--green-050); box-shadow: inset 0 -3px 0 var(--green-700); }
+.mode-tabs a:hover, .mode-tabs a:focus-visible { border-color: var(--green-700); }
+/* 이렇게 물어보세요 예시 칩 */
+.examples { margin: 8px 0 16px; }
+.examples .note { margin: 0 0 6px; }
+.examples .chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip.ex { min-height: 40px; padding: 6px 14px; border: 1px solid var(--rule); border-radius: 999px; background: var(--sheet); color: var(--ink); font: inherit; font-size: var(--fs-small); cursor: pointer; }
+.chip.ex:hover, .chip.ex:focus-visible { border-color: var(--green-700); color: var(--green-700); }
+.on-filters { display: flex; flex-wrap: wrap; gap: 8px; margin: 8px 0; }
+.on-filters .chip { min-height: 36px; padding: 4px 12px; border: 1px solid var(--green-700); border-radius: 999px; background: var(--green-050); color: var(--green-700); font: inherit; font-size: var(--fs-small); cursor: pointer; }
