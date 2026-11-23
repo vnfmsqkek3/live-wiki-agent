@@ -44,7 +44,7 @@ export function parseDocText(text: string): DocBlock[] {
   for (const raw of text.split('\n')) {
     const line = raw.endsWith('\r') ? raw.slice(0, -1) : raw;
     const end = offset + line.length;
-    const heading = /^(#{1,3}) /.exec(line);
+    const heading = /^(#{1,3}) ?(?=\S)/.exec(line); // '#제목'처럼 띄어쓰기 없어도 제목 (엔드유저 13차)
     const list = /^(\s*)([①-⑳]\s*|\d+[.)]\s+|[-*]\s+|·\s*)/.exec(line);
     const clause = /^제\s*\d+\s*(?:조(?:의\d+)?(?:\([^)]*\))?|장|절)/.test(line);
     const table = /^\s*\|.*\|\s*$/.test(line);

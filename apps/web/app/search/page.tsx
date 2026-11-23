@@ -47,7 +47,9 @@ function DetailFilters({ value, options, onApply }: { value: Detail; options: { 
 /** 조각 표시용 정리 (Fable 권고 11/18): 원문(snippet)은 그대로 두고 화면에서만 줄인다.
  *  그림 설명(원문 아님)은 머리표·'screenshot:' 을 떼고 '표기:' 값만(없으면 묘사 첫 문장), '의도:'(AI 추정)는 숨김 */
 type Match = NonNullable<SearchItem['matches']>[number];
-function showMatch(m: Match): { badge?: string; text: string } {
+function showMatch(raw: Match): { badge?: string; text: string } {
+  // 제목 '#'·굵게 '**' 기호는 어디서 오든 뗀다 (엔드유저 13차: 그림 쪽 '## …**문서번호:**')
+  const m = { ...raw, snippet: raw.snippet.replace(/(^|\]\s*)#{1,6}\s*/gm, '$1').replace(/\*\*(.+?)\*\*/g, '$1') };
   const head = /^\[(그림 설명 · 원문 아님|그림 기준 · AI 정리)\]\s*/.exec(m.snippet);
   // 표 조각은 '|' 원문 대신 행마다 '칸 · 칸'으로 (11/18 dev 시험: 검색 결과에 마크다운 표 원문)
   const untable = (t: string) => t.split('\n').filter((l) => !/^\s*\|?\s*:?-{2,}/.test(l)).map((l) => (/^\s*\|.*\|\s*$/.test(l) ? l.replace(/^\s*\||\|\s*$/g, '').split('|').map((x) => x.trim() || '—').join(' · ') : l)).join(' / ');
@@ -189,7 +191,7 @@ function Results() {
                 <h3 className="doc-title"><a className="card-link" href={`/library?id=${encodeURIComponent(i.doc_id)}`}>{i.title}</a><Scheduled date={i.effective_from} /></h3>
                 <FreshnessFlag freshness={i.freshness} />
                 <dl>
-                  {i.effective_from && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
+                  {i.effective_from && i.document_type === 'REGULATION' && <><dt>시행일</dt><dd><span className="num">{i.effective_from}</span></dd></>}
                   {i.business_path && i.business_path.length > 0 && <><dt>업무</dt><dd>{i.business_path.join(' › ')}</dd></>}
                   {i.team && <><dt>작성</dt><dd>{i.team}</dd></>}
                   {i.rating && <><dt>평점</dt><dd><Popularity r={i.rating} /></dd></>}

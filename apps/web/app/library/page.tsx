@@ -126,6 +126,10 @@ function List() {
   const sort = sp.get('sort') === 'rating' ? 'rating' : 'recent'; // 정렬: 최신 / 별점 높은 순
   const setParam = (k: string, v: string) => { const n = new URLSearchParams(sp.toString()); if (v) n.set(k, v); else n.delete(k); router.push(`/library${n.size ? `?${n}` : ''}`); };
   const [items, setItems] = useState<LibraryCard[] | null>(null);
+  // 업무 칩 숫자는 서버 누적값(doc_count) 대신 지금 볼 수 있는 문서 카드 수 — 폴더 보기와 같은 기준 (엔드유저 13차: 칩 '여신 3' vs 폴더 '여신 6')
+  const [all, setAll] = useState<LibraryCard[]>([]);
+  useEffect(() => { api<{ items: LibraryCard[] }>('GET', '/v1/library').then((r) => setAll(r.items)).catch(() => setAll([])); }, []);
+  const count = (x: CategoryNode) => all.filter((d) => (!type || d.document_type === type) && (d.category_path === x.path || d.category_path?.startsWith(`${x.path}/`))).length;
   const [cats, setCats] = useState<CategoryNode[]>([]);
   const [err, setErr] = useState('');
   const qs = (t: string, c: string) => new URLSearchParams([...(t ? [['type', t]] : []), ...(c ? [['category', c]] : [])]).toString();
@@ -140,7 +144,7 @@ function List() {
   // 1단계 칸 → 고르면 그 아래 칸. 문서가 있는 칸만 (고른 칸은 늘 보임)
   const sel = cats.find((x) => x.category_id === category);
   const root = sel ? cats.find((x) => x.path === sel.path.split('/')[0]) : undefined;
-  const shown = (x: CategoryNode) => x.doc_count > 0 || x.category_id === category;
+  const shown = (x: CategoryNode) => count(x) > 0 || x.category_id === category;
   const level1 = cats.filter((x) => x.level === 1 && shown(x));
   const children = root ? cats.filter((x) => x.parent_id === root.category_id && shown(x)) : [];
   return (
@@ -159,10 +163,10 @@ function List() {
         <nav className="cat-nav" aria-label="업무 분류">
           <div className="chips">
             <button type="button" className="chip" aria-pressed={!category} onClick={() => go(type, '')}>전체 업무</button>
-            {level1.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={root?.category_id === x.category_id} title={x.description} onClick={() => go(type, x.category_id)}>{x.name} <span className="num">{x.doc_count}</span></button>)}
+            {level1.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={root?.category_id === x.category_id} title={x.description} onClick={() => go(type, x.category_id)}>{x.name} <span className="num">{count(x)}</span></button>)}
           </div>
           {children.length > 0 && <div className="chips sub">
-            {children.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={category === x.category_id} title={x.description} onClick={() => go(type, category === x.category_id ? root!.category_id : x.category_id)}>{x.name} <span className="num">{x.doc_count}</span></button>)}
+            {children.map((x) => <button key={x.category_id} type="button" className="chip" aria-pressed={category === x.category_id} title={x.description} onClick={() => go(type, category === x.category_id ? root!.category_id : x.category_id)}>{x.name} <span className="num">{count(x)}</span></button>)}
           </div>}
         </nav>
       )}{err && <p className="error" role="alert">{err}</p>}
@@ -176,12 +180,12 @@ function List() {
             <li className="entry" key={d.doc_id}>
               <Seal i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }} />
               <h3 className="doc-title"><Link href={`/library?id=${encodeURIComponent(d.doc_id)}`} className="card-link">{d.title}</Link><Scheduled date={d.effective_from} /></h3>
-              <FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} max={1} /><Upcoming u={d.upcoming} />
+              <FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} compact /><Upcoming u={d.upcoming} />
               <dl>
                 {d.category_path ? <><dt>분류</dt><dd>{d.category_path.split('/').join(' › ')}</dd></> : d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
                 {d.tags.length > 0 && <><dt>태그</dt><dd>{d.tags.join(', ')}</dd></>}
                 {d.rating && <><dt>평점</dt><dd><Popularity r={d.rating} /></dd></>}
-                {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
+                {d.effective_from && d.document_type === 'REGULATION' && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
                 {!!d.doc_dates?.length && <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)}</dd></>}
                 <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
                 {d.related.length > 0 && <><dt>연관</dt><dd>{d.related.map((r) => `${r.title} (${REL[r.relation]})`).join(', ')}</dd></>}
@@ -666,7 +670,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
   const docMeta = (<dl className="meta-grid">
         {d.category_path && d.category_id && <><dt>분류</dt><dd><Link href={`/library?category=${encodeURIComponent(d.category_id)}`}>{d.category_path.split('/').join(' › ')}</Link></dd></>}
         {!d.category_path && d.business_path.length > 0 && <><dt>업무</dt><dd>{d.business_path.join(' › ')}</dd></>}
-        {d.effective_from && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
+        {d.effective_from && d.document_type === 'REGULATION' && <><dt>시행일</dt><dd><span className="num">{d.effective_from}</span></dd></>}
         {d.doc_dates?.length ? <><dt>문서 일자</dt><dd>{dateLine(d.doc_dates)} (본문 표기)</dd></> : d.doc_date && <><dt>문서 {d.doc_date.label}</dt><dd>{d.doc_date.date} (본문 표기)</dd></>}
         <dt>버전</dt><dd>v<span className="num">{d.version_no ?? 1}</span>{(d.version_count ?? 1) > 1 && <span className="note"> · 전체 {d.version_count}개 판</span>}</dd><dt>등록일</dt><dd><span className="num">{day(d.uploaded_at)}</span></dd>
         {d.updated_at.slice(0, 10) !== d.uploaded_at.slice(0, 10) && <><dt>최근 변경</dt><dd><span className="num">{day(d.updated_at)}</span></dd></>}
@@ -681,7 +685,7 @@ function Detail({ id, from }: { id: string; from?: string | null }) {
       <Seal size="full" i={{ authority_status: d.authority_status, document_type: d.document_type ?? 'KNOWHOW', lifecycle: d.lifecycle, freshness: d.freshness, mark_count: d.mark_count }}
         who={{ written_at: d.uploaded_at, checked_at: d.verification?.checks.checked_at ?? null, approver: d.verification?.approved_by ?? null, approved_at: d.verification?.approved_at ?? null }} />
       {d.lifecycle === 'PUBLISHED' && <p className="doc-rating">{d.rating?.count ? <span aria-label={`평균 ${d.rating.avg.toFixed(1)}점, ${d.rating.count}명 평가`}><span aria-hidden="true">★ <b className="num">{d.rating.avg.toFixed(1)}</b> ({d.rating.count}명 평가)</span></span>
-        : <>아직 평가 없음 · <button type="button" className="linklike" onClick={() => [...document.querySelectorAll<HTMLButtonElement>('button.detail-card')].find((b) => b.textContent?.startsWith('평점'))?.click()}>평가하기</button></>}</p>}
+        : <>아직 평가 없음</>} · <button type="button" className="linklike" onClick={() => [...document.querySelectorAll<HTMLButtonElement>('button.detail-card')].find((b) => b.textContent?.startsWith('평점'))?.click()}>평가하기</button></p>}
       <Scheduled date={d.effective_from} /><FreshnessFlag freshness={d.freshness} reason={d.freshness_reason} /><Upcoming u={d.upcoming} /><p className="note">{d.freshness_reason && d.freshness === 'REVIEW_REQUIRED' ? '' : d.freshness !== 'CURRENT' ? '현행 근거와 최신 버전을 먼저 확인해 주세요.' : d.authority_status === 'VERIFIED' ? '시행일과 인용 근거를 확인한 뒤 업무에 참고해 주세요.' : '근거 검증이 완료되지 않았습니다. 확인할 내용과 출처를 먼저 살펴봐 주세요.'}</p>{d.summary && <p className="lead">{d.summary}</p>}<DocActions d={d} canWikiEdit={canWikiEdit} onEdit={() => setEditing('')} onPrint={() => setPrinting(true)} />{printing && <div className="print-only" aria-hidden="true"><h1>{d.title}</h1>{(dps.length ? dps.flatMap((x) => x.parts) : d.pages.map((pg) => ({ page: pg.page, markdown: pg.structured ?? pg.text }))).map((pt) => <DocText key={`pr-${pt.page}`} text={pt.markdown} figures={figOf(pt.page)} hideFigRefs />)}</div>}
       </header>
       {editing !== false && <WikiEditor docId={d.doc_id} base={d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} initial={editing || d.pages.map((pg) => pg.structured ?? pg.text).join('\n\n')} focus={editFocus ?? (editing && editing.includes('\n- 참고 주소') ? editing.slice(editing.lastIndexOf('\n- 참고 주소') + 1) : undefined)} onCancel={() => { setEditing(false); setEditFocus(undefined); }} />}

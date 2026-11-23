@@ -198,7 +198,7 @@ export default function Admin() {
                 <span className="kind-tag">{i.source === 'WIKI_EDIT' ? '위키 수정' : i.version ? '새 버전' : '새 문서'} · {i.kept?.length ? `승인자 판단 ${i.kept.length}건` : i.checks_count ? `확인 필요 ${i.checks_count}건` : 'AI 검사 통과'}</span>
                 {i.own && <span className="kind-tag own" title="관리자 본인이 올린 문서입니다. 승인하면 자기 승인으로 기록됩니다.">본인 문서</span>}
                 <h3 className="doc-title"><Link href={detail(i.doc_id)} onClick={() => markViewed(i.doc_id)}>{i.title ?? '제목 없는 문서'}</Link><Scheduled date={i.effective_from} /></h3>
-                {i.freshness && <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} max={1} />}
+                {i.freshness && <FreshnessFlag freshness={i.freshness} reason={i.freshness_reason} compact />}
                 {i.summary_line && <p className="lead-line">{i.summary_line}</p>}
                 {i.checks?.length ? <div className="kept-conflicts"><p className="danger-text"><strong>근거 확인이 필요한 문장 {i.checks_count ?? i.checks.length}건 — 승인자 확인</strong></p><ul>{i.checks.map((c, n) => <li key={n}>{c.text}<span className="note"> — {c.message}</span></li>)}</ul></div> : null}
                 {i.kept?.length ? <div className="kept-conflicts"><p className="danger-text"><strong>규정과 어긋난 문장 {i.kept.length}건 — 승인자 판단</strong></p><ul>{i.kept.map((k, n) => <li key={n}>{k.text}<span className="note"> — {k.system ? '재검사에서 새로 나옴(고치지 않은 문장)' : `올린 사람: 그대로 사용(${k.reason})`}</span></li>)}</ul></div> : null}
