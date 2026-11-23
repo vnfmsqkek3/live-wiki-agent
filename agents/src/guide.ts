@@ -95,13 +95,18 @@ export const evidenceKey = (e: Evidence) => e.provision_id || e.doc_id;
 /** lawName: 조문 조회 Tool 인자의 규정 이름(예: '기업여신 심사규정'). 출처 제목·조항 표기에 쓴다 — 결과에는 법령 ID만 있음 (엔드유저·프론트 7차) */
 export function citableFrom(result: unknown, lawName?: string): Evidence[] {
   // 조문 조회(get_clause 등): 현행 조문만 인용 근거. 출처 ID는 조문 ID (doc_id 자리에 provision_id)
-  const c = result as { search_status?: string; provision_id?: string; original_text?: string; path_label?: string; law_id?: string; title?: string; effective_from?: number | string; current?: unknown; children?: { original_text: string }[] } | null;
+  const c = result as { search_status?: string; provision_id?: string; original_text?: string; path_label?: string; law_id?: string; title?: string; effective_from?: number | string; current?: unknown; children?: { provision_id?: string; path_label?: string; status?: string; original_text: string }[] } | null;
   if (c && typeof c.provision_id === 'string' && c.search_status === 'FOUND' && c.original_text !== undefined && !c.current) {
     // 법령 ID·조문 경로처럼 보이는 인자는 이름으로 쓰지 않는다
     const name = lawName && !/^[A-Z0-9-]+$|@|ARTICLE/.test(lawName.trim()) ? mask(lawName.trim().slice(0, 60), detectPii(lawName)) : undefined;
     const ef = typeof c.effective_from === 'number' ? `${String(c.effective_from).slice(0, 4)}-${String(c.effective_from).slice(4, 6)}-${String(c.effective_from).slice(6, 8)}` : c.effective_from;
     return [{ doc_id: c.provision_id, provision_id: c.provision_id, title: c.title ?? name ?? c.law_id ?? '', snippet: [c.original_text, ...(c.children ?? []).map((x) => x.original_text)].join(' ').slice(0, 1200),
-      provision: name && c.path_label && !c.path_label.startsWith(name) ? `${name} ${c.path_label}` : c.path_label, ...(ef ? { effective_from: ef } : {}), authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND' }];
+      provision: name && c.path_label && !c.path_label.startsWith(name) ? `${name} ${c.path_label}` : c.path_label, ...(ef ? { effective_from: ef } : {}), authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND' } as Evidence,
+    // 하위 항·호도 각자 provision_id 로 인용 근거에 (조 전체 1회 조회로 항별 출처 — 항마다 조회하다 Tool 상한 6회를 넘던 문제, 8차 데모 05)
+    ...(c.children ?? []).filter((k) => typeof k.provision_id === 'string' && k.provision_id.startsWith(`${c.provision_id}/`) && k.status !== 'DELETED').map((k): Evidence => ({
+      doc_id: k.provision_id!, provision_id: k.provision_id!, title: c.title ?? name ?? c.law_id ?? '',
+      snippet: [k.original_text, ...(c.children ?? []).filter((g) => g.provision_id?.startsWith(`${k.provision_id}/`)).map((g) => g.original_text)].join(' ').slice(0, 1200),
+      provision: name && k.path_label ? `${name} ${k.path_label}` : k.path_label, ...(ef ? { effective_from: ef } : {}), authority_status: 'VERIFIED', freshness: 'CURRENT', search_status: 'FOUND' }))];
   }
   const items = (result as { items?: Evidence[] } | null)?.items;
   if (!Array.isArray(items)) return [];
@@ -109,6 +114,8 @@ export function citableFrom(result: unknown, lawName?: string): Evidence[] {
     && e.authority_status !== 'REJECTED' && e.freshness !== 'SUPERSEDED').map(asCitable);
 }
 
+/** 한 단계 출처에 상위 조문(제10조제1항)과 그 하위(제10조제1항제1호)가 같이 있으면 상위만 (엔드유저 8차: 같은 근거 2번) */
+export const topSources = (xs: Evidence[]) => xs.filter((e) => !xs.some((o) => o !== e && !!o.provision_id && !!e.provision_id && e.provision_id.startsWith(`${o.provision_id}/`)));
 /** 법령 ID로만 표기된 조문 근거(제목 = 법령 ID: Agent가 조문 조회에 ID를 넣은 경우) */
 export const unnamedLaws = (ev: Evidence[]) => [...new Set(ev.filter((e) => e.provision_id?.includes('@') && e.title === e.provision_id.split('@')[0]).map((e) => e.title))];
 /** Registry 규정 이름으로 제목·조항 표기를 바꾼다 (8차, 백엔드 제안: 'SYN-LOAN-001 제10조제1항' → '하나은행 기업여신 심사규정 제10조제1항'). provision_id 불변 */
@@ -165,10 +172,14 @@ export function humanize(t: string, lawNames: Map<string, string>): string {
     .replace(/\b(SYN-[A-Z]+-\d+)\b/g, (_m, id: string) => law(id))
     .replace(/\b(?:freshness|search_status|authority_status)\s*[=:]\s*/g, '')
     .replace(/\bfreshness(?:가|이)/gi, '최신성이').replace(/\bfreshness(?:는|은)/gi, '최신성은').replace(/\bfreshness(?:를|을)/gi, '최신성을').replace(/\bfreshness\b/gi, '최신성').replace(/\bauthority\b/gi, '검증 상태')
+    // '심사역은 (담보물) 감정평가서를 포함한 다음 서류' → '심사역은 다음 서류' (한 호를 앞세워 포함 관계처럼 읽힘, 엔드유저 데모 05). 프롬프트 규칙을 어길 때 대비
+    .replace(/(\S+(?:은|는))\s+(?:\S+\s+)?\S+(?:을|를)\s*포함한\s*(다음|아래)/g, '$1 $2')
     .replace(/\bNOT_FOUND_VERIFIED\b/g, '조문 없음(확인됨)').replace(/\bREVIEW_REQUIRED\b/g, '재검토 필요').replace(/\bACCESS_DENIED\b/g, '열람 권한 없음')
     .replace(/([가-힣A-Za-z][가-힣A-Za-z ]{1,19})\s*\(\1\)/g, '$1'); // '재검토 필요(재검토 필요)' 중복
 }
 
+/** uncertainty 의 시스템 사정 문구(도구 호출 한도 등)는 고장으로 읽힘 (엔드유저 8차) → 사용자 말로. 단계 본문은 건드리지 않는다('신용정보 조회 한도는 1일 3회', 백엔드 리뷰 #161) */
+export const hideSystem = (t: string) => t.replace(/[^.。\n]*(?:(?:도구|Tool|툴)\s*(?:호출|조회)?\s*(?:한도|횟수|상한)|(?:호출|조회)\s*한도\s*초과로)[^.。\n]*[.。]?/gi, '일부 조문은 직접 확인하지 못했습니다. ').trim();
 /** 근거 없어 뺀 단계: 본문은 보이지 않고(틀린 문장 노출 방지, 총괄 결정 11/20) 주제 낱말 + 건수만 */
 export function droppedNote(texts: string[]): string {
   const topic = (t: string) => t.replace(/\([^)]*\)/g, ' ').split(/\s+/).filter((w) => !/\d/.test(w)).map((w) => w.replace(/[^가-힣A-Za-z]/g, '').replace(/(으로|에서|에게|까지|부터|이|가|을|를|은|는|의|에|로|와|과|도|만)$/, ''))
@@ -236,9 +247,10 @@ const SYSTEM = `당신은 하나은행 가상 데이터(SYNTHETIC, 실제 하나
 - 질문 대상이 여러 종류(제조사·모델)이고 갈래(운영체제·버전 등)에 따라 절차가 다르면 sections 로 쓴다: ① '○○ 목록' 섹션(근거 표의 위치·제조사·모델 등을 항목마다 한 단계로) ② '설치 방법 안내' 섹션(note 에 "운영체제와 모델에 따라 방법이 다릅니다" 같은 갈래 안내, 단계 없음) ③ <items> 의 조합마다 한 섹션(제목 예: 'macOS에서 삼성 프린터 연결', 단계는 번호 순서대로 세세하게). 근거에 절차가 없는 조합도 섹션을 만들고 note 에 '매뉴얼에 해당 절차 없음', 단계는 비운다. 이때 steps 는 빈 배열.
 - 간단하게 쓴다(사용자 요구 11/18): 질문에 조건(운영체제·제조사·층 등)이 있으면 그 조건의 섹션만 쓴다. 섹션당 단계는 최대 5개로 합친다. 같은 일을 하는 다른 경로가 있으면 문서가 기준으로 삼는 한 경로만 쓴다. 사용자의 실제 값(표의 IP·모델명 등)은 단계 문장 안에 바로 넣는다. 화면 캡처 속 예시 값과 드문 경우·수동 방법은 단계에서 빼고 fallback 에 "안 될 때: …" 한 줄로. 질문 범위 밖의 불확실(묻지 않은 제조사의 빈 칸 등)은 쓰지 않는다. 단계 문장에 '(그림 기준 · N쪽)'을 쓰지 않는다(출처는 화면이 섹션 끝에 한 번 붙인다).
 - 질문한 예외·우대·가산이 근거에 없고, 같은 주제의 조문(상한·금지·기준)은 찾았으면 그 조문을 출처로 '조문은 ○○만 정한다'는 단계를 쓰고, 예외가 없다는 점은 '근거에서 확인되지 않음'으로 uncertainty 에 적는다(근거 없이 '없다'고 단정하지 않는다). 과거 시점 질문은 조문 조회 Tool에 그 날짜를 as_of 로 넣어 그 시점 조문을 확인한다.
+- uncertainty 에 도구·호출 한도·조회 횟수 같은 시스템 사정을 쓰지 않는다. 확인하지 못한 조문이 있으면 '일부 조문은 직접 확인하지 못했습니다'처럼 쓴다.
 - uncertainty·단계 문장에 내부 상태 코드(UNVERIFIED·VERIFIED·related·search_status·provision_id 등)를 쓰지 않는다. '확인되지 않음', '참고 조문'처럼 사용자 말로 쓴다.
-- 조문이 '다음 각 호'로 나열한 서류·요건은 각 호를 따로 나란히 쓴다(예: '최근 3년간 재무제표, 사업자등록증 사본, 담보물 감정평가서 세 가지'). 한 호 안에 다른 호가 '포함'된 것처럼 괄호로 합치지 않는다. 다른 항의 조건(유효기간 등)은 그 조건이 걸린 호 바로 뒤에만 붙인다. 근거에 없는 후속 조치(재발급 요청·사진 첨부 등)를 덧붙이지 않는다 (데모 05 11/23).
-- 조회한 조문이 다른 항·호를 가리키면(예: '제1항제3호의 감정평가서') 그 항도 조회해 단계에 함께 쓴다. 서류·확인 절차 질문이면 서류 목록 조문을 빠뜨리지 않고, 같은 조의 다른 항에 있는 조건(유효기간·기한·승인 기준 등)도 항 단위로 조회해 함께 쓴다.
+- 조문이 '다음 각 호'로 나열한 서류·요건은 각 호를 따로 나란히 쓴다(예: '최근 3년간 재무제표, 사업자등록증 사본, 담보물 감정평가서 세 가지'). 한 호 안에 다른 호가 '포함'된 것처럼 괄호로 합치지 않고, '○○를 포함한 서류'처럼 한 호를 앞세우지도 않는다. 다른 항의 조건(유효기간 등)은 그 조건이 걸린 호 바로 뒤에만 붙인다. 근거에 없는 후속 조치(재발급 요청·사진 첨부 등)를 덧붙이지 않는다 (데모 05 11/23).
+- 조회한 조문이 다른 항·호를 가리키면(예: '제1항제3호의 감정평가서') 그 항도 조회해 단계에 함께 쓴다. 서류·확인 절차 질문이면 서류 목록 조문을 빠뜨리지 않고, 같은 조의 다른 항에 있는 조건(유효기간·기한·승인 기준 등)도 함께 쓴다. 여러 항이 필요하면 조 전체(예: '제10조')를 한 번 조회한다 — 결과에 항·호별 provision_id 가 함께 오니 출처는 그 항의 id 로 단다.
 - 근거 표의 칸이 비어 있으면 추측하지 말고 '원본 표에 기재 없음'이라고 쓰고, 표에 사유(예: 임원 전용)가 있으면 함께 적는다. 외부 공식 법령(fetch_official_law)은 참고로만 쓰고 uncertainty에 '외부 법령 참고(미검증)'라고 적는다.`;
 export { SYSTEM as GUIDE_SYSTEM };
 
@@ -314,7 +326,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   let dropped = 0;
   const droppedText: string[] = [];
   for (const s of draft.steps) {
-    const sources = [...new Set(s.sources)].map((id) => byId.get(id)).filter((e): e is Evidence => !!e);
+    const sources = topSources([...new Set(s.sources)].map((id) => byId.get(id)).filter((e): e is Evidence => !!e));
     if (sources.length === 0) { dropped++; droppedText.push(s.text); continue; } // 출처 없는 문장은 내보내지 않는다
     // 그림 기준 근거만으로 된 단계는 문장에 표시가 없으면 붙인다
     const figOnly = sources.every((e) => e.figure);
@@ -324,7 +336,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   }
   // 섹션: 단계마다 같은 출처 검증. 단계가 모두 빠진 섹션은 안내만 남긴다
   const check = (st: { text: string; sources: string[] }) => {
-    const sources = [...new Set(st.sources)].map((id) => byId.get(id)).filter((e): e is Evidence => !!e);
+    const sources = topSources([...new Set(st.sources)].map((id) => byId.get(id)).filter((e): e is Evidence => !!e));
     if (!sources.length) { dropped++; droppedText.push(st.text); return undefined; }
     const pg = sources.find((e) => e.page)?.page;
     const text = sources.every((e) => e.figure) && !st.text.includes('그림 기준') ? `(그림 기준${pg ? ` · ${pg}쪽` : ''}) ${st.text}` : st.text;
@@ -360,7 +372,7 @@ export async function guide(query: string, deps: GuideDeps): Promise<GuideResult
   const human = (t: string) => humanize(t, lawNames);
   for (const st of steps) st.text = human(st.text);
   for (const sec of sections) { sec.title = human(sec.title); sec.note = human(sec.note); }
-  draft.uncertainty = human(draft.uncertainty ?? '');
+  draft.uncertainty = hideSystem(human(draft.uncertainty ?? ''));
   // 시행 예정 개정 한 줄 (인용한 규정만, 10초 상한, 실패는 생략)
   const cited = [...new Set(steps.flatMap((st) => st.sources).map((e) => e.provision ? e.provision.replace(/\s*제\s*\d.*$/, '').trim() : '').filter(Boolean))];
   const soon = deps.upcoming && cited.length ? await Promise.race([deps.upcoming(cited).catch(() => []), new Promise<{ law: string; effective_from: string }[]>((r) => setTimeout(() => r([]), 10_000))]) : [];
