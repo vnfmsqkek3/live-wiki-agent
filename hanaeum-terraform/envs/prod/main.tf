@@ -29,7 +29,7 @@ module "stack" {
   # 사용자 결정 11/18 21시: dev 폐기, prod 단일 환경. 팀원 배포 요청은 여기 커밋을 올려 바로 apply (11/18 dev 끝까지 시험 36/36 통과 커밋)
   lambda_refs               = { yoyo0704 = "24094c2", dhxorb96 = "c3bd185", let522mj = "a133799" }
   ocr_source_ref            = "620108a"
-  webapp_source_ref         = "c3bd185" # 웹·API (ECS·CloudFront)
+  webapp_source_ref         = "5547017" # 웹·API (ECS·CloudFront)
   agents_source_ref         = "2ffd23b" # 파이프라인 오케스트레이터·가이드 Runtime 이미지 (CodeBuild)
   pipeline_runtime_image_tag = "24094c2" # ponytail: 9차는 가이드만(agents/src/guide.ts). 파이프라인 24094c2 고정, 다음 파이프라인 변경 배포 때 이 줄 삭제
   enable_transaction_search = true      # 계정 단위 자원 (dev destroy 11/18 23:22 뒤 prod 가 보유)
