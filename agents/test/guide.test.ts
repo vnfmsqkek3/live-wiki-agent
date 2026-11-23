@@ -321,3 +321,14 @@ test('조 전체 조회 결과의 하위 항·호도 각자 provision_id 로 인
   assert.deepEqual(ev.map((e) => e.provision_id), [B, `${B}/PARAGRAPH:1`, `${B}/PARAGRAPH:1/ITEM:1`, `${B}/PARAGRAPH:2`]);
   assert.match(ev[1]!.snippet, /다음 각 호.*최근 3년간 재무제표/); assert.equal(ev[3]!.provision, '기업여신 심사규정 제10조제2항');
 });
+
+test('엔드유저 8차: 시스템 사정 문구 숨김·상위/하위 조문 중복 출처는 상위만', async () => {
+  const { humanize, topSources } = await import('../src/guide.ts');
+  const t = humanize('제10조제2항은 도구 조회 한도 초과로 확인하지 못하였음 — 원문을 확인할 것. 대출 한도는 5억원이다.', new Map());
+  assert.equal(humanize('심사역은 담보물 감정평가서를 포함한 다음 서류를 징구한다: ① 재무제표', new Map()), '심사역은 다음 서류를 징구한다: ① 재무제표');
+  assert.equal(humanize('심사역은 담보물감정평가서를 포함한 아래 서류를 받는다.', new Map()), '심사역은 아래 서류를 받는다.');
+  assert.doesNotMatch(t, /한도 초과/); assert.match(t, /일부 조문은 직접 확인하지 못했습니다/); assert.match(t, /대출 한도는 5억원이다/);
+  const e = (provision_id: string) => ({ doc_id: provision_id, provision_id, title: 't', snippet: 's' }) as Evidence;
+  const B = 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:1';
+  assert.deepEqual(topSources([e(B), e(`${B}/ITEM:1`), e('SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2')]).map((x) => x.provision_id), [B, 'SYN-LOAN-001@2026-11-01/ARTICLE:10/PARAGRAPH:2']);
+});
