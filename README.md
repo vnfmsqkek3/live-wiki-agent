@@ -62,7 +62,7 @@ AgentCore Runtime의 파이프라인 오케스트레이터(Strands Agents 그래
 | Agent | Strands Agents SDK, Bedrock AgentCore Runtime·Gateway(Interceptor) |
 | 모델 (Bedrock) | Claude Sonnet·Haiku 기본, Opus는 고위험 검토만. 임베딩 Titan Embed v2, 재순위 Cohere Rerank 3.5. 모델 ID는 Terraform 변수(`models`)로만 지정 |
 | OCR | PaddleOCR (SageMaker) |
-| 저장 | S3(원본·산출물), DynamoDB(문서·워크플로 상태), Aurora PostgreSQL(승인·감사·검사 결과·초안), Neptune(영향 그래프), OpenSearch Serverless(KB 벡터) |
+| 저장 | S3(원본·산출물), DynamoDB(법령 조문·워크플로 상태), Aurora PostgreSQL(문서·승인·감사·검사 결과·피드백·초안), Neptune(영향 그래프), OpenSearch Serverless(KB 벡터) |
 | 인프라 | Terraform, CodeBuild(이미지 빌드), KMS |
 | 시험 | vitest, ESLint, 평가 러너(`tests/evaluations`) |
 
@@ -167,7 +167,16 @@ terraform -chdir=hanaeum-terraform/envs/prod destroy
 ```
 
 - `protect_data = false`면 데이터(S3·DynamoDB·Aurora·Neptune)가 모두 지워지고, 다시 배포하면 CloudFront 주소와 Cognito 클라이언트가 바뀝니다. 실서비스라면 `true`로 둡니다.
-- Terraform 밖에 남는 것: CloudWatch 로그 그룹, 복구 대기 중인 Secrets Manager 비밀, 삭제 대기 KMS 키(최소 7일), ECS 작업 정의. 같은 이름으로 다시 배포하려면 Aurora 비밀(`hanaeum-mvp/aurora-app`)을 `--force-delete-without-recovery`로 먼저 지웁니다.
+- 같은 이름으로 다시 배포하려면 Aurora 비밀(`hanaeum-mvp/aurora-app`)을 `--force-delete-without-recovery`로 먼저 지웁니다.
+- destroy 뒤 Terraform 밖에 남는 것:
+
+| 남는 것 | 정리 방법 |
+|---|---|
+| CloudWatch 로그 그룹 (`aws/spans`, `/aws/application-signals/data` 포함) | 직접 삭제 |
+| X-Ray 구간 목적지 CloudWatchLogs (Transaction Search가 켬) | `aws xray update-trace-segment-destination --destination XRay` |
+| SageMaker lineage (OCR 엔드포인트 배포마다 자동 생성되는 action·context·artifact) | association을 먼저 지운 뒤 삭제 |
+| ECS 작업 정의 | deregister 뒤 `delete-task-definitions`. INACTIVE 클러스터는 AWS가 자동 제거 |
+| Secrets Manager 비밀(복구 대기), KMS 키(삭제 대기 최소 7일) | 기간이 지나면 자동 제거 |
 
 ## 7. 팀과 개발 방식
 
